@@ -236,6 +236,10 @@ class _FinanceDashboardScreenState extends State<FinanceDashboardScreen> {
         saleData['phoneSales'] ?? [],
       );
 
+      // Get current user and timestamp
+      final currentUser = _auth.currentUser;
+      final currentTime = DateTime.now();
+
       // Find and update the specific phone sale
       final updatedPhoneSales = phoneSales.map((phoneSale) {
         if (phoneSale['id'] == phoneSaleId) {
@@ -261,8 +265,14 @@ class _FinanceDashboardScreenState extends State<FinanceDashboardScreen> {
                 updatedPhoneSale['downPaymentReceived'] ?? false;
             final disbursementReceived =
                 updatedPhoneSale['disbursementReceived'] ?? false;
-            updatedPhoneSale['verified'] =
-                downPaymentReceived && disbursementReceived;
+            final verified = downPaymentReceived && disbursementReceived;
+
+            updatedPhoneSale['verified'] = verified;
+
+            if (verified) {
+              updatedPhoneSale['verifiedBy'] = currentUser?.email;
+              updatedPhoneSale['verifiedAt'] = currentTime.toIso8601String();
+            }
           } else if (purchaseMode == 'Ready Cash') {
             final paymentBreakdown =
                 updatedPhoneSale['paymentBreakdown'] as Map<String, dynamic>? ??
@@ -284,24 +294,30 @@ class _FinanceDashboardScreenState extends State<FinanceDashboardScreen> {
             if (cardAmount > 0 && !cardReceived) allReceived = false;
 
             updatedPhoneSale['verified'] = allReceived;
+
+            if (allReceived) {
+              updatedPhoneSale['verifiedBy'] = currentUser?.email;
+              updatedPhoneSale['verifiedAt'] = currentTime.toIso8601String();
+            }
           } else if (purchaseMode == 'Credit Card') {
             final cardReceived = updatedPhoneSale['cardReceived'] ?? false;
             updatedPhoneSale['verified'] = cardReceived;
-          }
 
-          // Add verification details
-          updatedPhoneSale['verifiedBy'] = _auth.currentUser?.email;
-          updatedPhoneSale['verifiedAt'] = FieldValue.serverTimestamp();
+            if (cardReceived) {
+              updatedPhoneSale['verifiedBy'] = currentUser?.email;
+              updatedPhoneSale['verifiedAt'] = currentTime.toIso8601String();
+            }
+          }
 
           return updatedPhoneSale;
         }
         return phoneSale;
       }).toList();
 
-      // Update the sale document
+      // Update the sale document with current timestamp
       await _firestore.collection('sales').doc(saleId).update({
         'phoneSales': updatedPhoneSales,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': DateTime.now().toIso8601String(),
       });
 
       _showMessage('Payment verified successfully!', isError: false);
@@ -321,6 +337,10 @@ class _FinanceDashboardScreenState extends State<FinanceDashboardScreen> {
         saleData['phoneSales'] ?? [],
       );
 
+      // Get current user and timestamp
+      final currentUser = _auth.currentUser;
+      final currentTime = DateTime.now();
+
       // Update all phone sales in this sale
       final updatedPhoneSales = phoneSales.map((phoneSale) {
         final updatedPhoneSale = Map<String, dynamic>.from(phoneSale);
@@ -339,15 +359,16 @@ class _FinanceDashboardScreenState extends State<FinanceDashboardScreen> {
         }
 
         updatedPhoneSale['verified'] = true;
-        updatedPhoneSale['verifiedBy'] = _auth.currentUser?.email;
-        updatedPhoneSale['verifiedAt'] = FieldValue.serverTimestamp();
+        updatedPhoneSale['verifiedBy'] = currentUser?.email;
+        updatedPhoneSale['verifiedAt'] = currentTime.toIso8601String();
 
         return updatedPhoneSale;
       }).toList();
 
+      // Update the sale document
       await _firestore.collection('sales').doc(saleId).update({
         'phoneSales': updatedPhoneSales,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': DateTime.now().toIso8601String(),
       });
 
       _showMessage('All payments approved!', isError: false);
@@ -710,6 +731,8 @@ class _FinanceDashboardScreenState extends State<FinanceDashboardScreen> {
     final gpayReceived = phoneSale['gpayReceived'] ?? false;
     final cardReceived = phoneSale['cardReceived'] ?? false;
     final verified = phoneSale['verified'] ?? false;
+    final verifiedBy = phoneSale['verifiedBy'] ?? '';
+    final verifiedAt = phoneSale['verifiedAt'] ?? '';
     final phoneSaleId = phoneSale['id'] ?? '';
 
     final paymentBreakdown =
@@ -828,6 +851,21 @@ class _FinanceDashboardScreenState extends State<FinanceDashboardScreen> {
                   ),
               ],
             ),
+
+            // Verification details
+            if (verified && verifiedBy.isNotEmpty && verifiedAt.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Verified by $verifiedBy on ${_formatDateTime(verifiedAt)}',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: _secondaryColor,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+
             const SizedBox(height: 8),
 
             // Payment Verification Section
@@ -951,8 +989,7 @@ class _FinanceDashboardScreenState extends State<FinanceDashboardScreen> {
                   children: [
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: () =>
-                            _verifyPayment(saleId, phoneSaleId, 'all'),
+                        onPressed: () => _approveAllPayments(saleId),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: _accentColor,
                           foregroundColor: Colors.white,
@@ -966,7 +1003,7 @@ class _FinanceDashboardScreenState extends State<FinanceDashboardScreen> {
                           children: [
                             Icon(Icons.verified_user, size: 16),
                             SizedBox(width: 8),
-                            Text('Verify All Payments'),
+                            Text('Verify All Payments in this Sale'),
                           ],
                         ),
                       ),
@@ -978,6 +1015,15 @@ class _FinanceDashboardScreenState extends State<FinanceDashboardScreen> {
         ),
       ),
     );
+  }
+
+  String _formatDateTime(String dateTimeString) {
+    try {
+      final dateTime = DateTime.parse(dateTimeString);
+      return DateFormat('dd/MM/yyyy hh:mm a').format(dateTime);
+    } catch (e) {
+      return dateTimeString;
+    }
   }
 
   Widget _buildPaymentVerificationCard({
@@ -1128,7 +1174,8 @@ class _FinanceDashboardScreenState extends State<FinanceDashboardScreen> {
         final needsVerification = sale['needsVerification'] ?? false;
         final hasOverdue = sale['hasOverdue'] ?? false;
         final totalAmount = (sale['totalAmount'] as num?)?.toDouble() ?? 0.0;
-        final saleCreatedAt = (sale['createdAt'] as Timestamp?)?.toDate();
+        final saleCreatedAt = _parseDateTime(sale['createdAt']);
+        final saleUpdatedAt = _parseDateTime(sale['updatedAt']);
 
         // Calculate days since sale
         int daysSinceSale = 0;
@@ -1351,29 +1398,50 @@ class _FinanceDashboardScreenState extends State<FinanceDashboardScreen> {
                             ],
                           ),
                           const SizedBox(height: 4),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Created:',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: _secondaryColor,
+                          if (saleCreatedAt != null)
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Created:',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _secondaryColor,
+                                  ),
                                 ),
-                              ),
-                              Text(
-                                saleCreatedAt != null
-                                    ? DateFormat(
-                                        'dd MMM yyyy, hh:mm a',
-                                      ).format(saleCreatedAt)
-                                    : 'N/A',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: _secondaryColor,
+                                Text(
+                                  DateFormat(
+                                    'dd MMM yyyy, hh:mm a',
+                                  ).format(saleCreatedAt),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _secondaryColor,
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
+                              ],
+                            ),
+                          if (saleUpdatedAt != null)
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Updated:',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _secondaryColor,
+                                  ),
+                                ),
+                                Text(
+                                  DateFormat(
+                                    'dd MMM yyyy, hh:mm a',
+                                  ).format(saleUpdatedAt),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _secondaryColor,
+                                  ),
+                                ),
+                              ],
+                            ),
                           const SizedBox(height: 4),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1471,6 +1539,23 @@ class _FinanceDashboardScreenState extends State<FinanceDashboardScreen> {
         );
       },
     );
+  }
+
+  DateTime? _parseDateTime(dynamic dateTimeValue) {
+    try {
+      if (dateTimeValue == null) return null;
+
+      if (dateTimeValue is Timestamp) {
+        return dateTimeValue.toDate();
+      } else if (dateTimeValue is String) {
+        return DateTime.parse(dateTimeValue);
+      } else if (dateTimeValue is DateTime) {
+        return dateTimeValue;
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
   }
 
   Widget _buildHeader() {
