@@ -13,28 +13,73 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
   final TextEditingController _saleAmountController = TextEditingController();
   final TextEditingController _serviceAmountController =
       TextEditingController();
+  final TextEditingController _gpayAmountController = TextEditingController();
+  final TextEditingController _cashAmountController = TextEditingController();
+  final TextEditingController _cardAmountController = TextEditingController();
+
   bool _isLoading = false;
   DateTime _saleDate = DateTime.now();
   String? _shopId;
   String? _shopName;
+  double _totalAmount = 0.0;
+  double _enteredPaymentTotal = 0.0;
 
-  // Phone sales controllers
-  final Map<String, TextEditingController> _phoneQuantityControllers = {};
-  final Map<String, TextEditingController> _phoneValueControllers = {};
+  // Phone sales data structure
+  final List<PhoneSaleItem> _phoneSaleItems = [];
 
-  final List<String> _phoneBrands = [
-    'vivo',
-    'oppo',
-    'redmi',
-    'realme',
-    'samsung',
-    'iqoo',
-    'moto',
-    'itel',
-    'nokia',
-    'infinix',
-    'iphone',
+  // Selection states
+  String? _selectedBrand;
+  String? _selectedProduct;
+  String? _selectedVariant;
+  String? _selectedPurchaseMode;
+  PaymentBreakdown _selectedPaymentBreakdown = PaymentBreakdown();
+  String? _selectedFinanceType;
+
+  // Controllers for current sale item
+  final TextEditingController _downPaymentController = TextEditingController();
+  final TextEditingController _discountController = TextEditingController();
+  final TextEditingController _upgradeController = TextEditingController();
+  final TextEditingController _supportController = TextEditingController();
+  final TextEditingController _disbursementAmountController =
+      TextEditingController();
+
+  // Payment breakdown controllers for Ready Cash
+  final TextEditingController _rcCashController = TextEditingController();
+  final TextEditingController _rcGpayController = TextEditingController();
+  final TextEditingController _rcCardController = TextEditingController();
+
+  // Available data lists
+  List<Map<String, dynamic>> _products = [];
+  List<Map<String, dynamic>> _variants = [];
+  List<Map<String, dynamic>> _financeCompanies = [];
+
+  // Price display
+  double _selectedPrice = 0.0;
+
+  // Payment modes
+  final List<String> _paymentModes = ['Cash', 'GPay', 'Card'];
+
+  // Purchase modes
+  final List<String> _purchaseModes = ['Ready Cash', 'Credit Card', 'EMI'];
+
+  // Finance companies
+  final List<String> _financeCompaniesList = [
+    'Bajaj Finance',
+    'TVS Credit',
+    'HDB Financial',
+    'Samsung Finance',
+    'Oppo Finance',
+    'Vivo Finance',
+    'yoga kshema Finance',
+    'First credit private Finance',
+    'ICICI Bank',
+    'HDFC Bank',
+    'Axis Bank',
+    'Other',
   ];
+
+  // Phone brands (now fetched from products collection)
+  List<String> _phoneBrands = [];
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -44,30 +89,284 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
   final Color _secondaryColor = const Color(0xFF64748B);
   final Color _accentColor = const Color(0xFF10B981);
   final Color _backgroundColor = const Color(0xFFF8FAFC);
+  final Color _errorColor = const Color(0xFFEF4444);
+  final Color _warningColor = const Color(0xFFF59E0B);
+  final Color _infoColor = const Color(0xFF3B82F6);
+  final Color _purpleColor = const Color(0xFF8B5CF6);
+  final Color _pinkColor = const Color(0xFFEC4899);
 
   @override
   void initState() {
     super.initState();
     _getUserShopId();
-    _initializePhoneControllers();
+    _addPaymentListeners();
+    _fetchBrands();
   }
 
-  void _initializePhoneControllers() {
-    for (var brand in _phoneBrands) {
-      _phoneQuantityControllers[brand] = TextEditingController();
-      _phoneValueControllers[brand] = TextEditingController();
+  void _addPaymentListeners() {
+    _saleAmountController.addListener(_calculateTotals);
+    _serviceAmountController.addListener(_calculateTotals);
+    _gpayAmountController.addListener(_calculateTotals);
+    _cashAmountController.addListener(_calculateTotals);
+    _cardAmountController.addListener(_calculateTotals);
+  }
 
-      // Add listeners to update UI when text changes
-      _phoneQuantityControllers[brand]!.addListener(_updatePhoneStats);
-      _phoneValueControllers[brand]!.addListener(_updatePhoneStats);
+  void _calculateTotals() {
+    final saleAmount = double.tryParse(_saleAmountController.text) ?? 0.0;
+    final serviceAmount = double.tryParse(_serviceAmountController.text) ?? 0.0;
+
+    final gpayAmount = double.tryParse(_gpayAmountController.text) ?? 0.0;
+    final cashAmount = double.tryParse(_cashAmountController.text) ?? 0.0;
+    final cardAmount = double.tryParse(_cardAmountController.text) ?? 0.0;
+
+    setState(() {
+      _totalAmount = saleAmount + serviceAmount;
+      _enteredPaymentTotal = gpayAmount + cashAmount + cardAmount;
+    });
+  }
+
+  Future<void> _fetchBrands() async {
+    try {
+      final productsSnapshot = await _firestore.collection('products').get();
+
+      final brands = <String>{};
+      for (var doc in productsSnapshot.docs) {
+        final data = doc.data();
+        if (data['brand'] != null) {
+          brands.add(data['brand'].toString().toLowerCase());
+        }
+      }
+
+      setState(() {
+        _phoneBrands = brands.toList()..sort();
+      });
+    } catch (e) {
+      print('Error fetching brands: $e');
     }
   }
 
-  void _updatePhoneStats() {
-    // This forces the widget to rebuild when phone data changes
-    if (mounted) {
-      setState(() {});
+  Future<void> _fetchProductsByBrand(String brand) async {
+    try {
+      final productsSnapshot = await _firestore
+          .collection('products')
+          .where('brand', isEqualTo: brand.toLowerCase())
+          .get();
+
+      setState(() {
+        _products = productsSnapshot.docs.map((doc) {
+          final data = doc.data();
+          return {
+            'id': doc.id,
+            'name': data['productName'] ?? '',
+            'brand': data['brand'] ?? '',
+            'variants': data['variants'] ?? [],
+          };
+        }).toList();
+        _selectedProduct = null;
+        _selectedVariant = null;
+        _variants = [];
+        _selectedPrice = 0.0;
+      });
+    } catch (e) {
+      print('Error fetching products: $e');
     }
+  }
+
+  void _onProductSelected(String? productId) {
+    setState(() {
+      _selectedProduct = productId;
+      _selectedVariant = null;
+      _selectedPrice = 0.0;
+
+      if (productId != null && productId.isNotEmpty) {
+        final product = _products.firstWhere(
+          (p) => p['id']?.toString() == productId,
+          orElse: () => {},
+        );
+        if (product.isNotEmpty) {
+          _variants = List<Map<String, dynamic>>.from(
+            product['variants'] ?? [],
+          );
+        }
+      } else {
+        _variants = [];
+      }
+    });
+  }
+
+  void _onVariantSelected(String? variantKey) {
+    setState(() {
+      _selectedVariant = variantKey;
+      if (variantKey != null && variantKey.isNotEmpty && _variants.isNotEmpty) {
+        final variant = _variants.firstWhere(
+          (v) => v['id']?.toString() == variantKey,
+          orElse: () => {},
+        );
+        if (variant.isNotEmpty) {
+          final price = variant['price'];
+          if (price is num) {
+            _selectedPrice = price.toDouble();
+          } else if (price is String) {
+            _selectedPrice = double.tryParse(price) ?? 0.0;
+          } else {
+            _selectedPrice = 0.0;
+          }
+        }
+      }
+    });
+  }
+
+  void _onPurchaseModeSelected(String? mode) {
+    setState(() {
+      _selectedPurchaseMode = mode;
+      _selectedPaymentBreakdown = PaymentBreakdown();
+      _selectedFinanceType = null;
+      _discountController.clear();
+      _downPaymentController.clear();
+      _upgradeController.clear();
+      _supportController.clear();
+      _disbursementAmountController.clear();
+      _rcCashController.clear();
+      _rcGpayController.clear();
+      _rcCardController.clear();
+
+      if (mode == 'Ready Cash') {
+        // Leave it blank for user to fill
+      } else if (mode == 'Credit Card') {
+        _selectedPaymentBreakdown.card = _selectedPrice;
+      }
+    });
+  }
+
+  double _calculateEffectivePrice() {
+    final discount = double.tryParse(_discountController.text) ?? 0.0;
+    return _selectedPrice - discount;
+  }
+
+  double _calculatePaymentTotal(PaymentBreakdown breakdown) {
+    return breakdown.cash + breakdown.gpay + breakdown.card;
+  }
+
+  void _addPhoneSaleItem() {
+    if (_selectedBrand == null ||
+        _selectedProduct == null ||
+        _selectedVariant == null ||
+        _selectedPurchaseMode == null ||
+        _selectedPrice == 0) {
+      _showMessage('Please complete all required fields');
+      return;
+    }
+
+    final effectivePrice = _calculateEffectivePrice();
+    if (effectivePrice < 0) {
+      _showMessage('Discount cannot be more than price');
+      return;
+    }
+
+    // Validate based on purchase mode
+    if (_selectedPurchaseMode == 'Ready Cash') {
+      final paymentTotal = _calculatePaymentTotal(_selectedPaymentBreakdown);
+      if (paymentTotal == 0) {
+        _showMessage('Please enter payment amounts for Ready Cash');
+        return;
+      }
+      if ((paymentTotal - effectivePrice).abs() > 0.01) {
+        _showMessage(
+          'Payment total (${paymentTotal.toStringAsFixed(2)}) does not match effective price (${effectivePrice.toStringAsFixed(2)})',
+        );
+        return;
+      }
+    } else if (_selectedPurchaseMode == 'EMI') {
+      if (_selectedFinanceType == null) {
+        _showMessage('Please select finance company for EMI');
+        return;
+      }
+      if (_downPaymentController.text.isEmpty) {
+        _showMessage('Please enter down payment amount for EMI');
+        return;
+      }
+      final downPayment = double.tryParse(_downPaymentController.text) ?? 0.0;
+      if (downPayment == 0) {
+        _showMessage('Please enter down payment amount for EMI');
+        return;
+      }
+      if (downPayment > effectivePrice) {
+        _showMessage('Down payment cannot be more than effective price');
+        return;
+      }
+      if (_calculatePaymentTotal(_selectedPaymentBreakdown) == 0) {
+        _showMessage('Please enter down payment payment mode(s) for EMI');
+        return;
+      }
+      final downPaymentTotal = _calculatePaymentTotal(
+        _selectedPaymentBreakdown,
+      );
+      if ((downPaymentTotal - downPayment).abs() > 0.01) {
+        _showMessage(
+          'Down payment total (${downPaymentTotal.toStringAsFixed(2)}) does not match entered amount (${downPayment.toStringAsFixed(2)})',
+        );
+        return;
+      }
+    }
+
+    final product = _products.firstWhere((p) => p['id'] == _selectedProduct);
+    final variant = _variants.firstWhere((v) => v['id'] == _selectedVariant);
+
+    final phoneSaleItem = PhoneSaleItem(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      brand: _selectedBrand ?? '',
+      productId: _selectedProduct ?? '',
+      productName: product['name']?.toString() ?? '',
+      variant: variant['name']?.toString() ?? '',
+      variantKey: variant['id']?.toString() ?? '',
+      price: _selectedPrice,
+      discount: double.tryParse(_discountController.text) ?? 0.0,
+      effectivePrice: effectivePrice,
+      purchaseMode: _selectedPurchaseMode ?? '',
+      paymentBreakdown: _selectedPaymentBreakdown,
+      financeType: _selectedFinanceType,
+      upgrade: _upgradeController.text,
+      support: _supportController.text,
+      disbursementAmount:
+          double.tryParse(_disbursementAmountController.text) ?? 0.0,
+      downPayment: _selectedPurchaseMode == 'EMI'
+          ? double.tryParse(_downPaymentController.text) ?? 0.0
+          : 0.0,
+      addedAt: DateTime.now(),
+    );
+
+    setState(() {
+      _phoneSaleItems.add(phoneSaleItem);
+      _resetForm();
+    });
+  }
+
+  void _resetForm() {
+    setState(() {
+      _selectedBrand = null;
+      _selectedProduct = null;
+      _selectedVariant = null;
+      _selectedPurchaseMode = null;
+      _selectedPaymentBreakdown = PaymentBreakdown();
+      _selectedFinanceType = null;
+      _selectedPrice = 0.0;
+      _discountController.clear();
+      _downPaymentController.clear();
+      _upgradeController.clear();
+      _supportController.clear();
+      _disbursementAmountController.clear();
+      _rcCashController.clear();
+      _rcGpayController.clear();
+      _rcCardController.clear();
+      _products = [];
+      _variants = [];
+    });
+  }
+
+  void _removePhoneSaleItem(String id) {
+    setState(() {
+      _phoneSaleItems.removeWhere((item) => item.id == id);
+    });
   }
 
   void _getUserShopId() async {
@@ -105,6 +404,21 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
       return;
     }
 
+    // Validate payment amounts
+    final gpayAmount = double.tryParse(_gpayAmountController.text) ?? 0.0;
+    final cashAmount = double.tryParse(_cashAmountController.text) ?? 0.0;
+    final cardAmount = double.tryParse(_cardAmountController.text) ?? 0.0;
+
+    final paymentTotal = gpayAmount + cashAmount + cardAmount;
+    final calculatedTotal = saleAmount + serviceAmount;
+
+    if ((paymentTotal - calculatedTotal).abs() > 0.01) {
+      _showMessage(
+        'Payment total (${paymentTotal.toStringAsFixed(2)}) does not match calculated total (${calculatedTotal.toStringAsFixed(2)})',
+      );
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
@@ -131,24 +445,18 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
       }
 
       // Prepare phone sales data
-      Map<String, dynamic> phoneSales = {};
       double totalPhoneSalesValue = 0.0;
-      int totalPhonesSold = 0;
+      double totalPhoneDiscount = 0.0;
+      double totalDisbursementAmount = 0.0;
+      int totalPhonesSold = _phoneSaleItems.length;
 
-      for (var brand in _phoneBrands) {
-        final qtyText = _phoneQuantityControllers[brand]!.text;
-        final valueText = _phoneValueControllers[brand]!.text;
-
-        if (qtyText.isNotEmpty || valueText.isNotEmpty) {
-          final quantity = int.tryParse(qtyText) ?? 0;
-          final value = double.tryParse(valueText) ?? 0.0;
-
-          phoneSales[brand] = {'quantity': quantity, 'totalValue': value};
-
-          totalPhonesSold += quantity;
-          totalPhoneSalesValue += value;
-        }
-      }
+      // Convert phone sale items to Firestore compatible format
+      final phoneSalesData = _phoneSaleItems.map((item) {
+        totalPhoneSalesValue += item.price;
+        totalPhoneDiscount += item.discount;
+        totalDisbursementAmount += item.disbursementAmount;
+        return item.toMap();
+      }).toList();
 
       final salesData = {
         'userId': user.uid,
@@ -158,10 +466,18 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
         'saleDate': _saleDate,
         'saleAmount': saleAmount,
         'serviceAmount': serviceAmount,
-        'totalAmount': saleAmount + serviceAmount,
-        'phoneSales': phoneSales,
+        'totalAmount': calculatedTotal,
+        // Payment breakdown
+        'gpayAmount': gpayAmount,
+        'cashAmount': cashAmount,
+        'cardAmount': cardAmount,
+        'paymentTotal': paymentTotal,
+        // Phone sales
+        'phoneSales': phoneSalesData,
         'totalPhonesSold': totalPhonesSold,
         'totalPhoneSalesValue': totalPhoneSalesValue,
+        'totalPhoneDiscount': totalPhoneDiscount,
+        'totalDisbursementAmount': totalDisbursementAmount,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -171,7 +487,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
       _showMessage('Sales data uploaded successfully!', isError: false);
       _clearForm();
     } catch (e) {
-      _showMessage('Failed to upload sales data₹: $e');
+      _showMessage('Failed to upload sales data: $e');
     }
 
     setState(() {
@@ -192,7 +508,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
             Expanded(child: Text(message)),
           ],
         ),
-        backgroundColor: isError ? Colors.red : _accentColor,
+        backgroundColor: isError ? _errorColor : _accentColor,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
@@ -202,14 +518,24 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
   void _clearForm() {
     _saleAmountController.clear();
     _serviceAmountController.clear();
-
-    for (var brand in _phoneBrands) {
-      _phoneQuantityControllers[brand]!.clear();
-      _phoneValueControllers[brand]!.clear();
-    }
+    _gpayAmountController.clear();
+    _cashAmountController.clear();
+    _cardAmountController.clear();
+    _discountController.clear();
+    _downPaymentController.clear();
+    _upgradeController.clear();
+    _supportController.clear();
+    _disbursementAmountController.clear();
+    _rcCashController.clear();
+    _rcGpayController.clear();
+    _rcCardController.clear();
 
     setState(() {
       _saleDate = DateTime.now();
+      _totalAmount = 0.0;
+      _enteredPaymentTotal = 0.0;
+      _phoneSaleItems.clear();
+      _resetForm();
     });
   }
 
@@ -251,6 +577,19 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Header
+            if (_phoneSaleItems.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Added Phone Sales (${_phoneSaleItems.length})',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: _secondaryColor,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ..._phoneSaleItems.map((item) => _buildPhoneSaleItemCard(item)),
+            ],
             Row(
               children: [
                 Container(
@@ -267,7 +606,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'Phone Sales by Brand',
+                  'Phone Sales',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -280,92 +619,1130 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
             ),
             const SizedBox(height: 12),
 
-            // Compact table
+            // Phone Sales Form
+            _buildPhoneSaleForm(),
             Container(
-              height: 320, // Increased height to accommodate larger fields
-              child: Column(
-                children: [
-                  // Table Header
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _primaryColor.withOpacity(0.05),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Row(
-                      children: [
-                        Expanded(
-                          flex: 3,
-                          child: Text(
-                            'BRAND',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey,
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: Text(
-                            'QTY',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                        Expanded(
-                          child: Text(
-                            'VALUE',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      ],
-                    ),
+              width: double.infinity,
+              margin: const EdgeInsets.only(top: 16),
+              child: ElevatedButton.icon(
+                onPressed: _addPhoneSaleItem,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _primaryColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  const SizedBox(height: 8),
-
-                  // Scrollable brands list
-                  Expanded(
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: _phoneBrands.length,
-                      itemBuilder: (context, index) {
-                        final brand = _phoneBrands[index];
-                        return _buildCompactPhoneRow(brand);
-                      },
-                    ),
-                  ),
-                ],
+                ),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add Phone Sale'),
               ),
             ),
+
+            // Added Phone Sales List
           ],
         ),
       ),
     );
   }
 
-  Widget _buildPhoneStats() {
-    int totalQty = 0;
-    double totalValue = 0.0;
+  Widget _buildPhoneSaleForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Brand Selection
+        _buildDropdown(
+          label: 'Select Brand *',
+          value: _selectedBrand,
+          items: _phoneBrands.map((brand) {
+            return DropdownMenuItem<String>(
+              value: brand,
+              child: Text(
+                brand.toUpperCase(),
+                style: const TextStyle(fontSize: 14),
+              ),
+            );
+          }).toList(),
+          onChanged: (value) {
+            setState(() {
+              _selectedBrand = value;
+              if (value != null) {
+                _fetchProductsByBrand(value);
+              }
+            });
+          },
+          hint: 'Choose phone brand',
+        ),
+        const SizedBox(height: 12),
 
-    for (var brand in _phoneBrands) {
-      final qty = int.tryParse(_phoneQuantityControllers[brand]!.text) ?? 0;
-      final value = double.tryParse(_phoneValueControllers[brand]!.text) ?? 0.0;
-      totalQty += qty;
-      totalValue += value;
+        // Product Selection
+        if (_selectedBrand != null) ...[
+          _buildDropdown(
+            label: 'Select Product *',
+            value: _selectedProduct,
+            items: _products.map((product) {
+              return DropdownMenuItem<String>(
+                value: product['id']?.toString() ?? '',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      product['name']?.toString() ?? '',
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                    Text(
+                      product['brand']?.toString() ?? '',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _secondaryColor.withOpacity(0.7),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+            onChanged: _onProductSelected,
+            hint: 'Choose product model',
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // Variant Selection
+        if (_selectedProduct != null && _variants.isNotEmpty) ...[
+          _buildDropdown(
+            label: 'Select Variant *',
+            value: _selectedVariant,
+            items: _variants.map((variant) {
+              return DropdownMenuItem<String>(
+                value: variant['id']?.toString() ?? '',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          variant['ram']?.toString() ?? '',
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                        Text("/"),
+                        Text(
+                          variant['storage']?.toString() ?? '',
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      '₹${variant['price'] ?? 0}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _accentColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+            onChanged: _onVariantSelected,
+            hint: 'Choose RAM/Storage variant',
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // Price Display
+        if (_selectedPrice > 0) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _accentColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: _accentColor.withOpacity(0.2)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Price',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: _secondaryColor,
+                  ),
+                ),
+                Text(
+                  '₹${_selectedPrice.toStringAsFixed(2)}',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: _accentColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // Purchase Mode
+        if (_selectedPrice > 0) ...[
+          _buildDropdown(
+            label: 'Purchase Mode *',
+            value: _selectedPurchaseMode,
+            items: _purchaseModes.map((mode) {
+              return DropdownMenuItem<String>(
+                value: mode,
+                child: Text(mode, style: const TextStyle(fontSize: 14)),
+              );
+            }).toList(),
+            onChanged: _onPurchaseModeSelected,
+            hint: 'Select purchase mode',
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // Additional fields section (Discount, Upgrade, Support, Disbursement Amount)
+        if (_selectedPurchaseMode != null && _selectedPrice > 0) ...[
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Additional Information',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: _primaryColor,
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Discount Field
+              _buildAdditionalField(
+                label: 'Discount Amount',
+                controller: _discountController,
+                hint: 'Enter discount amount',
+                icon: Icons.discount,
+                iconColor: _infoColor,
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                onChanged: (value) {
+                  setState(() {});
+                },
+              ),
+              const SizedBox(height: 12),
+
+              // Effective Price Display
+              if (_discountController.text.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: _primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _primaryColor.withOpacity(0.2)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Effective Price',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: _primaryColor,
+                        ),
+                      ),
+                      Text(
+                        '₹${_calculateEffectivePrice().toStringAsFixed(2)}',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: _primaryColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 12),
+
+              // Upgrade Field
+              _buildAdditionalField(
+                label: 'Upgrade',
+                controller: _upgradeController,
+                hint: 'Enter upgrade details',
+                icon: Icons.upgrade,
+                iconColor: _purpleColor,
+                keyboardType: TextInputType.text,
+              ),
+              const SizedBox(height: 12),
+
+              // Support Field
+              _buildAdditionalField(
+                label: 'Support',
+                controller: _supportController,
+                hint: 'Enter support details',
+                icon: Icons.support_agent,
+                iconColor: _pinkColor,
+                keyboardType: TextInputType.text,
+              ),
+              const SizedBox(height: 12),
+
+              // Disbursement Amount Field
+              _buildAdditionalField(
+                label: 'Disbursement Amount',
+                controller: _disbursementAmountController,
+                hint: 'Enter disbursement amount',
+                icon: Icons.monetization_on,
+                iconColor: _accentColor,
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        ],
+
+        // Ready Cash Payment Breakdown (Multiple payment methods)
+        if (_selectedPurchaseMode == 'Ready Cash') ...[
+          Text(
+            'Payment Breakdown (Total must match effective price) *',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: _secondaryColor,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Cash amount for Ready Cash
+          Row(
+            children: [
+              Expanded(
+                child: _buildPaymentField(
+                  label: 'Cash',
+                  controller: _rcCashController,
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedPaymentBreakdown.cash =
+                          double.tryParse(value) ?? 0.0;
+                    });
+                  },
+                  hint: 'Cash amount',
+                  icon: Icons.money,
+                  iconColor: const Color(0xFF34A853),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildPaymentField(
+                  label: 'GPay',
+                  controller: _rcGpayController,
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedPaymentBreakdown.gpay =
+                          double.tryParse(value) ?? 0.0;
+                    });
+                  },
+                  hint: 'GPay amount',
+                  icon: Icons.phone_android,
+                  iconColor: const Color(0xFF4285F4),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildPaymentField(
+                  label: 'Card',
+                  controller: _rcCardController,
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedPaymentBreakdown.card =
+                          double.tryParse(value) ?? 0.0;
+                    });
+                  },
+                  hint: 'Card amount',
+                  icon: Icons.credit_card,
+                  iconColor: const Color(0xFFFBBC05),
+                ),
+              ),
+            ],
+          ),
+
+          // Show total and validation
+          const SizedBox(height: 8),
+          _buildPaymentValidation(),
+        ],
+
+        // Credit Card Purchase Mode (Fixed - only Card)
+        if (_selectedPurchaseMode == 'Credit Card') ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFBBC05).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: const Color(0xFFFBBC05).withOpacity(0.3),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.credit_card, color: const Color(0xFFFBBC05)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Credit Card Payment',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFFFBBC05),
+                        ),
+                      ),
+                      Text(
+                        'Full payment via Credit Card',
+                        style: TextStyle(fontSize: 12, color: _secondaryColor),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  '₹${_calculateEffectivePrice().toStringAsFixed(2)}',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFFFBBC05),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // EMI Options
+        if (_selectedPurchaseMode == 'EMI') ...[
+          // Finance Company
+          _buildDropdown(
+            label: 'Finance Company *',
+            value: _selectedFinanceType,
+            items: _financeCompaniesList.map((company) {
+              return DropdownMenuItem<String>(
+                value: company,
+                child: Text(company, style: const TextStyle(fontSize: 14)),
+              );
+            }).toList(),
+            onChanged: (value) {
+              setState(() {
+                _selectedFinanceType = value;
+              });
+            },
+            hint: 'Select finance company',
+          ),
+          const SizedBox(height: 12),
+
+          // Down Payment Amount
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Down Payment Amount *',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: _secondaryColor,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _downPaymentController,
+                onChanged: (value) {
+                  final currentTotal = _calculatePaymentTotal(
+                    _selectedPaymentBreakdown,
+                  );
+                  final downPayment = double.tryParse(value) ?? 0.0;
+                  if (currentTotal > 0 && downPayment > 0) {
+                    final scale = downPayment / currentTotal;
+                    setState(() {
+                      _selectedPaymentBreakdown.cash *= scale;
+                      _selectedPaymentBreakdown.gpay *= scale;
+                      _selectedPaymentBreakdown.card *= scale;
+                    });
+                  }
+                },
+                decoration: InputDecoration(
+                  hintText: 'Enter down payment amount',
+                  prefixIcon: Icon(
+                    Icons.attach_money,
+                    color: _primaryColor,
+                    size: 20,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: _secondaryColor.withOpacity(0.3),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: _primaryColor, width: 1.5),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
+                ),
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Down Payment Breakdown (Multiple payment methods)
+          Text(
+            'Down Payment Breakdown (Total must match down payment) *',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: _secondaryColor,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          Row(
+            children: [
+              Expanded(
+                child: _buildPaymentField(
+                  label: 'Cash',
+                  controller: TextEditingController(
+                    text: _selectedPaymentBreakdown.cash > 0
+                        ? _selectedPaymentBreakdown.cash.toStringAsFixed(0)
+                        : '',
+                  ),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedPaymentBreakdown.cash =
+                          double.tryParse(value) ?? 0.0;
+                    });
+                  },
+                  hint: 'Cash amount',
+                  icon: Icons.money,
+                  iconColor: const Color(0xFF34A853),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildPaymentField(
+                  label: 'GPay',
+                  controller: TextEditingController(
+                    text: _selectedPaymentBreakdown.gpay > 0
+                        ? _selectedPaymentBreakdown.gpay.toStringAsFixed(0)
+                        : '',
+                  ),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedPaymentBreakdown.gpay =
+                          double.tryParse(value) ?? 0.0;
+                    });
+                  },
+                  hint: 'GPay amount',
+                  icon: Icons.phone_android,
+                  iconColor: const Color(0xFF4285F4),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildPaymentField(
+                  label: 'Card',
+                  controller: TextEditingController(
+                    text: _selectedPaymentBreakdown.card > 0
+                        ? _selectedPaymentBreakdown.card.toStringAsFixed(0)
+                        : '',
+                  ),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedPaymentBreakdown.card =
+                          double.tryParse(value) ?? 0.0;
+                    });
+                  },
+                  hint: 'Card amount',
+                  icon: Icons.credit_card,
+                  iconColor: const Color(0xFFFBBC05),
+                ),
+              ),
+            ],
+          ),
+
+          // Show total and validation for EMI
+          const SizedBox(height: 8),
+          _buildPaymentValidation(isDownPayment: true),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildAdditionalField({
+    required String label,
+    required TextEditingController controller,
+    required String hint,
+    required IconData icon,
+    required Color iconColor,
+    required TextInputType keyboardType,
+    ValueChanged<String>? onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: _secondaryColor,
+            fontSize: 13,
+          ),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: controller,
+          onChanged: onChanged,
+          decoration: InputDecoration(
+            hintText: hint,
+            prefixIcon: Icon(icon, color: iconColor, size: 20),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: _secondaryColor.withOpacity(0.3)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: iconColor, width: 1.5),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 12,
+            ),
+          ),
+          keyboardType: keyboardType,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPaymentField({
+    required String label,
+    required TextEditingController controller,
+    required ValueChanged<String> onChanged,
+    required String hint,
+    required IconData icon,
+    required Color iconColor,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: TextStyle(fontSize: 12, color: _secondaryColor)),
+        const SizedBox(height: 4),
+        TextField(
+          controller: controller,
+          onChanged: onChanged,
+          decoration: InputDecoration(
+            hintText: hint,
+            prefixIcon: Icon(icon, size: 18, color: iconColor),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: _secondaryColor.withOpacity(0.3)),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 8,
+              vertical: 8,
+            ),
+          ),
+          keyboardType: TextInputType.numberWithOptions(decimal: true),
+          style: const TextStyle(fontSize: 14),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPaymentValidation({bool isDownPayment = false}) {
+    final paymentTotal = _calculatePaymentTotal(_selectedPaymentBreakdown);
+    final targetAmount = isDownPayment
+        ? (double.tryParse(_downPaymentController.text) ?? 0.0)
+        : _calculateEffectivePrice();
+
+    final isValid =
+        (paymentTotal - targetAmount).abs() <= 0.01 && paymentTotal > 0;
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: isValid
+            ? _accentColor.withOpacity(0.1)
+            : _errorColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isValid
+              ? _accentColor.withOpacity(0.3)
+              : _errorColor.withOpacity(0.3),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isValid ? Icons.check_circle : Icons.error,
+            size: 16,
+            color: isValid ? _accentColor : _errorColor,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Payment Total: ₹${paymentTotal.toStringAsFixed(2)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isValid ? _accentColor : _errorColor,
+                  ),
+                ),
+                if (!isValid)
+                  Text(
+                    'Should be ₹${targetAmount.toStringAsFixed(2)}',
+                    style: TextStyle(fontSize: 11, color: _errorColor),
+                  ),
+              ],
+            ),
+          ),
+          if (paymentTotal > 0)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (_selectedPaymentBreakdown.cash > 0)
+                  Text(
+                    'Cash: ₹${_selectedPaymentBreakdown.cash.toStringAsFixed(0)}',
+                    style: TextStyle(fontSize: 10, color: _secondaryColor),
+                  ),
+                if (_selectedPaymentBreakdown.gpay > 0)
+                  Text(
+                    'GPay: ₹${_selectedPaymentBreakdown.gpay.toStringAsFixed(0)}',
+                    style: TextStyle(fontSize: 10, color: _secondaryColor),
+                  ),
+                if (_selectedPaymentBreakdown.card > 0)
+                  Text(
+                    'Card: ₹${_selectedPaymentBreakdown.card.toStringAsFixed(0)}',
+                    style: TextStyle(fontSize: 10, color: _secondaryColor),
+                  ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhoneSaleItemCard(PhoneSaleItem item) {
+    final paymentTotal = _calculatePaymentTotal(item.paymentBreakdown);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      elevation: 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: _secondaryColor.withOpacity(0.1)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    '${item.productName} ',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: _primaryColor,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.delete, color: _errorColor, size: 18),
+                  onPressed: () => _removePhoneSaleItem(item.id),
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _secondaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    item.brand.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: _secondaryColor,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _accentColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    item.variant,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: _accentColor,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'Price: ',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _secondaryColor,
+                          ),
+                        ),
+                        Text(
+                          '₹${item.price.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: _accentColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (item.discount > 0)
+                      Row(
+                        children: [
+                          Text(
+                            'Discount: ',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: _secondaryColor,
+                            ),
+                          ),
+                          Text(
+                            '-₹${item.discount.toStringAsFixed(2)}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: _infoColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    Row(
+                      children: [
+                        Text(
+                          'Effective: ',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: _primaryColor,
+                          ),
+                        ),
+                        Text(
+                          '₹${item.effectivePrice.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: _primaryColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _getPurchaseModeColor(
+                      item.purchaseMode,
+                    ).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    item.purchaseMode,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _getPurchaseModeColor(item.purchaseMode),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            // Additional Information Display
+            if (item.upgrade.isNotEmpty ||
+                item.support.isNotEmpty ||
+                item.disbursementAmount > 0) ...[
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  if (item.upgrade.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _purpleColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.upgrade, size: 10, color: _purpleColor),
+                          const SizedBox(width: 4),
+                          Text(
+                            item.upgrade,
+                            style: TextStyle(fontSize: 10, color: _purpleColor),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (item.support.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _pinkColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.support_agent,
+                            size: 10,
+                            color: _pinkColor,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            item.support,
+                            style: TextStyle(fontSize: 10, color: _pinkColor),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (item.disbursementAmount > 0)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _accentColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.monetization_on,
+                            size: 10,
+                            color: _accentColor,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Disbursement: ₹${item.disbursementAmount.toStringAsFixed(2)}',
+                            style: TextStyle(fontSize: 10, color: _accentColor),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ],
+
+            // Payment breakdown display
+            if (item.purchaseMode == 'Ready Cash') ...[
+              const SizedBox(height: 6),
+              _buildPaymentBreakdownDisplay(
+                breakdown: item.paymentBreakdown,
+                total: item.effectivePrice,
+                label: 'Payment',
+              ),
+            ] else if (item.purchaseMode == 'EMI') ...[
+              const SizedBox(height: 6),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${item.financeType}',
+                    style: TextStyle(fontSize: 12, color: _secondaryColor),
+                  ),
+                  _buildPaymentBreakdownDisplay(
+                    breakdown: item.paymentBreakdown,
+                    total: item.downPayment,
+                    label: 'Down Payment',
+                  ),
+                ],
+              ),
+            ] else if (item.purchaseMode == 'Credit Card') ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Icon(
+                    Icons.credit_card,
+                    size: 12,
+                    color: const Color(0xFFFBBC05),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Full payment via Credit Card',
+                    style: TextStyle(fontSize: 12, color: _secondaryColor),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaymentBreakdownDisplay({
+    required PaymentBreakdown breakdown,
+    required double total,
+    required String label,
+  }) {
+    final paymentMethods = <String>[];
+    if (breakdown.cash > 0)
+      paymentMethods.add('Cash: ₹${breakdown.cash.toStringAsFixed(0)}');
+    if (breakdown.gpay > 0)
+      paymentMethods.add('GPay: ₹${breakdown.gpay.toStringAsFixed(0)}');
+    if (breakdown.card > 0)
+      paymentMethods.add('Card: ₹${breakdown.card.toStringAsFixed(0)}');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              '$label: ',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: _secondaryColor,
+              ),
+            ),
+            Text(
+              '₹${total.toStringAsFixed(2)}',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: _accentColor,
+              ),
+            ),
+          ],
+        ),
+        if (paymentMethods.isNotEmpty)
+          Text(
+            paymentMethods.join(', '),
+            style: TextStyle(fontSize: 11, color: _secondaryColor),
+          ),
+      ],
+    );
+  }
+
+  Color _getPurchaseModeColor(String mode) {
+    switch (mode) {
+      case 'Ready Cash':
+        return _accentColor;
+      case 'Credit Card':
+        return const Color(0xFFFBBC05);
+      case 'EMI':
+        return const Color(0xFF8B5CF6);
+      default:
+        return _primaryColor;
     }
+  }
 
+  Widget _buildDropdown({
+    required String label,
+    required String? value,
+    required List<DropdownMenuItem<String>> items,
+    required ValueChanged<String?> onChanged,
+    required String hint,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: _secondaryColor,
+            fontSize: 13,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Container(
+          decoration: BoxDecoration(
+            border: Border.all(color: _secondaryColor.withOpacity(0.3)),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: DropdownButtonFormField<String>(
+            value: value,
+            items: items,
+            onChanged: onChanged,
+            decoration: InputDecoration(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+              border: InputBorder.none,
+              hintText: hint,
+              hintStyle: TextStyle(color: _secondaryColor.withOpacity(0.5)),
+            ),
+            icon: Icon(Icons.arrow_drop_down, color: _primaryColor),
+            isExpanded: true,
+            style: const TextStyle(fontSize: 14, color: Colors.black),
+            dropdownColor: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPhoneStats() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -384,7 +1761,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                   Icon(Icons.inventory_2, size: 12, color: _primaryColor),
                   const SizedBox(width: 2),
                   Text(
-                    totalQty.toString(),
+                    _phoneSaleItems.length.toString(),
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
@@ -414,7 +1791,9 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                   Icon(Icons.attach_money, size: 12, color: _accentColor),
                   const SizedBox(width: 2),
                   Text(
-                    '${totalValue.toStringAsFixed(0)}',
+                    _phoneSaleItems
+                        .fold<double>(0, (sum, item) => sum + item.price)
+                        .toStringAsFixed(0),
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
@@ -434,156 +1813,6 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
     );
   }
 
-  Widget _buildCompactPhoneRow(String brand) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        border: Border.all(color: _secondaryColor.withOpacity(0.1)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          // Brand name with colored icon
-          Expanded(
-            flex: 2,
-            child: Row(
-              children: [
-                Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: _getBrandColor(brand).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Icon(
-                    Icons.phone_android,
-                    size: 14,
-                    color: _getBrandColor(brand),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _getBrandDisplayName(brand),
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      color: _secondaryColor,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Quantity field
-          Expanded(
-            child: Container(
-              height: 36,
-              margin: const EdgeInsets.symmetric(horizontal: 4),
-              child: TextField(
-                controller: _phoneQuantityControllers[brand],
-                textAlign: TextAlign.center,
-                decoration: InputDecoration(
-                  hintText: '0',
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 10,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(6),
-                    borderSide: BorderSide(
-                      color: _secondaryColor.withOpacity(0.3),
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(6),
-                    borderSide: BorderSide(color: _primaryColor, width: 1.5),
-                  ),
-                  filled: true,
-                  fillColor: Colors.white,
-                ),
-                keyboardType: TextInputType.number,
-                style: const TextStyle(fontSize: 13),
-              ),
-            ),
-          ),
-
-          // Value field
-          Expanded(
-            child: Container(
-              height: 36,
-              margin: const EdgeInsets.symmetric(horizontal: 4),
-              child: TextField(
-                controller: _phoneValueControllers[brand],
-                textAlign: TextAlign.center,
-                decoration: InputDecoration(
-                  hintText: '0',
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 10,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(6),
-                    borderSide: BorderSide(
-                      color: _secondaryColor.withOpacity(0.3),
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(6),
-                    borderSide: BorderSide(color: _primaryColor, width: 1.5),
-                  ),
-                  filled: true,
-                  fillColor: Colors.white,
-                ),
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
-                style: const TextStyle(fontSize: 13),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Color _getBrandColor(String brand) {
-    final colors = {
-      'iphone': const Color(0xFFA2AAAD),
-      'samsung': const Color(0xFF1428A0),
-      'vivo': const Color(0xFF415FFF),
-      'oppo': const Color(0xFF46C1BE),
-      'redmi': const Color(0xFFFF6900),
-      'realme': const Color(0xFFFFC915),
-      'iqoo': const Color(0xFF5600FF),
-      'moto': const Color(0xFFE10032),
-      'nokia': const Color(0xFF124191),
-      'infinix': const Color(0xFF000000),
-      'itel': const Color(0xFFFF0000),
-    };
-    return colors[brand] ?? _primaryColor;
-  }
-
-  String _getBrandDisplayName(String brand) {
-    final names = {
-      'iphone': 'iPhone',
-      'samsung': 'Samsung',
-      'vivo': 'Vivo',
-      'oppo': 'Oppo',
-      'redmi': 'Redmi',
-      'realme': 'Realme',
-      'iqoo': 'iQOO',
-      'moto': 'Motorola',
-      'nokia': 'Nokia',
-      'infinix': 'Infinix',
-      'itel': 'Itel',
-    };
-    return names[brand] ?? brand.toUpperCase();
-  }
-
   Widget _buildHeader() {
     return Container(
       width: double.infinity,
@@ -592,7 +1821,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [_primaryColor, Color(0xFF1D4ED8)],
+          colors: [_primaryColor, const Color(0xFF1D4ED8)],
         ),
         borderRadius: const BorderRadius.only(
           bottomLeft: Radius.circular(20),
@@ -725,6 +1954,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
     required TextEditingController controller,
     bool isOptional = false,
     String? hintText,
+    Color? iconColor,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -754,7 +1984,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
           controller: controller,
           decoration: InputDecoration(
             hintText: hintText,
-            prefixIcon: Icon(icon, color: _primaryColor, size: 20),
+            prefixIcon: Icon(icon, color: iconColor ?? _primaryColor, size: 20),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: BorderSide(color: _secondaryColor.withOpacity(0.3)),
@@ -814,25 +2044,207 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
     );
   }
 
+  Widget _buildPaymentSection() {
+    return Card(
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            // Payment Breakdown Header
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: _accentColor.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.payment, color: _accentColor, size: 18),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Payment Breakdown',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: _primaryColor,
+                  ),
+                ),
+                const Spacer(),
+                _buildPaymentTotalDisplay(),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Payment fields in 2 columns
+            Row(
+              children: [
+                Expanded(
+                  child: _buildInputField(
+                    label: 'GPay Amount',
+                    icon: Icons.phone_android,
+                    controller: _gpayAmountController,
+                    hintText: 'GPay amount',
+                    iconColor: const Color(0xFF4285F4),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildInputField(
+                    label: 'Cash Amount',
+                    icon: Icons.money,
+                    controller: _cashAmountController,
+                    hintText: 'Cash amount',
+                    iconColor: const Color(0xFF34A853),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _buildInputField(
+              label: 'Card Amount',
+              icon: Icons.credit_card,
+              controller: _cardAmountController,
+              hintText: 'Card amount',
+              iconColor: const Color(0xFFFBBC05),
+            ),
+
+            // Validation message
+            if (_totalAmount > 0 &&
+                (_enteredPaymentTotal - _totalAmount).abs() > 0.01)
+              Container(
+                margin: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: _errorColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: _errorColor.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.error_outline, color: _errorColor, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Payment total (${_enteredPaymentTotal.toStringAsFixed(2)}) does not match calculated total (${_totalAmount.toStringAsFixed(2)})',
+                        style: TextStyle(fontSize: 12, color: _errorColor),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (_totalAmount > 0 &&
+                (_enteredPaymentTotal - _totalAmount).abs() <= 0.01)
+              Container(
+                margin: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: _accentColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: _accentColor.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.check_circle, color: _accentColor, size: 16),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Payment amounts match the total',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _accentColor,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaymentTotalDisplay() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: _backgroundColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _secondaryColor.withOpacity(0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.calculate, size: 12, color: _primaryColor),
+              const SizedBox(width: 4),
+              Text(
+                'Total: ₹${_totalAmount.toStringAsFixed(2)}',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: _primaryColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Paid: ₹${_enteredPaymentTotal.toStringAsFixed(2)}',
+            style: TextStyle(
+              fontSize: 10,
+              color: _enteredPaymentTotal == _totalAmount
+                  ? _accentColor
+                  : (_enteredPaymentTotal > _totalAmount
+                        ? _warningColor
+                        : _errorColor),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildUploadButton() {
+    bool paymentsMatch = (_enteredPaymentTotal - _totalAmount).abs() <= 0.01;
+
     return Container(
       width: double.infinity,
       height: 48,
       decoration: BoxDecoration(
-        gradient: (_isLoading || _shopId == null)
+        gradient:
+            (_isLoading ||
+                _shopId == null ||
+                !paymentsMatch ||
+                _totalAmount == 0)
             ? null
             : LinearGradient(
-                colors: [_primaryColor, Color(0xFF1D4ED8)],
+                colors: [_primaryColor, const Color(0xFF1D4ED8)],
                 begin: Alignment.centerLeft,
                 end: Alignment.centerRight,
               ),
         borderRadius: BorderRadius.circular(12),
-        color: (_isLoading || _shopId == null)
+        color:
+            (_isLoading ||
+                _shopId == null ||
+                !paymentsMatch ||
+                _totalAmount == 0)
             ? _secondaryColor.withOpacity(0.3)
             : null,
       ),
       child: ElevatedButton(
-        onPressed: (_isLoading || _shopId == null) ? null : _uploadSalesData,
+        onPressed:
+            (_isLoading ||
+                _shopId == null ||
+                !paymentsMatch ||
+                _totalAmount == 0)
+            ? null
+            : _uploadSalesData,
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.transparent,
           shadowColor: Colors.transparent,
@@ -867,7 +2279,11 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
             : Text(
                 _shopId == null
                     ? 'Waiting for Shop Info'
-                    : 'Upload Sales Report',
+                    : (!paymentsMatch
+                          ? 'Fix Payment Amounts'
+                          : _totalAmount == 0
+                          ? 'Enter Sale Amount'
+                          : 'Upload Sales Report'),
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
@@ -935,7 +2351,11 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Phone Sales Section - Always Visible
+            // Payment Section
+            _buildPaymentSection(),
+            const SizedBox(height: 16),
+
+            // Phone Sales Section
             _buildPhoneSalesSection(),
 
             const SizedBox(height: 20),
@@ -953,15 +2373,99 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
   void dispose() {
     _saleAmountController.dispose();
     _serviceAmountController.dispose();
-
-    // Remove listeners and dispose all phone sales controllers
-    for (var brand in _phoneBrands) {
-      _phoneQuantityControllers[brand]!.removeListener(_updatePhoneStats);
-      _phoneValueControllers[brand]!.removeListener(_updatePhoneStats);
-      _phoneQuantityControllers[brand]!.dispose();
-      _phoneValueControllers[brand]!.dispose();
-    }
-
+    _gpayAmountController.dispose();
+    _cashAmountController.dispose();
+    _cardAmountController.dispose();
+    _discountController.dispose();
+    _downPaymentController.dispose();
+    _upgradeController.dispose();
+    _supportController.dispose();
+    _disbursementAmountController.dispose();
+    _rcCashController.dispose();
+    _rcGpayController.dispose();
+    _rcCardController.dispose();
     super.dispose();
+  }
+}
+
+class PhoneSaleItem {
+  final String id;
+  final String brand;
+  final String productId;
+  final String productName;
+  final String variant;
+  final String variantKey;
+  final double price;
+  final double discount;
+  final double effectivePrice;
+  final String purchaseMode;
+  final PaymentBreakdown paymentBreakdown;
+  final String? financeType;
+  final String upgrade;
+  final String support;
+  final double disbursementAmount;
+  final double downPayment;
+  final DateTime addedAt;
+
+  PhoneSaleItem({
+    required this.id,
+    required this.brand,
+    required this.productId,
+    required this.productName,
+    required this.variant,
+    required this.variantKey,
+    required this.price,
+    required this.discount,
+    required this.effectivePrice,
+    required this.purchaseMode,
+    required this.paymentBreakdown,
+    this.financeType,
+    required this.upgrade,
+    required this.support,
+    required this.disbursementAmount,
+    this.downPayment = 0.0,
+    required this.addedAt,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'brand': brand,
+      'productId': productId,
+      'productName': productName,
+      'variant': variant,
+      'variantKey': variantKey,
+      'price': price,
+      'discount': discount,
+      'effectivePrice': effectivePrice,
+      'purchaseMode': purchaseMode,
+      'paymentBreakdown': paymentBreakdown.toMap(),
+      'financeType': financeType,
+      'upgrade': upgrade,
+      'support': support,
+      'disbursementAmount': disbursementAmount,
+      'downPayment': downPayment,
+      'addedAt': addedAt.toIso8601String(),
+    };
+  }
+}
+
+class PaymentBreakdown {
+  double cash;
+  double gpay;
+  double card;
+
+  PaymentBreakdown({this.cash = 0.0, this.gpay = 0.0, this.card = 0.0});
+
+  Map<String, dynamic> toMap() {
+    return {'cash': cash, 'gpay': gpay, 'card': card};
+  }
+
+  factory PaymentBreakdown.fromMap(Map<String, dynamic> map) {
+    return PaymentBreakdown(
+      cash: (map['cash'] as num?)?.toDouble() ?? 0.0,
+      gpay: (map['gpay'] as num?)?.toDouble() ?? 0.0,
+      card: (map['card'] as num?)?.toDouble() ?? 0.0,
+    );
   }
 }
