@@ -42,11 +42,21 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
   final TextEditingController _supportController = TextEditingController();
   final TextEditingController _disbursementAmountController =
       TextEditingController();
+  final TextEditingController _exchangeController = TextEditingController();
+  final TextEditingController _customerCreditController =
+      TextEditingController();
 
   // Payment breakdown controllers for Ready Cash
   final TextEditingController _rcCashController = TextEditingController();
   final TextEditingController _rcGpayController = TextEditingController();
   final TextEditingController _rcCardController = TextEditingController();
+  final TextEditingController _rcCreditController = TextEditingController();
+
+  // Down payment breakdown controllers (Fixed controllers for focus issue)
+  final TextEditingController _dpCashController = TextEditingController();
+  final TextEditingController _dpGpayController = TextEditingController();
+  final TextEditingController _dpCardController = TextEditingController();
+  final TextEditingController _dpCreditController = TextEditingController();
 
   // Available data lists
   List<Map<String, dynamic>> _products = [];
@@ -57,7 +67,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
   double _selectedPrice = 0.0;
 
   // Payment modes
-  final List<String> _paymentModes = ['Cash', 'GPay', 'Card'];
+  final List<String> _paymentModes = ['Cash', 'GPay', 'Card', 'Credit'];
 
   // Purchase modes
   final List<String> _purchaseModes = ['Ready Cash', 'Credit Card', 'EMI'];
@@ -94,6 +104,14 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
   final Color _infoColor = const Color(0xFF3B82F6);
   final Color _purpleColor = const Color(0xFF8B5CF6);
   final Color _pinkColor = const Color(0xFFEC4899);
+  final Color _tealColor = const Color(0xFF14B8A6); // For exchange
+  final Color _orangeColor = const Color(0xFFF97316); // For customer credit
+
+  // Track focus nodes for EMI payment fields
+  final FocusNode _dpCashFocusNode = FocusNode();
+  final FocusNode _dpGpayFocusNode = FocusNode();
+  final FocusNode _dpCardFocusNode = FocusNode();
+  final FocusNode _dpCreditFocusNode = FocusNode();
 
   @override
   void initState() {
@@ -101,6 +119,26 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
     _getUserShopId();
     _addPaymentListeners();
     _fetchBrands();
+
+    // Add listeners to down payment breakdown controllers
+    _dpCashController.addListener(_updateDownPaymentBreakdown);
+    _dpGpayController.addListener(_updateDownPaymentBreakdown);
+    _dpCardController.addListener(_updateDownPaymentBreakdown);
+    _dpCreditController.addListener(_updateDownPaymentBreakdown);
+    _exchangeController.addListener(_updateDownPaymentBreakdown);
+  }
+
+  void _updateDownPaymentBreakdown() {
+    setState(() {
+      _selectedPaymentBreakdown.cash =
+          double.tryParse(_dpCashController.text) ?? 0.0;
+      _selectedPaymentBreakdown.gpay =
+          double.tryParse(_dpGpayController.text) ?? 0.0;
+      _selectedPaymentBreakdown.card =
+          double.tryParse(_dpCardController.text) ?? 0.0;
+      _selectedPaymentBreakdown.credit =
+          double.tryParse(_dpCreditController.text) ?? 0.0;
+    });
   }
 
   void _addPaymentListeners() {
@@ -226,25 +264,57 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
       _upgradeController.clear();
       _supportController.clear();
       _disbursementAmountController.clear();
+      _exchangeController.clear();
+      _customerCreditController.clear();
       _rcCashController.clear();
       _rcGpayController.clear();
       _rcCardController.clear();
+      _rcCreditController.clear();
+      _dpCashController.clear();
+      _dpGpayController.clear();
+      _dpCardController.clear();
+      _dpCreditController.clear();
 
       if (mode == 'Ready Cash') {
         // Leave it blank for user to fill
       } else if (mode == 'Credit Card') {
-        _selectedPaymentBreakdown.card = _selectedPrice;
+        // For Credit Card, card amount will be effective price minus exchange and customer credit
+        final effectivePrice = _calculateEffectivePrice();
+        final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
+        final customerCredit =
+            double.tryParse(_customerCreditController.text) ?? 0.0;
+        _selectedPaymentBreakdown.card =
+            effectivePrice - exchange - customerCredit;
       }
     });
   }
 
   double _calculateEffectivePrice() {
     final discount = double.tryParse(_discountController.text) ?? 0.0;
-    return _selectedPrice - discount;
+    final effectivePrice = _selectedPrice - discount;
+    return effectivePrice < 0 ? 0.0 : effectivePrice;
   }
 
   double _calculatePaymentTotal(PaymentBreakdown breakdown) {
-    return breakdown.cash + breakdown.gpay + breakdown.card;
+    return breakdown.cash + breakdown.gpay + breakdown.card + breakdown.credit;
+  }
+
+  double _calculateAmountToPay() {
+    final effectivePrice = _calculateEffectivePrice();
+    final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
+    final customerCredit =
+        double.tryParse(_customerCreditController.text) ?? 0.0;
+
+    return effectivePrice - exchange - customerCredit;
+  }
+
+  void _updateCreditCardPayment() {
+    if (_selectedPurchaseMode == 'Credit Card') {
+      setState(() {
+        final amountToPay = _calculateAmountToPay();
+        _selectedPaymentBreakdown.card = amountToPay > 0 ? amountToPay : 0.0;
+      });
+    }
   }
 
   void _addPhoneSaleItem() {
@@ -263,16 +333,36 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
       return;
     }
 
+    final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
+    final customerCredit =
+        double.tryParse(_customerCreditController.text) ?? 0.0;
+    final amountToPay = effectivePrice - exchange - customerCredit;
+
+    if (exchange > effectivePrice) {
+      _showMessage('Exchange value cannot be more than effective price');
+      return;
+    }
+
+    if (customerCredit > effectivePrice) {
+      _showMessage('Customer credit cannot be more than effective price');
+      return;
+    }
+
+    if (exchange + customerCredit > effectivePrice) {
+      _showMessage('Exchange + Credit cannot exceed effective price');
+      return;
+    }
+
     // Validate based on purchase mode
     if (_selectedPurchaseMode == 'Ready Cash') {
       final paymentTotal = _calculatePaymentTotal(_selectedPaymentBreakdown);
-      if (paymentTotal == 0) {
+      if (paymentTotal == 0 && amountToPay > 0) {
         _showMessage('Please enter payment amounts for Ready Cash');
         return;
       }
-      if ((paymentTotal - effectivePrice).abs() > 0.01) {
+      if ((paymentTotal - amountToPay).abs() > 0.01) {
         _showMessage(
-          'Payment total (${paymentTotal.toStringAsFixed(2)}) does not match effective price (${effectivePrice.toStringAsFixed(2)})',
+          'Payment total (${paymentTotal.toStringAsFixed(2)}) does not match amount to pay (${amountToPay.toStringAsFixed(2)})',
         );
         return;
       }
@@ -290,20 +380,35 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
         _showMessage('Please enter down payment amount for EMI');
         return;
       }
-      if (downPayment > effectivePrice) {
-        _showMessage('Down payment cannot be more than effective price');
+      if (downPayment > amountToPay) {
+        _showMessage('Down payment cannot be more than amount to pay');
         return;
       }
-      if (_calculatePaymentTotal(_selectedPaymentBreakdown) == 0) {
-        _showMessage('Please enter down payment payment mode(s) for EMI');
-        return;
+
+      final remainingDownPayment = downPayment - exchange - customerCredit;
+
+      if (remainingDownPayment > 0) {
+        if (_calculatePaymentTotal(_selectedPaymentBreakdown) == 0) {
+          _showMessage(
+            'Please enter payment mode(s) for remaining down payment',
+          );
+          return;
+        }
+        final downPaymentTotal = _calculatePaymentTotal(
+          _selectedPaymentBreakdown,
+        );
+        if ((downPaymentTotal - remainingDownPayment).abs() > 0.01) {
+          _showMessage(
+            'Payment total (${downPaymentTotal.toStringAsFixed(2)}) does not match remaining down payment (${remainingDownPayment.toStringAsFixed(2)})',
+          );
+          return;
+        }
       }
-      final downPaymentTotal = _calculatePaymentTotal(
-        _selectedPaymentBreakdown,
-      );
-      if ((downPaymentTotal - downPayment).abs() > 0.01) {
+    } else if (_selectedPurchaseMode == 'Credit Card') {
+      final cardAmount = _selectedPaymentBreakdown.card;
+      if ((cardAmount - amountToPay).abs() > 0.01) {
         _showMessage(
-          'Down payment total (${downPaymentTotal.toStringAsFixed(2)}) does not match entered amount (${downPayment.toStringAsFixed(2)})',
+          'Card amount (${cardAmount.toStringAsFixed(2)}) does not match amount to pay (${amountToPay.toStringAsFixed(2)})',
         );
         return;
       }
@@ -332,6 +437,9 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
       downPayment: _selectedPurchaseMode == 'EMI'
           ? double.tryParse(_downPaymentController.text) ?? 0.0
           : 0.0,
+      exchangeValue: exchange,
+      customerCredit: customerCredit,
+      amountToPay: amountToPay,
       addedAt: DateTime.now(),
     );
 
@@ -355,9 +463,16 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
       _upgradeController.clear();
       _supportController.clear();
       _disbursementAmountController.clear();
+      _exchangeController.clear();
+      _customerCreditController.clear();
       _rcCashController.clear();
       _rcGpayController.clear();
       _rcCardController.clear();
+      _rcCreditController.clear();
+      _dpCashController.clear();
+      _dpGpayController.clear();
+      _dpCardController.clear();
+      _dpCreditController.clear();
       _products = [];
       _variants = [];
     });
@@ -448,6 +563,9 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
       double totalPhoneSalesValue = 0.0;
       double totalPhoneDiscount = 0.0;
       double totalDisbursementAmount = 0.0;
+      double totalExchangeValue = 0.0;
+      double totalCustomerCredit = 0.0;
+      double totalAmountToPay = 0.0;
       int totalPhonesSold = _phoneSaleItems.length;
 
       // Convert phone sale items to Firestore compatible format
@@ -455,6 +573,9 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
         totalPhoneSalesValue += item.price;
         totalPhoneDiscount += item.discount;
         totalDisbursementAmount += item.disbursementAmount;
+        totalExchangeValue += item.exchangeValue;
+        totalCustomerCredit += item.customerCredit;
+        totalAmountToPay += item.amountToPay;
         return item.toMap();
       }).toList();
 
@@ -478,6 +599,9 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
         'totalPhoneSalesValue': totalPhoneSalesValue,
         'totalPhoneDiscount': totalPhoneDiscount,
         'totalDisbursementAmount': totalDisbursementAmount,
+        'totalExchangeValue': totalExchangeValue,
+        'totalCustomerCredit': totalCustomerCredit,
+        'totalAmountToPay': totalAmountToPay,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -526,9 +650,16 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
     _upgradeController.clear();
     _supportController.clear();
     _disbursementAmountController.clear();
+    _exchangeController.clear();
+    _customerCreditController.clear();
     _rcCashController.clear();
     _rcGpayController.clear();
     _rcCardController.clear();
+    _rcCreditController.clear();
+    _dpCashController.clear();
+    _dpGpayController.clear();
+    _dpCardController.clear();
+    _dpCreditController.clear();
 
     setState(() {
       _saleDate = DateTime.now();
@@ -638,8 +769,6 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                 label: const Text('Add Phone Sale'),
               ),
             ),
-
-            // Added Phone Sales List
           ],
         ),
       ),
@@ -801,175 +930,9 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
           const SizedBox(height: 12),
         ],
 
-        // Additional fields section (Discount, Upgrade, Support, Disbursement Amount)
-        if (_selectedPurchaseMode != null && _selectedPrice > 0) ...[
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Additional Information',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: _primaryColor,
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Discount Field
-              _buildAdditionalField(
-                label: 'Discount Amount',
-                controller: _discountController,
-                hint: 'Enter discount amount',
-                icon: Icons.discount,
-                iconColor: _infoColor,
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
-                onChanged: (value) {
-                  setState(() {});
-                },
-              ),
-              const SizedBox(height: 12),
-
-              // Effective Price Display
-              if (_discountController.text.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: _primaryColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: _primaryColor.withOpacity(0.2)),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Effective Price',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: _primaryColor,
-                        ),
-                      ),
-                      Text(
-                        '₹${_calculateEffectivePrice().toStringAsFixed(2)}',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: _primaryColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              const SizedBox(height: 12),
-
-              // Upgrade Field
-              _buildAdditionalField(
-                label: 'Upgrade',
-                controller: _upgradeController,
-                hint: 'Enter upgrade details',
-                icon: Icons.upgrade,
-                iconColor: _purpleColor,
-                keyboardType: TextInputType.text,
-              ),
-              const SizedBox(height: 12),
-
-              // Support Field
-              _buildAdditionalField(
-                label: 'Support',
-                controller: _supportController,
-                hint: 'Enter support details',
-                icon: Icons.support_agent,
-                iconColor: _pinkColor,
-                keyboardType: TextInputType.text,
-              ),
-              const SizedBox(height: 12),
-
-              // Disbursement Amount Field
-              _buildAdditionalField(
-                label: 'Disbursement Amount',
-                controller: _disbursementAmountController,
-                hint: 'Enter disbursement amount',
-                icon: Icons.monetization_on,
-                iconColor: _accentColor,
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
-              ),
-              const SizedBox(height: 12),
-            ],
-          ),
-        ],
-
         // Ready Cash Payment Breakdown (Multiple payment methods)
-        if (_selectedPurchaseMode == 'Ready Cash') ...[
-          Text(
-            'Payment Breakdown (Total must match effective price) *',
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              color: _secondaryColor,
-              fontSize: 13,
-            ),
-          ),
-          const SizedBox(height: 8),
 
-          // Cash amount for Ready Cash
-          Row(
-            children: [
-              Expanded(
-                child: _buildPaymentField(
-                  label: 'Cash',
-                  controller: _rcCashController,
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedPaymentBreakdown.cash =
-                          double.tryParse(value) ?? 0.0;
-                    });
-                  },
-                  hint: 'Cash amount',
-                  icon: Icons.money,
-                  iconColor: const Color(0xFF34A853),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildPaymentField(
-                  label: 'GPay',
-                  controller: _rcGpayController,
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedPaymentBreakdown.gpay =
-                          double.tryParse(value) ?? 0.0;
-                    });
-                  },
-                  hint: 'GPay amount',
-                  icon: Icons.phone_android,
-                  iconColor: const Color(0xFF4285F4),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildPaymentField(
-                  label: 'Card',
-                  controller: _rcCardController,
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedPaymentBreakdown.card =
-                          double.tryParse(value) ?? 0.0;
-                    });
-                  },
-                  hint: 'Card amount',
-                  icon: Icons.credit_card,
-                  iconColor: const Color(0xFFFBBC05),
-                ),
-              ),
-            ],
-          ),
-
-          // Show total and validation
-          const SizedBox(height: 8),
-          _buildPaymentValidation(),
-        ],
-
-        // Credit Card Purchase Mode (Fixed - only Card)
+        // Credit Card Purchase Mode (Adjusted for exchange and credit)
         if (_selectedPurchaseMode == 'Credit Card') ...[
           Container(
             padding: const EdgeInsets.all(12),
@@ -980,36 +943,55 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                 color: const Color(0xFFFBBC05).withOpacity(0.3),
               ),
             ),
-            child: Row(
+            child: Column(
               children: [
-                Icon(Icons.credit_card, color: const Color(0xFFFBBC05)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Credit Card Payment',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFFFBBC05),
+                Row(
+                  children: [
+                    Icon(Icons.credit_card, color: const Color(0xFFFBBC05)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Credit Card Payment',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFFFBBC05),
+                            ),
+                          ),
+                          Text(
+                            'Adjusted for exchange and customer credit',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: _secondaryColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          '₹${_calculateEffectivePrice().toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFFFBBC05),
+                          ),
                         ),
-                      ),
-                      Text(
-                        'Full payment via Credit Card',
-                        style: TextStyle(fontSize: 12, color: _secondaryColor),
-                      ),
-                    ],
-                  ),
-                ),
-                Text(
-                  '₹${_calculateEffectivePrice().toStringAsFixed(2)}',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFFFBBC05),
-                  ),
+                        Text(
+                          'Effective Price',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: _secondaryColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -1054,18 +1036,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
               TextField(
                 controller: _downPaymentController,
                 onChanged: (value) {
-                  final currentTotal = _calculatePaymentTotal(
-                    _selectedPaymentBreakdown,
-                  );
-                  final downPayment = double.tryParse(value) ?? 0.0;
-                  if (currentTotal > 0 && downPayment > 0) {
-                    final scale = downPayment / currentTotal;
-                    setState(() {
-                      _selectedPaymentBreakdown.cash *= scale;
-                      _selectedPaymentBreakdown.gpay *= scale;
-                      _selectedPaymentBreakdown.card *= scale;
-                    });
-                  }
+                  setState(() {});
                 },
                 decoration: InputDecoration(
                   hintText: 'Enter down payment amount',
@@ -1094,88 +1065,435 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
             ],
           ),
           const SizedBox(height: 12),
+        ],
 
-          // Down Payment Breakdown (Multiple payment methods)
-          Text(
-            'Down Payment Breakdown (Total must match down payment) *',
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              color: _secondaryColor,
-              fontSize: 13,
-            ),
-          ),
-          const SizedBox(height: 8),
-
-          Row(
+        // Additional Information Section (for all purchase modes)
+        if (_selectedPurchaseMode != null && _selectedPrice > 0) ...[
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: _buildPaymentField(
-                  label: 'Cash',
-                  controller: TextEditingController(
-                    text: _selectedPaymentBreakdown.cash > 0
-                        ? _selectedPaymentBreakdown.cash.toStringAsFixed(0)
-                        : '',
-                  ),
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedPaymentBreakdown.cash =
-                          double.tryParse(value) ?? 0.0;
-                    });
-                  },
-                  hint: 'Cash amount',
-                  icon: Icons.money,
-                  iconColor: const Color(0xFF34A853),
+              Text(
+                'Payment Adjustments',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: _primaryColor,
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildPaymentField(
-                  label: 'GPay',
-                  controller: TextEditingController(
-                    text: _selectedPaymentBreakdown.gpay > 0
-                        ? _selectedPaymentBreakdown.gpay.toStringAsFixed(0)
-                        : '',
-                  ),
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedPaymentBreakdown.gpay =
-                          double.tryParse(value) ?? 0.0;
-                    });
-                  },
-                  hint: 'GPay amount',
-                  icon: Icons.phone_android,
-                  iconColor: const Color(0xFF4285F4),
-                ),
+              const SizedBox(height: 12),
+
+              // Exchange Value Field
+              _buildAdditionalField(
+                label: 'Exchange Value',
+                controller: _exchangeController,
+                hint: 'Enter exchange value',
+                icon: Icons.swap_horiz,
+                iconColor: _tealColor,
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                onChanged: (value) {
+                  setState(() {
+                    _updateCreditCardPayment();
+                  });
+                },
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildPaymentField(
-                  label: 'Card',
-                  controller: TextEditingController(
-                    text: _selectedPaymentBreakdown.card > 0
-                        ? _selectedPaymentBreakdown.card.toStringAsFixed(0)
-                        : '',
+              const SizedBox(height: 12),
+
+              // Customer Credit Field (Pay Later)
+              _buildAdditionalField(
+                label: 'Customer Credit (Pay Later)',
+                controller: _customerCreditController,
+                hint: 'Enter credit amount',
+                icon: Icons.credit_score,
+                iconColor: _orangeColor,
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                onChanged: (value) {
+                  setState(() {
+                    _updateCreditCardPayment();
+                  });
+                },
+              ),
+              const SizedBox(height: 12),
+
+              // Discount Field
+              _buildAdditionalField(
+                label: 'Discount Amount',
+                controller: _discountController,
+                hint: 'Enter discount amount',
+                icon: Icons.discount,
+                iconColor: _infoColor,
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                onChanged: (value) {
+                  setState(() {
+                    _updateCreditCardPayment();
+                  });
+                },
+              ),
+              const SizedBox(height: 12),
+
+              // Payment Calculation Summary
+              _buildPaymentSummary(),
+              const SizedBox(height: 12),
+              if (_selectedPurchaseMode == 'Ready Cash') ...[
+                Text(
+                  'Payment Breakdown (Total must match amount to pay after discount, exchange and credit) *',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: _secondaryColor,
+                    fontSize: 13,
                   ),
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedPaymentBreakdown.card =
-                          double.tryParse(value) ?? 0.0;
-                    });
-                  },
-                  hint: 'Card amount',
-                  icon: Icons.credit_card,
-                  iconColor: const Color(0xFFFBBC05),
+                ),
+                const SizedBox(height: 8),
+
+                // Payment fields for Ready Cash
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildPaymentField(
+                        label: 'Cash',
+                        controller: _rcCashController,
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedPaymentBreakdown.cash =
+                                double.tryParse(value) ?? 0.0;
+                          });
+                        },
+                        hint: 'Cash amount',
+                        icon: Icons.money,
+                        iconColor: const Color(0xFF34A853),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildPaymentField(
+                        label: 'GPay',
+                        controller: _rcGpayController,
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedPaymentBreakdown.gpay =
+                                double.tryParse(value) ?? 0.0;
+                          });
+                        },
+                        hint: 'GPay amount',
+                        icon: Icons.phone_android,
+                        iconColor: const Color(0xFF4285F4),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildPaymentField(
+                        label: 'Card',
+                        controller: _rcCardController,
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedPaymentBreakdown.card =
+                                double.tryParse(value) ?? 0.0;
+                          });
+                        },
+                        hint: 'Card amount',
+                        icon: Icons.credit_card,
+                        iconColor: const Color(0xFFFBBC05),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildPaymentField(
+                        label: 'Credit',
+                        controller: _rcCreditController,
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedPaymentBreakdown.credit =
+                                double.tryParse(value) ?? 0.0;
+                          });
+                        },
+                        hint: 'Credit amount',
+                        icon: Icons.credit_score,
+                        iconColor: _orangeColor,
+                      ),
+                    ),
+                  ],
+                ),
+
+                // Show total and validation
+                const SizedBox(height: 8),
+                _buildPaymentValidation(),
+              ],
+              // Upgrade Field
+              const SizedBox(height: 12),
+
+              // EMI Down Payment Breakdown (if applicable)
+              if (_selectedPurchaseMode == 'EMI') ...[
+                // Down Payment Breakdown (Multiple payment methods)
+                if (_shouldShowDownPaymentBreakdown())
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Remaining Down Payment Breakdown *',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: _secondaryColor,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildPaymentField(
+                              label: 'Cash',
+                              controller: _dpCashController,
+                              onChanged: (value) {
+                                // Handled by listener
+                              },
+                              hint: 'Cash amount',
+                              icon: Icons.money,
+                              iconColor: const Color(0xFF34A853),
+                              focusNode: _dpCashFocusNode,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _buildPaymentField(
+                              label: 'GPay',
+                              controller: _dpGpayController,
+                              onChanged: (value) {
+                                // Handled by listener
+                              },
+                              hint: 'GPay amount',
+                              icon: Icons.phone_android,
+                              iconColor: const Color(0xFF4285F4),
+                              focusNode: _dpGpayFocusNode,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildPaymentField(
+                              label: 'Card',
+                              controller: _dpCardController,
+                              onChanged: (value) {
+                                // Handled by listener
+                              },
+                              hint: 'Card amount',
+                              icon: Icons.credit_card,
+                              iconColor: const Color(0xFFFBBC05),
+                              focusNode: _dpCardFocusNode,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _buildPaymentField(
+                              label: 'Credit',
+                              controller: _dpCreditController,
+                              onChanged: (value) {
+                                // Handled by listener
+                              },
+                              hint: 'Credit amount',
+                              icon: Icons.credit_score,
+                              iconColor: _orangeColor,
+                              focusNode: _dpCreditFocusNode,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _buildAdditionalField(
+                        label: 'Upgrade',
+                        controller: _upgradeController,
+                        hint: 'Enter upgrade details',
+                        icon: Icons.upgrade,
+                        iconColor: _purpleColor,
+                        keyboardType: TextInputType.text,
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Support Field
+                      _buildAdditionalField(
+                        label: 'Support',
+                        controller: _supportController,
+                        hint: 'Enter support details',
+                        icon: Icons.support_agent,
+                        iconColor: _pinkColor,
+                        keyboardType: TextInputType.text,
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Disbursement Amount Field
+                      _buildAdditionalField(
+                        label: 'Disbursement Amount',
+                        controller: _disbursementAmountController,
+                        hint: 'Enter disbursement amount',
+                        icon: Icons.monetization_on,
+                        iconColor: _accentColor,
+                        keyboardType: TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                      ),
+                      // Show total and validation for EMI
+                      const SizedBox(height: 8),
+                      _buildPaymentValidation(isDownPayment: true),
+                    ],
+                  ),
+              ],
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildPaymentSummary() {
+    final effectivePrice = _calculateEffectivePrice();
+    final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
+    final customerCredit =
+        double.tryParse(_customerCreditController.text) ?? 0.0;
+    final amountToPay = effectivePrice - exchange - customerCredit;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _primaryColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _primaryColor.withOpacity(0.2)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Original Price:',
+                style: TextStyle(fontSize: 12, color: _secondaryColor),
+              ),
+              Text(
+                '₹${_selectedPrice.toStringAsFixed(2)}',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: _secondaryColor,
                 ),
               ),
             ],
           ),
-
-          // Show total and validation for EMI
-          const SizedBox(height: 8),
-          _buildPaymentValidation(isDownPayment: true),
+          if ((double.tryParse(_discountController.text) ?? 0.0) > 0)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Discount:',
+                  style: TextStyle(fontSize: 12, color: _infoColor),
+                ),
+                Text(
+                  '-₹${double.tryParse(_discountController.text)?.toStringAsFixed(2) ?? '0.00'}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _infoColor,
+                  ),
+                ),
+              ],
+            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Effective Price:',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: _primaryColor,
+                ),
+              ),
+              Text(
+                '₹${effectivePrice.toStringAsFixed(2)}',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: _primaryColor,
+                ),
+              ),
+            ],
+          ),
+          Divider(height: 16, color: _secondaryColor.withOpacity(0.2)),
+          if (exchange > 0)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Exchange:',
+                  style: TextStyle(fontSize: 12, color: _tealColor),
+                ),
+                Text(
+                  '-₹${exchange.toStringAsFixed(2)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _tealColor,
+                  ),
+                ),
+              ],
+            ),
+          if (customerCredit > 0)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Customer Credit:',
+                  style: TextStyle(fontSize: 12, color: _orangeColor),
+                ),
+                Text(
+                  '-₹${customerCredit.toStringAsFixed(2)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _orangeColor,
+                  ),
+                ),
+              ],
+            ),
+          Divider(height: 16, color: _secondaryColor.withOpacity(0.2)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Amount to Pay:',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: _accentColor,
+                ),
+              ),
+              Text(
+                '₹${amountToPay.toStringAsFixed(2)}',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: _accentColor,
+                ),
+              ),
+            ],
+          ),
         ],
-      ],
+      ),
     );
+  }
+
+  bool _shouldShowDownPaymentBreakdown() {
+    final downPayment = double.tryParse(_downPaymentController.text) ?? 0.0;
+    final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
+    final customerCredit =
+        double.tryParse(_customerCreditController.text) ?? 0.0;
+    final remainingDownPayment = downPayment - exchange - customerCredit;
+
+    return downPayment > 0 && remainingDownPayment > 0;
   }
 
   Widget _buildAdditionalField({
@@ -1231,6 +1549,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
     required String hint,
     required IconData icon,
     required Color iconColor,
+    FocusNode? focusNode,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1240,6 +1559,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
         TextField(
           controller: controller,
           onChanged: onChanged,
+          focusNode: focusNode,
           decoration: InputDecoration(
             hintText: hint,
             prefixIcon: Icon(icon, size: 18, color: iconColor),
@@ -1260,13 +1580,19 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
   }
 
   Widget _buildPaymentValidation({bool isDownPayment = false}) {
+    final downPayment = double.tryParse(_downPaymentController.text) ?? 0.0;
+    final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
+    final customerCredit =
+        double.tryParse(_customerCreditController.text) ?? 0.0;
+    final remainingDownPayment = downPayment - exchange - customerCredit;
+
     final paymentTotal = _calculatePaymentTotal(_selectedPaymentBreakdown);
-    final targetAmount = isDownPayment
-        ? (double.tryParse(_downPaymentController.text) ?? 0.0)
-        : _calculateEffectivePrice();
+    final targetAmount = isDownPayment && _shouldShowDownPaymentBreakdown()
+        ? remainingDownPayment
+        : _calculateAmountToPay();
 
     final isValid =
-        (paymentTotal - targetAmount).abs() <= 0.01 && paymentTotal > 0;
+        (paymentTotal - targetAmount).abs() <= 0.01 && paymentTotal >= 0;
 
     return Container(
       padding: const EdgeInsets.all(8),
@@ -1294,7 +1620,9 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Payment Total: ₹${paymentTotal.toStringAsFixed(2)}',
+                  isDownPayment && _shouldShowDownPaymentBreakdown()
+                      ? 'Remaining Payment: ₹${paymentTotal.toStringAsFixed(2)}'
+                      : 'Payment Total: ₹${paymentTotal.toStringAsFixed(2)}',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -1326,6 +1654,11 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                 if (_selectedPaymentBreakdown.card > 0)
                   Text(
                     'Card: ₹${_selectedPaymentBreakdown.card.toStringAsFixed(0)}',
+                    style: TextStyle(fontSize: 10, color: _secondaryColor),
+                  ),
+                if (_selectedPaymentBreakdown.credit > 0)
+                  Text(
+                    'Credit: ₹${_selectedPaymentBreakdown.credit.toStringAsFixed(0)}',
                     style: TextStyle(fontSize: 10, color: _secondaryColor),
                   ),
               ],
@@ -1505,6 +1838,111 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
               ],
             ),
 
+            // Payment Adjustments Display
+            if (item.exchangeValue > 0 || item.customerCredit > 0) ...[
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: _primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: _primaryColor.withOpacity(0.2)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (item.exchangeValue > 0)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.swap_horiz,
+                                size: 12,
+                                color: _tealColor,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Exchange:',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: _tealColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            '-₹${item.exchangeValue.toStringAsFixed(2)}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: _tealColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    if (item.customerCredit > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.credit_score,
+                                  size: 12,
+                                  color: _orangeColor,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Customer Credit:',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: _orangeColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Text(
+                              '-₹${item.customerCredit.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: _orangeColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    Divider(height: 8, color: _secondaryColor.withOpacity(0.2)),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Amount to Pay:',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: _accentColor,
+                          ),
+                        ),
+                        Text(
+                          '₹${item.amountToPay.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: _accentColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
             // Additional Information Display
             if (item.upgrade.isNotEmpty ||
                 item.support.isNotEmpty ||
@@ -1597,7 +2035,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
               const SizedBox(height: 6),
               _buildPaymentBreakdownDisplay(
                 breakdown: item.paymentBreakdown,
-                total: item.effectivePrice,
+                total: item.amountToPay,
                 label: 'Payment',
               ),
             ] else if (item.purchaseMode == 'EMI') ...[
@@ -1609,11 +2047,17 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                     '${item.financeType}',
                     style: TextStyle(fontSize: 12, color: _secondaryColor),
                   ),
-                  _buildPaymentBreakdownDisplay(
-                    breakdown: item.paymentBreakdown,
-                    total: item.downPayment,
-                    label: 'Down Payment',
-                  ),
+                  if (item.downPayment > 0)
+                    Text(
+                      'Down Payment: ₹${item.downPayment.toStringAsFixed(2)}',
+                      style: TextStyle(fontSize: 11, color: _secondaryColor),
+                    ),
+                  if (paymentTotal > 0)
+                    _buildPaymentBreakdownDisplay(
+                      breakdown: item.paymentBreakdown,
+                      total: paymentTotal,
+                      label: 'Remaining Down Payment',
+                    ),
                 ],
               ),
             ] else if (item.purchaseMode == 'Credit Card') ...[
@@ -1627,8 +2071,11 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    'Full payment via Credit Card',
-                    style: TextStyle(fontSize: 12, color: _secondaryColor),
+                    'Card Payment: ₹${item.paymentBreakdown.card.toStringAsFixed(2)}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: const Color(0xFFFBBC05),
+                    ),
                   ),
                 ],
               ),
@@ -1651,6 +2098,8 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
       paymentMethods.add('GPay: ₹${breakdown.gpay.toStringAsFixed(0)}');
     if (breakdown.card > 0)
       paymentMethods.add('Card: ₹${breakdown.card.toStringAsFixed(0)}');
+    if (breakdown.credit > 0)
+      paymentMethods.add('Credit: ₹${breakdown.credit.toStringAsFixed(0)}');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1743,6 +2192,15 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
   }
 
   Widget _buildPhoneStats() {
+    final totalExchange = _phoneSaleItems.fold<double>(
+      0,
+      (sum, item) => sum + item.exchangeValue,
+    );
+    final totalCredit = _phoneSaleItems.fold<double>(
+      0,
+      (sum, item) => sum + item.customerCredit,
+    );
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -1750,64 +2208,95 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: _secondaryColor.withOpacity(0.1)),
       ),
-      child: Row(
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Icon(Icons.inventory_2, size: 12, color: _primaryColor),
-                  const SizedBox(width: 2),
+                  Row(
+                    children: [
+                      Icon(Icons.inventory_2, size: 12, color: _primaryColor),
+                      const SizedBox(width: 2),
+                      Text(
+                        _phoneSaleItems.length.toString(),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: _primaryColor,
+                        ),
+                      ),
+                    ],
+                  ),
                   Text(
-                    _phoneSaleItems.length.toString(),
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: _primaryColor,
-                    ),
+                    'Phones',
+                    style: TextStyle(fontSize: 9, color: _secondaryColor),
                   ),
                 ],
               ),
-              Text(
-                'Phones',
-                style: TextStyle(fontSize: 9, color: _secondaryColor),
+              const SizedBox(width: 6),
+              Container(
+                width: 1,
+                height: 20,
+                color: _secondaryColor.withOpacity(0.2),
               ),
-            ],
-          ),
-          const SizedBox(width: 6),
-          Container(
-            width: 1,
-            height: 20,
-            color: _secondaryColor.withOpacity(0.2),
-          ),
-          const SizedBox(width: 6),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Row(
+              const SizedBox(width: 6),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Icon(Icons.attach_money, size: 12, color: _accentColor),
-                  const SizedBox(width: 2),
+                  Row(
+                    children: [
+                      Icon(Icons.attach_money, size: 12, color: _accentColor),
+                      const SizedBox(width: 2),
+                      Text(
+                        _phoneSaleItems
+                            .fold<double>(0, (sum, item) => sum + item.price)
+                            .toStringAsFixed(0),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: _accentColor,
+                        ),
+                      ),
+                    ],
+                  ),
                   Text(
-                    _phoneSaleItems
-                        .fold<double>(0, (sum, item) => sum + item.price)
-                        .toStringAsFixed(0),
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: _accentColor,
-                    ),
+                    'Value',
+                    style: TextStyle(fontSize: 9, color: _secondaryColor),
                   ),
                 ],
               ),
-              Text(
-                'Value',
-                style: TextStyle(fontSize: 9, color: _secondaryColor),
-              ),
             ],
           ),
+          if (totalExchange > 0 || totalCredit > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (totalExchange > 0) ...[
+                    Icon(Icons.swap_horiz, size: 10, color: _tealColor),
+                    const SizedBox(width: 2),
+                    Text(
+                      'Ex: ₹${totalExchange.toStringAsFixed(0)}',
+                      style: TextStyle(fontSize: 10, color: _tealColor),
+                    ),
+                  ],
+                  if (totalCredit > 0) ...[
+                    if (totalExchange > 0) const SizedBox(width: 4),
+                    Icon(Icons.credit_score, size: 10, color: _orangeColor),
+                    const SizedBox(width: 2),
+                    Text(
+                      'Cr: ₹${totalCredit.toStringAsFixed(0)}',
+                      style: TextStyle(fontSize: 10, color: _orangeColor),
+                    ),
+                  ],
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -2381,9 +2870,23 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
     _upgradeController.dispose();
     _supportController.dispose();
     _disbursementAmountController.dispose();
+    _exchangeController.dispose();
+    _customerCreditController.dispose();
     _rcCashController.dispose();
     _rcGpayController.dispose();
     _rcCardController.dispose();
+    _rcCreditController.dispose();
+    _dpCashController.dispose();
+    _dpGpayController.dispose();
+    _dpCardController.dispose();
+    _dpCreditController.dispose();
+
+    // Dispose focus nodes
+    _dpCashFocusNode.dispose();
+    _dpGpayFocusNode.dispose();
+    _dpCardFocusNode.dispose();
+    _dpCreditFocusNode.dispose();
+
     super.dispose();
   }
 }
@@ -2405,6 +2908,9 @@ class PhoneSaleItem {
   final String support;
   final double disbursementAmount;
   final double downPayment;
+  final double exchangeValue;
+  final double customerCredit;
+  final double amountToPay;
   final DateTime addedAt;
 
   PhoneSaleItem({
@@ -2423,7 +2929,10 @@ class PhoneSaleItem {
     required this.upgrade,
     required this.support,
     required this.disbursementAmount,
-    this.downPayment = 0.0,
+    required this.downPayment,
+    required this.exchangeValue,
+    required this.customerCredit,
+    required this.amountToPay,
     required this.addedAt,
   });
 
@@ -2445,6 +2954,9 @@ class PhoneSaleItem {
       'support': support,
       'disbursementAmount': disbursementAmount,
       'downPayment': downPayment,
+      'exchangeValue': exchangeValue,
+      'customerCredit': customerCredit,
+      'amountToPay': amountToPay,
       'addedAt': addedAt.toIso8601String(),
     };
   }
@@ -2454,11 +2966,17 @@ class PaymentBreakdown {
   double cash;
   double gpay;
   double card;
+  double credit;
 
-  PaymentBreakdown({this.cash = 0.0, this.gpay = 0.0, this.card = 0.0});
+  PaymentBreakdown({
+    this.cash = 0.0,
+    this.gpay = 0.0,
+    this.card = 0.0,
+    this.credit = 0.0,
+  });
 
   Map<String, dynamic> toMap() {
-    return {'cash': cash, 'gpay': gpay, 'card': card};
+    return {'cash': cash, 'gpay': gpay, 'card': card, 'credit': credit};
   }
 
   factory PaymentBreakdown.fromMap(Map<String, dynamic> map) {
@@ -2466,6 +2984,7 @@ class PaymentBreakdown {
       cash: (map['cash'] as num?)?.toDouble() ?? 0.0,
       gpay: (map['gpay'] as num?)?.toDouble() ?? 0.0,
       card: (map['card'] as num?)?.toDouble() ?? 0.0,
+      credit: (map['credit'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }
