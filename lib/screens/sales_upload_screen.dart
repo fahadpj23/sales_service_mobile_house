@@ -10,7 +10,8 @@ class SalesUploadScreen extends StatefulWidget {
 }
 
 class _SalesUploadScreenState extends State<SalesUploadScreen> {
-  final TextEditingController _saleAmountController = TextEditingController();
+  final TextEditingController _accessoriesSaleAmountController =
+      TextEditingController();
   final TextEditingController _serviceAmountController =
       TextEditingController();
   final TextEditingController _gpayAmountController = TextEditingController();
@@ -106,6 +107,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
   final Color _tealColor = const Color(0xFF14B8A6); // For exchange
   final Color _orangeColor = const Color(0xFFF97316); // For customer credit
   final Color _discountColor = const Color(0xFF8B5CF6); // For discount
+  final Color _returnColor = const Color(0xFFFF6B6B); // For balance returned
 
   @override
   void initState() {
@@ -162,7 +164,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
   }
 
   void _addPaymentListeners() {
-    _saleAmountController.addListener(_calculateTotals);
+    _accessoriesSaleAmountController.addListener(_calculateTotals);
     _serviceAmountController.addListener(_calculateTotals);
     _gpayAmountController.addListener(_calculateTotals);
     _cashAmountController.addListener(_calculateTotals);
@@ -170,7 +172,8 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
   }
 
   void _calculateTotals() {
-    final saleAmount = double.tryParse(_saleAmountController.text) ?? 0.0;
+    final saleAmount =
+        double.tryParse(_accessoriesSaleAmountController.text) ?? 0.0;
     final serviceAmount = double.tryParse(_serviceAmountController.text) ?? 0.0;
 
     final gpayAmount = double.tryParse(_gpayAmountController.text) ?? 0.0;
@@ -359,8 +362,41 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
     if (_selectedPurchaseMode == 'Credit Card') {
       setState(() {
         final amountToPay = _calculateAmountToPay();
-        _selectedPaymentBreakdown.card = amountToPay > 0 ? amountToPay : 0.0;
+        final balanceReturned = _calculateBalanceReturned();
+        _selectedPaymentBreakdown.card = balanceReturned > 0
+            ? 0.0
+            : (amountToPay > 0 ? amountToPay : 0.0);
       });
+    }
+  }
+
+  double _calculateBalanceReturned() {
+    final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
+    final customerCredit =
+        double.tryParse(_customerCreditController.text) ?? 0.0;
+
+    if (_selectedPurchaseMode == 'EMI') {
+      final downPayment = double.tryParse(_downPaymentController.text) ?? 0.0;
+      final discount = double.tryParse(_discountController.text) ?? 0.0;
+
+      // For EMI: If exchange + customer credit is greater than down payment - discount
+      // then return the balance
+      final totalAdjustments = exchange + customerCredit;
+      final adjustedDownPayment = downPayment - discount;
+
+      if (totalAdjustments > adjustedDownPayment) {
+        return totalAdjustments - adjustedDownPayment;
+      }
+      return 0.0;
+    } else {
+      // For Ready Cash and Credit Card
+      final effectivePrice = _calculateEffectivePrice();
+      final totalAdjustments = exchange + customerCredit;
+
+      if (totalAdjustments > effectivePrice) {
+        return totalAdjustments - effectivePrice;
+      }
+      return 0.0;
     }
   }
 
@@ -380,6 +416,12 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
     }
 
     final effectivePrice = _calculateEffectivePrice();
+    final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
+    final customerCredit =
+        double.tryParse(_customerCreditController.text) ?? 0.0;
+    final discount = double.tryParse(_discountController.text) ?? 0.0;
+    final amountToPay = _calculateAmountToPay();
+    final balanceReturned = _calculateBalanceReturned();
 
     // For non-EMI modes, validate discount doesn't exceed price
     if (_selectedPurchaseMode != 'EMI') {
@@ -389,42 +431,28 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
       }
     }
 
-    final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
-    final customerCredit =
-        double.tryParse(_customerCreditController.text) ?? 0.0;
-    final discount = double.tryParse(_discountController.text) ?? 0.0;
-    final amountToPay = effectivePrice - exchange - customerCredit;
-
-    // Validate exchange
-    if (exchange > effectivePrice) {
-      _showMessage('Exchange value cannot be more than effective price');
-      return;
-    }
-
-    // Validate customer credit
-    if (customerCredit > effectivePrice) {
-      _showMessage('Customer credit cannot be more than effective price');
-      return;
-    }
-
-    // Validate exchange + customer credit
-    if (exchange + customerCredit > effectivePrice) {
-      _showMessage('Exchange + Credit cannot exceed effective price');
-      return;
-    }
-
     // Validate based on purchase mode
     if (_selectedPurchaseMode == 'Ready Cash') {
-      final paymentTotal = _calculatePaymentTotal(_selectedPaymentBreakdown);
-      if (paymentTotal == 0 && amountToPay > 0) {
-        _showMessage('Please enter payment amounts for Ready Cash');
-        return;
-      }
-      if ((paymentTotal - amountToPay).abs() > 0.01) {
-        _showMessage(
-          'Payment total (${paymentTotal.toStringAsFixed(2)}) does not match amount to pay (${amountToPay.toStringAsFixed(2)})',
-        );
-        return;
+      // For Ready Cash with balance returned, no payment needed
+      if (balanceReturned > 0) {
+        // Set payment breakdown to zero when balance is returned
+        _selectedPaymentBreakdown = PaymentBreakdown();
+        _rcCashController.clear();
+        _rcGpayController.clear();
+        _rcCardController.clear();
+        _rcCreditController.clear();
+      } else {
+        final paymentTotal = _calculatePaymentTotal(_selectedPaymentBreakdown);
+        if (paymentTotal == 0 && amountToPay > 0) {
+          _showMessage('Please enter payment amounts for Ready Cash');
+          return;
+        }
+        if ((paymentTotal - amountToPay).abs() > 0.01) {
+          _showMessage(
+            'Payment total (${paymentTotal.toStringAsFixed(2)}) does not match amount to pay (${amountToPay.toStringAsFixed(2)})',
+          );
+          return;
+        }
       }
     } else if (_selectedPurchaseMode == 'EMI') {
       if (_selectedFinanceType == null) {
@@ -441,24 +469,11 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
         return;
       }
 
-      // Check if down payment is less than or equal to amount to pay
-      if (downPayment > amountToPay) {
-        _showMessage('Down payment cannot be more than amount to pay');
-        return;
-      }
-
-      // Check if exchange + customer credit + discount exceeds down payment
-      if (exchange + customerCredit + discount > downPayment) {
-        _showMessage(
-          'Exchange + Customer Credit + Discount cannot exceed down payment',
-        );
-        return;
-      }
-
       // Calculate remaining down payment after exchange, customer credit, and discount
       final remainingDownPayment = _calculateRemainingDownPayment();
 
-      if (remainingDownPayment > 0) {
+      // For EMI with balance returned, remaining down payment will be 0
+      if (balanceReturned == 0 && remainingDownPayment > 0) {
         if (_calculatePaymentTotal(_selectedPaymentBreakdown) == 0) {
           _showMessage(
             'Please enter payment mode(s) for remaining down payment',
@@ -474,17 +489,24 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
           );
           return;
         }
-      } else if (remainingDownPayment < 0) {
-        _showMessage('Exchange + Credit + Discount cannot exceed down payment');
-        return;
       }
     } else if (_selectedPurchaseMode == 'Credit Card') {
       final cardAmount = _selectedPaymentBreakdown.card;
-      if ((cardAmount - amountToPay).abs() > 0.01) {
-        _showMessage(
-          'Card amount (${cardAmount.toStringAsFixed(2)}) does not match amount to pay (${amountToPay.toStringAsFixed(2)})',
-        );
-        return;
+      if (balanceReturned > 0) {
+        // No card payment needed when balance is returned
+        if (cardAmount > 0) {
+          _showMessage(
+            'No card payment needed when exchange value is greater than amount to pay',
+          );
+          return;
+        }
+      } else {
+        if ((cardAmount - amountToPay).abs() > 0.01) {
+          _showMessage(
+            'Card amount (${cardAmount.toStringAsFixed(2)}) does not match amount to pay (${amountToPay.toStringAsFixed(2)})',
+          );
+          return;
+        }
       }
     }
 
@@ -513,7 +535,8 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
           : 0.0,
       exchangeValue: exchange,
       customerCredit: customerCredit,
-      amountToPay: amountToPay,
+      amountToPay: amountToPay > 0 ? amountToPay : 0.0,
+      balanceReturnedToCustomer: balanceReturned,
       customerName: _customerNameController.text,
       customerPhone: _customerPhoneController.text,
       addedAt: DateTime.now(),
@@ -523,6 +546,14 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
       _phoneSaleItems.add(phoneSaleItem);
       _resetForm();
     });
+
+    // Show warning if balance is returned
+    if (balanceReturned > 0) {
+      _showMessage(
+        'Balance of ₹${balanceReturned.toStringAsFixed(2)} will be returned to customer',
+        isError: false,
+      );
+    }
   }
 
   void _resetForm() {
@@ -584,12 +615,12 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
   }
 
   void _uploadSalesData() async {
-    if (_saleAmountController.text.isEmpty) {
+    if (_accessoriesSaleAmountController.text.isEmpty) {
       _showMessage('Please enter sale amount');
       return;
     }
 
-    final saleAmount = double.tryParse(_saleAmountController.text);
+    final saleAmount = double.tryParse(_accessoriesSaleAmountController.text);
     final serviceAmount = double.tryParse(_serviceAmountController.text) ?? 0.0;
 
     if (saleAmount == null) {
@@ -644,6 +675,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
       double totalExchangeValue = 0.0;
       double totalCustomerCredit = 0.0;
       double totalAmountToPay = 0.0;
+      double totalBalanceReturned = 0.0;
       int totalPhonesSold = _phoneSaleItems.length;
 
       // Convert phone sale items to Firestore compatible format
@@ -654,6 +686,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
         totalExchangeValue += item.exchangeValue;
         totalCustomerCredit += item.customerCredit;
         totalAmountToPay += item.amountToPay;
+        totalBalanceReturned += item.balanceReturnedToCustomer;
         return item.toMap();
       }).toList();
 
@@ -663,7 +696,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
         'shopId': _shopId,
         'shopName': _shopName,
         'saleDate': _saleDate,
-        'saleAmount': saleAmount,
+        'accessoriesSaleAmount': saleAmount,
         'serviceAmount': serviceAmount,
         'totalAmount': calculatedTotal,
         // Payment breakdown
@@ -680,6 +713,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
         'totalExchangeValue': totalExchangeValue,
         'totalCustomerCredit': totalCustomerCredit,
         'totalAmountToPay': totalAmountToPay,
+        'totalBalanceReturned': totalBalanceReturned,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -718,7 +752,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
   }
 
   void _clearForm() {
-    _saleAmountController.clear();
+    _accessoriesSaleAmountController.clear();
     _serviceAmountController.clear();
     _gpayAmountController.clear();
     _cashAmountController.clear();
@@ -856,6 +890,9 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
   }
 
   Widget _buildPhoneSaleForm() {
+    final balanceReturned = _calculateBalanceReturned();
+    final amountToPay = _calculateAmountToPay();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -863,42 +900,29 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Customer Details',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: _primaryColor,
-              ),
+            const SizedBox(height: 8),
+
+            _buildAdditionalField(
+              label: 'Customer Name *',
+              controller: _customerNameController,
+              hint: 'Enter customer name',
+              icon: Icons.person,
+              iconColor: _primaryColor,
+              keyboardType: TextInputType.text,
             ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildAdditionalField(
-                    label: 'Customer Name *',
-                    controller: _customerNameController,
-                    hint: 'Enter customer name',
-                    icon: Icons.person,
-                    iconColor: _primaryColor,
-                    keyboardType: TextInputType.text,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _buildAdditionalField(
-                    label: 'Customer Phone',
-                    controller: _customerPhoneController,
-                    hint: 'Enter phone number',
-                    icon: Icons.phone,
-                    iconColor: _primaryColor,
-                    keyboardType: TextInputType.phone,
-                  ),
-                ),
-              ],
+            const SizedBox(width: 8),
+            _buildAdditionalField(
+              label: 'Customer Phone',
+              controller: _customerPhoneController,
+              hint: 'Enter phone number',
+              icon: Icons.phone,
+              iconColor: _primaryColor,
+              keyboardType: TextInputType.phone,
             ),
           ],
         ),
+
         const SizedBox(height: 12),
 
         // Brand Selection
@@ -1052,8 +1076,45 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
           const SizedBox(height: 12),
         ],
 
+        // Balance Returned Warning
+        if (balanceReturned > 0)
+          Container(
+            padding: const EdgeInsets.all(12),
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: _returnColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: _returnColor.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.warning, color: _returnColor),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Balance to be Returned to Customer',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: _returnColor,
+                        ),
+                      ),
+                      Text(
+                        '₹${balanceReturned.toStringAsFixed(2)} will be returned to customer',
+                        style: TextStyle(fontSize: 12, color: _secondaryColor),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
         // Ready Cash Payment Breakdown
-        if (_selectedPurchaseMode == 'Ready Cash') ...[
+        if (_selectedPurchaseMode == 'Ready Cash' && balanceReturned == 0) ...[
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1158,11 +1219,12 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: const Color(0xFFFBBC05),
                             ),
                           ),
                           Text(
-                            'Adjusted for exchange and customer credit',
+                            balanceReturned > 0
+                                ? 'No payment needed - balance will be returned'
+                                : 'Adjusted for exchange and customer credit',
                             style: TextStyle(
                               fontSize: 12,
                               color: _secondaryColor,
@@ -1195,7 +1257,9 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Card Amount: ₹${_selectedPaymentBreakdown.card.toStringAsFixed(2)}',
+                  balanceReturned > 0
+                      ? 'No Card Payment Required'
+                      : 'Card Amount: ₹${_selectedPaymentBreakdown.card.toStringAsFixed(2)}',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
@@ -1473,7 +1537,10 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
     if (downPayment == 0) return false;
 
     final remainingDownPayment = _calculateRemainingDownPayment();
-    return remainingDownPayment > 0;
+    final balanceReturned = _calculateBalanceReturned();
+
+    // Don't show breakdown if balance is returned
+    return remainingDownPayment > 0 && balanceReturned == 0;
   }
 
   Widget _buildPaymentSummary() {
@@ -1482,7 +1549,8 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
     final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
     final customerCredit =
         double.tryParse(_customerCreditController.text) ?? 0.0;
-    final amountToPay = effectivePrice - exchange - customerCredit;
+    final amountToPay = _calculateAmountToPay();
+    final balanceReturned = _calculateBalanceReturned();
 
     // For EMI, calculate remaining down payment
     final downPayment = double.tryParse(_downPaymentController.text) ?? 0.0;
@@ -1585,42 +1653,6 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                     ),
                   ],
                 ),
-                if (exchange > 0)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Exchange Applied:',
-                        style: TextStyle(fontSize: 12, color: _tealColor),
-                      ),
-                      Text(
-                        '-₹${exchange.toStringAsFixed(2)}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: _tealColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                if (customerCredit > 0)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Customer Credit Applied:',
-                        style: TextStyle(fontSize: 12, color: _orangeColor),
-                      ),
-                      Text(
-                        '-₹${customerCredit.toStringAsFixed(2)}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: _orangeColor,
-                        ),
-                      ),
-                    ],
-                  ),
                 if (discount > 0)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1639,27 +1671,83 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                       ),
                     ],
                   ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Remaining Down Payment:',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: _accentColor,
-                      ),
+                if (exchange > 0 || customerCredit > 0)
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _primaryColor.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(6),
                     ),
-                    Text(
-                      '₹${remainingDownPayment.toStringAsFixed(2)}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: _accentColor,
-                      ),
+                    child: Column(
+                      children: [
+                        if (exchange > 0)
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Exchange Applied:',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: _tealColor,
+                                ),
+                              ),
+                              Text(
+                                '-₹${exchange.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: _tealColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        if (customerCredit > 0)
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Customer Credit Applied:',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: _orangeColor,
+                                ),
+                              ),
+                              Text(
+                                '-₹${customerCredit.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: _orangeColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                if (balanceReturned == 0 && remainingDownPayment > 0)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Remaining Down Payment:',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _accentColor,
+                        ),
+                      ),
+                      Text(
+                        '₹${remainingDownPayment.toStringAsFixed(2)}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: _accentColor,
+                        ),
+                      ),
+                    ],
+                  ),
                 Divider(height: 16, color: _secondaryColor.withOpacity(0.2)),
               ],
             ),
@@ -1668,42 +1756,96 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
           if (_selectedPurchaseMode != 'EMI')
             Column(
               children: [
-                if (exchange > 0)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Exchange:',
-                        style: TextStyle(fontSize: 12, color: _tealColor),
-                      ),
-                      Text(
-                        '-₹${exchange.toStringAsFixed(2)}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: _tealColor,
-                        ),
-                      ),
-                    ],
+                if (exchange > 0 || customerCredit > 0)
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _primaryColor.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Column(
+                      children: [
+                        if (exchange > 0)
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Exchange:',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: _tealColor,
+                                ),
+                              ),
+                              Text(
+                                '-₹${exchange.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: _tealColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        if (customerCredit > 0)
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Customer Credit:',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: _orangeColor,
+                                ),
+                              ),
+                              Text(
+                                '-₹${customerCredit.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: _orangeColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
                   ),
-                if (customerCredit > 0)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Customer Credit:',
-                        style: TextStyle(fontSize: 12, color: _orangeColor),
-                      ),
-                      Text(
-                        '-₹${customerCredit.toStringAsFixed(2)}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: _orangeColor,
+                Divider(height: 16, color: _secondaryColor.withOpacity(0.2)),
+              ],
+            ),
+
+          // Balance Returned to Customer
+          if (balanceReturned > 0)
+            Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.money_off, size: 14, color: _returnColor),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Balance Returned to Customer:',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: _returnColor,
+                          ),
                         ),
+                      ],
+                    ),
+                    Text(
+                      '₹${balanceReturned.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: _returnColor,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
+                ),
                 Divider(height: 16, color: _secondaryColor.withOpacity(0.2)),
               ],
             ),
@@ -1723,7 +1865,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                 ),
               ),
               Text(
-                '₹${amountToPay.toStringAsFixed(2)}',
+                '₹${amountToPay > 0 ? amountToPay.toStringAsFixed(2) : '0.00'}',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -1740,6 +1882,18 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                 style: TextStyle(
                   fontSize: 10,
                   color: _secondaryColor,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+          if (balanceReturned > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Note: Customer will receive ₹${balanceReturned.toStringAsFixed(2)} as balance',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: _returnColor,
                   fontStyle: FontStyle.italic,
                 ),
               ),
@@ -1833,8 +1987,10 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
   Widget _buildPaymentValidationForReadyCash() {
     final paymentTotal = _calculatePaymentTotal(_selectedPaymentBreakdown);
     final targetAmount = _calculateAmountToPay();
-    final isValid =
-        (paymentTotal - targetAmount).abs() <= 0.01 && paymentTotal >= 0;
+    final balanceReturned = _calculateBalanceReturned();
+    final isValid = balanceReturned > 0
+        ? paymentTotal == 0
+        : (paymentTotal - targetAmount).abs() <= 0.01 && paymentTotal >= 0;
 
     return Container(
       padding: const EdgeInsets.all(8),
@@ -1862,14 +2018,16 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Payment Total: ₹${paymentTotal.toStringAsFixed(2)}',
+                  balanceReturned > 0
+                      ? 'No Payment Required - Balance will be Returned'
+                      : 'Payment Total: ₹${paymentTotal.toStringAsFixed(2)}',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                     color: isValid ? _accentColor : _errorColor,
                   ),
                 ),
-                if (!isValid)
+                if (!isValid && balanceReturned == 0)
                   Text(
                     'Should be ₹${targetAmount.toStringAsFixed(2)}',
                     style: TextStyle(fontSize: 11, color: _errorColor),
@@ -1915,6 +2073,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
         double.tryParse(_customerCreditController.text) ?? 0.0;
     final discount = double.tryParse(_discountController.text) ?? 0.0;
     final remainingDownPayment = _calculateRemainingDownPayment();
+    final balanceReturned = _calculateBalanceReturned();
 
     final paymentTotal = _calculatePaymentTotal(_selectedPaymentBreakdown);
     final isValid =
@@ -1947,7 +2106,9 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Remaining Down Payment: ₹${paymentTotal.toStringAsFixed(2)}',
+                  balanceReturned > 0
+                      ? 'Balance will be returned to customer'
+                      : 'Remaining Down Payment: ₹${paymentTotal.toStringAsFixed(2)}',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -1974,7 +2135,12 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                     'Discount: -₹${discount.toStringAsFixed(2)}',
                     style: TextStyle(fontSize: 10, color: _discountColor),
                   ),
-                if (!isValid)
+                if (balanceReturned > 0)
+                  Text(
+                    'Balance Returned: ₹${balanceReturned.toStringAsFixed(2)}',
+                    style: TextStyle(fontSize: 10, color: _returnColor),
+                  ),
+                if (!isValid && balanceReturned == 0)
                   Text(
                     'Should be ₹${remainingDownPayment.toStringAsFixed(2)}',
                     style: TextStyle(fontSize: 11, color: _errorColor),
@@ -2015,6 +2181,12 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
 
   Widget _buildPhoneSaleItemCard(PhoneSaleItem item) {
     final paymentTotal = _calculatePaymentTotal(item.paymentBreakdown);
+    final remainingDownPayment = item.purchaseMode == 'EMI'
+        ? item.downPayment -
+              item.exchangeValue -
+              item.customerCredit -
+              item.discount
+        : 0.0;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -2082,6 +2254,49 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                 ),
               ),
             const SizedBox(height: 8),
+
+            // Balance Returned Display
+            if (item.balanceReturnedToCustomer > 0)
+              Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _returnColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: _returnColor.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.money_off, size: 16, color: _returnColor),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Balance Returned to Customer',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: _returnColor,
+                            ),
+                          ),
+                          Text(
+                            '₹${item.balanceReturnedToCustomer.toStringAsFixed(2)}',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: _returnColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // Product Info
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -2237,149 +2452,6 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
               ],
             ),
 
-            // Payment Adjustments Display
-            // if (item.exchangeValue > 0 ||
-            //     item.customerCredit > 0 ||
-            //     (item.discount > 0 && item.purchaseMode == 'EMI')) ...[
-            //   const SizedBox(height: 6),
-            //   Container(
-            //     padding: const EdgeInsets.all(6),
-            //     decoration: BoxDecoration(
-            //       color: _primaryColor.withOpacity(0.1),
-            //       borderRadius: BorderRadius.circular(4),
-            //       border: Border.all(color: _primaryColor.withOpacity(0.2)),
-            //     ),
-            //     child: Column(
-            //       crossAxisAlignment: CrossAxisAlignment.start,
-            //       children: [
-            //         if (item.exchangeValue > 0)
-            //           Row(
-            //             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            //             children: [
-            //               Row(
-            //                 children: [
-            //                   Icon(
-            //                     Icons.swap_horiz,
-            //                     size: 12,
-            //                     color: _tealColor,
-            //                   ),
-            //                   const SizedBox(width: 4),
-            //                   Text(
-            //                     'Exchange:',
-            //                     style: TextStyle(
-            //                       fontSize: 11,
-            //                       color: _tealColor,
-            //                     ),
-            //                   ),
-            //                 ],
-            //               ),
-            //               Text(
-            //                 '-₹${item.exchangeValue.toStringAsFixed(2)}',
-            //                 style: TextStyle(
-            //                   fontSize: 12,
-            //                   fontWeight: FontWeight.bold,
-            //                   color: _tealColor,
-            //                 ),
-            //               ),
-            //             ],
-            //           ),
-            //         if (item.customerCredit > 0)
-            //           Padding(
-            //             padding: const EdgeInsets.only(top: 2),
-            //             child: Row(
-            //               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            //               children: [
-            //                 Row(
-            //                   children: [
-            //                     Icon(
-            //                       Icons.credit_score,
-            //                       size: 12,
-            //                       color: _orangeColor,
-            //                     ),
-            //                     const SizedBox(width: 4),
-            //                     Text(
-            //                       'Customer Credit:',
-            //                       style: TextStyle(
-            //                         fontSize: 11,
-            //                         color: _orangeColor,
-            //                       ),
-            //                     ),
-            //                   ],
-            //                 ),
-            //                 Text(
-            //                   '-₹${item.customerCredit.toStringAsFixed(2)}',
-            //                   style: TextStyle(
-            //                     fontSize: 12,
-            //                     fontWeight: FontWeight.bold,
-            //                     color: _orangeColor,
-            //                   ),
-            //                 ),
-            //               ],
-            //             ),
-            //           ),
-            //         if (item.discount > 0 && item.purchaseMode == 'EMI')
-            //           Padding(
-            //             padding: const EdgeInsets.only(top: 2),
-            //             child: Row(
-            //               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            //               children: [
-            //                 Row(
-            //                   children: [
-            //                     Icon(
-            //                       Icons.discount,
-            //                       size: 12,
-            //                       color: _discountColor,
-            //                     ),
-            //                     const SizedBox(width: 4),
-            //                     Text(
-            //                       'Discount:',
-            //                       style: TextStyle(
-            //                         fontSize: 11,
-            //                         color: _discountColor,
-            //                       ),
-            //                     ),
-            //                   ],
-            //                 ),
-            //                 Text(
-            //                   '-₹${item.discount.toStringAsFixed(2)}',
-            //                   style: TextStyle(
-            //                     fontSize: 12,
-            //                     fontWeight: FontWeight.bold,
-            //                     color: _discountColor,
-            //                   ),
-            //                 ),
-            //               ],
-            //             ),
-            //           ),
-            //         Divider(height: 8, color: _secondaryColor.withOpacity(0.2)),
-            //         Row(
-            //           mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            //           children: [
-            //             Text(
-            //               item.purchaseMode == 'EMI'
-            //                   ? 'Amount Financed (EMI):'
-            //                   : 'Amount to Pay:',
-            //               style: TextStyle(
-            //                 fontSize: 12,
-            //                 fontWeight: FontWeight.w600,
-            //                 color: _accentColor,
-            //               ),
-            //             ),
-            //             Text(
-            //               '₹${item.amountToPay.toStringAsFixed(2)}',
-            //               style: TextStyle(
-            //                 fontSize: 14,
-            //                 fontWeight: FontWeight.bold,
-            //                 color: _accentColor,
-            //               ),
-            //             ),
-            //           ],
-            //         ),
-            //       ],
-            //     ),
-            //   ),
-            // ],
-
             // Payment breakdown display for Ready Cash
             if (item.purchaseMode == 'Ready Cash' && paymentTotal > 0) ...[
               const SizedBox(height: 6),
@@ -2393,10 +2465,11 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    '${item.financeType}',
-                    style: TextStyle(fontSize: 12, color: _secondaryColor),
-                  ),
+                  if (item.financeType != null)
+                    Text(
+                      '${item.financeType}',
+                      style: TextStyle(fontSize: 12, color: _secondaryColor),
+                    ),
                   if (item.downPayment > 0)
                     Text(
                       'Down Payment: ₹${item.downPayment.toStringAsFixed(2)}',
@@ -2485,32 +2558,17 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                                 ],
                               ),
                             ),
-                          Divider(
-                            height: 4,
-                            color: _secondaryColor.withOpacity(0.1),
-                          ),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Remaining Down Payment:',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600,
-                                  color: _accentColor,
-                                ),
-                              ),
-                              Text(
-                                '₹${(item.downPayment - item.exchangeValue - item.customerCredit - item.discount).toStringAsFixed(2)}',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: _accentColor,
-                                ),
-                              ),
-                            ],
-                          ),
                         ],
+                      ),
+                    ),
+                  if (item.balanceReturnedToCustomer == 0 &&
+                      remainingDownPayment > 0)
+                    Text(
+                      'Remaining Down Payment: ₹${remainingDownPayment.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: _accentColor,
                       ),
                     ),
                   if (paymentTotal > 0)
@@ -2532,7 +2590,9 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    'Card Payment: ₹${item.paymentBreakdown.card.toStringAsFixed(2)}',
+                    item.balanceReturnedToCustomer > 0
+                        ? 'No Payment - Balance Returned'
+                        : 'Card Payment: ₹${item.paymentBreakdown.card.toStringAsFixed(2)}',
                     style: TextStyle(
                       fontSize: 12,
                       color: const Color(0xFFFBBC05),
@@ -2752,6 +2812,10 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
       0,
       (sum, item) => sum + item.discount,
     );
+    final totalBalanceReturned = _phoneSaleItems.fold<double>(
+      0,
+      (sum, item) => sum + item.balanceReturnedToCustomer,
+    );
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -2823,7 +2887,10 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
               ),
             ],
           ),
-          if (totalExchange > 0 || totalCredit > 0 || totalDiscount > 0)
+          if (totalExchange > 0 ||
+              totalCredit > 0 ||
+              totalDiscount > 0 ||
+              totalBalanceReturned > 0)
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Row(
@@ -2854,6 +2921,18 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                     Text(
                       'Dis: ₹${totalDiscount.toStringAsFixed(0)}',
                       style: TextStyle(fontSize: 10, color: _discountColor),
+                    ),
+                  ],
+                  if (totalBalanceReturned > 0) ...[
+                    if (totalExchange > 0 ||
+                        totalCredit > 0 ||
+                        totalDiscount > 0)
+                      const SizedBox(width: 4),
+                    Icon(Icons.money_off, size: 10, color: _returnColor),
+                    const SizedBox(width: 2),
+                    Text(
+                      'Ret: ₹${totalBalanceReturned.toStringAsFixed(0)}',
+                      style: TextStyle(fontSize: 10, color: _returnColor),
                     ),
                   ],
                 ],
@@ -3385,7 +3464,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
                     _buildInputField(
                       label: 'Sale Total Amount',
                       icon: Icons.attach_money,
-                      controller: _saleAmountController,
+                      controller: _accessoriesSaleAmountController,
                       hintText: 'Enter total sale amount',
                     ),
                     const SizedBox(height: 12),
@@ -3422,7 +3501,7 @@ class _SalesUploadScreenState extends State<SalesUploadScreen> {
 
   @override
   void dispose() {
-    _saleAmountController.dispose();
+    _accessoriesSaleAmountController.dispose();
     _serviceAmountController.dispose();
     _gpayAmountController.dispose();
     _cashAmountController.dispose();
@@ -3469,6 +3548,7 @@ class PhoneSaleItem {
   final double exchangeValue;
   final double customerCredit;
   final double amountToPay;
+  final double balanceReturnedToCustomer;
   final String customerName;
   final String customerPhone;
   final DateTime addedAt;
@@ -3493,6 +3573,7 @@ class PhoneSaleItem {
     required this.exchangeValue,
     required this.customerCredit,
     required this.amountToPay,
+    required this.balanceReturnedToCustomer,
     required this.customerName,
     required this.customerPhone,
     required this.addedAt,
@@ -3519,6 +3600,7 @@ class PhoneSaleItem {
       'exchangeValue': exchangeValue,
       'customerCredit': customerCredit,
       'amountToPay': amountToPay,
+      'balanceReturnedToCustomer': balanceReturnedToCustomer,
       'customerName': customerName,
       'customerPhone': customerPhone,
       'addedAt': addedAt.toIso8601String(),
