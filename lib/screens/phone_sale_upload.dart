@@ -10,23 +10,10 @@ class PhoneSaleUpload extends StatefulWidget {
 }
 
 class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
-  final TextEditingController _accessoriesSaleAmountController =
-      TextEditingController();
-  final TextEditingController _serviceAmountController =
-      TextEditingController();
-  final TextEditingController _gpayAmountController = TextEditingController();
-  final TextEditingController _cashAmountController = TextEditingController();
-  final TextEditingController _cardAmountController = TextEditingController();
-
   bool _isLoading = false;
   DateTime _saleDate = DateTime.now();
   String? _shopId;
   String? _shopName;
-  double _totalAmount = 0.0;
-  double _enteredPaymentTotal = 0.0;
-
-  // Phone sales data structure
-  final List<PhoneSaleItem> _phoneSaleItems = [];
 
   // Selection states
   String? _selectedBrand;
@@ -113,7 +100,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   void initState() {
     super.initState();
     _getUserShopId();
-    _addPaymentListeners();
     _fetchBrands();
 
     // Add listeners to Ready Cash payment breakdown controllers
@@ -161,29 +147,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
             double.tryParse(_dpCreditController.text) ?? 0.0;
       });
     }
-  }
-
-  void _addPaymentListeners() {
-    _accessoriesSaleAmountController.addListener(_calculateTotals);
-    _serviceAmountController.addListener(_calculateTotals);
-    _gpayAmountController.addListener(_calculateTotals);
-    _cashAmountController.addListener(_calculateTotals);
-    _cardAmountController.addListener(_calculateTotals);
-  }
-
-  void _calculateTotals() {
-    final saleAmount =
-        double.tryParse(_accessoriesSaleAmountController.text) ?? 0.0;
-    final serviceAmount = double.tryParse(_serviceAmountController.text) ?? 0.0;
-
-    final gpayAmount = double.tryParse(_gpayAmountController.text) ?? 0.0;
-    final cashAmount = double.tryParse(_cashAmountController.text) ?? 0.0;
-    final cardAmount = double.tryParse(_cardAmountController.text) ?? 0.0;
-
-    setState(() {
-      _totalAmount = saleAmount + serviceAmount;
-      _enteredPaymentTotal = gpayAmount + cashAmount + cardAmount;
-    });
   }
 
   Future<void> _fetchBrands() async {
@@ -400,7 +363,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  void _addPhoneSaleItem() {
+  void _uploadPhoneSale() async {
     if (_selectedBrand == null ||
         _selectedProduct == null ||
         _selectedVariant == null ||
@@ -510,50 +473,152 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       }
     }
 
-    final product = _products.firstWhere((p) => p['id'] == _selectedProduct);
-    final variant = _variants.firstWhere((v) => v['id'] == _selectedVariant);
-
-    final phoneSaleItem = PhoneSaleItem(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      brand: _selectedBrand ?? '',
-      productId: _selectedProduct ?? '',
-      productName: product['name']?.toString() ?? '',
-      variant: variant['name']?.toString() ?? '',
-      variantKey: variant['id']?.toString() ?? '',
-      price: _selectedPrice,
-      discount: discount,
-      effectivePrice: effectivePrice,
-      purchaseMode: _selectedPurchaseMode ?? '',
-      paymentBreakdown: _selectedPaymentBreakdown,
-      financeType: _selectedFinanceType,
-      upgrade: _upgradeController.text,
-      support: _supportController.text,
-      disbursementAmount:
-          double.tryParse(_disbursementAmountController.text) ?? 0.0,
-      downPayment: _selectedPurchaseMode == 'EMI'
-          ? double.tryParse(_downPaymentController.text) ?? 0.0
-          : 0.0,
-      exchangeValue: exchange,
-      customerCredit: customerCredit,
-      amountToPay: amountToPay > 0 ? amountToPay : 0.0,
-      balanceReturnedToCustomer: balanceReturned,
-      customerName: _customerNameController.text,
-      customerPhone: _customerPhoneController.text,
-      addedAt: DateTime.now(),
-    );
+    // Show confirmation dialog before uploading
+    final shouldUpload = await _showConfirmationDialog();
+    if (!shouldUpload) {
+      return;
+    }
 
     setState(() {
-      _phoneSaleItems.add(phoneSaleItem);
-      _resetForm();
+      _isLoading = true;
     });
 
-    // Show warning if balance is returned
-    if (balanceReturned > 0) {
-      _showMessage(
-        'Balance of ₹${balanceReturned.toStringAsFixed(2)} will be returned to customer',
-        isError: false,
-      );
+    try {
+      final User? user = _auth.currentUser;
+
+      if (user == null) {
+        _showMessage('User not authenticated');
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+
+      if (_shopId == null) {
+        _showMessage(
+          'Shop information not found. Please check your profile setup.',
+        );
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+
+      final product = _products.firstWhere((p) => p['id'] == _selectedProduct);
+      final variant = _variants.firstWhere((v) => v['id'] == _selectedVariant);
+
+      // Create phone sale item
+      final phoneSaleItem = {
+        'id': DateTime.now().millisecondsSinceEpoch.toString(),
+        'brand': _selectedBrand ?? '',
+        'productId': _selectedProduct ?? '',
+        'productName': product['name']?.toString() ?? '',
+        'variant': variant['name']?.toString() ?? '',
+        'variantKey': variant['id']?.toString() ?? '',
+        'price': _selectedPrice,
+        'discount': discount,
+        'effectivePrice': effectivePrice,
+        'purchaseMode': _selectedPurchaseMode ?? '',
+        'paymentBreakdown': _selectedPaymentBreakdown.toMap(),
+        'financeType': _selectedFinanceType,
+        'upgrade': _upgradeController.text,
+        'support': _supportController.text,
+        'disbursementAmount':
+            double.tryParse(_disbursementAmountController.text) ?? 0.0,
+        'downPayment': _selectedPurchaseMode == 'EMI'
+            ? double.tryParse(_downPaymentController.text) ?? 0.0
+            : 0.0,
+        'exchangeValue': exchange,
+        'customerCredit': customerCredit,
+        'amountToPay': amountToPay > 0 ? amountToPay : 0.0,
+        'balanceReturnedToCustomer': balanceReturned,
+        'customerName': _customerNameController.text,
+        'customerPhone': _customerPhoneController.text,
+        'addedAt': DateTime.now(),
+      };
+
+      final salesData = {
+        'userId': user.uid,
+        'userEmail': user.email,
+        'shopId': _shopId,
+        'shopName': _shopName,
+        'saleDate': _saleDate,
+        // Single phone sale instead of array
+        'phoneSale': phoneSaleItem,
+        'totalPhonesSold': 1,
+        'totalPhoneSalesValue': _selectedPrice,
+        'totalPhoneDiscount': discount,
+        'totalDisbursementAmount':
+            double.tryParse(_disbursementAmountController.text) ?? 0.0,
+        'totalExchangeValue': exchange,
+        'totalCustomerCredit': customerCredit,
+        'totalAmountToPay': amountToPay > 0 ? amountToPay : 0.0,
+        'totalBalanceReturned': balanceReturned,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      await _firestore.collection('sales').add(salesData);
+
+      _showMessage('Phone sale uploaded successfully!', isError: false);
+      _resetForm();
+    } catch (e) {
+      _showMessage('Failed to upload sale: $e');
     }
+
+    setState(() {
+      _isLoading = false;
+    });
+  }
+
+  Future<bool> _showConfirmationDialog() async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Confirm Sale Upload'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Customer: ${_customerNameController.text.isNotEmpty ? _customerNameController.text : "N/A"}',
+                ),
+                const SizedBox(height: 8),
+                Text('Product: ${_selectedProduct ?? "N/A"}'),
+                const SizedBox(height: 8),
+                Text('Price: ₹${_selectedPrice.toStringAsFixed(2)}'),
+                const SizedBox(height: 8),
+                Text('Purchase Mode: ${_selectedPurchaseMode ?? "N/A"}'),
+                if (_calculateBalanceReturned() > 0)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 8),
+                      Text(
+                        'Balance to Return: ₹${_calculateBalanceReturned().toStringAsFixed(2)}',
+                        style: TextStyle(color: _returnColor),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: ElevatedButton.styleFrom(backgroundColor: _primaryColor),
+                child: const Text(
+                  'Confirm',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        ) ??
+        false;
   }
 
   void _resetForm() {
@@ -587,12 +652,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     });
   }
 
-  void _removePhoneSaleItem(String id) {
-    setState(() {
-      _phoneSaleItems.removeWhere((item) => item.id == id);
-    });
-  }
-
   void _getUserShopId() async {
     try {
       final User? user = _auth.currentUser;
@@ -614,123 +673,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  void _uploadSalesData() async {
-    if (_accessoriesSaleAmountController.text.isEmpty) {
-      _showMessage('Please enter sale amount');
-      return;
-    }
-
-    final saleAmount = double.tryParse(_accessoriesSaleAmountController.text);
-    final serviceAmount = double.tryParse(_serviceAmountController.text) ?? 0.0;
-
-    if (saleAmount == null) {
-      _showMessage('Please enter valid sale amount');
-      return;
-    }
-
-    // Validate payment amounts
-    final gpayAmount = double.tryParse(_gpayAmountController.text) ?? 0.0;
-    final cashAmount = double.tryParse(_cashAmountController.text) ?? 0.0;
-    final cardAmount = double.tryParse(_cardAmountController.text) ?? 0.0;
-
-    final paymentTotal = gpayAmount + cashAmount + cardAmount;
-    final calculatedTotal = saleAmount + serviceAmount;
-
-    if ((paymentTotal - calculatedTotal).abs() > 0.01) {
-      _showMessage(
-        'Payment total (${paymentTotal.toStringAsFixed(2)}) does not match calculated total (${calculatedTotal.toStringAsFixed(2)})',
-      );
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final User? user = _auth.currentUser;
-
-      if (user == null) {
-        _showMessage('User not authenticated');
-        setState(() {
-          _isLoading = false;
-        });
-        return;
-      }
-
-      if (_shopId == null) {
-        _showMessage(
-          'Shop information not found. Please check your profile setup.',
-        );
-        setState(() {
-          _isLoading = false;
-        });
-        return;
-      }
-
-      // Prepare phone sales data
-      double totalPhoneSalesValue = 0.0;
-      double totalPhoneDiscount = 0.0;
-      double totalDisbursementAmount = 0.0;
-      double totalExchangeValue = 0.0;
-      double totalCustomerCredit = 0.0;
-      double totalAmountToPay = 0.0;
-      double totalBalanceReturned = 0.0;
-      int totalPhonesSold = _phoneSaleItems.length;
-
-      // Convert phone sale items to Firestore compatible format
-      final phoneSalesData = _phoneSaleItems.map((item) {
-        totalPhoneSalesValue += item.price;
-        totalPhoneDiscount += item.discount;
-        totalDisbursementAmount += item.disbursementAmount;
-        totalExchangeValue += item.exchangeValue;
-        totalCustomerCredit += item.customerCredit;
-        totalAmountToPay += item.amountToPay;
-        totalBalanceReturned += item.balanceReturnedToCustomer;
-        return item.toMap();
-      }).toList();
-
-      final salesData = {
-        'userId': user.uid,
-        'userEmail': user.email,
-        'shopId': _shopId,
-        'shopName': _shopName,
-        'saleDate': _saleDate,
-        'accessoriesSaleAmount': saleAmount,
-        'serviceAmount': serviceAmount,
-        'totalAmount': calculatedTotal,
-        // Payment breakdown
-        'gpayAmount': gpayAmount,
-        'cashAmount': cashAmount,
-        'cardAmount': cardAmount,
-        'paymentTotal': paymentTotal,
-        // Phone sales
-        'phoneSales': phoneSalesData,
-        'totalPhonesSold': totalPhonesSold,
-        'totalPhoneSalesValue': totalPhoneSalesValue,
-        'totalPhoneDiscount': totalPhoneDiscount,
-        'totalDisbursementAmount': totalDisbursementAmount,
-        'totalExchangeValue': totalExchangeValue,
-        'totalCustomerCredit': totalCustomerCredit,
-        'totalAmountToPay': totalAmountToPay,
-        'totalBalanceReturned': totalBalanceReturned,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-
-      await _firestore.collection('sales').add(salesData);
-
-      _showMessage('Sales data uploaded successfully!', isError: false);
-      _clearForm();
-    } catch (e) {
-      _showMessage('Failed to upload sales data: $e');
-    }
-
-    setState(() {
-      _isLoading = false;
-    });
-  }
-
   void _showMessage(String message, {bool isError = true}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -749,39 +691,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
-  }
-
-  void _clearForm() {
-    _accessoriesSaleAmountController.clear();
-    _serviceAmountController.clear();
-    _gpayAmountController.clear();
-    _cashAmountController.clear();
-    _cardAmountController.clear();
-    _customerNameController.clear();
-    _customerPhoneController.clear();
-    _discountController.clear();
-    _downPaymentController.clear();
-    _upgradeController.clear();
-    _supportController.clear();
-    _disbursementAmountController.clear();
-    _exchangeController.clear();
-    _customerCreditController.clear();
-    _rcCashController.clear();
-    _rcGpayController.clear();
-    _rcCardController.clear();
-    _rcCreditController.clear();
-    _dpCashController.clear();
-    _dpGpayController.clear();
-    _dpCardController.clear();
-    _dpCreditController.clear();
-
-    setState(() {
-      _saleDate = DateTime.now();
-      _totalAmount = 0.0;
-      _enteredPaymentTotal = 0.0;
-      _phoneSaleItems.clear();
-      _resetForm();
-    });
   }
 
   Future<void> _selectDate() async {
@@ -811,84 +720,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  Widget _buildPhoneSalesSection() {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            if (_phoneSaleItems.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text(
-                'Added Phone Sales (${_phoneSaleItems.length})',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: _secondaryColor,
-                ),
-              ),
-              const SizedBox(height: 8),
-              ..._phoneSaleItems.map((item) => _buildPhoneSaleItemCard(item)),
-            ],
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: _primaryColor.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.phone_iphone,
-                    color: _primaryColor,
-                    size: 18,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Phone Sales',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: _primaryColor,
-                  ),
-                ),
-                const Spacer(),
-                _buildPhoneStats(),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // Phone Sales Form
-            _buildPhoneSaleForm(),
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(top: 16),
-              child: ElevatedButton.icon(
-                onPressed: _addPhoneSaleItem,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _primaryColor,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Add Phone Sale'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildPhoneSaleForm() {
     final balanceReturned = _calculateBalanceReturned();
     final amountToPay = _calculateAmountToPay();
@@ -911,7 +742,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               keyboardType: TextInputType.text,
             ),
             const SizedBox(height: 8),
-            const SizedBox(width: 8),
             _buildAdditionalField(
               label: 'Customer Phone',
               controller: _customerPhoneController,
@@ -965,13 +795,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                       product['name']?.toString() ?? '',
                       style: const TextStyle(fontSize: 14),
                     ),
-                    Text(
-                      product['brand']?.toString() ?? '',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _secondaryColor.withOpacity(0.7),
-                      ),
-                    ),
                   ],
                 ),
               );
@@ -1007,14 +830,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                       ],
                     ),
                     SizedBox(height: 4),
-                    Text(
-                      '₹${variant['price'] ?? 0}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _accentColor,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
                   ],
                 ),
               );
@@ -2179,585 +1994,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     );
   }
 
-  Widget _buildPhoneSaleItemCard(PhoneSaleItem item) {
-    final paymentTotal = _calculatePaymentTotal(item.paymentBreakdown);
-    final remainingDownPayment = item.purchaseMode == 'EMI'
-        ? item.downPayment -
-              item.exchangeValue -
-              item.customerCredit -
-              item.discount
-        : 0.0;
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      elevation: 1,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: _secondaryColor.withOpacity(0.1)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Customer Info
-            if (item.customerName.isNotEmpty || item.customerPhone.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.only(bottom: 8),
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(color: _secondaryColor.withOpacity(0.1)),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: _primaryColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Icon(Icons.person, size: 14, color: _primaryColor),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (item.customerName.isNotEmpty)
-                            Text(
-                              item.customerName,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: _primaryColor,
-                              ),
-                            ),
-                          if (item.customerPhone.isNotEmpty)
-                            Text(
-                              item.customerPhone,
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: _secondaryColor,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.delete, color: _errorColor, size: 18),
-                      onPressed: () => _removePhoneSaleItem(item.id),
-                      padding: EdgeInsets.zero,
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ],
-                ),
-              ),
-            const SizedBox(height: 8),
-
-            // Balance Returned Display
-            if (item.balanceReturnedToCustomer > 0)
-              Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: _returnColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: _returnColor.withOpacity(0.3)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.money_off, size: 16, color: _returnColor),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Balance Returned to Customer',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: _returnColor,
-                            ),
-                          ),
-                          Text(
-                            '₹${item.balanceReturnedToCustomer.toStringAsFixed(2)}',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: _returnColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-            // Product Info
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    '${item.productName} ',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: _primaryColor,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _secondaryColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    item.brand.toUpperCase(),
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: _secondaryColor,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _accentColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    item.variant,
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: _accentColor,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          'Price: ',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: _secondaryColor,
-                          ),
-                        ),
-                        Text(
-                          '₹${item.price.toStringAsFixed(2)}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: _accentColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                    // Show discount differently for EMI vs non-EMI
-                    if (item.discount > 0)
-                      Row(
-                        children: [
-                          Text(
-                            item.purchaseMode == 'EMI'
-                                ? 'Discount (from DP): '
-                                : 'Discount: ',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: _secondaryColor,
-                            ),
-                          ),
-                          Text(
-                            '-₹${item.discount.toStringAsFixed(2)}',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: item.purchaseMode == 'EMI'
-                                  ? _discountColor
-                                  : _infoColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                    if (item.purchaseMode != 'EMI')
-                      Row(
-                        children: [
-                          Text(
-                            'Effective: ',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: _primaryColor,
-                            ),
-                          ),
-                          Text(
-                            '₹${item.effectivePrice.toStringAsFixed(2)}',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: _primaryColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                  ],
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _getPurchaseModeColor(
-                      item.purchaseMode,
-                    ).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    item.purchaseMode,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: _getPurchaseModeColor(item.purchaseMode),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            // Payment breakdown display for Ready Cash
-            if (item.purchaseMode == 'Ready Cash' && paymentTotal > 0) ...[
-              const SizedBox(height: 6),
-              _buildPaymentBreakdownDisplay(
-                breakdown: item.paymentBreakdown,
-                total: paymentTotal,
-                label: 'Payment',
-              ),
-            ] else if (item.purchaseMode == 'EMI') ...[
-              const SizedBox(height: 6),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (item.financeType != null)
-                    Text(
-                      '${item.financeType}',
-                      style: TextStyle(fontSize: 12, color: _secondaryColor),
-                    ),
-                  if (item.downPayment > 0)
-                    Text(
-                      'Down Payment: ₹${item.downPayment.toStringAsFixed(2)}',
-                      style: TextStyle(fontSize: 11, color: _secondaryColor),
-                    ),
-                  if (item.exchangeValue > 0 ||
-                      item.customerCredit > 0 ||
-                      item.discount > 0)
-                    Container(
-                      padding: const EdgeInsets.all(4),
-                      margin: const EdgeInsets.symmetric(vertical: 2),
-                      decoration: BoxDecoration(
-                        color: _primaryColor.withOpacity(0.05),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Column(
-                        children: [
-                          if (item.exchangeValue > 0)
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  'Exchange Applied:',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: _tealColor,
-                                  ),
-                                ),
-                                Text(
-                                  '-₹${item.exchangeValue.toStringAsFixed(2)}',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: _tealColor,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          if (item.customerCredit > 0)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 2),
-                              child: Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    'Credit Applied:',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: _orangeColor,
-                                    ),
-                                  ),
-                                  Text(
-                                    '-₹${item.customerCredit.toStringAsFixed(2)}',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      color: _orangeColor,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          if (item.discount > 0)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 2),
-                              child: Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    'Discount Applied:',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: _discountColor,
-                                    ),
-                                  ),
-                                  Text(
-                                    '-₹${item.discount.toStringAsFixed(2)}',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      color: _discountColor,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  if (item.balanceReturnedToCustomer == 0 &&
-                      remainingDownPayment > 0)
-                    Text(
-                      'Remaining Down Payment: ₹${remainingDownPayment.toStringAsFixed(2)}',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: _accentColor,
-                      ),
-                    ),
-                  if (paymentTotal > 0)
-                    _buildPaymentBreakdownDisplay(
-                      breakdown: item.paymentBreakdown,
-                      total: paymentTotal,
-                      label: 'Remaining Down Payment',
-                    ),
-                ],
-              ),
-            ] else if (item.purchaseMode == 'Credit Card') ...[
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Icon(
-                    Icons.credit_card,
-                    size: 12,
-                    color: const Color(0xFFFBBC05),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    item.balanceReturnedToCustomer > 0
-                        ? 'No Payment - Balance Returned'
-                        : 'Card Payment: ₹${item.paymentBreakdown.card.toStringAsFixed(2)}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: const Color(0xFFFBBC05),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-
-            // Additional Information Display
-            if (item.upgrade.isNotEmpty ||
-                item.support.isNotEmpty ||
-                item.disbursementAmount > 0) ...[
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                children: [
-                  if (item.upgrade.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _purpleColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.upgrade, size: 10, color: _purpleColor),
-                          const SizedBox(width: 4),
-                          Text(
-                            item.upgrade,
-                            style: TextStyle(fontSize: 10, color: _purpleColor),
-                          ),
-                        ],
-                      ),
-                    ),
-                  if (item.support.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _pinkColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.support_agent,
-                            size: 10,
-                            color: _pinkColor,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            item.support,
-                            style: TextStyle(fontSize: 10, color: _pinkColor),
-                          ),
-                        ],
-                      ),
-                    ),
-                  if (item.disbursementAmount > 0)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _accentColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.monetization_on,
-                            size: 10,
-                            color: _accentColor,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Disbursement: ₹${item.disbursementAmount.toStringAsFixed(2)}',
-                            style: TextStyle(fontSize: 10, color: _accentColor),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPaymentBreakdownDisplay({
-    required PaymentBreakdown breakdown,
-    required double total,
-    required String label,
-  }) {
-    final paymentMethods = <String>[];
-    if (breakdown.cash > 0) {
-      paymentMethods.add('Cash: ₹${breakdown.cash.toStringAsFixed(0)}');
-    }
-    if (breakdown.gpay > 0) {
-      paymentMethods.add('GPay: ₹${breakdown.gpay.toStringAsFixed(0)}');
-    }
-    if (breakdown.card > 0) {
-      paymentMethods.add('Card: ₹${breakdown.card.toStringAsFixed(0)}');
-    }
-    if (breakdown.credit > 0) {
-      paymentMethods.add('Credit: ₹${breakdown.credit.toStringAsFixed(0)}');
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Text(
-              '$label: ',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: _secondaryColor,
-              ),
-            ),
-            Text(
-              '₹${total.toStringAsFixed(2)}',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: _accentColor,
-              ),
-            ),
-          ],
-        ),
-        if (paymentMethods.isNotEmpty)
-          Text(
-            paymentMethods.join(', '),
-            style: TextStyle(fontSize: 11, color: _secondaryColor),
-          ),
-      ],
-    );
-  }
-
-  Color _getPurchaseModeColor(String mode) {
-    switch (mode) {
-      case 'Ready Cash':
-        return _accentColor;
-      case 'Credit Card':
-        return const Color(0xFFFBBC05);
-      case 'EMI':
-        return const Color(0xFF8B5CF6);
-      default:
-        return _primaryColor;
-    }
-  }
-
   Widget _buildDropdown({
     required String label,
     required String? value,
@@ -2803,150 +2039,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     );
   }
 
-  Widget _buildPhoneStats() {
-    final totalExchange = _phoneSaleItems.fold<double>(
-      0,
-      (sum, item) => sum + item.exchangeValue,
-    );
-    final totalCredit = _phoneSaleItems.fold<double>(
-      0,
-      (sum, item) => sum + item.customerCredit,
-    );
-    final totalDiscount = _phoneSaleItems.fold<double>(
-      0,
-      (sum, item) => sum + item.discount,
-    );
-    final totalBalanceReturned = _phoneSaleItems.fold<double>(
-      0,
-      (sum, item) => sum + item.balanceReturnedToCustomer,
-    );
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: _backgroundColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _secondaryColor.withOpacity(0.1)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.inventory_2, size: 12, color: _primaryColor),
-                      const SizedBox(width: 2),
-                      Text(
-                        _phoneSaleItems.length.toString(),
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: _primaryColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Text(
-                    'Phones',
-                    style: TextStyle(fontSize: 9, color: _secondaryColor),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 6),
-              Container(
-                width: 1,
-                height: 20,
-                color: _secondaryColor.withOpacity(0.2),
-              ),
-              const SizedBox(width: 6),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.attach_money, size: 12, color: _accentColor),
-                      const SizedBox(width: 2),
-                      Text(
-                        _phoneSaleItems
-                            .fold<double>(0, (sum, item) => sum + item.price)
-                            .toStringAsFixed(0),
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: _accentColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Text(
-                    'Value',
-                    style: TextStyle(fontSize: 9, color: _secondaryColor),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          if (totalExchange > 0 ||
-              totalCredit > 0 ||
-              totalDiscount > 0 ||
-              totalBalanceReturned > 0)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (totalExchange > 0) ...[
-                    Icon(Icons.swap_horiz, size: 10, color: _tealColor),
-                    const SizedBox(width: 2),
-                    Text(
-                      'Ex: ₹${totalExchange.toStringAsFixed(0)}',
-                      style: TextStyle(fontSize: 10, color: _tealColor),
-                    ),
-                  ],
-                  if (totalCredit > 0) ...[
-                    if (totalExchange > 0) const SizedBox(width: 4),
-                    Icon(Icons.credit_score, size: 10, color: _orangeColor),
-                    const SizedBox(width: 2),
-                    Text(
-                      'Cr: ₹${totalCredit.toStringAsFixed(0)}',
-                      style: TextStyle(fontSize: 10, color: _orangeColor),
-                    ),
-                  ],
-                  if (totalDiscount > 0) ...[
-                    if (totalExchange > 0 || totalCredit > 0)
-                      const SizedBox(width: 4),
-                    Icon(Icons.discount, size: 10, color: _discountColor),
-                    const SizedBox(width: 2),
-                    Text(
-                      'Dis: ₹${totalDiscount.toStringAsFixed(0)}',
-                      style: TextStyle(fontSize: 10, color: _discountColor),
-                    ),
-                  ],
-                  if (totalBalanceReturned > 0) ...[
-                    if (totalExchange > 0 ||
-                        totalCredit > 0 ||
-                        totalDiscount > 0)
-                      const SizedBox(width: 4),
-                    Icon(Icons.money_off, size: 10, color: _returnColor),
-                    const SizedBox(width: 2),
-                    Text(
-                      'Ret: ₹${totalBalanceReturned.toStringAsFixed(0)}',
-                      style: TextStyle(fontSize: 10, color: _returnColor),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildHeader() {
     return Container(
       width: double.infinity,
@@ -2970,15 +2062,11 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               color: Colors.white.withOpacity(0.1),
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              Icons.analytics_outlined,
-              size: 32,
-              color: Colors.white,
-            ),
+            child: Icon(Icons.phone_iphone, size: 32, color: Colors.white),
           ),
           const SizedBox(height: 12),
           Text(
-            'Daily Sales Report',
+            'Phone Sales Upload',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
@@ -3082,62 +2170,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     );
   }
 
-  Widget _buildInputField({
-    required String label,
-    required IconData icon,
-    required TextEditingController controller,
-    bool isOptional = false,
-    String? hintText,
-    Color? iconColor,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: _secondaryColor,
-                fontSize: 13,
-              ),
-            ),
-            if (isOptional)
-              Text(
-                ' (Optional)',
-                style: TextStyle(
-                  color: _secondaryColor.withOpacity(0.6),
-                  fontSize: 11,
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          decoration: InputDecoration(
-            hintText: hintText,
-            prefixIcon: Icon(icon, color: iconColor ?? _primaryColor, size: 20),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: _secondaryColor.withOpacity(0.3)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: _primaryColor, width: 1.5),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 12,
-            ),
-          ),
-          keyboardType: TextInputType.numberWithOptions(decimal: true),
-        ),
-      ],
-    );
-  }
-
   Widget _buildDatePicker() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3178,184 +2210,12 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     );
   }
 
-  Widget _buildPaymentSection() {
-    return Card(
-      elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            // Payment Breakdown Header
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: _accentColor.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(Icons.payment, color: _accentColor, size: 18),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Payment Breakdown',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: _primaryColor,
-                  ),
-                ),
-                const Spacer(),
-                _buildPaymentTotalDisplay(),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // Payment fields in 2 columns
-            Row(
-              children: [
-                Expanded(
-                  child: _buildInputField(
-                    label: 'GPay Amount',
-                    icon: Icons.phone_android,
-                    controller: _gpayAmountController,
-                    hintText: 'GPay amount',
-                    iconColor: const Color(0xFF4285F4),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildInputField(
-                    label: 'Cash Amount',
-                    icon: Icons.money,
-                    controller: _cashAmountController,
-                    hintText: 'Cash amount',
-                    iconColor: const Color(0xFF34A853),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _buildInputField(
-              label: 'Card Amount',
-              icon: Icons.credit_card,
-              controller: _cardAmountController,
-              hintText: 'Card amount',
-              iconColor: const Color(0xFFFBBC05),
-            ),
-
-            // Validation message
-            if (_totalAmount > 0 &&
-                (_enteredPaymentTotal - _totalAmount).abs() > 0.01)
-              Container(
-                margin: const EdgeInsets.only(top: 12),
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: _errorColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _errorColor.withOpacity(0.3)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.error_outline, color: _errorColor, size: 16),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Payment total (${_enteredPaymentTotal.toStringAsFixed(2)}) does not match calculated total (${_totalAmount.toStringAsFixed(2)})',
-                        style: TextStyle(fontSize: 12, color: _errorColor),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            if (_totalAmount > 0 &&
-                (_enteredPaymentTotal - _totalAmount).abs() <= 0.01)
-              Container(
-                margin: const EdgeInsets.only(top: 12),
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: _accentColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _accentColor.withOpacity(0.3)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.check_circle, color: _accentColor, size: 16),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Payment amounts match the total',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _accentColor,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPaymentTotalDisplay() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: _backgroundColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _secondaryColor.withOpacity(0.1)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.calculate, size: 12, color: _primaryColor),
-              const SizedBox(width: 4),
-              Text(
-                'Total: ₹${_totalAmount.toStringAsFixed(2)}',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: _primaryColor,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            'Paid: ₹${_enteredPaymentTotal.toStringAsFixed(2)}',
-            style: TextStyle(
-              fontSize: 10,
-              color: _enteredPaymentTotal == _totalAmount
-                  ? _accentColor
-                  : (_enteredPaymentTotal > _totalAmount
-                        ? _warningColor
-                        : _errorColor),
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildUploadButton() {
-    bool paymentsMatch = (_enteredPaymentTotal - _totalAmount).abs() <= 0.01;
-
     return Container(
       width: double.infinity,
       height: 48,
       decoration: BoxDecoration(
-        gradient:
-            (_isLoading ||
-                _shopId == null ||
-                !paymentsMatch ||
-                _totalAmount == 0)
+        gradient: (_isLoading || _shopId == null)
             ? null
             : LinearGradient(
                 colors: [_primaryColor, const Color(0xFF1D4ED8)],
@@ -3363,22 +2223,12 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 end: Alignment.centerRight,
               ),
         borderRadius: BorderRadius.circular(12),
-        color:
-            (_isLoading ||
-                _shopId == null ||
-                !paymentsMatch ||
-                _totalAmount == 0)
+        color: (_isLoading || _shopId == null)
             ? _secondaryColor.withOpacity(0.3)
             : null,
       ),
       child: ElevatedButton(
-        onPressed:
-            (_isLoading ||
-                _shopId == null ||
-                !paymentsMatch ||
-                _totalAmount == 0)
-            ? null
-            : _uploadSalesData,
+        onPressed: (_isLoading || _shopId == null) ? null : _uploadPhoneSale,
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.transparent,
           shadowColor: Colors.transparent,
@@ -3411,13 +2261,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 ],
               )
             : Text(
-                _shopId == null
-                    ? 'Waiting for Shop Info'
-                    : (!paymentsMatch
-                          ? 'Fix Payment Amounts'
-                          : _totalAmount == 0
-                          ? 'Enter Sale Amount'
-                          : 'Upload Sales Report'),
+                _shopId == null ? 'Waiting for Shop Info' : 'Upload Phone Sale',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
@@ -3433,7 +2277,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     return Scaffold(
       backgroundColor: _backgroundColor,
       appBar: AppBar(
-        title: const Text('Sales Upload'),
+        title: const Text('Phone Sales Upload'),
         backgroundColor: _primaryColor,
         foregroundColor: Colors.white,
         elevation: 0,
@@ -3463,35 +2307,16 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
+                    // Sale Date Picker
                     _buildDatePicker(),
-                    const SizedBox(height: 16),
-                    _buildInputField(
-                      label: 'Sale Total Amount',
-                      icon: Icons.attach_money,
-                      controller: _accessoriesSaleAmountController,
-                      hintText: 'Enter total sale amount',
-                    ),
-                    const SizedBox(height: 12),
-                    _buildInputField(
-                      label: 'Service Amount',
-                      icon: Icons.build,
-                      controller: _serviceAmountController,
-                      isOptional: true,
-                      hintText: 'Enter service amount (optional)',
-                    ),
+                    const SizedBox(height: 20),
+
+                    // Phone Sales Form
+                    _buildPhoneSaleForm(),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 16),
-
-            // Payment Section
-            _buildPaymentSection(),
-            const SizedBox(height: 16),
-
-            // Phone Sales Section
-            _buildPhoneSalesSection(),
-
             const SizedBox(height: 20),
 
             // Upload Button
@@ -3505,11 +2330,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
   @override
   void dispose() {
-    _accessoriesSaleAmountController.dispose();
-    _serviceAmountController.dispose();
-    _gpayAmountController.dispose();
-    _cashAmountController.dispose();
-    _cardAmountController.dispose();
     _customerNameController.dispose();
     _customerPhoneController.dispose();
     _discountController.dispose();
@@ -3529,86 +2349,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     _dpCreditController.dispose();
 
     super.dispose();
-  }
-}
-
-class PhoneSaleItem {
-  final String id;
-  final String brand;
-  final String productId;
-  final String productName;
-  final String variant;
-  final String variantKey;
-  final double price;
-  final double discount;
-  final double effectivePrice;
-  final String purchaseMode;
-  final PaymentBreakdown paymentBreakdown;
-  final String? financeType;
-  final String upgrade;
-  final String support;
-  final double disbursementAmount;
-  final double downPayment;
-  final double exchangeValue;
-  final double customerCredit;
-  final double amountToPay;
-  final double balanceReturnedToCustomer;
-  final String customerName;
-  final String customerPhone;
-  final DateTime addedAt;
-
-  PhoneSaleItem({
-    required this.id,
-    required this.brand,
-    required this.productId,
-    required this.productName,
-    required this.variant,
-    required this.variantKey,
-    required this.price,
-    required this.discount,
-    required this.effectivePrice,
-    required this.purchaseMode,
-    required this.paymentBreakdown,
-    this.financeType,
-    required this.upgrade,
-    required this.support,
-    required this.disbursementAmount,
-    required this.downPayment,
-    required this.exchangeValue,
-    required this.customerCredit,
-    required this.amountToPay,
-    required this.balanceReturnedToCustomer,
-    required this.customerName,
-    required this.customerPhone,
-    required this.addedAt,
-  });
-
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'brand': brand,
-      'productId': productId,
-      'productName': productName,
-      'variant': variant,
-      'variantKey': variantKey,
-      'price': price,
-      'discount': discount,
-      'effectivePrice': effectivePrice,
-      'purchaseMode': purchaseMode,
-      'paymentBreakdown': paymentBreakdown.toMap(),
-      'financeType': financeType,
-      'upgrade': upgrade,
-      'support': support,
-      'disbursementAmount': disbursementAmount,
-      'downPayment': downPayment,
-      'exchangeValue': exchangeValue,
-      'customerCredit': customerCredit,
-      'amountToPay': amountToPay,
-      'balanceReturnedToCustomer': balanceReturnedToCustomer,
-      'customerName': customerName,
-      'customerPhone': customerPhone,
-      'addedAt': addedAt.toIso8601String(),
-    };
   }
 }
 
