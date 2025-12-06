@@ -11,6 +11,7 @@ class PhoneSaleUpload extends StatefulWidget {
 
 class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   bool _isLoading = false;
+  bool _loadingShopInfo = false;
   DateTime _saleDate = DateTime.now();
   String? _shopId;
   String? _shopName;
@@ -364,6 +365,14 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   }
 
   void _uploadPhoneSale() async {
+    // First, check if shop info is available
+    if (_shopId == null || _shopName == null) {
+      _showMessage(
+        'Shop information not found. Please check your profile setup.',
+      );
+      return;
+    }
+
     if (_selectedBrand == null ||
         _selectedProduct == null ||
         _selectedVariant == null ||
@@ -494,16 +503,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         return;
       }
 
-      if (_shopId == null) {
-        _showMessage(
-          'Shop information not found. Please check your profile setup.',
-        );
-        setState(() {
-          _isLoading = false;
-        });
-        return;
-      }
-
       final product = _products.firstWhere((p) => p['id'] == _selectedProduct);
       final variant = _variants.firstWhere((v) => v['id'] == _selectedVariant);
 
@@ -540,8 +539,8 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       final salesData = {
         'userId': user.uid,
         'userEmail': user.email,
-        'shopId': _shopId,
-        'shopName': _shopName,
+        'shopId': _shopId, // This will be added
+        'shopName': _shopName, // This will be added
         'saleDate': _saleDate,
         // Single phone sale instead of array
         'phoneSale': phoneSaleItem,
@@ -558,12 +557,18 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
-      await _firestore.collection('sales').add(salesData);
+      print('Uploading sale data with shopId: $_shopId, shopName: $_shopName');
 
-      _showMessage('Phone sale uploaded successfully!', isError: false);
+      await _firestore.collection('phoneSales').add(salesData);
+
+      _showMessage(
+        'Phone sale uploaded successfully! Shop: $_shopName',
+        isError: false,
+      );
       _resetForm();
     } catch (e) {
       _showMessage('Failed to upload sale: $e');
+      print('Upload error: $e');
     }
 
     setState(() {
@@ -580,6 +585,8 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Text('Shop: $_shopName'),
+                const SizedBox(height: 8),
                 Text(
                   'Customer: ${_customerNameController.text.isNotEmpty ? _customerNameController.text : "N/A"}',
                 ),
@@ -652,24 +659,49 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     });
   }
 
-  void _getUserShopId() async {
+  Future<void> _getUserShopId() async {
     try {
+      setState(() {
+        _loadingShopInfo = true;
+      });
+
       final User? user = _auth.currentUser;
       if (user != null) {
+        print('Fetching shop info for user: ${user.uid}');
         final userDoc = await _firestore
             .collection('users')
             .doc(user.uid)
             .get();
+
         if (userDoc.exists && userDoc.data() != null) {
           final userData = userDoc.data()!;
+          print('User data: $userData');
+
           setState(() {
-            _shopId = userData['shopId'];
-            _shopName = userData['shopName'];
+            _shopId = userData['shopId']?.toString();
+            _shopName = userData['shopName']?.toString();
+            _loadingShopInfo = false;
+          });
+
+          print('Shop ID: $_shopId, Shop Name: $_shopName');
+        } else {
+          print('User document not found or empty');
+          setState(() {
+            _loadingShopInfo = false;
           });
         }
+      } else {
+        print('No authenticated user');
+        setState(() {
+          _loadingShopInfo = false;
+        });
       }
     } catch (e) {
       print('Error getting shop ID: $e');
+      setState(() {
+        _loadingShopInfo = false;
+      });
+      _showMessage('Error loading shop information: $e');
     }
   }
 
@@ -2080,7 +2112,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   }
 
   Widget _buildShopInfo() {
-    if (_shopId == null) {
+    if (_shopId == null || _shopName == null) {
       return Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -2093,7 +2125,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
             Icon(Icons.store, color: _secondaryColor, size: 18),
             const SizedBox(width: 8),
             Expanded(
-              child: _isLoading
+              child: _loadingShopInfo
                   ? Row(
                       children: [
                         SizedBox(
@@ -2106,7 +2138,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          'Loading shop...',
+                          'Loading shop information...',
                           style: TextStyle(
                             fontSize: 12,
                             color: _secondaryColor,
@@ -2114,9 +2146,30 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                         ),
                       ],
                     )
-                  : Text(
-                      'Shop information not available',
-                      style: TextStyle(fontSize: 12, color: _secondaryColor),
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Shop information not available',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _secondaryColor,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        GestureDetector(
+                          onTap: _getUserShopId,
+                          child: Text(
+                            'Tap to refresh',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: _primaryColor,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
             ),
           ],
@@ -2162,13 +2215,24 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+                if (_shopId != null)
+                  Text(
+                    'ID: ${_shopId!.substring(0, min(8, _shopId!.length))}...',
+                    style: TextStyle(fontSize: 9, color: _secondaryColor),
+                  ),
               ],
             ),
+          ),
+          GestureDetector(
+            onTap: _getUserShopId,
+            child: Icon(Icons.refresh, size: 16, color: _primaryColor),
           ),
         ],
       ),
     );
   }
+
+  int min(int a, int b) => a < b ? a : b;
 
   Widget _buildDatePicker() {
     return Column(

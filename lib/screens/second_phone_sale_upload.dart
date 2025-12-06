@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class SecondPhoneSaleUpload extends StatefulWidget {
@@ -12,8 +13,12 @@ class SecondPhoneSaleUpload extends StatefulWidget {
 class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
   final _formKey = GlobalKey<FormState>();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   bool _isUploading = false;
+  String? _shopId;
+  String? _shopName;
+  bool _isLoadingUserData = true;
 
   // Form controllers
   final TextEditingController _dateController = TextEditingController();
@@ -25,6 +30,88 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
   final TextEditingController _cardController = TextEditingController();
   final TextEditingController _gpayController = TextEditingController();
   final TextEditingController _payLaterController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _getUserShopId();
+  }
+
+  // Get shopId and shopName from current user's document
+  void _getUserShopId() async {
+    try {
+      final User? user = _auth.currentUser;
+      if (user != null) {
+        final userDoc = await _firestore
+            .collection('users')
+            .doc(user.uid)
+            .get();
+        if (userDoc.exists && userDoc.data() != null) {
+          final userData = userDoc.data()!;
+          setState(() {
+            _shopId = userData['shopId'] ?? '';
+            _shopName = userData['shopName'] ?? '';
+            _isLoadingUserData = false;
+          });
+        } else {
+          setState(() {
+            _isLoadingUserData = false;
+          });
+          _showShopInfoError();
+        }
+      } else {
+        setState(() {
+          _isLoadingUserData = false;
+        });
+        _showLoginError();
+      }
+    } catch (e) {
+      print('Error getting shop ID: $e');
+      setState(() {
+        _isLoadingUserData = false;
+      });
+      _showShopInfoError();
+    }
+  }
+
+  void _showLoginError() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Login Required'),
+          content: const Text('Please login to access this feature.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  void _showShopInfoError() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Shop Information Missing'),
+          content: const Text(
+            'Shop information not found. Please update your profile.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    });
+  }
 
   // Safe parsing helper method
   double _safeParse(String text) {
@@ -80,6 +167,22 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
 
   // Upload function to Firebase
   Future<void> _uploadSale() async {
+    if (_shopId == null ||
+        _shopName == null ||
+        _shopId!.isEmpty ||
+        _shopName!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Shop information is required. Please update your profile.',
+          ),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
     if (_formKey.currentState!.validate()) {
       final totalPrice = _safeParse(_priceController.text);
 
@@ -123,8 +226,13 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
           'payLater': _safeParse(_payLaterController.text),
           'totalPayment': _calculateTotalPayment(),
           'paymentStatus': _getPaymentStatus(totalPrice),
+          // Add shop information from user document
+          'shopId': _shopId,
+          'shopName': _shopName,
           'uploadedAt': FieldValue.serverTimestamp(),
           'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'uploadedBy': _auth.currentUser?.uid,
+          'uploadedByEmail': _auth.currentUser?.email,
         };
 
         // Upload to Firebase Firestore
@@ -192,7 +300,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Collection: seconds_phone_sale',
+                  'Shop: $_shopName',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                 ),
@@ -614,6 +722,231 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                       ],
                     ),
                   ),
+
+                  const SizedBox(height: 20),
+
+                  // Shop Information Section
+                  if (_isLoadingUserData)
+                    Card(
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        side: BorderSide(color: Colors.grey[200]!),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.store, color: Colors.blue, size: 18),
+                                SizedBox(width: 6),
+                                Text(
+                                  'Shop Information',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            Center(
+                              child: Column(
+                                children: [
+                                  CircularProgressIndicator(
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.green[700]!,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    'Loading shop information...',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else if (_shopId != null && _shopName != null)
+                    Card(
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        side: BorderSide(color: Colors.grey[200]!),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.store, color: Colors.blue, size: 18),
+                                SizedBox(width: 6),
+                                Text(
+                                  'Shop Information',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.blue[50],
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: Colors.blue[100]!),
+                              ),
+                              child: Column(
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.badge,
+                                        size: 16,
+                                        color: Colors.blue[700],
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Shop ID',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey[600],
+                                              ),
+                                            ),
+                                            Text(
+                                              _shopId!,
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.blue[800],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  const Divider(height: 1),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.storefront,
+                                        size: 16,
+                                        color: Colors.blue[700],
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Shop Name',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey[600],
+                                              ),
+                                            ),
+                                            Text(
+                                              _shopName!,
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.blue[800],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    Card(
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        side: BorderSide(color: Colors.red[200]!),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.error_outline,
+                                  color: Colors.red[700],
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Shop Information',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.red[800],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.red[50],
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: Colors.red[100]!),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.warning_amber_rounded,
+                                    color: Colors.red[700],
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Shop information not found. Please update your profile.',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.red[700],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
 
                   const SizedBox(height: 20),
 
@@ -1046,7 +1379,14 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton(
-                          onPressed: _isUploading ? null : _uploadSale,
+                          onPressed:
+                              (_isUploading ||
+                                  _shopId == null ||
+                                  _shopName == null ||
+                                  _shopId!.isEmpty ||
+                                  _shopName!.isEmpty)
+                              ? null
+                              : _uploadSale,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.green[700],
                             foregroundColor: Colors.white,
@@ -1114,6 +1454,18 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                       style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
                   ),
+                  const SizedBox(height: 4),
+                  if (_shopName != null)
+                    Center(
+                      child: Text(
+                        'Shop: $_shopName',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.green[700],
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),

@@ -24,6 +24,11 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
   TextEditingController _cardAmountController = TextEditingController();
   TextEditingController _notesController = TextEditingController();
 
+  // Shop information
+  String? _shopId;
+  String? _shopName;
+  bool _isLoadingShopData = true;
+
   bool _isUploading = false;
   bool _checkingDate = false;
   bool _dateHasData = false;
@@ -36,7 +41,63 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkExistingDataForDate();
+      _getUserShopData();
+    });
+  }
+
+  // Get shop data from current user's document
+  void _getUserShopData() async {
+    try {
+      final User? user = _auth.currentUser;
+      if (user != null) {
+        final userDoc = await _firestore
+            .collection('users')
+            .doc(user.uid)
+            .get();
+
+        if (userDoc.exists && userDoc.data() != null) {
+          final userData = userDoc.data()!;
+          setState(() {
+            _shopId = userData['shopId'] ?? '';
+            _shopName = userData['shopName'] ?? '';
+            _isLoadingShopData = false;
+          });
+        } else {
+          setState(() {
+            _isLoadingShopData = false;
+          });
+          _showShopDataError('User profile not found');
+        }
+      } else {
+        setState(() {
+          _isLoadingShopData = false;
+        });
+        _showShopDataError('User not logged in');
+      }
+    } catch (e) {
+      print('Error getting shop data: $e');
+      setState(() {
+        _isLoadingShopData = false;
+      });
+      _showShopDataError('Failed to load shop information');
+    }
+  }
+
+  void _showShopDataError(String message) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Shop Information Error'),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
     });
   }
 
@@ -65,13 +126,13 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
       final user = _auth.currentUser;
       if (user == null) return;
 
-      // Create a date string for querying (simpler approach)
+      // Create a date string for querying
       String dateString = DateFormat('yyyy-MM-dd').format(_selectedDate);
 
-      // Query using composite key to avoid complex index requirements
+      // Query using composite key with shopId
       final querySnapshot = await _firestore
           .collection('accessories_service_sales')
-          .where('compositeKey', isEqualTo: '${user.uid}_$dateString')
+          .where('compositeKey', isEqualTo: '${_shopId}_$dateString')
           .orderBy('uploadedAt', descending: true)
           .get();
 
@@ -98,7 +159,6 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
       }
     } catch (error) {
       print('Error checking date data: $error');
-      // If there's an error, show a user-friendly message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text(
@@ -153,6 +213,22 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
   }
 
   Future<void> _uploadToFirebase() async {
+    if (_shopId == null ||
+        _shopName == null ||
+        _shopId!.isEmpty ||
+        _shopName!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Shop information is required. Please update your profile.',
+          ),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
     if (!_formKey.currentState!.validate()) return;
 
     // Validate that payment breakdown equals calculated total
@@ -187,10 +263,10 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
       // Create a date string for querying
       String dateString = DateFormat('yyyy-MM-dd').format(_selectedDate);
 
-      // Check if data already exists using composite key
+      // Check if data already exists using composite key with shopId
       final querySnapshot = await _firestore
           .collection('accessories_service_sales')
-          .where('compositeKey', isEqualTo: '${user.uid}_$dateString')
+          .where('compositeKey', isEqualTo: '${_shopId}_$dateString')
           .limit(1)
           .get();
 
@@ -213,7 +289,7 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
         return;
       }
 
-      // Prepare data for Firebase
+      // Prepare data for Firebase with shop information
       final saleData = {
         'date': Timestamp.fromDate(_selectedDate),
         'accessoriesAmount': double.parse(_accessoriesAmountController.text),
@@ -223,17 +299,28 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
         'gpayAmount': double.parse(_gpayAmountController.text),
         'cardAmount': double.parse(_cardAmountController.text),
         'notes': _notesController.text.trim(),
+
+        // User information
         'salesPersonId': user.uid,
         'salesPersonEmail': user.email,
         'salesPersonName': user.displayName ?? user.email!.split('@')[0],
+
+        // Shop information
+        'shopId': _shopId,
+        'shopName': _shopName,
+
+        // Timestamps
         'uploadedAt': FieldValue.serverTimestamp(),
+
+        // Metadata
         'type': 'accessories_service_sale',
         'year': _selectedDate.year,
         'month': _selectedDate.month,
         'day': _selectedDate.day,
         'dateString': dateString,
-        // Composite key for easy querying without complex indices
-        'compositeKey': '${user.uid}_$dateString',
+
+        // Composite key for easy querying (shopId + date)
+        'compositeKey': '${_shopId}_$dateString',
       };
 
       // Upload to Firestore
@@ -268,7 +355,6 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
       // Refresh existing data
       await _checkExistingDataForDate();
     } on FirebaseException catch (firebaseError) {
-      // Handle Firebase-specific errors
       String errorMessage = 'Upload failed';
 
       if (firebaseError.code == 'failed-precondition') {
@@ -300,6 +386,193 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
     } finally {
       setState(() => _isUploading = false);
     }
+  }
+
+  // Widget for Shop Information section
+  Widget _buildShopInfoSection() {
+    return Card(
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.store, color: Colors.blue.shade700),
+                const SizedBox(width: 8),
+                Text(
+                  'Shop Information',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.blue.shade700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            if (_isLoadingShopData)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey.shade200),
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 1.5,
+                        valueColor: AlwaysStoppedAnimation(
+                          Colors.blue.shade700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Loading shop information...',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else if (_shopId != null && _shopName != null)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Column(
+                  children: [
+                    // Shop ID Row
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(5),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade100,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Icon(
+                            Icons.badge,
+                            size: 16,
+                            color: Colors.blue.shade700,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Shop ID',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                              Text(
+                                _shopId!,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.blue.shade800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    const Divider(height: 1),
+                    const SizedBox(height: 10),
+                    // Shop Name Row
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(5),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade100,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Icon(
+                            Icons.storefront,
+                            size: 16,
+                            color: Colors.blue.shade700,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Shop Name',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                              Text(
+                                _shopName!,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.blue.shade800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 18,
+                      color: Colors.red.shade700,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Shop information not found. Please update your profile.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.red.shade700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildDateSection() {
@@ -579,6 +852,36 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // Shop info in existing data
+                          if (data['shopName'] != null)
+                            Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.shade50,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.blue.shade100),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.store,
+                                    size: 12,
+                                    color: Colors.blue.shade700,
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    data['shopName'].toString(),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.blue.shade800,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          const SizedBox(height: 8),
+
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -1294,7 +1597,11 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
             width: double.infinity,
             height: 48,
             child: ElevatedButton(
-              onPressed: (_totalPayment == _calculatedTotal && !_isUploading)
+              onPressed:
+                  (_totalPayment == _calculatedTotal &&
+                      !_isUploading &&
+                      _shopId != null &&
+                      _shopName != null)
                   ? _uploadToFirebase
                   : null,
               style: ElevatedButton.styleFrom(
@@ -1370,6 +1677,10 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
         padding: const EdgeInsets.all(12),
         child: Column(
           children: [
+            // Shop Information
+            _buildShopInfoSection(),
+            const SizedBox(height: 16),
+
             // Date Selection
             _buildDateSection(),
             const SizedBox(height: 16),
