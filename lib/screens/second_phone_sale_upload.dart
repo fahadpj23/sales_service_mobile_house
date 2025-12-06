@@ -26,19 +26,14 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
   final TextEditingController _gpayController = TextEditingController();
   final TextEditingController _payLaterController = TextEditingController();
 
-  // Auto-calculate payment fields when price changes
-  void _autoCalculatePayments() {
-    final totalPrice = double.tryParse(_priceController.text) ?? 0;
+  // Safe parsing helper method
+  double _safeParse(String text) {
+    if (text.trim().isEmpty) return 0.0;
+    return double.tryParse(text) ?? 0.0;
+  }
 
-    // If price is entered and other fields are empty, auto-fill cash with the full amount
-    if (totalPrice > 0) {
-      if (_cashController.text.isEmpty &&
-          _cardController.text.isEmpty &&
-          _gpayController.text.isEmpty &&
-          _payLaterController.text.isEmpty) {
-        _cashController.text = totalPrice.toStringAsFixed(2);
-      }
-    }
+  // Update payment summary when price changes
+  void _updatePaymentSummary() {
     setState(() {});
   }
 
@@ -60,23 +55,24 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
 
   // Calculate total payment
   double _calculateTotalPayment() {
-    double cash = double.tryParse(_cashController.text) ?? 0;
-    double card = double.tryParse(_cardController.text) ?? 0;
-    double gpay = double.tryParse(_gpayController.text) ?? 0;
-    double payLater = double.tryParse(_payLaterController.text) ?? 0;
+    double cash = _safeParse(_cashController.text);
+    double card = _safeParse(_cardController.text);
+    double gpay = _safeParse(_gpayController.text);
+    double payLater = _safeParse(_payLaterController.text);
     return cash + card + gpay + payLater;
   }
 
   // Validate payment breakdown
   bool _validatePaymentBreakdown(double totalPrice) {
+    if (totalPrice <= 0) return false;
     final totalPayment = _calculateTotalPayment();
     return (totalPayment - totalPrice).abs() < 0.01;
   }
 
   // Get payment breakdown status
   String _getPaymentStatus(double totalPrice) {
+    if (totalPrice <= 0) return 'pending';
     final totalPayment = _calculateTotalPayment();
-    if (totalPrice == 0) return 'pending';
     if (_validatePaymentBreakdown(totalPrice)) return 'balanced';
     if (totalPayment < totalPrice) return 'short';
     return 'excess';
@@ -85,7 +81,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
   // Upload function to Firebase
   Future<void> _uploadSale() async {
     if (_formKey.currentState!.validate()) {
-      final totalPrice = double.tryParse(_priceController.text) ?? 0;
+      final totalPrice = _safeParse(_priceController.text);
 
       if (!_validatePaymentBreakdown(totalPrice)) {
         final totalPayment = _calculateTotalPayment();
@@ -121,10 +117,10 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
           'defect': _defectController.text.isNotEmpty
               ? _defectController.text
               : 'No defects',
-          'cash': double.tryParse(_cashController.text) ?? 0,
-          'card': double.tryParse(_cardController.text) ?? 0,
-          'gpay': double.tryParse(_gpayController.text) ?? 0,
-          'payLater': double.tryParse(_payLaterController.text) ?? 0,
+          'cash': _safeParse(_cashController.text),
+          'card': _safeParse(_cardController.text),
+          'gpay': _safeParse(_gpayController.text),
+          'payLater': _safeParse(_payLaterController.text),
           'totalPayment': _calculateTotalPayment(),
           'paymentStatus': _getPaymentStatus(totalPrice),
           'uploadedAt': FieldValue.serverTimestamp(),
@@ -327,7 +323,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
   }
 
   void _clearForm() {
-    _formKey.currentState?.reset();
+    // Clear all text controllers
     _dateController.clear();
     _productNameController.clear();
     _priceController.clear();
@@ -337,6 +333,11 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
     _cardController.clear();
     _gpayController.clear();
     _payLaterController.clear();
+
+    // Reset form state
+    _formKey.currentState?.reset();
+
+    // Update UI
     setState(() {});
   }
 
@@ -429,7 +430,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
     required TextEditingController controller,
     String hintText = '0.00',
   }) {
-    final amount = double.tryParse(controller.text) ?? 0;
+    final amount = _safeParse(controller.text);
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -484,7 +485,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
             controller: controller,
             keyboardType: TextInputType.number,
             onChanged: (value) {
-              setState(() {});
+              _updatePaymentSummary();
             },
             style: const TextStyle(fontSize: 13),
             decoration: InputDecoration(
@@ -510,9 +511,14 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
               ),
             ),
             validator: (value) {
-              final amount = double.tryParse(value ?? '0') ?? 0;
-              if (amount < 0) {
-                return 'Cannot be negative';
+              if (value != null && value.trim().isNotEmpty) {
+                final amount = double.tryParse(value);
+                if (amount == null) {
+                  return 'Enter valid number';
+                }
+                if (amount < 0) {
+                  return 'Cannot be negative';
+                }
               }
               return null;
             },
@@ -524,7 +530,10 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
 
   @override
   Widget build(BuildContext context) {
-    final totalPrice = double.tryParse(_priceController.text) ?? 0;
+    final priceText = _priceController.text.trim();
+    final totalPrice = priceText.isNotEmpty
+        ? double.tryParse(priceText) ?? 0.0
+        : 0.0;
     final totalPayment = _calculateTotalPayment();
     final paymentStatus = _getPaymentStatus(totalPrice);
     final difference = (totalPrice - totalPayment).abs();
@@ -684,19 +693,20 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                             keyboardType: TextInputType.number,
                             hintText: 'Enter total sale price',
                             validator: (value) {
-                              if (value == null || value.isEmpty) {
+                              if (value == null || value.trim().isEmpty) {
                                 return 'Please enter sale price';
                               }
-                              if (double.tryParse(value) == null) {
+                              final parsed = double.tryParse(value);
+                              if (parsed == null) {
                                 return 'Please enter a valid number';
                               }
-                              if (double.parse(value) <= 0) {
+                              if (parsed <= 0) {
                                 return 'Price must be greater than 0';
                               }
                               return null;
                             },
                             isRequired: true,
-                            onChanged: _autoCalculatePayments,
+                            onChanged: _updatePaymentSummary,
                           ),
                           const SizedBox(height: 12),
 
@@ -955,7 +965,9 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                                     child: Column(
                                       children: [
                                         LinearProgressIndicator(
-                                          value: totalPayment / totalPrice,
+                                          value: totalPrice > 0
+                                              ? totalPayment / totalPrice
+                                              : 0,
                                           backgroundColor: Colors.grey[200],
                                           color: paymentStatus == 'short'
                                               ? Colors.orange
