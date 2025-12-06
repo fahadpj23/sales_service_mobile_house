@@ -31,7 +31,7 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
 
   bool _isUploading = false;
   bool _checkingDate = false;
-  bool _dateHasData = false;
+  bool _dateHasDataForThisShop = false;
   List<Map<String, dynamic>> _existingDateData = [];
 
   double _totalPayment = 0;
@@ -62,6 +62,8 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
             _shopName = userData['shopName'] ?? '';
             _isLoadingShopData = false;
           });
+          // After getting shop data, check for existing data
+          await _checkExistingDataForDate();
         } else {
           setState(() {
             _isLoadingShopData = false;
@@ -116,9 +118,13 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
   }
 
   Future<void> _checkExistingDataForDate() async {
+    if (_shopId == null || _shopId!.isEmpty) {
+      return;
+    }
+
     setState(() {
       _checkingDate = true;
-      _dateHasData = false;
+      _dateHasDataForThisShop = false;
       _existingDateData.clear();
     });
 
@@ -129,7 +135,7 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
       // Create a date string for querying
       String dateString = DateFormat('yyyy-MM-dd').format(_selectedDate);
 
-      // Query using composite key with shopId
+      // Query using composite key with shopId - Check only for current shop
       final querySnapshot = await _firestore
           .collection('accessories_service_sales')
           .where('compositeKey', isEqualTo: '${_shopId}_$dateString')
@@ -138,7 +144,7 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
 
       if (querySnapshot.docs.isNotEmpty) {
         setState(() {
-          _dateHasData = true;
+          _dateHasDataForThisShop = true;
           _existingDateData = querySnapshot.docs
               .map(
                 (doc) => {
@@ -153,7 +159,7 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
         });
       } else {
         setState(() {
-          _dateHasData = false;
+          _dateHasDataForThisShop = false;
           _existingDateData.clear();
         });
       }
@@ -229,6 +235,20 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
       return;
     }
 
+    if (_dateHasDataForThisShop) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Data already exists for ${DateFormat('dd/MM/yyyy').format(_selectedDate)} for your shop. Cannot upload again.',
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
     if (!_formKey.currentState!.validate()) return;
 
     // Validate that payment breakdown equals calculated total
@@ -263,7 +283,7 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
       // Create a date string for querying
       String dateString = DateFormat('yyyy-MM-dd').format(_selectedDate);
 
-      // Check if data already exists using composite key with shopId
+      // Double-check if data already exists for this shop and date
       final querySnapshot = await _firestore
           .collection('accessories_service_sales')
           .where('compositeKey', isEqualTo: '${_shopId}_$dateString')
@@ -271,11 +291,11 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
           .get();
 
       if (querySnapshot.docs.isNotEmpty) {
-        // Data already exists for this date
+        // Data already exists for this shop and date
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Data already exists for ${DateFormat('dd/MM/yyyy').format(_selectedDate)}. Cannot upload again.',
+              'Data already exists for ${DateFormat('dd/MM/yyyy').format(_selectedDate)} for your shop. Cannot upload again.',
             ),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
@@ -320,6 +340,7 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
         'dateString': dateString,
 
         // Composite key for easy querying (shopId + date)
+        // This ensures only one entry per shop per day
         'compositeKey': '${_shopId}_$dateString',
       };
 
@@ -718,7 +739,7 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Data Already Exists',
+                    'Data Already Exists for Your Shop',
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
@@ -741,7 +762,17 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
                   Icon(Icons.error_outline, color: Colors.red, size: 36),
                   const SizedBox(height: 10),
                   Text(
-                    'Data already exists for this date',
+                    'Shop: $_shopName',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.blue.shade800,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Data already exists for ${DateFormat('dd/MM/yyyy').format(_selectedDate)}',
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
@@ -751,9 +782,37 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'You cannot upload new data for ${DateFormat('dd/MM/yyyy').format(_selectedDate)}',
+                    'Each shop can only upload once per day',
                     style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                     textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.green.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          size: 16,
+                          color: Colors.green.shade700,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Other shops can still upload on this date',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.green.shade700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 10),
                   Text(
@@ -799,7 +858,7 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
                 ),
                 const SizedBox(width: 10),
                 Text(
-                  'Existing Entries',
+                  'Your Existing Entry',
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
@@ -886,7 +945,7 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
-                                'Entry ${index + 1}',
+                                'Your Entry',
                                 style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w500,
@@ -1601,7 +1660,8 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
                   (_totalPayment == _calculatedTotal &&
                       !_isUploading &&
                       _shopId != null &&
-                      _shopName != null)
+                      _shopName != null &&
+                      !_dateHasDataForThisShop)
                   ? _uploadToFirebase
                   : null,
               style: ElevatedButton.styleFrom(
@@ -1705,7 +1765,7 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
                   ],
                 ),
               )
-            else if (_dateHasData)
+            else if (_dateHasDataForThisShop)
               Column(
                 children: [
                   // Warning that data exists
