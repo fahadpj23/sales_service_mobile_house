@@ -18,13 +18,13 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
   // Selection states
   String? _selectedBrand;
-  String? _selectedProduct;
+  String? _selectedProductModel;
   String? _selectedVariant;
   String? _selectedPurchaseMode;
   PaymentBreakdown _selectedPaymentBreakdown = PaymentBreakdown();
   String? _selectedFinanceType;
 
-  // Controllers for current sale item
+  // Controllers
   final TextEditingController _customerNameController = TextEditingController();
   final TextEditingController _customerPhoneController =
       TextEditingController();
@@ -37,6 +37,8 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   final TextEditingController _exchangeController = TextEditingController();
   final TextEditingController _customerCreditController =
       TextEditingController();
+  final TextEditingController _productModelController = TextEditingController();
+  final TextEditingController _priceController = TextEditingController();
 
   // Payment breakdown controllers for Ready Cash
   final TextEditingController _rcCashController = TextEditingController();
@@ -50,12 +52,35 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   final TextEditingController _dpCardController = TextEditingController();
   final TextEditingController _dpCreditController = TextEditingController();
 
-  // Available data lists
-  List<Map<String, dynamic>> _products = [];
-  List<Map<String, dynamic>> _variants = [];
-
-  // Price display
-  double _selectedPrice = 0.0;
+  // Predefined smartphone brands
+  final List<String> _phoneBrands = [
+    'apple',
+    'samsung',
+    'xiaomi',
+    'redmi',
+    'realme',
+    'oneplus',
+    'oppo',
+    'vivo',
+    'motorola',
+    'nokia',
+    'google',
+    'asus',
+    'sony',
+    'lg',
+    'huawei',
+    'honor',
+    'poco',
+    'infinix',
+    'tecno',
+    'itel',
+    'micromax',
+    'lava',
+    'gionee',
+    'blackberry',
+    'htc',
+    'lenovo',
+  ];
 
   // Purchase modes
   final List<String> _purchaseModes = ['Ready Cash', 'Credit Card', 'EMI'];
@@ -76,9 +101,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     'Other',
   ];
 
-  // Phone brands (now fetched from products collection)
-  List<String> _phoneBrands = [];
-
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
@@ -92,16 +114,15 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   final Color _infoColor = const Color(0xFF3B82F6);
   final Color _purpleColor = const Color(0xFF8B5CF6);
   final Color _pinkColor = const Color(0xFFEC4899);
-  final Color _tealColor = const Color(0xFF14B8A6); // For exchange
-  final Color _orangeColor = const Color(0xFFF97316); // For customer credit
-  final Color _discountColor = const Color(0xFF8B5CF6); // For discount
-  final Color _returnColor = const Color(0xFFFF6B6B); // For balance returned
+  final Color _tealColor = const Color(0xFF14B8A6);
+  final Color _orangeColor = const Color(0xFFF97316);
+  final Color _discountColor = const Color(0xFF8B5CF6);
+  final Color _returnColor = const Color(0xFFFF6B6B);
 
   @override
   void initState() {
     super.initState();
     _getUserShopId();
-    _fetchBrands();
 
     // Add listeners to Ready Cash payment breakdown controllers
     _rcCashController.addListener(_updateReadyCashPaymentBreakdown);
@@ -118,6 +139,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     _exchangeController.addListener(_updateCreditCardPayment);
     _customerCreditController.addListener(_updateCreditCardPayment);
     _discountController.addListener(_updateCreditCardPayment);
+    _priceController.addListener(_updatePrice);
   }
 
   void _updateReadyCashPaymentBreakdown() {
@@ -150,143 +172,38 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  Future<void> _fetchBrands() async {
-    try {
-      final productsSnapshot = await _firestore.collection('products').get();
-
-      final brands = <String>{};
-      for (var doc in productsSnapshot.docs) {
-        final data = doc.data();
-        if (data['brand'] != null) {
-          brands.add(data['brand'].toString().toLowerCase());
-        }
-      }
-
+  void _updateCreditCardPayment() {
+    if (_selectedPurchaseMode == 'Credit Card') {
       setState(() {
-        _phoneBrands = brands.toList()..sort();
+        final amountToPay = _calculateAmountToPay();
+        final balanceReturned = _calculateBalanceReturned();
+        _selectedPaymentBreakdown.card = balanceReturned > 0
+            ? 0.0
+            : (amountToPay > 0 ? amountToPay : 0.0);
       });
-    } catch (e) {
-      print('Error fetching brands: $e');
     }
   }
 
-  Future<void> _fetchProductsByBrand(String brand) async {
-    try {
-      final productsSnapshot = await _firestore
-          .collection('products')
-          .where('brand', isEqualTo: brand.toLowerCase())
-          .get();
-
-      setState(() {
-        _products = productsSnapshot.docs.map((doc) {
-          final data = doc.data();
-          return {
-            'id': doc.id,
-            'name': data['productName'] ?? '',
-            'brand': data['brand'] ?? '',
-            'variants': data['variants'] ?? [],
-          };
-        }).toList();
-        _selectedProduct = null;
-        _selectedVariant = null;
-        _variants = [];
-        _selectedPrice = 0.0;
-      });
-    } catch (e) {
-      print('Error fetching products: $e');
-    }
-  }
-
-  void _onProductSelected(String? productId) {
-    setState(() {
-      _selectedProduct = productId;
-      _selectedVariant = null;
-      _selectedPrice = 0.0;
-
-      if (productId != null && productId.isNotEmpty) {
-        final product = _products.firstWhere(
-          (p) => p['id']?.toString() == productId,
-          orElse: () => {},
-        );
-        if (product.isNotEmpty) {
-          _variants = List<Map<String, dynamic>>.from(
-            product['variants'] ?? [],
-          );
-        }
-      } else {
-        _variants = [];
-      }
-    });
-  }
-
-  void _onVariantSelected(String? variantKey) {
-    setState(() {
-      _selectedVariant = variantKey;
-      if (variantKey != null && variantKey.isNotEmpty && _variants.isNotEmpty) {
-        final variant = _variants.firstWhere(
-          (v) => v['id']?.toString() == variantKey,
-          orElse: () => {},
-        );
-        if (variant.isNotEmpty) {
-          final price = variant['price'];
-          if (price is num) {
-            _selectedPrice = price.toDouble();
-          } else if (price is String) {
-            _selectedPrice = double.tryParse(price) ?? 0.0;
-          } else {
-            _selectedPrice = 0.0;
-          }
-        }
-      }
-    });
-  }
-
-  void _onPurchaseModeSelected(String? mode) {
-    setState(() {
-      _selectedPurchaseMode = mode;
-      _selectedPaymentBreakdown = PaymentBreakdown();
-      _selectedFinanceType = null;
-      _discountController.clear();
-      _downPaymentController.clear();
-      _upgradeController.clear();
-      _supportController.clear();
-      _disbursementAmountController.clear();
-      _exchangeController.clear();
-      _customerCreditController.clear();
-      _rcCashController.clear();
-      _rcGpayController.clear();
-      _rcCardController.clear();
-      _rcCreditController.clear();
-      _dpCashController.clear();
-      _dpGpayController.clear();
-      _dpCardController.clear();
-      _dpCreditController.clear();
-
-      if (mode == 'Ready Cash') {
-        // Leave it blank for user to fill
-      } else if (mode == 'Credit Card') {
-        // For Credit Card, card amount will be effective price minus exchange and customer credit
-        final effectivePrice = _calculateEffectivePrice();
-        final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
-        final customerCredit =
-            double.tryParse(_customerCreditController.text) ?? 0.0;
-        _selectedPaymentBreakdown.card =
-            effectivePrice - exchange - customerCredit;
-      }
-    });
+  void _updatePrice() {
+    setState(() {});
   }
 
   double _calculateEffectivePrice() {
     final discount = double.tryParse(_discountController.text) ?? 0.0;
+    final price = double.tryParse(_priceController.text) ?? 0.0;
 
     // For EMI, discount is NOT subtracted from effective price
     if (_selectedPurchaseMode == 'EMI') {
-      return _selectedPrice; // Original price without discount
+      return price; // Original price without discount
     } else {
       // For Ready Cash and Credit Card, discount is subtracted from price
-      final effectivePrice = _selectedPrice - discount;
+      final effectivePrice = price - discount;
       return effectivePrice < 0 ? 0.0 : effectivePrice;
     }
+  }
+
+  double _getSelectedPrice() {
+    return double.tryParse(_priceController.text) ?? 0.0;
   }
 
   double _calculatePaymentTotal(PaymentBreakdown breakdown) {
@@ -322,26 +239,15 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  void _updateCreditCardPayment() {
-    if (_selectedPurchaseMode == 'Credit Card') {
-      setState(() {
-        final amountToPay = _calculateAmountToPay();
-        final balanceReturned = _calculateBalanceReturned();
-        _selectedPaymentBreakdown.card = balanceReturned > 0
-            ? 0.0
-            : (amountToPay > 0 ? amountToPay : 0.0);
-      });
-    }
-  }
-
   double _calculateBalanceReturned() {
+    final price = double.tryParse(_priceController.text) ?? 0.0;
     final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
     final customerCredit =
         double.tryParse(_customerCreditController.text) ?? 0.0;
+    final discount = double.tryParse(_discountController.text) ?? 0.0;
 
     if (_selectedPurchaseMode == 'EMI') {
       final downPayment = double.tryParse(_downPaymentController.text) ?? 0.0;
-      final discount = double.tryParse(_discountController.text) ?? 0.0;
 
       // For EMI: If exchange + customer credit is greater than down payment - discount
       // then return the balance
@@ -354,7 +260,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       return 0.0;
     } else {
       // For Ready Cash and Credit Card
-      final effectivePrice = _calculateEffectivePrice();
+      final effectivePrice = price - discount;
       final totalAdjustments = exchange + customerCredit;
 
       if (totalAdjustments > effectivePrice) {
@@ -362,6 +268,39 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       }
       return 0.0;
     }
+  }
+
+  void _onPurchaseModeSelected(String? mode) {
+    setState(() {
+      _selectedPurchaseMode = mode;
+      _selectedPaymentBreakdown = PaymentBreakdown();
+      _selectedFinanceType = null;
+      _discountController.clear();
+      _downPaymentController.clear();
+      _upgradeController.clear();
+      _supportController.clear();
+      _disbursementAmountController.clear();
+      _exchangeController.clear();
+      _customerCreditController.clear();
+      _rcCashController.clear();
+      _rcGpayController.clear();
+      _rcCardController.clear();
+      _rcCreditController.clear();
+      _dpCashController.clear();
+      _dpGpayController.clear();
+      _dpCardController.clear();
+      _dpCreditController.clear();
+
+      if (mode == 'Credit Card') {
+        // For Credit Card, card amount will be effective price minus exchange and customer credit
+        final effectivePrice = _calculateEffectivePrice();
+        final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
+        final customerCredit =
+            double.tryParse(_customerCreditController.text) ?? 0.0;
+        _selectedPaymentBreakdown.card =
+            effectivePrice - exchange - customerCredit;
+      }
+    });
   }
 
   void _uploadPhoneSale() async {
@@ -374,10 +313,10 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
 
     if (_selectedBrand == null ||
-        _selectedProduct == null ||
-        _selectedVariant == null ||
+        _productModelController.text.isEmpty ||
+        _priceController.text.isEmpty ||
         _selectedPurchaseMode == null ||
-        _selectedPrice == 0) {
+        _getSelectedPrice() == 0) {
       _showMessage('Please complete all required fields');
       return;
     }
@@ -387,6 +326,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       return;
     }
 
+    final price = _getSelectedPrice();
     final effectivePrice = _calculateEffectivePrice();
     final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
     final customerCredit =
@@ -503,18 +443,12 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         return;
       }
 
-      final product = _products.firstWhere((p) => p['id'] == _selectedProduct);
-      final variant = _variants.firstWhere((v) => v['id'] == _selectedVariant);
-
       // Create phone sale item
       final phoneSaleItem = {
         'id': DateTime.now().millisecondsSinceEpoch.toString(),
         'brand': _selectedBrand ?? '',
-        'productId': _selectedProduct ?? '',
-        'productName': product['name']?.toString() ?? '',
-        'variant': variant['name']?.toString() ?? '',
-        'variantKey': variant['id']?.toString() ?? '',
-        'price': _selectedPrice,
+        'productModel': _productModelController.text,
+        'price': price,
         'discount': discount,
         'effectivePrice': effectivePrice,
         'purchaseMode': _selectedPurchaseMode ?? '',
@@ -539,13 +473,12 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       final salesData = {
         'userId': user.uid,
         'userEmail': user.email,
-        'shopId': _shopId, // This will be added
-        'shopName': _shopName, // This will be added
+        'shopId': _shopId,
+        'shopName': _shopName,
         'saleDate': _saleDate,
-        // Single phone sale instead of array
         'phoneSale': phoneSaleItem,
         'totalPhonesSold': 1,
-        'totalPhoneSalesValue': _selectedPrice,
+        'totalPhoneSalesValue': price,
         'totalPhoneDiscount': discount,
         'totalDisbursementAmount':
             double.tryParse(_disbursementAmountController.text) ?? 0.0,
@@ -591,9 +524,11 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                   'Customer: ${_customerNameController.text.isNotEmpty ? _customerNameController.text : "N/A"}',
                 ),
                 const SizedBox(height: 8),
-                Text('Product: ${_selectedProduct ?? "N/A"}'),
+                Text('Brand: ${_selectedBrand?.toUpperCase() ?? "N/A"}'),
                 const SizedBox(height: 8),
-                Text('Price: ₹${_selectedPrice.toStringAsFixed(2)}'),
+                Text('Model: ${_productModelController.text}'),
+                const SizedBox(height: 8),
+                Text('Price: ₹${_getSelectedPrice().toStringAsFixed(2)}'),
                 const SizedBox(height: 8),
                 Text('Purchase Mode: ${_selectedPurchaseMode ?? "N/A"}'),
                 if (_calculateBalanceReturned() > 0)
@@ -631,14 +566,14 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   void _resetForm() {
     setState(() {
       _selectedBrand = null;
-      _selectedProduct = null;
-      _selectedVariant = null;
+      _selectedProductModel = null;
       _selectedPurchaseMode = null;
       _selectedPaymentBreakdown = PaymentBreakdown();
       _selectedFinanceType = null;
-      _selectedPrice = 0.0;
       _customerNameController.clear();
       _customerPhoneController.clear();
+      _productModelController.clear();
+      _priceController.clear();
       _discountController.clear();
       _downPaymentController.clear();
       _upgradeController.clear();
@@ -654,8 +589,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       _dpGpayController.clear();
       _dpCardController.clear();
       _dpCreditController.clear();
-      _products = [];
-      _variants = [];
     });
   }
 
@@ -755,6 +688,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   Widget _buildPhoneSaleForm() {
     final balanceReturned = _calculateBalanceReturned();
     final amountToPay = _calculateAmountToPay();
+    final price = _getSelectedPrice();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -803,77 +737,49 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
           onChanged: (value) {
             setState(() {
               _selectedBrand = value;
-              if (value != null) {
-                _fetchProductsByBrand(value);
-              }
             });
           },
           hint: 'Choose phone brand',
         ),
         const SizedBox(height: 12),
 
-        // Product Selection
+        // Product Model Text Field
         if (_selectedBrand != null) ...[
-          _buildDropdown(
-            label: 'Select Product *',
-            value: _selectedProduct,
-            items: _products.map((product) {
-              return DropdownMenuItem<String>(
-                value: product['id']?.toString() ?? '',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      product['name']?.toString() ?? '',
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                  ],
-                ),
-              );
-            }).toList(),
-            onChanged: _onProductSelected,
-            hint: 'Choose product model',
+          _buildAdditionalField(
+            label: 'Product Model *',
+            controller: _productModelController,
+            hint: 'Enter phone model (e.g., iPhone 15 Pro, Galaxy S23)',
+            icon: Icons.phone_android,
+            iconColor: _primaryColor,
+            keyboardType: TextInputType.text,
+            onChanged: (value) {
+              setState(() {
+                _selectedProductModel = value;
+              });
+            },
           ),
           const SizedBox(height: 12),
         ],
 
-        // Variant Selection
-        if (_selectedProduct != null && _variants.isNotEmpty) ...[
-          _buildDropdown(
-            label: 'Select Variant *',
-            value: _selectedVariant,
-            items: _variants.map((variant) {
-              return DropdownMenuItem<String>(
-                value: variant['id']?.toString() ?? '',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          variant['ram']?.toString() ?? '',
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                        Text("/"),
-                        Text(
-                          variant['storage']?.toString() ?? '',
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 4),
-                  ],
-                ),
-              );
-            }).toList(),
-            onChanged: _onVariantSelected,
-            hint: 'Choose RAM/Storage variant',
+        // Price Field
+        if (_selectedProductModel != null &&
+            _selectedProductModel!.isNotEmpty) ...[
+          _buildAdditionalField(
+            label: 'Price *',
+            controller: _priceController,
+            hint: 'Enter phone price',
+            icon: Icons.attach_money,
+            iconColor: _accentColor,
+            keyboardType: TextInputType.numberWithOptions(decimal: true),
+            onChanged: (value) {
+              setState(() {});
+            },
           ),
           const SizedBox(height: 12),
         ],
 
-        // Price Display
-        if (_selectedPrice > 0) ...[
+        // Price Display (if price is entered)
+        if (price > 0) ...[
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -893,7 +799,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                   ),
                 ),
                 Text(
-                  '₹${_selectedPrice.toStringAsFixed(2)}',
+                  '₹${price.toStringAsFixed(2)}',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -907,7 +813,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         ],
 
         // Purchase Mode
-        if (_selectedPrice > 0) ...[
+        if (price > 0) ...[
           _buildDropdown(
             label: 'Purchase Mode *',
             value: _selectedPurchaseMode,
@@ -980,9 +886,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                     child: _buildPaymentField(
                       label: 'Cash',
                       controller: _rcCashController,
-                      onChanged: (value) {
-                        // Handled by listener
-                      },
+                      onChanged: (value) {},
                       hint: 'Cash amount',
                       icon: Icons.money,
                       iconColor: const Color(0xFF34A853),
@@ -993,9 +897,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                     child: _buildPaymentField(
                       label: 'GPay',
                       controller: _rcGpayController,
-                      onChanged: (value) {
-                        // Handled by listener
-                      },
+                      onChanged: (value) {},
                       hint: 'GPay amount',
                       icon: Icons.phone_android,
                       iconColor: const Color(0xFF4285F4),
@@ -1010,9 +912,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                     child: _buildPaymentField(
                       label: 'Card',
                       controller: _rcCardController,
-                      onChanged: (value) {
-                        // Handled by listener
-                      },
+                      onChanged: (value) {},
                       hint: 'Card amount',
                       icon: Icons.credit_card,
                       iconColor: const Color(0xFFFBBC05),
@@ -1023,9 +923,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                     child: _buildPaymentField(
                       label: 'Credit',
                       controller: _rcCreditController,
-                      onChanged: (value) {
-                        // Handled by listener
-                      },
+                      onChanged: (value) {},
                       hint: 'Credit amount',
                       icon: Icons.credit_score,
                       iconColor: _orangeColor,
@@ -1188,7 +1086,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         ],
 
         // Additional Information Section (for all purchase modes)
-        if (_selectedPurchaseMode != null && _selectedPrice > 0) ...[
+        if (_selectedPurchaseMode != null && price > 0) ...[
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1280,9 +1178,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                             child: _buildPaymentField(
                               label: 'Cash',
                               controller: _dpCashController,
-                              onChanged: (value) {
-                                // Handled by listener
-                              },
+                              onChanged: (value) {},
                               hint: 'Cash amount',
                               icon: Icons.money,
                               iconColor: const Color(0xFF34A853),
@@ -1293,9 +1189,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                             child: _buildPaymentField(
                               label: 'GPay',
                               controller: _dpGpayController,
-                              onChanged: (value) {
-                                // Handled by listener
-                              },
+                              onChanged: (value) {},
                               hint: 'GPay amount',
                               icon: Icons.phone_android,
                               iconColor: const Color(0xFF4285F4),
@@ -1310,9 +1204,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                             child: _buildPaymentField(
                               label: 'Card',
                               controller: _dpCardController,
-                              onChanged: (value) {
-                                // Handled by listener
-                              },
+                              onChanged: (value) {},
                               hint: 'Card amount',
                               icon: Icons.credit_card,
                               iconColor: const Color(0xFFFBBC05),
@@ -1323,9 +1215,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                             child: _buildPaymentField(
                               label: 'Credit',
                               controller: _dpCreditController,
-                              onChanged: (value) {
-                                // Handled by listener
-                              },
+                              onChanged: (value) {},
                               hint: 'Credit amount',
                               icon: Icons.credit_score,
                               iconColor: _orangeColor,
@@ -1391,6 +1281,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   }
 
   Widget _buildPaymentSummary() {
+    final price = _getSelectedPrice();
     final discount = double.tryParse(_discountController.text) ?? 0.0;
     final effectivePrice = _calculateEffectivePrice();
     final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
@@ -1421,7 +1312,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 style: TextStyle(fontSize: 12, color: _secondaryColor),
               ),
               Text(
-                '₹${_selectedPrice.toStringAsFixed(2)}',
+                '₹${price.toStringAsFixed(2)}',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -2051,7 +1942,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
             borderRadius: BorderRadius.circular(10),
           ),
           child: DropdownButtonFormField<String>(
-            initialValue: value,
+            value: value,
             items: items,
             onChanged: onChanged,
             decoration: InputDecoration(
@@ -2403,6 +2294,8 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     _disbursementAmountController.dispose();
     _exchangeController.dispose();
     _customerCreditController.dispose();
+    _productModelController.dispose();
+    _priceController.dispose();
     _rcCashController.dispose();
     _rcGpayController.dispose();
     _rcCardController.dispose();
