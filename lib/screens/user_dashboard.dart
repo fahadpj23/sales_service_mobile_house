@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/auth_service.dart';
-import 'accessories_sale_upload.dart'; // Create these files
+import 'accessories_sale_upload.dart';
 import 'phone_sale_upload.dart';
 import 'second_phone_sale_upload.dart';
 import 'base_model_sale_upload.dart';
@@ -71,11 +71,6 @@ class UserDashboard extends StatelessWidget {
                       fontWeight: FontWeight.w500,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  // Text(
-                  //   'ID: ${user?.id ?? 'N/A'}',
-                  //   style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
-                  // ),
                 ],
               ),
             ),
@@ -93,54 +88,34 @@ class UserDashboard extends StatelessWidget {
               ),
             ),
 
-            // Grid of Sales Options
+            // Grid of Sales Options with auto-sizing
             Expanded(
-              child: GridView.count(
-                crossAxisCount: 2,
-                mainAxisSpacing: 16,
-                crossAxisSpacing: 16,
-                childAspectRatio: 1.0,
-                children: [
-                  // Accessories Sale Upload
-                  _buildSalesOptionCard(
-                    context: context,
-                    icon: Icons.shopping_bag_outlined,
-                    title: 'Accessories and Service',
-                    subtitle: 'Upload accessories & Service sales',
-                    color: Colors.blue,
-                    screen: AccessoriesSaleUpload(), // Create this widget
-                  ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // Calculate responsive layout based on available space
+                  final crossAxisCount = constraints.maxWidth > 600 ? 2 : 2;
+                  final spacing = constraints.maxWidth < 350 ? 8.0 : 16.0;
+                  final childAspectRatio = constraints.maxWidth < 350
+                      ? 1.0
+                      : 1.2;
 
-                  // Phone Sale Upload
-                  _buildSalesOptionCard(
-                    context: context,
-                    icon: Icons.phone_iphone,
-                    title: 'Phone Sales',
-                    subtitle: 'Upload new phone sales',
-                    color: Colors.green,
-                    screen: PhoneSaleUpload(), // Create this widget
-                  ),
-
-                  // Second Phone Sale Upload
-                  _buildSalesOptionCard(
-                    context: context,
-                    icon: Icons.phone_android,
-                    title: 'Second Phones',
-                    subtitle: 'Upload used phone sales',
-                    color: Colors.orange,
-                    screen: SecondPhoneSaleUpload(), // Create this widget
-                  ),
-
-                  // Base Model Sale Upload
-                  _buildSalesOptionCard(
-                    context: context,
-                    icon: Icons.devices,
-                    title: 'Base Models',
-                    subtitle: 'Upload base model sales',
-                    color: Colors.purple,
-                    screen: BaseModelSaleUpload(), // Create this widget
-                  ),
-                ],
+                  return GridView.builder(
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: crossAxisCount,
+                      mainAxisSpacing: spacing,
+                      crossAxisSpacing: spacing,
+                      childAspectRatio: childAspectRatio,
+                    ),
+                    itemCount: 4,
+                    itemBuilder: (context, index) {
+                      return _buildResponsiveSalesOptionCard(
+                        context: context,
+                        index: index,
+                        maxWidth: constraints.maxWidth,
+                      );
+                    },
+                  );
+                },
               ),
             ),
 
@@ -172,20 +147,57 @@ class UserDashboard extends StatelessWidget {
     );
   }
 
-  // Helper method to build sales option card
-  Widget _buildSalesOptionCard({
+  Widget _buildResponsiveSalesOptionCard({
     required BuildContext context,
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required Color color,
-    required Widget screen,
+    required int index,
+    required double maxWidth,
   }) {
+    final List<Map<String, dynamic>> options = [
+      {
+        'icon': Icons.shopping_bag_outlined,
+        'title': 'Accessories and Service',
+        'subtitle': 'Upload accessories & Service sales',
+        'color': Colors.blue,
+        'screen': const AccessoriesSaleUpload(),
+      },
+      {
+        'icon': Icons.phone_iphone,
+        'title': 'Phone Sales',
+        'subtitle': 'Upload new phone sales',
+        'color': Colors.green,
+        'screen': const PhoneSaleUpload(),
+      },
+      {
+        'icon': Icons.phone_android,
+        'title': 'Second Phones',
+        'subtitle': 'Upload used phone sales',
+        'color': Colors.orange,
+        'screen': const SecondPhoneSaleUpload(),
+      },
+      {
+        'icon': Icons.devices,
+        'title': 'Base Models',
+        'subtitle': 'Upload base model sales',
+        'color': Colors.purple,
+        'screen': const BaseModelSaleUpload(),
+      },
+    ];
+
+    final option = options[index];
+
+    // Calculate responsive sizes based on available width
+    final iconSize = maxWidth < 350 ? 24.0 : 28.0;
+    final iconContainerSize = maxWidth < 350 ? 48.0 : 56.0;
+    final titleFontSize = maxWidth < 350 ? 13.0 : 15.0;
+    final subtitleFontSize = maxWidth < 350 ? 10.0 : 12.0;
+    final padding = maxWidth < 350 ? 8.0 : 12.0;
+    final spacing = maxWidth < 350 ? 6.0 : 10.0;
+
     return GestureDetector(
       onTap: () {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => screen),
+          MaterialPageRoute(builder: (context) => option['screen'] as Widget),
         );
       },
       child: Card(
@@ -197,39 +209,79 @@ class UserDashboard extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [color.withOpacity(0.1), color.withOpacity(0.05)],
+              colors: [
+                (option['color'] as Color).withOpacity(0.1),
+                (option['color'] as Color).withOpacity(0.05),
+              ],
             ),
           ),
+          padding: EdgeInsets.all(padding),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              // Icon Container
               Container(
-                width: 60,
-                height: 60,
+                width: iconContainerSize,
+                height: iconContainerSize,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.2),
+                  color: (option['color'] as Color).withOpacity(0.15),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(icon, size: 32, color: color),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: color,
+                child: Icon(
+                  option['icon'] as IconData,
+                  size: iconSize,
+                  color: option['color'] as Color,
                 ),
-                textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                child: Text(
-                  subtitle,
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
+              SizedBox(height: spacing),
+
+              // Title with auto-sizing
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: maxWidth * 0.4 - (padding * 2),
+                    ),
+                    child: Text(
+                      option['title'] as String,
+                      style: TextStyle(
+                        fontSize: titleFontSize,
+                        fontWeight: FontWeight.w600,
+                        color: option['color'] as Color,
+                        height: 1.2,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ),
+
+              SizedBox(height: spacing / 2),
+
+              // Subtitle with auto-sizing
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: maxWidth * 0.4 - (padding * 2),
+                    ),
+                    child: Text(
+                      option['subtitle'] as String,
+                      style: TextStyle(
+                        fontSize: subtitleFontSize,
+                        color: Colors.grey.shade600,
+                        height: 1.3,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -238,4 +290,101 @@ class UserDashboard extends StatelessWidget {
       ),
     );
   }
+
+  // Alternative version with AutoSizeText package (if you want to add it)
+  // First add to pubspec.yaml: auto_size_text: ^3.0.0
+  /*
+  Widget _buildAutoSizeSalesOptionCard({
+    required BuildContext context,
+    required int index,
+  }) {
+    final List<Map<String, dynamic>> options = [
+      // ... same options array
+    ];
+
+    final option = options[index];
+    
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => option['screen'] as Widget),
+        );
+      },
+      child: Card(
+        elevation: 4,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                (option['color'] as Color).withOpacity(0.1),
+                (option['color'] as Color).withOpacity(0.05),
+              ],
+            ),
+          ),
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Icon Container
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: (option['color'] as Color).withOpacity(0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  option['icon'] as IconData,
+                  size: 28,
+                  color: option['color'] as Color,
+                ),
+              ),
+              const SizedBox(height: 10),
+              
+              // Title with AutoSizeText
+              Expanded(
+                child: AutoSizeText(
+                  option['title'] as String,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: option['color'] as Color,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  minFontSize: 10,
+                  maxFontSize: 16,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              
+              const SizedBox(height: 5),
+              
+              // Subtitle with AutoSizeText
+              Expanded(
+                child: AutoSizeText(
+                  option['subtitle'] as String,
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  minFontSize: 8,
+                  maxFontSize: 12,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  */
 }

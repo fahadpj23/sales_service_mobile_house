@@ -22,6 +22,10 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
 
   // Form controllers
   final TextEditingController _dateController = TextEditingController();
+  final TextEditingController _customerNameController =
+      TextEditingController(); // New
+  final TextEditingController _customerPhoneController =
+      TextEditingController(); // New
   final TextEditingController _productNameController = TextEditingController();
   final TextEditingController _priceController = TextEditingController();
   final TextEditingController _imeiController = TextEditingController();
@@ -214,6 +218,8 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
         // Prepare sale data for Firebase
         final saleData = {
           'date': _dateController.text,
+          'customerName': _customerNameController.text, // New
+          'customerPhone': _customerPhoneController.text, // New
           'productName': _productNameController.text,
           'price': totalPrice,
           'imei': _imeiController.text,
@@ -304,6 +310,38 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                 ),
+                // Display customer info in success dialog
+                if (_customerNameController.text.isNotEmpty ||
+                    _customerPhoneController.text.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      children: [
+                        if (_customerNameController.text.isNotEmpty)
+                          Text(
+                            'Customer: ${_customerNameController.text}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue[800],
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        if (_customerPhoneController.text.isNotEmpty)
+                          Text(
+                            'Phone: ${_customerPhoneController.text}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue[800],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                 const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,
@@ -433,6 +471,8 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
   void _clearForm() {
     // Clear all text controllers
     _dateController.clear();
+    _customerNameController.clear(); // New
+    _customerPhoneController.clear(); // New
     _productNameController.clear();
     _priceController.clear();
     _imeiController.clear();
@@ -1002,6 +1042,50 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                           ),
                           const SizedBox(height: 12),
 
+                          // Customer Name (NEW)
+                          _buildTextField(
+                            controller: _customerNameController,
+                            label: 'Customer Name',
+                            prefixIcon: Icons.person,
+                            hintText: 'Enter customer name',
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Please enter customer name';
+                              }
+                              if (value.trim().length < 2) {
+                                return 'Name must be at least 2 characters';
+                              }
+                              return null;
+                            },
+                            isRequired: true,
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Customer Phone (NEW)
+                          _buildTextField(
+                            controller: _customerPhoneController,
+                            label: 'Customer Phone Number',
+                            prefixIcon: Icons.phone,
+                            keyboardType: TextInputType.phone,
+                            hintText: 'Enter phone number (e.g., 9876543210)',
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Please enter phone number';
+                              }
+                              // Remove any non-digit characters for validation
+                              final digitsOnly = value.replaceAll(
+                                RegExp(r'\D'),
+                                '',
+                              );
+                              if (digitsOnly.length < 10) {
+                                return 'Phone number must be at least 10 digits';
+                              }
+                              return null;
+                            },
+                            isRequired: true,
+                          ),
+                          const SizedBox(height: 12),
+
                           // Product Name
                           _buildTextField(
                             controller: _productNameController,
@@ -1217,6 +1301,67 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                                       : Colors.orange,
                                 ),
                                 const SizedBox(height: 10),
+
+                                // Customer Info Summary (NEW)
+                                if (_customerNameController.text.isNotEmpty ||
+                                    _customerPhoneController.text.isNotEmpty)
+                                  Column(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          color: Colors.blue[50],
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          border: Border.all(
+                                            color: Colors.blue[100]!,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              Icons.person,
+                                              color: Colors.blue[700],
+                                              size: 18,
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  if (_customerNameController
+                                                      .text
+                                                      .isNotEmpty)
+                                                    Text(
+                                                      'Customer: ${_customerNameController.text}',
+                                                      style: TextStyle(
+                                                        fontSize: 12,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                        color: Colors.blue[800],
+                                                      ),
+                                                    ),
+                                                  if (_customerPhoneController
+                                                      .text
+                                                      .isNotEmpty)
+                                                    Text(
+                                                      'Phone: ${_customerPhoneController.text}',
+                                                      style: TextStyle(
+                                                        fontSize: 12,
+                                                        color: Colors.blue[700],
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                    ],
+                                  ),
 
                                 // Status Row
                                 Container(
@@ -1530,6 +1675,8 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
   void dispose() {
     // Clean up controllers
     _dateController.dispose();
+    _customerNameController.dispose(); // New
+    _customerPhoneController.dispose(); // New
     _productNameController.dispose();
     _priceController.dispose();
     _imeiController.dispose();

@@ -24,6 +24,9 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
 
   // Form controllers
   final TextEditingController _dateController = TextEditingController();
+  final TextEditingController _customerNameController = TextEditingController();
+  final TextEditingController _customerPhoneController =
+      TextEditingController();
   final TextEditingController _modelNameController = TextEditingController();
   final TextEditingController _priceController = TextEditingController();
   final TextEditingController _cashController = TextEditingController();
@@ -216,6 +219,8 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
         // Prepare sale data for Firebase
         final saleData = {
           'date': _dateController.text,
+          'customerName': _customerNameController.text.trim(),
+          'customerPhone': _customerPhoneController.text.trim(),
           'brand': _selectedBrand,
           'modelName': _modelNameController.text,
           'price': totalPrice,
@@ -442,6 +447,8 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
   void _clearForm() {
     // Clear all text controllers
     _dateController.clear();
+    _customerNameController.clear();
+    _customerPhoneController.clear();
     _modelNameController.clear();
     _priceController.clear();
     _cashController.clear();
@@ -965,6 +972,48 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                             validator: (value) {
                               if (value == null || value.isEmpty) {
                                 return 'Please select a date';
+                              }
+                              return null;
+                            },
+                            isRequired: true,
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Customer Name
+                          _buildTextField(
+                            controller: _customerNameController,
+                            label: 'Customer Name',
+                            prefixIcon: Icons.person_outline,
+                            hintText: 'Enter customer name',
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Please enter customer name';
+                              }
+                              return null;
+                            },
+                            isRequired: true,
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Customer Phone
+                          _buildTextField(
+                            controller: _customerPhoneController,
+                            label: 'Customer Phone',
+                            prefixIcon: Icons.phone,
+                            keyboardType: TextInputType.phone,
+                            hintText: 'Enter phone number',
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Please enter phone number';
+                              }
+                              // Simple phone validation (at least 10 digits)
+                              final phoneRegex = RegExp(r'^[0-9]{10,}$');
+                              final digitsOnly = value.replaceAll(
+                                RegExp(r'\D'),
+                                '',
+                              );
+                              if (!phoneRegex.hasMatch(digitsOnly)) {
+                                return 'Please enter a valid phone number';
                               }
                               return null;
                             },
@@ -1545,6 +1594,8 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
   void dispose() {
     // Clean up controllers
     _dateController.dispose();
+    _customerNameController.dispose();
+    _customerPhoneController.dispose();
     _modelNameController.dispose();
     _priceController.dispose();
     _cashController.dispose();

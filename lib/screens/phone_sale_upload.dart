@@ -39,6 +39,8 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       TextEditingController();
   final TextEditingController _productModelController = TextEditingController();
   final TextEditingController _priceController = TextEditingController();
+  final TextEditingController _imeiController =
+      TextEditingController(); // NEW: IMEI Controller
 
   // Payment breakdown controllers for Ready Cash
   final TextEditingController _rcCashController = TextEditingController();
@@ -444,10 +446,20 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       }
 
       // Create phone sale item
-      final phoneSaleItem = {
+      // final phoneSaleItem = {
+
+      // };
+
+      final salesData = {
+        'userId': user.uid,
+        'userEmail': user.email,
+        'shopId': _shopId,
+        'shopName': _shopName,
+        'saleDate': _saleDate,
         'id': DateTime.now().millisecondsSinceEpoch.toString(),
         'brand': _selectedBrand ?? '',
         'productModel': _productModelController.text,
+        'imei': _imeiController.text, // NEW: Include IMEI in data
         'price': price,
         'discount': discount,
         'effectivePrice': effectivePrice,
@@ -468,24 +480,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         'customerName': _customerNameController.text,
         'customerPhone': _customerPhoneController.text,
         'addedAt': DateTime.now(),
-      };
 
-      final salesData = {
-        'userId': user.uid,
-        'userEmail': user.email,
-        'shopId': _shopId,
-        'shopName': _shopName,
-        'saleDate': _saleDate,
-        'phoneSale': phoneSaleItem,
-        'totalPhonesSold': 1,
-        'totalPhoneSalesValue': price,
-        'totalPhoneDiscount': discount,
-        'totalDisbursementAmount':
-            double.tryParse(_disbursementAmountController.text) ?? 0.0,
-        'totalExchangeValue': exchange,
-        'totalCustomerCredit': customerCredit,
-        'totalAmountToPay': amountToPay > 0 ? amountToPay : 0.0,
-        'totalBalanceReturned': balanceReturned,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -527,6 +522,11 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 Text('Brand: ${_selectedBrand?.toUpperCase() ?? "N/A"}'),
                 const SizedBox(height: 8),
                 Text('Model: ${_productModelController.text}'),
+                const SizedBox(height: 8),
+                if (_imeiController
+                    .text
+                    .isNotEmpty) // NEW: Show IMEI in confirmation
+                  Text('IMEI: ${_imeiController.text}'),
                 const SizedBox(height: 8),
                 Text('Price: ₹${_getSelectedPrice().toStringAsFixed(2)}'),
                 const SizedBox(height: 8),
@@ -573,6 +573,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       _customerNameController.clear();
       _customerPhoneController.clear();
       _productModelController.clear();
+      _imeiController.clear(); // NEW: Clear IMEI field
       _priceController.clear();
       _discountController.clear();
       _downPaymentController.clear();
@@ -756,6 +757,29 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               setState(() {
                 _selectedProductModel = value;
               });
+            },
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // IMEI Field (NEW: Added after product model)
+        if (_selectedProductModel != null &&
+            _selectedProductModel!.isNotEmpty) ...[
+          _buildAdditionalField(
+            label: 'IMEI Number (Optional)',
+            controller: _imeiController,
+            hint: 'Enter 15-digit IMEI number',
+            icon: Icons.fingerprint,
+            iconColor: _purpleColor,
+            keyboardType: TextInputType.number,
+            onChanged: (value) {
+              // Optional: Add IMEI validation here
+              if (value.length > 15) {
+                _imeiController.text = value.substring(0, 15);
+                _imeiController.selection = TextSelection.fromPosition(
+                  TextPosition(offset: _imeiController.text.length),
+                );
+              }
             },
           ),
           const SizedBox(height: 12),
@@ -2296,6 +2320,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     _customerCreditController.dispose();
     _productModelController.dispose();
     _priceController.dispose();
+    _imeiController.dispose(); // NEW: Dispose IMEI controller
     _rcCashController.dispose();
     _rcGpayController.dispose();
     _rcCardController.dispose();
