@@ -31,12 +31,6 @@ class FinanceDashboardApp extends StatelessWidget {
             color: Colors.white,
           ),
         ),
-        tabBarTheme: const TabBarThemeData(
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          indicatorColor: Colors.white,
-          labelStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-        ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.blue[800],
@@ -70,11 +64,10 @@ class FinanceDashboard extends StatefulWidget {
   State<FinanceDashboard> createState() => _FinanceDashboardState();
 }
 
-class _FinanceDashboardState extends State<FinanceDashboard>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _FinanceDashboardState extends State<FinanceDashboard> {
   int _selectedIndex = 0;
   bool _isLoading = false;
+  bool _isDrawerOpen = false;
 
   // Firestore instance
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -88,21 +81,7 @@ class _FinanceDashboardState extends State<FinanceDashboard>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
-    _tabController.addListener(() {
-      setState(() {
-        _selectedIndex = _tabController.index;
-      });
-    });
-
-    // Load initial data
     _loadAllData();
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
   }
 
   // Method to load all data from Firestore
@@ -126,12 +105,7 @@ class _FinanceDashboardState extends State<FinanceDashboard>
       print('Seconds: ${_secondsPhoneSales.length}');
     } catch (e) {
       print('Error loading data: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error loading data: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showSnackBar('Error loading data: $e', Colors.red);
     } finally {
       setState(() {
         _isLoading = false;
@@ -151,12 +125,9 @@ class _FinanceDashboardState extends State<FinanceDashboard>
       _phoneSales = querySnapshot.docs.map((doc) {
         final data = doc.data();
         data['id'] = doc.id;
-
-        // Ensure payment verification fields exist
         data['downPaymentReceived'] = data['downPaymentReceived'] ?? false;
         data['disbursementReceived'] = data['disbursementReceived'] ?? false;
         data['paymentVerified'] = data['paymentVerified'] ?? false;
-
         return data;
       }).toList();
     } catch (e) {
@@ -177,26 +148,8 @@ class _FinanceDashboardState extends State<FinanceDashboard>
       _accessoriesServiceSales = querySnapshot.docs.map((doc) {
         final data = doc.data();
         data['id'] = doc.id;
-
-        // Ensure payment verification fields exist
         data['paymentVerified'] = data['paymentVerified'] ?? false;
-
-        // FIXED: Properly convert LinkedHashMap to Map<String, bool>
-        final paymentBreakdown = data['paymentBreakdownVerified'];
-        if (paymentBreakdown is Map) {
-          data['paymentBreakdownVerified'] = {
-            'cash': _convertToBool(paymentBreakdown['cash']),
-            'card': _convertToBool(paymentBreakdown['card']),
-            'gpay': _convertToBool(paymentBreakdown['gpay']),
-          };
-        } else {
-          data['paymentBreakdownVerified'] = {
-            'cash': false,
-            'card': false,
-            'gpay': false,
-          };
-        }
-
+        _processPaymentBreakdown(data);
         return data;
       }).toList();
     } catch (e) {
@@ -217,26 +170,8 @@ class _FinanceDashboardState extends State<FinanceDashboard>
       _baseModelSales = querySnapshot.docs.map((doc) {
         final data = doc.data();
         data['id'] = doc.id;
-
-        // Ensure payment verification fields exist
         data['paymentVerified'] = data['paymentVerified'] ?? false;
-
-        // FIXED: Properly convert LinkedHashMap to Map<String, bool>
-        final paymentBreakdown = data['paymentBreakdownVerified'];
-        if (paymentBreakdown is Map) {
-          data['paymentBreakdownVerified'] = {
-            'cash': _convertToBool(paymentBreakdown['cash']),
-            'card': _convertToBool(paymentBreakdown['card']),
-            'gpay': _convertToBool(paymentBreakdown['gpay']),
-          };
-        } else {
-          data['paymentBreakdownVerified'] = {
-            'cash': false,
-            'card': false,
-            'gpay': false,
-          };
-        }
-
+        _processPaymentBreakdown(data);
         return data;
       }).toList();
     } catch (e) {
@@ -257,31 +192,30 @@ class _FinanceDashboardState extends State<FinanceDashboard>
       _secondsPhoneSales = querySnapshot.docs.map((doc) {
         final data = doc.data();
         data['id'] = doc.id;
-
-        // Ensure payment verification fields exist
         data['paymentVerified'] = data['paymentVerified'] ?? false;
-
-        // FIXED: Properly convert LinkedHashMap to Map<String, bool>
-        final paymentBreakdown = data['paymentBreakdownVerified'];
-        if (paymentBreakdown is Map) {
-          data['paymentBreakdownVerified'] = {
-            'cash': _convertToBool(paymentBreakdown['cash']),
-            'card': _convertToBool(paymentBreakdown['card']),
-            'gpay': _convertToBool(paymentBreakdown['gpay']),
-          };
-        } else {
-          data['paymentBreakdownVerified'] = {
-            'cash': false,
-            'card': false,
-            'gpay': false,
-          };
-        }
-
+        _processPaymentBreakdown(data);
         return data;
       }).toList();
     } catch (e) {
       print('Error fetching seconds_phone_sale: $e');
       rethrow;
+    }
+  }
+
+  void _processPaymentBreakdown(Map<String, dynamic> data) {
+    final paymentBreakdown = data['paymentBreakdownVerified'];
+    if (paymentBreakdown is Map) {
+      data['paymentBreakdownVerified'] = {
+        'cash': _convertToBool(paymentBreakdown['cash']),
+        'card': _convertToBool(paymentBreakdown['card']),
+        'gpay': _convertToBool(paymentBreakdown['gpay']),
+      };
+    } else {
+      data['paymentBreakdownVerified'] = {
+        'cash': false,
+        'card': false,
+        'gpay': false,
+      };
     }
   }
 
@@ -298,6 +232,105 @@ class _FinanceDashboardState extends State<FinanceDashboard>
     return false;
   }
 
+  // Helper method to extract amount from sale with multiple possible field names
+  double _extractAmount(Map<String, dynamic> sale, List<String> fieldNames) {
+    for (String fieldName in fieldNames) {
+      final value = sale[fieldName];
+      if (value != null) {
+        if (value is num) {
+          return value.toDouble();
+        } else if (value is String) {
+          final parsed = double.tryParse(value);
+          if (parsed != null) return parsed;
+        }
+      }
+    }
+    return 0.0;
+  }
+
+  // Helper method to get total amount from sale
+  double _getTotalAmount(Map<String, dynamic> sale) {
+    // Try different possible field names for total amount
+    final possibleFields = [
+      'totalSaleAmount',
+      'price',
+      'amountToPay',
+      'totalAmount',
+      'saleAmount',
+    ];
+
+    for (String fieldName in possibleFields) {
+      final value = sale[fieldName];
+      if (value != null) {
+        if (value is num) {
+          return value.toDouble();
+        } else if (value is String) {
+          final parsed = double.tryParse(value);
+          if (parsed != null) return parsed;
+        }
+      }
+    }
+    return 0.0;
+  }
+
+  // Helper method to parse date to DateTime
+  DateTime? _parseDate(dynamic date) {
+    try {
+      if (date == null) return null;
+      if (date is Timestamp) {
+        return date.toDate();
+      } else if (date is DateTime) {
+        return date;
+      } else if (date is String) {
+        // Try to parse from common formats
+        if (date.contains('-')) {
+          return DateTime.parse(date);
+        } else if (date.contains('/')) {
+          final parts = date.split('/');
+          if (parts.length >= 3) {
+            return DateTime(
+              int.parse(parts[2]),
+              int.parse(parts[1]),
+              int.parse(parts[0]),
+            );
+          }
+        }
+      }
+      return null;
+    } catch (e) {
+      print('Error parsing date: $e');
+      return null;
+    }
+  }
+
+  // Get overdue sales (more than 7 days without verification)
+  List<Map<String, dynamic>> _getOverdueSales() {
+    List<Map<String, dynamic>> allSales = [];
+    allSales.addAll(_phoneSales);
+    allSales.addAll(_secondsPhoneSales);
+    allSales.addAll(_baseModelSales);
+    allSales.addAll(_accessoriesServiceSales);
+
+    final now = DateTime.now();
+    return allSales.where((sale) {
+      if (sale['paymentVerified'] == true) return false;
+
+      DateTime? saleDate;
+      if (sale.containsKey('saleDate')) {
+        saleDate = _parseDate(sale['saleDate']);
+      } else if (sale.containsKey('date')) {
+        saleDate = _parseDate(sale['date']);
+      } else if (sale.containsKey('timestamp')) {
+        saleDate = _parseDate(sale['timestamp']);
+      }
+
+      if (saleDate == null) return false;
+
+      final difference = now.difference(saleDate);
+      return difference.inDays > 7;
+    }).toList();
+  }
+
   // Update payment verification in Firestore
   Future<void> _updatePaymentVerification(
     String collection,
@@ -309,14 +342,15 @@ class _FinanceDashboardState extends State<FinanceDashboard>
       print('Payment verification updated successfully');
     } catch (e) {
       print('Error updating payment verification: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error updating: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showSnackBar('Error updating: $e', Colors.red);
       rethrow;
     }
+  }
+
+  void _showSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
   }
 
   @override
@@ -324,52 +358,208 @@ class _FinanceDashboardState extends State<FinanceDashboard>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Payment Verification'),
+        leading: IconButton(
+          icon: const Icon(Icons.menu),
+          onPressed: () {
+            setState(() {
+              _isDrawerOpen = !_isDrawerOpen;
+            });
+          },
+        ),
         actions: [
           IconButton(
             icon: Icon(
               Icons.refresh,
-              size: 20,
               color: _isLoading ? Colors.grey : Colors.white,
             ),
             onPressed: _isLoading ? null : _loadAllData,
             tooltip: 'Refresh Data',
           ),
         ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(48),
-          child: Container(
-            color: Colors.blue[900],
-            child: TabBar(
-              controller: _tabController,
-              isScrollable: true,
-              tabs: const [
-                Tab(icon: Icon(Icons.phone_iphone, size: 18), text: 'Phones'),
-                Tab(
-                  icon: Icon(Icons.phone_android, size: 18),
-                  text: '2nd Hand',
-                ),
-                Tab(icon: Icon(Icons.phone, size: 18), text: 'Base Models'),
-                Tab(
-                  icon: Icon(Icons.shopping_cart, size: 18),
-                  text: 'Accessories',
-                ),
-              ],
+      ),
+      body: Row(
+        children: [
+          // Sidebar Drawer
+          _isDrawerOpen
+              ? Container(
+                  width: 250,
+                  color: Colors.blue[900],
+                  child: _buildSidebar(),
+                )
+              : const SizedBox.shrink(),
+          // Main Content
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _buildCurrentTab(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSidebar() {
+    final overdueCount = _getOverdueSales().length;
+
+    return Container(
+      color: Colors.blue[900],
+      child: Column(
+        children: [
+          const SizedBox(height: 20),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'Payment Verification',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  _buildSidebarItem(
+                    icon: Icons.phone_iphone,
+                    label: 'Phones',
+                    index: 0,
+                    count: _phoneSales.length,
+                    verifiedCount: _phoneSales
+                        .where((s) => s['paymentVerified'] == true)
+                        .length,
+                  ),
+                  _buildSidebarItem(
+                    icon: Icons.phone_android,
+                    label: '2nd Hand',
+                    index: 1,
+                    count: _secondsPhoneSales.length,
+                    verifiedCount: _secondsPhoneSales
+                        .where((s) => s['paymentVerified'] == true)
+                        .length,
+                  ),
+                  _buildSidebarItem(
+                    icon: Icons.phone,
+                    label: 'Base Models',
+                    index: 2,
+                    count: _baseModelSales.length,
+                    verifiedCount: _baseModelSales
+                        .where((s) => s['paymentVerified'] == true)
+                        .length,
+                  ),
+                  _buildSidebarItem(
+                    icon: Icons.shopping_cart,
+                    label: 'Accessories',
+                    index: 3,
+                    count: _accessoriesServiceSales.length,
+                    verifiedCount: _accessoriesServiceSales
+                        .where((s) => s['paymentVerified'] == true)
+                        .length,
+                  ),
+                  _buildSidebarItem(
+                    icon: Icons.warning,
+                    label: 'Overdue',
+                    index: 4,
+                    count: overdueCount,
+                    verifiedCount: 0,
+                    isOverdue: true,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSidebarItem({
+    required IconData icon,
+    required String label,
+    required int index,
+    required int count,
+    required int verifiedCount,
+    bool isOverdue = false,
+  }) {
+    bool isSelected = _selectedIndex == index;
+    double verifiedPercentage = count > 0 ? (verifiedCount / count * 100) : 0;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: isSelected
+            ? (isOverdue
+                  ? Colors.red.withOpacity(0.3)
+                  : Colors.white.withOpacity(0.2))
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ListTile(
+        leading: Icon(icon, color: isOverdue ? Colors.red[300] : Colors.white),
+        title: Text(
+          label,
+          style: TextStyle(
+            color: isOverdue ? Colors.red[300] : Colors.white,
+            fontWeight: isOverdue ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: isOverdue
+                ? Colors.red.withOpacity(0.3)
+                : Colors.white.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isOverdue ? Colors.red : Colors.white,
+              width: 1,
+            ),
+          ),
+          child: Text(
+            isOverdue ? '$count' : '$verifiedCount/$count',
+            style: TextStyle(
+              color: isOverdue ? Colors.red[300] : Colors.white,
+              fontSize: 12,
+              fontWeight: isOverdue ? FontWeight.bold : FontWeight.normal,
             ),
           ),
         ),
+        onTap: () {
+          setState(() {
+            _selectedIndex = index;
+            _isDrawerOpen = false;
+          });
+        },
+        subtitle: !isOverdue && count > 0
+            ? Text(
+                '${verifiedPercentage.toStringAsFixed(0)}%',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.7),
+                  fontSize: 10,
+                ),
+              )
+            : null,
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _buildPhoneSalesVerificationTab(),
-                _buildSecondsPhoneVerificationTab(),
-                _buildBaseModelVerificationTab(),
-                _buildAccessoriesServiceVerificationTab(),
-              ],
-            ),
     );
+  }
+
+  Widget _buildCurrentTab() {
+    switch (_selectedIndex) {
+      case 0:
+        return _buildPhoneSalesVerificationTab();
+      case 1:
+        return _buildSecondsPhoneVerificationTab();
+      case 2:
+        return _buildBaseModelVerificationTab();
+      case 3:
+        return _buildAccessoriesServiceVerificationTab();
+      case 4:
+        return _buildOverdueVerificationTab();
+      default:
+        return _buildPhoneSalesVerificationTab();
+    }
   }
 
   Widget _buildPhoneSalesVerificationTab() {
@@ -417,6 +607,17 @@ class _FinanceDashboardState extends State<FinanceDashboard>
         _getAccessoriesServiceDisplayData,
       ),
       emptyMessage: 'No accessories or service sales found',
+    );
+  }
+
+  Widget _buildOverdueVerificationTab() {
+    final overdueSales = _getOverdueSales();
+
+    return _buildMobileListView(
+      title: 'Overdue Payments (>7 days)',
+      data: overdueSales,
+      buildItem: (sale) => _buildOverdueSaleCard(sale),
+      emptyMessage: 'No overdue payments found',
     );
   }
 
@@ -806,7 +1007,6 @@ class _FinanceDashboardState extends State<FinanceDashboard>
     Map<String, dynamic> displayData = getDisplayData(sale);
     bool paymentVerified = sale['paymentVerified'] ?? false;
 
-    // Safely extract boolean values from paymentBreakdownVerified
     final paymentBreakdown = sale['paymentBreakdownVerified'];
     bool cashVerified = false;
     bool cardVerified = false;
@@ -940,6 +1140,281 @@ class _FinanceDashboardState extends State<FinanceDashboard>
             Text(
               'Date: ${_formatDate(displayData['date'])}',
               style: const TextStyle(fontSize: 10, color: Colors.grey),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOverdueSaleCard(Map<String, dynamic> sale) {
+    // Determine sale type
+    String saleType = '';
+    String collection = '';
+
+    if (sale.containsKey('purchaseMode')) {
+      saleType = 'Phone Sale';
+      collection = 'phoneSales';
+    } else if (sale.containsKey('productName') &&
+        !sale.containsKey('modelName')) {
+      saleType = '2nd Hand Phone';
+      collection = 'seconds_phone_sale';
+    } else if (sale.containsKey('modelName')) {
+      saleType = 'Base Model';
+      collection = 'base_model_sale';
+    } else if (sale.containsKey('totalSaleAmount')) {
+      saleType = 'Accessory/Service';
+      collection = 'accessories_service_sales';
+    }
+
+    // Calculate days overdue
+    DateTime? saleDate;
+    if (sale.containsKey('saleDate')) {
+      saleDate = _parseDate(sale['saleDate']);
+    } else if (sale.containsKey('date')) {
+      saleDate = _parseDate(sale['date']);
+    } else if (sale.containsKey('timestamp')) {
+      saleDate = _parseDate(sale['timestamp']);
+    }
+
+    int daysOverdue = 0;
+    if (saleDate != null) {
+      final now = DateTime.now();
+      daysOverdue = now.difference(saleDate).inDays;
+    }
+
+    // Get amount
+    double amount = _getTotalAmount(sale);
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.red.withOpacity(0.5), width: 2),
+      ),
+      color: Colors.red[50],
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.warning, color: Colors.red[700], size: 18),
+                          const SizedBox(width: 8),
+                          Text(
+                            saleType,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.red[700],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        sale['customerName'] ?? 'Walk-in Customer',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (sale['customerPhone'] != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          sale['customerPhone'] ?? '',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(
+                    Icons.remove_red_eye,
+                    color: Colors.red[700],
+                    size: 20,
+                  ),
+                  onPressed: () {
+                    if (saleType == 'Phone Sale') {
+                      _verifyPayment(_createTransactionFromPhoneSale(sale));
+                    } else {
+                      _verifyPayment(
+                        _createTransactionFromGenericSale(collection, sale),
+                      );
+                    }
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Divider(color: Colors.red[300], height: 1),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Days Overdue',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.red, width: 1),
+                        ),
+                        child: Text(
+                          '$daysOverdue days',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red[700],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Amount',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '₹${_formatNumber(amount)}',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red[700],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Sale Date',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _formatDate(saleDate),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Type',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.blue, width: 1),
+                        ),
+                        child: Text(
+                          saleType,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.blue,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ElevatedButton(
+              onPressed: () {
+                if (saleType == 'Phone Sale') {
+                  _verifyPayment(_createTransactionFromPhoneSale(sale));
+                } else {
+                  _verifyPayment(
+                    _createTransactionFromGenericSale(collection, sale),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red[700],
+                foregroundColor: Colors.white,
+                minimumSize: const Size(double.infinity, 36),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.verified_user, size: 16),
+                  SizedBox(width: 8),
+                  Text('Verify Payment Now'),
+                ],
+              ),
             ),
           ],
         ),
@@ -1085,13 +1560,6 @@ class _FinanceDashboardState extends State<FinanceDashboard>
 
   // Helper methods
   String _formatNumber(double number) {
-    if (number >= 10000000) {
-      return '${(number / 10000000).toStringAsFixed(1)}Cr';
-    } else if (number >= 100000) {
-      return '${(number / 100000).toStringAsFixed(1)}L';
-    } else if (number >= 1000) {
-      return '${(number / 1000).toStringAsFixed(1)}K';
-    }
     return NumberFormat('#,##0').format(number);
   }
 
@@ -1104,11 +1572,6 @@ class _FinanceDashboardState extends State<FinanceDashboard>
       } else if (date is DateTime) {
         return DateFormat('dd/MM/yyyy').format(date);
       } else if (date is String) {
-        if (date.contains('UTC')) {
-          return date.split(' at ').first;
-        } else if (date.contains('/')) {
-          return date;
-        }
         return date.length > 20 ? date.substring(0, 20) : date;
       } else {
         return date.toString();
@@ -1182,201 +1645,264 @@ class _FinanceDashboardState extends State<FinanceDashboard>
     };
   }
 
-  // Payment verification methods
+  // Payment verification methods - FIXED VERSION
   void _verifyPayment(Map<String, dynamic> transaction) async {
     final Map<String, dynamic> sale = transaction['data'];
     final String collection = transaction['collection'];
     final String docId = transaction['docId'];
 
-    // Safely extract payment breakdown data
-    Map<String, bool> paymentBreakdownVerified = {
-      'cash': false,
-      'card': false,
-      'gpay': false,
-    };
+    // For Phone Sales with EMI
+    bool isPhoneEMI =
+        transaction['category'] == 'phone' &&
+        (sale['purchaseMode'] ?? '') == 'EMI';
 
-    final breakdown = sale['paymentBreakdownVerified'];
-    if (breakdown is Map) {
-      paymentBreakdownVerified = {
-        'cash': _convertToBool(breakdown['cash']),
-        'card': _convertToBool(breakdown['card']),
-        'gpay': _convertToBool(breakdown['gpay']),
-      };
+    if (isPhoneEMI) {
+      // For EMI Phone Sales
+      _showEMIVerificationDialog(sale, collection, docId);
+    } else {
+      // For other sales with payment breakdown
+      _showPaymentBreakdownDialog(sale, collection, docId);
     }
+  }
+
+  void _showEMIVerificationDialog(
+    Map<String, dynamic> sale,
+    String collection,
+    String docId,
+  ) {
+    bool downPaymentReceived = sale['downPaymentReceived'] ?? false;
+    bool disbursementReceived = sale['disbursementReceived'] ?? false;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Verify Payment', style: TextStyle(fontSize: 16)),
-        content: SizedBox(
-          width: MediaQuery.of(context).size.width * 0.9,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Customer: ${transaction['customer']}',
-                style: const TextStyle(fontSize: 14),
-              ),
-              Text(
-                'Amount: ₹${_formatNumber(transaction['amount'])}',
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              Text(
-                'Type: ${transaction['type']}',
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              const SizedBox(height: 16),
-
-              if (transaction['category'] == 'phone' &&
-                  (sale['purchaseMode'] ?? '') == 'EMI')
-                Column(
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return AlertDialog(
+              title: const Text('Verify EMI Payment'),
+              content: SizedBox(
+                width: MediaQuery.of(context).size.width * 0.9,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'EMI Payment Breakdown:',
-                      style: TextStyle(
+                    Text(
+                      'Customer: ${sale['customerName'] ?? 'Unknown'}',
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                    Text(
+                      'Amount: ₹${_formatNumber((sale['amountToPay'] as num?)?.toDouble() ?? 0)}',
+                      style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    _buildMobilePaymentVerificationRow(
+                    const SizedBox(height: 16),
+                    _buildEMIPaymentRow(
                       'Down Payment',
-                      sale['downPayment'],
-                      sale['downPaymentReceived'] ?? false,
-                      () => _toggleDownPayment(sale, collection, docId),
-                    ),
-                    const SizedBox(height: 8),
-                    _buildMobilePaymentVerificationRow(
-                      'Disbursement',
-                      sale['disbursementAmount'],
-                      sale['disbursementReceived'] ?? false,
-                      () => _toggleDisbursement(sale, collection, docId),
-                    ),
-                  ],
-                )
-              else
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Payment Methods:',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
+                      (sale['downPayment'] as num?)?.toDouble() ?? 0,
+                      downPaymentReceived,
+                      (value) {
+                        setStateDialog(() {
+                          downPaymentReceived = value;
+                        });
+                      },
                     ),
                     const SizedBox(height: 12),
-                    if (((sale['cashAmount'] ?? sale['cash'] ?? 0) as num)
-                            .toDouble() >
-                        0)
-                      _buildMobilePaymentMethodRow(
-                        'Cash',
-                        sale['cashAmount'] ?? sale['cash'],
-                        paymentBreakdownVerified['cash'] ?? false,
-                        () => _togglePaymentMethod(
-                          sale,
-                          collection,
-                          docId,
-                          'cash',
-                        ),
-                      ),
-                    const SizedBox(height: 8),
-                    if (((sale['cardAmount'] ?? sale['card'] ?? 0) as num)
-                            .toDouble() >
-                        0)
-                      _buildMobilePaymentMethodRow(
-                        'Card',
-                        sale['cardAmount'] ?? sale['card'],
-                        paymentBreakdownVerified['card'] ?? false,
-                        () => _togglePaymentMethod(
-                          sale,
-                          collection,
-                          docId,
-                          'card',
-                        ),
-                      ),
-                    const SizedBox(height: 8),
-                    if (((sale['gpayAmount'] ?? sale['gpay'] ?? 0) as num)
-                            .toDouble() >
-                        0)
-                      _buildMobilePaymentMethodRow(
-                        'GPay',
-                        sale['gpayAmount'] ?? sale['gpay'],
-                        paymentBreakdownVerified['gpay'] ?? false,
-                        () => _togglePaymentMethod(
-                          sale,
-                          collection,
-                          docId,
-                          'gpay',
-                        ),
-                      ),
+                    _buildEMIPaymentRow(
+                      'Disbursement',
+                      (sale['disbursementAmount'] as num?)?.toDouble() ?? 0,
+                      disbursementReceived,
+                      (value) {
+                        setStateDialog(() {
+                          disbursementReceived = value;
+                        });
+                      },
+                    ),
                   ],
                 ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(fontSize: 14)),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              try {
-                if (transaction['category'] == 'phone' &&
-                    (sale['purchaseMode'] ?? '') == 'EMI') {
-                  await _updatePaymentVerification(collection, docId, {
-                    'downPaymentReceived': true,
-                    'disbursementReceived': true,
-                    'paymentVerified': true,
-                  });
-                } else {
-                  await _updatePaymentVerification(collection, docId, {
-                    'paymentBreakdownVerified': {
-                      'cash': true,
-                      'card': true,
-                      'gpay': true,
-                    },
-                    'paymentVerified': true,
-                  });
-                }
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    try {
+                      await _updatePaymentVerification(collection, docId, {
+                        'downPaymentReceived': downPaymentReceived,
+                        'disbursementReceived': disbursementReceived,
+                        'paymentVerified':
+                            downPaymentReceived && disbursementReceived,
+                      });
 
-                // Reload data to reflect changes
-                await _loadAllData();
-                Navigator.pop(context);
+                      // Update local state immediately
+                      sale['downPaymentReceived'] = downPaymentReceived;
+                      sale['disbursementReceived'] = disbursementReceived;
+                      sale['paymentVerified'] =
+                          downPaymentReceived && disbursementReceived;
 
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Payment marked as verified'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Error: $e'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-              }
-            },
-            child: const Text('Verify All', style: TextStyle(fontSize: 14)),
-          ),
-        ],
-      ),
+                      setState(() {
+                        // Trigger UI update
+                      });
+
+                      Navigator.pop(context);
+                      _showSnackBar(
+                        'Payment verified successfully',
+                        Colors.green,
+                      );
+                    } catch (e) {
+                      _showSnackBar('Error: $e', Colors.red);
+                    }
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
-  Widget _buildMobilePaymentVerificationRow(
+  void _showPaymentBreakdownDialog(
+    Map<String, dynamic> sale,
+    String collection,
+    String docId,
+  ) {
+    // Extract current payment breakdown
+    final paymentBreakdown = sale['paymentBreakdownVerified'];
+    bool cashVerified = _convertToBool(paymentBreakdown['cash']);
+    bool cardVerified = _convertToBool(paymentBreakdown['card']);
+    bool gpayVerified = _convertToBool(paymentBreakdown['gpay']);
+
+    // Extract amounts - FIXED: Properly handle the extraction
+    double cashAmount = _extractAmount(sale, ['cashAmount', 'cash']);
+    double cardAmount = _extractAmount(sale, ['cardAmount', 'card']);
+    double gpayAmount = _extractAmount(sale, ['gpayAmount', 'gpay']);
+
+    // Get total amount
+    double totalAmount = _getTotalAmount(sale);
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return AlertDialog(
+              title: const Text('Verify Payment Methods'),
+              content: SizedBox(
+                width: MediaQuery.of(context).size.width * 0.9,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Customer: ${sale['customerName'] ?? 'Walk-in'}',
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                    Text(
+                      'Total: ₹${_formatNumber(totalAmount)}',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    if (cashAmount > 0)
+                      _buildPaymentMethodRow('Cash', cashAmount, cashVerified, (
+                        value,
+                      ) {
+                        setStateDialog(() {
+                          cashVerified = value;
+                        });
+                      }),
+                    if (cardAmount > 0) ...[
+                      const SizedBox(height: 12),
+                      _buildPaymentMethodRow('Card', cardAmount, cardVerified, (
+                        value,
+                      ) {
+                        setStateDialog(() {
+                          cardVerified = value;
+                        });
+                      }),
+                    ],
+                    if (gpayAmount > 0) ...[
+                      const SizedBox(height: 12),
+                      _buildPaymentMethodRow('GPay', gpayAmount, gpayVerified, (
+                        value,
+                      ) {
+                        setStateDialog(() {
+                          gpayVerified = value;
+                        });
+                      }),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    try {
+                      final newPaymentBreakdown = {
+                        'cash': cashVerified,
+                        'card': cardVerified,
+                        'gpay': gpayVerified,
+                      };
+
+                      // Check if all payment methods are verified
+                      double verifiedAmount = 0;
+                      if (cashAmount > 0 && cashVerified)
+                        verifiedAmount += cashAmount;
+                      if (cardAmount > 0 && cardVerified)
+                        verifiedAmount += cardAmount;
+                      if (gpayAmount > 0 && gpayVerified)
+                        verifiedAmount += gpayAmount;
+
+                      bool allVerified = verifiedAmount >= totalAmount;
+
+                      await _updatePaymentVerification(collection, docId, {
+                        'paymentBreakdownVerified': newPaymentBreakdown,
+                        'paymentVerified': allVerified,
+                      });
+
+                      // Update local state immediately
+                      sale['paymentBreakdownVerified'] = newPaymentBreakdown;
+                      sale['paymentVerified'] = allVerified;
+
+                      setState(() {
+                        // Trigger UI update
+                      });
+
+                      Navigator.pop(context);
+                      _showSnackBar(
+                        'Payment verified successfully',
+                        Colors.green,
+                      );
+                    } catch (e) {
+                      _showSnackBar('Error: $e', Colors.red);
+                    }
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildEMIPaymentRow(
     String label,
-    dynamic amount,
+    double amount,
     bool verified,
-    VoidCallback onToggle,
+    ValueChanged<bool> onChanged,
   ) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1387,7 +1913,7 @@ class _FinanceDashboardState extends State<FinanceDashboard>
             children: [
               Text(label, style: const TextStyle(fontSize: 14)),
               Text(
-                '₹${_formatNumber((amount as num?)?.toDouble() ?? 0)}',
+                '₹${_formatNumber(amount)}',
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
             ],
@@ -1395,18 +1921,18 @@ class _FinanceDashboardState extends State<FinanceDashboard>
         ),
         Switch(
           value: verified,
-          onChanged: (value) => onToggle(),
+          onChanged: onChanged,
           activeColor: Colors.green,
         ),
       ],
     );
   }
 
-  Widget _buildMobilePaymentMethodRow(
+  Widget _buildPaymentMethodRow(
     String method,
-    dynamic amount,
+    double amount,
     bool verified,
-    VoidCallback onToggle,
+    ValueChanged<bool> onChanged,
   ) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1417,7 +1943,7 @@ class _FinanceDashboardState extends State<FinanceDashboard>
             children: [
               Text(method, style: const TextStyle(fontSize: 14)),
               Text(
-                '₹${_formatNumber((amount as num?)?.toDouble() ?? 0)}',
+                '₹${_formatNumber(amount)}',
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
             ],
@@ -1425,127 +1951,10 @@ class _FinanceDashboardState extends State<FinanceDashboard>
         ),
         Switch(
           value: verified,
-          onChanged: (value) => onToggle(),
+          onChanged: onChanged,
           activeColor: Colors.green,
         ),
       ],
     );
-  }
-
-  Future<void> _toggleDownPayment(
-    Map<String, dynamic> sale,
-    String collection,
-    String docId,
-  ) async {
-    bool newValue = !(sale['downPaymentReceived'] ?? false);
-
-    try {
-      await _updatePaymentVerification(collection, docId, {
-        'downPaymentReceived': newValue,
-        'paymentVerified': newValue && (sale['disbursementReceived'] ?? false),
-      });
-
-      // Reload data
-      await _loadAllData();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error updating: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _toggleDisbursement(
-    Map<String, dynamic> sale,
-    String collection,
-    String docId,
-  ) async {
-    bool newValue = !(sale['disbursementReceived'] ?? false);
-
-    try {
-      await _updatePaymentVerification(collection, docId, {
-        'disbursementReceived': newValue,
-        'paymentVerified': newValue && (sale['downPaymentReceived'] ?? false),
-      });
-
-      // Reload data
-      await _loadAllData();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error updating: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _togglePaymentMethod(
-    Map<String, dynamic> sale,
-    String collection,
-    String docId,
-    String method,
-  ) async {
-    // Safely extract and update payment breakdown
-    final breakdownData = sale['paymentBreakdownVerified'];
-    Map<String, dynamic> currentBreakdown = {
-      'cash': false,
-      'card': false,
-      'gpay': false,
-    };
-
-    if (breakdownData is Map) {
-      currentBreakdown = {
-        'cash': _convertToBool(breakdownData['cash']),
-        'card': _convertToBool(breakdownData['card']),
-        'gpay': _convertToBool(breakdownData['gpay']),
-      };
-    }
-
-    // Toggle the specific method
-    currentBreakdown[method] = !(_convertToBool(currentBreakdown[method]));
-
-    try {
-      double totalAmount =
-          ((sale['cashAmount'] ?? sale['cash'] ?? 0) as num).toDouble() +
-          ((sale['cardAmount'] ?? sale['card'] ?? 0) as num).toDouble() +
-          ((sale['gpayAmount'] ?? sale['gpay'] ?? 0) as num).toDouble();
-
-      double verifiedAmount = 0;
-      if (((sale['cashAmount'] ?? sale['cash'] ?? 0) as num).toDouble() > 0 &&
-          _convertToBool(currentBreakdown['cash'])) {
-        verifiedAmount += ((sale['cashAmount'] ?? sale['cash'] ?? 0) as num)
-            .toDouble();
-      }
-      if (((sale['cardAmount'] ?? sale['card'] ?? 0) as num).toDouble() > 0 &&
-          _convertToBool(currentBreakdown['card'])) {
-        verifiedAmount += ((sale['cardAmount'] ?? sale['card'] ?? 0) as num)
-            .toDouble();
-      }
-      if (((sale['gpayAmount'] ?? sale['gpay'] ?? 0) as num).toDouble() > 0 &&
-          _convertToBool(currentBreakdown['gpay'])) {
-        verifiedAmount += ((sale['gpayAmount'] ?? sale['gpay'] ?? 0) as num)
-            .toDouble();
-      }
-
-      bool allVerified = verifiedAmount >= totalAmount;
-
-      await _updatePaymentVerification(collection, docId, {
-        'paymentBreakdownVerified': currentBreakdown,
-        'paymentVerified': allVerified,
-      });
-
-      // Reload data
-      await _loadAllData();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error updating: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
   }
 }
