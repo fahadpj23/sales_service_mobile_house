@@ -61,7 +61,7 @@ class AuthWrapper extends StatelessWidget {
     print(authProvider.user!.role);
     // Check user role and navigate accordingly
     if (authProvider.user!.role == 'admin') {
-      return const AdminDashboardScreen();
+      return AdminDashboardScreen();
     } else if (authProvider.user!.role == 'user') {
       return const UserDashboard();
     } else {
