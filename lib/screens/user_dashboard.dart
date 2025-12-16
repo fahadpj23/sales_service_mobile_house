@@ -126,12 +126,32 @@ class UserDashboard extends StatelessWidget {
               margin: const EdgeInsets.only(top: 20),
               child: OutlinedButton.icon(
                 onPressed: () {
-                  Navigator.push(
+                  // Get the user's shopId
+                  final userData = Provider.of<AuthProvider>(
                     context,
-                    MaterialPageRoute(
-                      builder: (context) => const SalesHistoryScreen(),
-                    ),
-                  );
+                    listen: false,
+                  ).user;
+                  final shopId = userData?.shopId;
+
+                  if (shopId != null && shopId.isNotEmpty) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            SalesHistoryScreen(shopId: shopId),
+                      ),
+                    );
+                  } else {
+                    // Show error if no shopId found
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Shop ID not found. Please contact administrator.',
+                        ),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
                 },
                 icon: const Icon(Icons.history),
                 label: const Text(
