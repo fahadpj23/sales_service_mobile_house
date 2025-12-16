@@ -6,6 +6,7 @@ import 'accessories_sale_upload.dart';
 import 'phone_sale_upload.dart';
 import 'second_phone_sale_upload.dart';
 import 'base_model_sale_upload.dart';
+import 'sales_history.dart';
 
 class UserDashboard extends StatelessWidget {
   const UserDashboard({super.key});
@@ -125,7 +126,12 @@ class UserDashboard extends StatelessWidget {
               margin: const EdgeInsets.only(top: 20),
               child: OutlinedButton.icon(
                 onPressed: () {
-                  // Navigate to sales history
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SalesHistoryScreen(),
+                    ),
+                  );
                 },
                 icon: const Icon(Icons.history),
                 label: const Text(
@@ -290,101 +296,4 @@ class UserDashboard extends StatelessWidget {
       ),
     );
   }
-
-  // Alternative version with AutoSizeText package (if you want to add it)
-  // First add to pubspec.yaml: auto_size_text: ^3.0.0
-  /*
-  Widget _buildAutoSizeSalesOptionCard({
-    required BuildContext context,
-    required int index,
-  }) {
-    final List<Map<String, dynamic>> options = [
-      // ... same options array
-    ];
-
-    final option = options[index];
-    
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => option['screen'] as Widget),
-        );
-      },
-      child: Card(
-        elevation: 4,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                (option['color'] as Color).withOpacity(0.1),
-                (option['color'] as Color).withOpacity(0.05),
-              ],
-            ),
-          ),
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Icon Container
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: (option['color'] as Color).withOpacity(0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  option['icon'] as IconData,
-                  size: 28,
-                  color: option['color'] as Color,
-                ),
-              ),
-              const SizedBox(height: 10),
-              
-              // Title with AutoSizeText
-              Expanded(
-                child: AutoSizeText(
-                  option['title'] as String,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: option['color'] as Color,
-                  ),
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  minFontSize: 10,
-                  maxFontSize: 16,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              
-              const SizedBox(height: 5),
-              
-              // Subtitle with AutoSizeText
-              Expanded(
-                child: AutoSizeText(
-                  option['subtitle'] as String,
-                  style: TextStyle(
-                    color: Colors.grey.shade600,
-                  ),
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  minFontSize: 8,
-                  maxFontSize: 12,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-  */
 }

@@ -2217,11 +2217,13 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
         actions: [
           IconButton(
             icon: Icon(Icons.filter_alt),
+            color: Colors.white,
             onPressed: _showFilterDialog,
             tooltip: 'Filter',
           ),
           IconButton(
             icon: Icon(Icons.bar_chart),
+            color: Colors.white,
             onPressed: () {
               Navigator.push(
                 context,
