@@ -165,15 +165,15 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
       }
     } catch (error) {
       print('Error checking date data: $error');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text(
-            'Error checking existing data. Please try again.',
-          ),
-          backgroundColor: Colors.orange,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      // ScaffoldMessenger.of(context).showSnackBar(
+      //   SnackBar(
+      //     content: const Text(
+      //       'Error checking existing data. Please try again.',
+      //     ),
+      //     backgroundColor: Colors.orange,
+      //     behavior: SnackBarBehavior.floating,
+      //   ),
+      // );
     } finally {
       setState(() {
         _checkingDate = false;

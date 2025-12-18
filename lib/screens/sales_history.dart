@@ -377,12 +377,12 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     try {
       // Try different date fields based on collection type
       if (collection == 'phoneSales') {
-        if (data['addedAt'] != null) {
-          final timestamp = data['addedAt'] as Timestamp;
+        if (data['saleDate'] != null) {
+          final timestamp = data['saleDate'] as Timestamp;
           final date = timestamp.toDate();
           return DateFormat('dd MMM yyyy, hh:mm a').format(date);
-        } else if (data['createdAt'] != null) {
-          final timestamp = data['createdAt'] as Timestamp;
+        } else if (data['saleDate'] != null) {
+          final timestamp = data['saleDate'] as Timestamp;
           final date = timestamp.toDate();
           return DateFormat('dd MMM yyyy, hh:mm a').format(date);
         } else if (data['saleDate'] != null) {
@@ -390,8 +390,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
           final date = timestamp.toDate();
           return DateFormat('dd MMM yyyy, hh:mm a').format(date);
         }
-      } else if (data['uploadedAt'] != null) {
-        final timestamp = data['uploadedAt'] as Timestamp;
+      } else if (data['date'] != null) {
+        final timestamp = data['date'] as Timestamp;
         final date = timestamp.toDate();
         return DateFormat('dd MMM yyyy, hh:mm a').format(date);
       } else if (data['timestamp'] != null) {
