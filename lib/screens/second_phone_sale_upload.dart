@@ -22,10 +22,9 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
 
   // Form controllers
   final TextEditingController _dateController = TextEditingController();
-  final TextEditingController _customerNameController =
-      TextEditingController(); // New
+  final TextEditingController _customerNameController = TextEditingController();
   final TextEditingController _customerPhoneController =
-      TextEditingController(); // New
+      TextEditingController();
   final TextEditingController _productNameController = TextEditingController();
   final TextEditingController _priceController = TextEditingController();
   final TextEditingController _imeiController = TextEditingController();
@@ -35,10 +34,17 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
   final TextEditingController _gpayController = TextEditingController();
   final TextEditingController _payLaterController = TextEditingController();
 
+  // Date variable for Timestamp
+  DateTime? _selectedDate;
+
   @override
   void initState() {
     super.initState();
     _getUserShopId();
+    // Set default date to today
+    _selectedDate = DateTime.now();
+    _dateController.text =
+        "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}";
   }
 
   // Get shopId and shopName from current user's document
@@ -132,13 +138,14 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
+      initialDate: _selectedDate ?? DateTime.now(),
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
     );
 
     if (picked != null) {
       setState(() {
+        _selectedDate = picked;
         _dateController.text = "${picked.day}/${picked.month}/${picked.year}";
       });
     }
@@ -188,6 +195,18 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
     }
 
     if (_formKey.currentState!.validate()) {
+      // Validate date is selected
+      if (_selectedDate == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select a date'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+        return;
+      }
+
       final totalPrice = _safeParse(_priceController.text);
 
       if (!_validatePaymentBreakdown(totalPrice)) {
@@ -217,9 +236,10 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
       try {
         // Prepare sale data for Firebase
         final saleData = {
-          'date': _dateController.text,
-          'customerName': _customerNameController.text, // New
-          'customerPhone': _customerPhoneController.text, // New
+          'date': Timestamp.fromDate(_selectedDate!), // Store as Timestamp
+          'dateString': _dateController.text, // Keep string format for display
+          'customerName': _customerNameController.text,
+          'customerPhone': _customerPhoneController.text,
           'productName': _productNameController.text,
           'price': totalPrice,
           'imei': _imeiController.text,
@@ -241,11 +261,22 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
           'uploadedByEmail': _auth.currentUser?.email,
         };
 
+        // Store customer info for success dialog before clearing
+        final customerName = _customerNameController.text;
+        final customerPhone = _customerPhoneController.text;
+
         // Upload to Firebase Firestore
         await _firestore.collection('seconds_phone_sale').add(saleData);
 
+        // Clear the form immediately after successful upload
+
         // Show success dialog
-        _showSuccessDialog(context);
+        _showSuccessDialog(
+          context,
+          customerName: customerName,
+          customerPhone: customerPhone,
+        );
+        _clearForm();
       } catch (error) {
         // Show error dialog
         _showErrorDialog(context, error.toString());
@@ -257,7 +288,11 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
     }
   }
 
-  void _showSuccessDialog(BuildContext context) {
+  void _showSuccessDialog(
+    BuildContext context, {
+    String? customerName,
+    String? customerPhone,
+  }) {
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -311,8 +346,8 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                   style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                 ),
                 // Display customer info in success dialog
-                if (_customerNameController.text.isNotEmpty ||
-                    _customerPhoneController.text.isNotEmpty)
+                if (customerName != null && customerName.isNotEmpty ||
+                    customerPhone != null && customerPhone.isNotEmpty)
                   Container(
                     margin: const EdgeInsets.only(top: 8),
                     padding: const EdgeInsets.all(8),
@@ -322,18 +357,18 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                     ),
                     child: Column(
                       children: [
-                        if (_customerNameController.text.isNotEmpty)
+                        if (customerName != null && customerName.isNotEmpty)
                           Text(
-                            'Customer: ${_customerNameController.text}',
+                            'Customer: $customerName',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.blue[800],
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                        if (_customerPhoneController.text.isNotEmpty)
+                        if (customerPhone != null && customerPhone.isNotEmpty)
                           Text(
-                            'Phone: ${_customerPhoneController.text}',
+                            'Phone: $customerPhone',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.blue[800],
@@ -348,7 +383,6 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                   child: ElevatedButton(
                     onPressed: () {
                       Navigator.pop(context);
-                      _clearForm();
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green[700],
@@ -358,8 +392,8 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    child: Text(
-                      'New Sale',
+                    child: const Text(
+                      'OK',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -471,8 +505,8 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
   void _clearForm() {
     // Clear all text controllers
     _dateController.clear();
-    _customerNameController.clear(); // New
-    _customerPhoneController.clear(); // New
+    _customerNameController.clear();
+    _customerPhoneController.clear();
     _productNameController.clear();
     _priceController.clear();
     _imeiController.clear();
@@ -481,6 +515,11 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
     _cardController.clear();
     _gpayController.clear();
     _payLaterController.clear();
+
+    // Reset date to today
+    _selectedDate = DateTime.now();
+    _dateController.text =
+        "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}";
 
     // Reset form state
     _formKey.currentState?.reset();
@@ -1033,7 +1072,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                             readOnly: true,
                             onTap: () => _selectDate(context),
                             validator: (value) {
-                              if (value == null || value.isEmpty) {
+                              if (_selectedDate == null) {
                                 return 'Please select a date';
                               }
                               return null;
@@ -1675,8 +1714,8 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
   void dispose() {
     // Clean up controllers
     _dateController.dispose();
-    _customerNameController.dispose(); // New
-    _customerPhoneController.dispose(); // New
+    _customerNameController.dispose();
+    _customerPhoneController.dispose();
     _productNameController.dispose();
     _priceController.dispose();
     _imeiController.dispose();

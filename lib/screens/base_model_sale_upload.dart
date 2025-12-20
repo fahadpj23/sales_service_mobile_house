@@ -37,6 +37,9 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
   // Selected values
   String? _selectedBrand;
 
+  // Date variable for Timestamp
+  DateTime? _selectedDate;
+
   // Keypad Phone Brands
   final List<String> _keypadBrands = [
     'Nokia',
@@ -53,6 +56,10 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
   void initState() {
     super.initState();
     _getUserShopData();
+    // Set default date to today
+    _selectedDate = DateTime.now();
+    _dateController.text =
+        "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}";
   }
 
   // Get shop data from current user's document
@@ -133,13 +140,14 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
+      initialDate: _selectedDate ?? DateTime.now(),
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
     );
 
     if (picked != null) {
       setState(() {
+        _selectedDate = picked;
         _dateController.text = "${picked.day}/${picked.month}/${picked.year}";
       });
     }
@@ -189,6 +197,18 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
     }
 
     if (_formKey.currentState!.validate()) {
+      // Validate date is selected
+      if (_selectedDate == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select a date'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+        return;
+      }
+
       final totalPrice = _safeParse(_priceController.text);
 
       if (!_validatePaymentBreakdown(totalPrice)) {
@@ -218,7 +238,8 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
       try {
         // Prepare sale data for Firebase
         final saleData = {
-          'date': _dateController.text,
+          'date': Timestamp.fromDate(_selectedDate!), // Store as Timestamp
+          'dateString': _dateController.text, // Keep string format for display
           'customerName': _customerNameController.text.trim(),
           'customerPhone': _customerPhoneController.text.trim(),
           'brand': _selectedBrand,
@@ -247,8 +268,19 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
         // Upload to Firebase Firestore
         await _firestore.collection('base_model_sale').add(saleData);
 
+        // Store customer info for success dialog before clearing
+        final customerName = _customerNameController.text;
+        final customerPhone = _customerPhoneController.text;
+
+        // Clear the form immediately after successful upload
+        _clearForm();
+
         // Show success dialog
-        _showSuccessDialog(context);
+        _showSuccessDialog(
+          context,
+          customerName: customerName,
+          customerPhone: customerPhone,
+        );
       } catch (error) {
         // Show error dialog
         _showErrorDialog(context, error.toString());
@@ -260,7 +292,11 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
     }
   }
 
-  void _showSuccessDialog(BuildContext context) {
+  void _showSuccessDialog(
+    BuildContext context, {
+    String? customerName,
+    String? customerPhone,
+  }) {
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -318,13 +354,46 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                 ),
+
+                // Show customer info in success dialog if available
+                if (customerName != null && customerName.isNotEmpty ||
+                    customerPhone != null && customerPhone.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      children: [
+                        if (customerName != null && customerName.isNotEmpty)
+                          Text(
+                            'Customer: $customerName',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue[800],
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        if (customerPhone != null && customerPhone.isNotEmpty)
+                          Text(
+                            'Phone: $customerPhone',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue[800],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+
                 const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () {
                       Navigator.pop(context);
-                      _clearForm();
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.purple[700],
@@ -334,8 +403,8 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    child: Text(
-                      'New Sale',
+                    child: const Text(
+                      'OK',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -427,7 +496,7 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    child: Text(
+                    child: const Text(
                       'Try Again',
                       style: TextStyle(
                         fontSize: 14,
@@ -458,6 +527,11 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
 
     // Reset dropdown
     _selectedBrand = null;
+
+    // Reset date to today
+    _selectedDate = DateTime.now();
+    _dateController.text =
+        "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}";
 
     // Reset form state
     _formKey.currentState?.reset();
@@ -970,7 +1044,7 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                             readOnly: true,
                             onTap: () => _selectDate(context),
                             validator: (value) {
-                              if (value == null || value.isEmpty) {
+                              if (_selectedDate == null) {
                                 return 'Please select a date';
                               }
                               return null;
