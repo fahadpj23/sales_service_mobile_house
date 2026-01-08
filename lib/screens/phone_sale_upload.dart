@@ -82,6 +82,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     'blackberry',
     'htc',
     'lenovo',
+    'spanio',
   ];
 
   // Purchase modes

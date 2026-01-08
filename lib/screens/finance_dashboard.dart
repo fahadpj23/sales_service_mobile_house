@@ -20,7 +20,7 @@ class FinanceDashboardApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
         primaryColor: Colors.blue[900],
-        scaffoldBackgroundColor: Colors.grey[50],
+        scaffoldBackgroundColor: Colors.grey.shade50,
         appBarTheme: AppBarTheme(
           backgroundColor: Colors.blue[900],
           elevation: 0,
@@ -68,15 +68,17 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
   int _selectedIndex = 0;
   bool _isLoading = false;
   bool _isDrawerOpen = false;
+  String? _selectedShop;
 
-  // Firestore instance
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Data lists
   List<Map<String, dynamic>> _phoneSales = [];
   List<Map<String, dynamic>> _accessoriesServiceSales = [];
   List<Map<String, dynamic>> _baseModelSales = [];
   List<Map<String, dynamic>> _secondsPhoneSales = [];
+
+  List<String> _allShops = ['All Shops'];
+  List<String> _availableShops = [];
 
   @override
   void initState() {
@@ -84,7 +86,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     _loadAllData();
   }
 
-  // Method to load all data from Firestore
   Future<void> _loadAllData() async {
     setState(() {
       _isLoading = true;
@@ -98,11 +99,9 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
         _fetchSecondsPhoneSales(),
       ]);
 
-      print('Data loaded successfully:');
-      print('Phone Sales: ${_phoneSales.length}');
-      print('Accessories: ${_accessoriesServiceSales.length}');
-      print('Base Models: ${_baseModelSales.length}');
-      print('Seconds: ${_secondsPhoneSales.length}');
+      _extractShopsFromData();
+
+      print('Data loaded successfully');
     } catch (e) {
       print('Error loading data: $e');
       _showSnackBar('Error loading data: $e', Colors.red);
@@ -113,7 +112,43 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     }
   }
 
-  // Fetch PhoneSales collection
+  void _extractShopsFromData() {
+    final Set<String> shops = {'All Shops'};
+
+    for (var sale in _phoneSales) {
+      final shop = _getShopName(sale);
+      if (shop.isNotEmpty && shop != 'Main Store') {
+        shops.add(shop);
+      }
+    }
+
+    for (var sale in _accessoriesServiceSales) {
+      final shop = _getShopName(sale);
+      if (shop.isNotEmpty && shop != 'Main Store') {
+        shops.add(shop);
+      }
+    }
+
+    for (var sale in _baseModelSales) {
+      final shop = _getShopName(sale);
+      if (shop.isNotEmpty && shop != 'Main Store') {
+        shops.add(shop);
+      }
+    }
+
+    for (var sale in _secondsPhoneSales) {
+      final shop = _getShopName(sale);
+      if (shop.isNotEmpty && shop != 'Main Store') {
+        shops.add(shop);
+      }
+    }
+
+    setState(() {
+      _availableShops = shops.toList();
+      _allShops = shops.toList();
+    });
+  }
+
   Future<void> _fetchPhoneSales() async {
     try {
       final querySnapshot = await _firestore
@@ -128,6 +163,9 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
         data['downPaymentReceived'] = data['downPaymentReceived'] ?? false;
         data['disbursementReceived'] = data['disbursementReceived'] ?? false;
         data['paymentVerified'] = data['paymentVerified'] ?? false;
+
+        _initializePhoneSalePaymentData(data);
+
         return data;
       }).toList();
     } catch (e) {
@@ -136,7 +174,41 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     }
   }
 
-  // Fetch accessories_service_sales collection
+  void _initializePhoneSalePaymentData(Map<String, dynamic> data) {
+    String purchaseMode = (data['purchaseMode'] ?? '').toString().toLowerCase();
+
+    if (purchaseMode == 'emi') {
+      data['paymentBreakdownVerified'] = {
+        'cash': data['downPaymentReceived'] ?? false,
+        'card': false,
+        'gpay': false,
+      };
+    } else {
+      final existingBreakdown = data['paymentBreakdownVerified'];
+      if (existingBreakdown is Map) {
+        data['paymentBreakdownVerified'] = {
+          'cash': _convertToBool(existingBreakdown['cash']),
+          'card': _convertToBool(existingBreakdown['card']),
+          'gpay': _convertToBool(existingBreakdown['gpay']),
+        };
+      } else {
+        bool isCash = purchaseMode.contains('cash') || purchaseMode.isEmpty;
+        bool isCard = purchaseMode.contains('card');
+        bool isUPI =
+            purchaseMode.contains('upi') ||
+            purchaseMode.contains('gpay') ||
+            purchaseMode.contains('phonepe') ||
+            purchaseMode.contains('paytm');
+
+        data['paymentBreakdownVerified'] = {
+          'cash': (data['paymentVerified'] ?? false) && isCash,
+          'card': (data['paymentVerified'] ?? false) && isCard,
+          'gpay': (data['paymentVerified'] ?? false) && isUPI,
+        };
+      }
+    }
+  }
+
   Future<void> _fetchAccessoriesServiceSales() async {
     try {
       final querySnapshot = await _firestore
@@ -149,7 +221,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
         final data = doc.data();
         data['id'] = doc.id;
         data['paymentVerified'] = data['paymentVerified'] ?? false;
-        _processPaymentBreakdown(data);
+        _initializeGenericPaymentData(data);
         return data;
       }).toList();
     } catch (e) {
@@ -158,12 +230,11 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     }
   }
 
-  // Fetch base_model_sale collection
   Future<void> _fetchBaseModelSales() async {
     try {
       final querySnapshot = await _firestore
           .collection('base_model_sale')
-          .orderBy('timestamp', descending: true)
+          .orderBy('date', descending: true)
           .limit(100)
           .get();
 
@@ -171,7 +242,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
         final data = doc.data();
         data['id'] = doc.id;
         data['paymentVerified'] = data['paymentVerified'] ?? false;
-        _processPaymentBreakdown(data);
+        _initializeGenericPaymentData(data);
         return data;
       }).toList();
     } catch (e) {
@@ -180,12 +251,11 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     }
   }
 
-  // Fetch seconds_phone_sale collection
   Future<void> _fetchSecondsPhoneSales() async {
     try {
       final querySnapshot = await _firestore
           .collection('seconds_phone_sale')
-          .orderBy('timestamp', descending: true)
+          .orderBy('date', descending: true)
           .limit(100)
           .get();
 
@@ -193,7 +263,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
         final data = doc.data();
         data['id'] = doc.id;
         data['paymentVerified'] = data['paymentVerified'] ?? false;
-        _processPaymentBreakdown(data);
+        _initializeGenericPaymentData(data);
         return data;
       }).toList();
     } catch (e) {
@@ -202,24 +272,24 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     }
   }
 
-  void _processPaymentBreakdown(Map<String, dynamic> data) {
+  void _initializeGenericPaymentData(Map<String, dynamic> data) {
     final paymentBreakdown = data['paymentBreakdownVerified'];
-    if (paymentBreakdown is Map) {
-      data['paymentBreakdownVerified'] = {
-        'cash': _convertToBool(paymentBreakdown['cash']),
-        'card': _convertToBool(paymentBreakdown['card']),
-        'gpay': _convertToBool(paymentBreakdown['gpay']),
-      };
-    } else {
+
+    if (paymentBreakdown == null || paymentBreakdown is! Map) {
       data['paymentBreakdownVerified'] = {
         'cash': false,
         'card': false,
         'gpay': false,
       };
+    } else {
+      data['paymentBreakdownVerified'] = {
+        'cash': _convertToBool(paymentBreakdown['cash']),
+        'card': _convertToBool(paymentBreakdown['card']),
+        'gpay': _convertToBool(paymentBreakdown['gpay']),
+      };
     }
   }
 
-  // Helper method to convert dynamic to bool
   bool _convertToBool(dynamic value) {
     if (value == null) return false;
     if (value is bool) return value;
@@ -232,31 +302,95 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     return false;
   }
 
-  // Helper method to extract amount from sale with multiple possible field names
-  double _extractAmount(Map<String, dynamic> sale, List<String> fieldNames) {
-    for (String fieldName in fieldNames) {
-      final value = sale[fieldName];
-      if (value != null) {
-        if (value is num) {
-          return value.toDouble();
-        } else if (value is String) {
-          final parsed = double.tryParse(value);
-          if (parsed != null) return parsed;
+  double _extractAmount(dynamic data, List<String> fieldNames) {
+    // Handle Map<String, dynamic>
+    if (data is Map<String, dynamic>) {
+      for (String fieldName in fieldNames) {
+        final value = data[fieldName];
+        if (value != null) {
+          if (value is num) {
+            return value.toDouble();
+          } else if (value is String) {
+            final parsed = double.tryParse(value);
+            if (parsed != null) return parsed;
+          }
+        }
+      }
+    }
+    // Handle Map<dynamic, dynamic>
+    else if (data is Map) {
+      for (String fieldName in fieldNames) {
+        final value = data[fieldName];
+        if (value != null) {
+          if (value is num) {
+            return value.toDouble();
+          } else if (value is String) {
+            final parsed = double.tryParse(value);
+            if (parsed != null) return parsed;
+          }
         }
       }
     }
     return 0.0;
   }
 
-  // Helper method to get total amount from sale
+  // UPDATED: Get payment amounts based on collection type
+  Map<String, double> _getPaymentAmounts(
+    String collection,
+    Map<String, dynamic> sale,
+  ) {
+    double cashAmount = 0;
+    double cardAmount = 0;
+    double gpayAmount = 0;
+
+    if (collection == 'accessories_service_sales') {
+      // For accessories: cashAmount, cardAmount, gpayAmount fields
+      cashAmount = _extractAmount(sale, [
+        'cashAmount',
+        'cashPayment',
+        'cashPaid',
+        'cash',
+      ]);
+      cardAmount = _extractAmount(sale, [
+        'cardAmount',
+        'cardPayment',
+        'cardPaid',
+        'card',
+      ]);
+      gpayAmount = _extractAmount(sale, [
+        'gpayAmount',
+        'upiAmount',
+        'gpayPayment',
+        'upiPayment',
+        'gpay',
+        'upi',
+      ]);
+    } else if (collection == 'base_model_sale' ||
+        collection == 'seconds_phone_sale') {
+      // For base models and seconds phones: cash, card, gpay fields
+      cashAmount = _extractAmount(sale, ['cash', 'cashAmount', 'cashPayment']);
+      cardAmount = _extractAmount(sale, ['card', 'cardAmount', 'cardPayment']);
+      gpayAmount = _extractAmount(sale, [
+        'gpay',
+        'gpayAmount',
+        'upiAmount',
+        'upi',
+      ]);
+    }
+
+    return {'cash': cashAmount, 'card': cardAmount, 'gpay': gpayAmount};
+  }
+
   double _getTotalAmount(Map<String, dynamic> sale) {
-    // Try different possible field names for total amount
     final possibleFields = [
       'totalSaleAmount',
       'price',
       'amountToPay',
       'totalAmount',
       'saleAmount',
+      'amount',
+      'totalPayment',
+      'effectivePrice',
     ];
 
     for (String fieldName in possibleFields) {
@@ -273,7 +407,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     return 0.0;
   }
 
-  // Helper method to parse date to DateTime
   DateTime? _parseDate(dynamic date) {
     try {
       if (date == null) return null;
@@ -282,7 +415,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       } else if (date is DateTime) {
         return date;
       } else if (date is String) {
-        // Try to parse from common formats
         if (date.contains('-')) {
           return DateTime.parse(date);
         } else if (date.contains('/')) {
@@ -303,7 +435,57 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     }
   }
 
-  // Get overdue sales (more than 7 days without verification)
+  String _getShopName(Map<String, dynamic> sale) {
+    final shopName =
+        sale['shopName'] ??
+        sale['storeName'] ??
+        sale['branchName'] ??
+        sale['shop'] ??
+        'Main Store';
+    return shopName.toString().isEmpty ? 'Main Store' : shopName.toString();
+  }
+
+  List<Map<String, dynamic>> _filterByShop(List<Map<String, dynamic>> sales) {
+    if (_selectedShop == null || _selectedShop == 'All Shops') {
+      return sales;
+    }
+    return sales.where((sale) => _getShopName(sale) == _selectedShop).toList();
+  }
+
+  List<Map<String, dynamic>> _getFilteredDataForCurrentTab() {
+    switch (_selectedIndex) {
+      case 0:
+        return _filterByShop(_phoneSales);
+      case 1:
+        return _filterByShop(_secondsPhoneSales);
+      case 2:
+        return _filterByShop(_baseModelSales);
+      case 3:
+        return _filterByShop(_accessoriesServiceSales);
+      case 4:
+        return _getOverdueSales();
+      default:
+        return _filterByShop(_phoneSales);
+    }
+  }
+
+  List<Map<String, dynamic>> _getAllDataForCurrentTab() {
+    switch (_selectedIndex) {
+      case 0:
+        return _phoneSales;
+      case 1:
+        return _secondsPhoneSales;
+      case 2:
+        return _baseModelSales;
+      case 3:
+        return _accessoriesServiceSales;
+      case 4:
+        return _getOverdueSales();
+      default:
+        return _phoneSales;
+    }
+  }
+
   List<Map<String, dynamic>> _getOverdueSales() {
     List<Map<String, dynamic>> allSales = [];
     allSales.addAll(_phoneSales);
@@ -331,7 +513,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     }).toList();
   }
 
-  // Update payment verification in Firestore
   Future<void> _updatePaymentVerification(
     String collection,
     String docId,
@@ -339,22 +520,31 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
   ) async {
     try {
       await _firestore.collection(collection).doc(docId).update(updates);
-      print('Payment verification updated successfully');
+      print('✅ Payment verification updated successfully for $docId');
+      print('📝 Updates: $updates');
+      _showSnackBar('Updated successfully!', Colors.green);
     } catch (e) {
-      print('Error updating payment verification: $e');
+      print('❌ Error updating payment verification: $e');
       _showSnackBar('Error updating: $e', Colors.red);
       rethrow;
     }
   }
 
   void _showSnackBar(String message, Color color) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final filteredData = _getFilteredDataForCurrentTab();
+    final allData = _getAllDataForCurrentTab();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Payment Verification'),
@@ -379,7 +569,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       ),
       body: Row(
         children: [
-          // Sidebar Drawer
           _isDrawerOpen
               ? Container(
                   width: 250,
@@ -387,11 +576,10 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                   child: _buildSidebar(),
                 )
               : const SizedBox.shrink(),
-          // Main Content
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : _buildCurrentTab(),
+                : _buildCurrentTab(filteredData, allData),
           ),
         ],
       ),
@@ -426,7 +614,8 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                     icon: Icons.phone_iphone,
                     label: 'Phones',
                     index: 0,
-                    count: _phoneSales.length,
+                    count: _filterByShop(_phoneSales).length,
+                    totalCount: _phoneSales.length,
                     verifiedCount: _phoneSales
                         .where((s) => s['paymentVerified'] == true)
                         .length,
@@ -435,7 +624,8 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                     icon: Icons.phone_android,
                     label: '2nd Hand',
                     index: 1,
-                    count: _secondsPhoneSales.length,
+                    count: _filterByShop(_secondsPhoneSales).length,
+                    totalCount: _secondsPhoneSales.length,
                     verifiedCount: _secondsPhoneSales
                         .where((s) => s['paymentVerified'] == true)
                         .length,
@@ -444,7 +634,8 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                     icon: Icons.phone,
                     label: 'Base Models',
                     index: 2,
-                    count: _baseModelSales.length,
+                    count: _filterByShop(_baseModelSales).length,
+                    totalCount: _baseModelSales.length,
                     verifiedCount: _baseModelSales
                         .where((s) => s['paymentVerified'] == true)
                         .length,
@@ -453,7 +644,8 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                     icon: Icons.shopping_cart,
                     label: 'Accessories',
                     index: 3,
-                    count: _accessoriesServiceSales.length,
+                    count: _filterByShop(_accessoriesServiceSales).length,
+                    totalCount: _accessoriesServiceSales.length,
                     verifiedCount: _accessoriesServiceSales
                         .where((s) => s['paymentVerified'] == true)
                         .length,
@@ -462,7 +654,14 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                     icon: Icons.warning,
                     label: 'Overdue',
                     index: 4,
-                    count: overdueCount,
+                    count: _selectedShop != null
+                        ? _getOverdueSales()
+                              .where(
+                                (sale) => _getShopName(sale) == _selectedShop,
+                              )
+                              .length
+                        : overdueCount,
+                    totalCount: overdueCount,
                     verifiedCount: 0,
                     isOverdue: true,
                   ),
@@ -480,11 +679,14 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     required String label,
     required int index,
     required int count,
+    required int totalCount,
     required int verifiedCount,
     bool isOverdue = false,
   }) {
     bool isSelected = _selectedIndex == index;
-    double verifiedPercentage = count > 0 ? (verifiedCount / count * 100) : 0;
+    double verifiedPercentage = totalCount > 0
+        ? (verifiedCount / totalCount * 100)
+        : 0;
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -518,7 +720,9 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
             ),
           ),
           child: Text(
-            isOverdue ? '$count' : '$verifiedCount/$count',
+            _selectedShop != null && !isOverdue
+                ? '$count'
+                : '$verifiedCount/$totalCount',
             style: TextStyle(
               color: isOverdue ? Colors.red[300] : Colors.white,
               fontSize: 12,
@@ -532,7 +736,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
             _isDrawerOpen = false;
           });
         },
-        subtitle: !isOverdue && count > 0
+        subtitle: !isOverdue && totalCount > 0
             ? Text(
                 '${verifiedPercentage.toStringAsFixed(0)}%',
                 style: TextStyle(
@@ -545,36 +749,47 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     );
   }
 
-  Widget _buildCurrentTab() {
+  Widget _buildCurrentTab(
+    List<Map<String, dynamic>> filteredData,
+    List<Map<String, dynamic>> allData,
+  ) {
     switch (_selectedIndex) {
       case 0:
-        return _buildPhoneSalesVerificationTab();
+        return _buildPhoneSalesVerificationTab(filteredData, allData);
       case 1:
-        return _buildSecondsPhoneVerificationTab();
+        return _buildSecondsPhoneVerificationTab(filteredData, allData);
       case 2:
-        return _buildBaseModelVerificationTab();
+        return _buildBaseModelVerificationTab(filteredData, allData);
       case 3:
-        return _buildAccessoriesServiceVerificationTab();
+        return _buildAccessoriesServiceVerificationTab(filteredData, allData);
       case 4:
-        return _buildOverdueVerificationTab();
+        return _buildOverdueVerificationTab(filteredData, allData);
       default:
-        return _buildPhoneSalesVerificationTab();
+        return _buildPhoneSalesVerificationTab(filteredData, allData);
     }
   }
 
-  Widget _buildPhoneSalesVerificationTab() {
+  Widget _buildPhoneSalesVerificationTab(
+    List<Map<String, dynamic>> filteredData,
+    List<Map<String, dynamic>> allData,
+  ) {
     return _buildMobileListView(
       title: 'Phone Sales',
-      data: _phoneSales,
+      filteredData: filteredData,
+      allData: allData,
       buildItem: (sale) => _buildPhoneSaleCard(sale),
       emptyMessage: 'No phone sales found',
     );
   }
 
-  Widget _buildSecondsPhoneVerificationTab() {
+  Widget _buildSecondsPhoneVerificationTab(
+    List<Map<String, dynamic>> filteredData,
+    List<Map<String, dynamic>> allData,
+  ) {
     return _buildMobileListView(
       title: '2nd Hand Phones',
-      data: _secondsPhoneSales,
+      filteredData: filteredData,
+      allData: allData,
       buildItem: (sale) => _buildGenericSaleCard(
         sale,
         'seconds_phone_sale',
@@ -584,10 +799,14 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     );
   }
 
-  Widget _buildBaseModelVerificationTab() {
+  Widget _buildBaseModelVerificationTab(
+    List<Map<String, dynamic>> filteredData,
+    List<Map<String, dynamic>> allData,
+  ) {
     return _buildMobileListView(
       title: 'Base Models',
-      data: _baseModelSales,
+      filteredData: filteredData,
+      allData: allData,
       buildItem: (sale) => _buildGenericSaleCard(
         sale,
         'base_model_sale',
@@ -597,10 +816,14 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     );
   }
 
-  Widget _buildAccessoriesServiceVerificationTab() {
+  Widget _buildAccessoriesServiceVerificationTab(
+    List<Map<String, dynamic>> filteredData,
+    List<Map<String, dynamic>> allData,
+  ) {
     return _buildMobileListView(
       title: 'Accessories & Services',
-      data: _accessoriesServiceSales,
+      filteredData: filteredData,
+      allData: allData,
       buildItem: (sale) => _buildGenericSaleCard(
         sale,
         'accessories_service_sales',
@@ -610,12 +833,14 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     );
   }
 
-  Widget _buildOverdueVerificationTab() {
-    final overdueSales = _getOverdueSales();
-
+  Widget _buildOverdueVerificationTab(
+    List<Map<String, dynamic>> filteredData,
+    List<Map<String, dynamic>> allData,
+  ) {
     return _buildMobileListView(
       title: 'Overdue Payments (>7 days)',
-      data: overdueSales,
+      filteredData: filteredData,
+      allData: allData,
       buildItem: (sale) => _buildOverdueSaleCard(sale),
       emptyMessage: 'No overdue payments found',
     );
@@ -623,16 +848,19 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
 
   Widget _buildMobileListView({
     required String title,
-    required List<Map<String, dynamic>> data,
+    required List<Map<String, dynamic>> filteredData,
+    required List<Map<String, dynamic>> allData,
     required Widget Function(Map<String, dynamic>) buildItem,
     required String emptyMessage,
   }) {
     return Column(
       children: [
-        _buildVerificationSummary(title, data),
+        _buildVerificationSummary(title, filteredData, allData),
+        const SizedBox(height: 8),
+        _buildShopFilter(),
         const SizedBox(height: 8),
         Expanded(
-          child: data.isEmpty
+          child: filteredData.isEmpty
               ? Center(
                   child: Text(
                     emptyMessage,
@@ -641,11 +869,11 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 )
               : ListView.builder(
                   padding: const EdgeInsets.all(12.0),
-                  itemCount: data.length,
+                  itemCount: filteredData.length,
                   itemBuilder: (context, index) {
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 12.0),
-                      child: buildItem(data[index]),
+                      child: buildItem(filteredData[index]),
                     );
                   },
                 ),
@@ -654,12 +882,93 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     );
   }
 
+  Widget _buildShopFilter() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12.0),
+      child: Card(
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Filter by Shop',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.blue[900],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _selectedShop ?? 'All Shops',
+                            icon: const Icon(Icons.arrow_drop_down),
+                            isExpanded: true,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Colors.black87,
+                            ),
+                            onChanged: (String? newValue) {
+                              setState(() {
+                                _selectedShop = newValue == 'All Shops'
+                                    ? null
+                                    : newValue;
+                              });
+                            },
+                            items: _availableShops
+                                .map<DropdownMenuItem<String>>((String value) {
+                                  return DropdownMenuItem<String>(
+                                    value: value,
+                                    child: Text(value),
+                                  );
+                                })
+                                .toList(),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (_selectedShop != null)
+                    IconButton(
+                      icon: const Icon(Icons.clear, size: 20),
+                      onPressed: () {
+                        setState(() {
+                          _selectedShop = null;
+                        });
+                      },
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildVerificationSummary(
     String title,
-    List<Map<String, dynamic>> data,
+    List<Map<String, dynamic>> filteredData,
+    List<Map<String, dynamic>> allData,
   ) {
-    int total = data.length;
-    int verified = data.where((sale) => sale['paymentVerified'] == true).length;
+    int total = filteredData.length;
+    int verified = filteredData
+        .where((sale) => sale['paymentVerified'] == true)
+        .length;
     int pending = total - verified;
     double verifiedPercentage = total > 0 ? (verified / total * 100) : 0;
 
@@ -671,13 +980,44 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
         padding: const EdgeInsets.all(12.0),
         child: Column(
           children: [
-            Text(
-              title.toUpperCase(),
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.blue[900],
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  title.toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.blue[900],
+                  ),
+                ),
+                if (_selectedShop != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.blue, width: 1),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.store, size: 12, color: Colors.blue),
+                        const SizedBox(width: 4),
+                        Text(
+                          _selectedShop!,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.blue,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 12),
             Row(
@@ -746,14 +1086,33 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
   }
 
   Widget _buildPhoneSaleCard(Map<String, dynamic> sale) {
-    String purchaseMode = sale['purchaseMode'] ?? '';
-    bool isEMI = purchaseMode == 'EMI';
+    String purchaseMode = (sale['purchaseMode'] ?? '').toString();
+    String mode = purchaseMode.toLowerCase();
+    bool isEMI = mode == 'emi';
+    bool isCash = mode.contains('cash') || mode.isEmpty;
+    bool isCard = mode.contains('card');
+    bool isUPI =
+        mode.contains('upi') ||
+        mode.contains('gpay') ||
+        mode.contains('phonepe') ||
+        mode.contains('paytm');
+
     double downPayment = (sale['downPayment'] as num?)?.toDouble() ?? 0;
     double disbursement = (sale['disbursementAmount'] as num?)?.toDouble() ?? 0;
     bool downPaymentReceived = sale['downPaymentReceived'] ?? false;
     bool disbursementReceived = sale['disbursementReceived'] ?? false;
     bool paymentVerified = sale['paymentVerified'] ?? false;
-    double amount = (sale['amountToPay'] as num?)?.toDouble() ?? 0;
+    double amount = _getTotalAmount(sale);
+
+    final paymentBreakdown =
+        sale['paymentBreakdownVerified'] ??
+        {'cash': false, 'card': false, 'gpay': false};
+
+    bool cashVerified = _convertToBool(paymentBreakdown['cash']);
+    bool cardVerified = _convertToBool(paymentBreakdown['card']);
+    bool gpayVerified = _convertToBool(paymentBreakdown['gpay']);
+
+    String shopName = _getShopName(sale);
 
     return Card(
       elevation: 2,
@@ -802,7 +1161,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
               ],
             ),
             const SizedBox(height: 8),
-            Divider(color: Colors.grey[300], height: 1),
+            Divider(color: Colors.grey.shade300, height: 1),
             const SizedBox(height: 8),
             Row(
               children: [
@@ -811,21 +1170,21 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Product',
+                        'Shop',
                         style: TextStyle(
                           fontSize: 10,
-                          color: Colors.grey[600],
+                          color: Colors.grey.shade600,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${sale['brand'] ?? ''} ${sale['productModel'] ?? ''}',
+                        shopName,
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                         ),
-                        maxLines: 2,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],
@@ -840,7 +1199,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         'Amount',
                         style: TextStyle(
                           fontSize: 10,
-                          color: Colors.grey[600],
+                          color: Colors.grey.shade600,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -866,37 +1225,22 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Mode',
+                        'Product',
                         style: TextStyle(
                           fontSize: 10,
-                          color: Colors.grey[600],
+                          color: Colors.grey.shade600,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
                       const SizedBox(height: 2),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
+                      Text(
+                        '${sale['brand'] ?? ''} ${sale['productModel'] ?? ''}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
                         ),
-                        decoration: BoxDecoration(
-                          color: isEMI
-                              ? Colors.orange.withOpacity(0.1)
-                              : Colors.green.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(
-                            color: isEMI ? Colors.orange : Colors.green,
-                            width: 1,
-                          ),
-                        ),
-                        child: Text(
-                          purchaseMode.isEmpty ? 'Cash' : purchaseMode,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            color: isEMI ? Colors.orange : Colors.green,
-                          ),
-                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
@@ -910,7 +1254,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         'Payment',
                         style: TextStyle(
                           fontSize: 10,
-                          color: Colors.grey[600],
+                          color: Colors.grey.shade600,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -921,9 +1265,96 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Mode',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _getPaymentModeColor(purchaseMode),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: _getPaymentModeBorderColor(purchaseMode),
+                            width: 1,
+                          ),
+                        ),
+                        child: Text(
+                          purchaseMode.isEmpty ? 'Cash' : purchaseMode,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: _getPaymentModeTextColor(purchaseMode),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Date',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _formatDate(sale['saleDate']),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (!isEMI) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Payment Methods',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.blue[900],
+                ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildPaymentMethodIndicator('Cash', cashVerified && isCash),
+                  _buildPaymentMethodIndicator('Card', cardVerified && isCard),
+                  _buildPaymentMethodIndicator('UPI', gpayVerified && isUPI),
+                ],
+              ),
+            ],
             if (isEMI) ...[
               const SizedBox(height: 12),
-              Divider(color: Colors.grey[300], height: 1),
+              Divider(color: Colors.grey.shade300, height: 1),
               const SizedBox(height: 8),
               Text(
                 'EMI Details',
@@ -944,7 +1375,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                           'Down Payment',
                           style: TextStyle(
                             fontSize: 10,
-                            color: Colors.grey[600],
+                            color: Colors.grey.shade600,
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -969,7 +1400,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                           'Disbursement',
                           style: TextStyle(
                             fontSize: 10,
-                            color: Colors.grey[600],
+                            color: Colors.grey.shade600,
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -988,11 +1419,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 ],
               ),
             ],
-            const SizedBox(height: 8),
-            Text(
-              'Date: ${_formatDate(sale['saleDate'])}',
-              style: const TextStyle(fontSize: 10, color: Colors.grey),
-            ),
           ],
         ),
       ),
@@ -1007,16 +1433,15 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     Map<String, dynamic> displayData = getDisplayData(sale);
     bool paymentVerified = sale['paymentVerified'] ?? false;
 
-    final paymentBreakdown = sale['paymentBreakdownVerified'];
-    bool cashVerified = false;
-    bool cardVerified = false;
-    bool gpayVerified = false;
+    final paymentBreakdown =
+        sale['paymentBreakdownVerified'] ??
+        {'cash': false, 'card': false, 'gpay': false};
 
-    if (paymentBreakdown is Map<String, dynamic>) {
-      cashVerified = _convertToBool(paymentBreakdown['cash']);
-      cardVerified = _convertToBool(paymentBreakdown['card']);
-      gpayVerified = _convertToBool(paymentBreakdown['gpay']);
-    }
+    bool cashVerified = _convertToBool(paymentBreakdown['cash']);
+    bool cardVerified = _convertToBool(paymentBreakdown['card']);
+    bool gpayVerified = _convertToBool(paymentBreakdown['gpay']);
+
+    String shopName = _getShopName(sale);
 
     return Card(
       elevation: 2,
@@ -1070,7 +1495,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
               ],
             ),
             const SizedBox(height: 8),
-            Divider(color: Colors.grey[300], height: 1),
+            Divider(color: Colors.grey.shade300, height: 1),
             const SizedBox(height: 8),
             Row(
               children: [
@@ -1079,10 +1504,34 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
+                        'Shop',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        shopName,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
                         'Amount',
                         style: TextStyle(
                           fontSize: 10,
-                          color: Colors.grey[600],
+                          color: Colors.grey.shade600,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -1098,7 +1547,11 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                     ],
                   ),
                 ),
-                const SizedBox(width: 12),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1107,12 +1560,36 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         'Payment',
                         style: TextStyle(
                           fontSize: 10,
-                          color: Colors.grey[600],
+                          color: Colors.grey.shade600,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
                       const SizedBox(height: 2),
                       _buildMobileVerificationChip(paymentVerified),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Date',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _formatDate(displayData['date']),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1133,13 +1610,8 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
               children: [
                 _buildPaymentMethodIndicator('Cash', cashVerified),
                 _buildPaymentMethodIndicator('Card', cardVerified),
-                _buildPaymentMethodIndicator('GPay', gpayVerified),
+                _buildPaymentMethodIndicator('UPI', gpayVerified),
               ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Date: ${_formatDate(displayData['date'])}',
-              style: const TextStyle(fontSize: 10, color: Colors.grey),
             ),
           ],
         ),
@@ -1148,7 +1620,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
   }
 
   Widget _buildOverdueSaleCard(Map<String, dynamic> sale) {
-    // Determine sale type
     String saleType = '';
     String collection = '';
 
@@ -1167,7 +1638,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       collection = 'accessories_service_sales';
     }
 
-    // Calculate days overdue
     DateTime? saleDate;
     if (sale.containsKey('saleDate')) {
       saleDate = _parseDate(sale['saleDate']);
@@ -1183,8 +1653,8 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       daysOverdue = now.difference(saleDate).inDays;
     }
 
-    // Get amount
     double amount = _getTotalAmount(sale);
+    String shopName = _getShopName(sale);
 
     return Card(
       elevation: 2,
@@ -1192,7 +1662,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: Colors.red.withOpacity(0.5), width: 2),
       ),
-      color: Colors.red[50],
+      color: Colors.red.shade50,
       child: Padding(
         padding: const EdgeInsets.all(12.0),
         child: Column(
@@ -1261,7 +1731,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
               ],
             ),
             const SizedBox(height: 8),
-            Divider(color: Colors.red[300], height: 1),
+            Divider(color: Colors.red.shade300, height: 1),
             const SizedBox(height: 8),
             Row(
               children: [
@@ -1270,10 +1740,34 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
+                        'Shop',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        shopName,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
                         'Days Overdue',
                         style: TextStyle(
                           fontSize: 10,
-                          color: Colors.grey[600],
+                          color: Colors.grey.shade600,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -1300,7 +1794,11 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                     ],
                   ),
                 ),
-                const SizedBox(width: 12),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1309,7 +1807,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         'Amount',
                         style: TextStyle(
                           fontSize: 10,
-                          color: Colors.grey[600],
+                          color: Colors.grey.shade600,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -1325,20 +1823,16 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                     ],
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Sale Date',
+                        'Date',
                         style: TextStyle(
                           fontSize: 10,
-                          color: Colors.grey[600],
+                          color: Colors.grey.shade600,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -1353,45 +1847,51 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                     ],
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Type',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.grey[600],
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: Colors.blue, width: 1),
-                        ),
-                        child: Text(
-                          saleType,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.blue,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               ],
             ),
-            const SizedBox(height: 8),
+            if (sale.containsKey('purchaseMode')) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Payment Mode',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: Colors.blue, width: 1),
+                          ),
+                          child: Text(
+                            sale['purchaseMode'] ?? 'Cash',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.blue,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 12),
             ElevatedButton(
               onPressed: () {
                 if (saleType == 'Phone Sale') {
@@ -1558,7 +2058,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     };
   }
 
-  // Helper methods
   String _formatNumber(double number) {
     return NumberFormat('#,##0').format(number);
   }
@@ -1589,7 +2088,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       'type': 'Phone Sale',
       'description': '${sale['brand'] ?? ''} ${sale['productModel'] ?? ''}',
       'customer': sale['customerName'] ?? '',
-      'amount': sale['amountToPay'] ?? 0,
+      'amount': _getTotalAmount(sale),
       'time': sale['saleDate'],
       'status': 'Completed',
       'paymentVerified': sale['paymentVerified'] ?? false,
@@ -1612,17 +2111,17 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     if (collection == 'seconds_phone_sale') {
       type = '2nd Hand Phone';
       description = sale['productName'] ?? '';
-      amount = (sale['price'] as num?)?.toDouble() ?? 0;
+      amount = _getTotalAmount(sale);
       date = sale['date'] ?? sale['timestamp'];
     } else if (collection == 'base_model_sale') {
       type = 'Base Model';
       description = sale['modelName'] ?? '';
-      amount = (sale['price'] as num?)?.toDouble() ?? 0;
+      amount = _getTotalAmount(sale);
       date = sale['date'] ?? sale['timestamp'];
     } else if (collection == 'accessories_service_sales') {
       type = 'Accessory/Service';
       description = 'Accessories & Services';
-      amount = (sale['totalSaleAmount'] as num?)?.toDouble() ?? 0;
+      amount = _getTotalAmount(sale);
       date = sale['date'] ?? '';
     }
 
@@ -1645,23 +2144,80 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     };
   }
 
-  // Payment verification methods - FIXED VERSION
+  Color _getPaymentModeColor(String purchaseMode) {
+    String mode = purchaseMode.toLowerCase();
+    switch (mode) {
+      case 'emi':
+        return Colors.orange.withOpacity(0.1);
+      case 'cash':
+        return Colors.green.withOpacity(0.1);
+      case 'card':
+        return Colors.blue.withOpacity(0.1);
+      case 'upi':
+      case 'gpay':
+      case 'phonepe':
+      case 'paytm':
+        return Colors.purple.withOpacity(0.1);
+      default:
+        return Colors.green.withOpacity(0.1);
+    }
+  }
+
+  Color _getPaymentModeBorderColor(String purchaseMode) {
+    String mode = purchaseMode.toLowerCase();
+    switch (mode) {
+      case 'emi':
+        return Colors.orange;
+      case 'cash':
+        return Colors.green;
+      case 'card':
+        return Colors.blue;
+      case 'upi':
+      case 'gpay':
+      case 'phonepe':
+      case 'paytm':
+        return Colors.purple;
+      default:
+        return Colors.green;
+    }
+  }
+
+  Color _getPaymentModeTextColor(String purchaseMode) {
+    String mode = purchaseMode.toLowerCase();
+    switch (mode) {
+      case 'emi':
+        return Colors.orange;
+      case 'cash':
+        return Colors.green;
+      case 'card':
+        return Colors.blue;
+      case 'upi':
+      case 'gpay':
+      case 'phonepe':
+      case 'paytm':
+        return Colors.purple;
+      default:
+        return Colors.green;
+    }
+  }
+
+  // UPDATED: Payment verification method
   void _verifyPayment(Map<String, dynamic> transaction) async {
     final Map<String, dynamic> sale = transaction['data'];
     final String collection = transaction['collection'];
     final String docId = transaction['docId'];
 
-    // For Phone Sales with EMI
-    bool isPhoneEMI =
-        transaction['category'] == 'phone' &&
-        (sale['purchaseMode'] ?? '') == 'EMI';
+    String purchaseMode = (sale['purchaseMode'] ?? 'Cash').toString();
+    String mode = purchaseMode.toLowerCase();
+    bool isEMI = mode == 'emi';
 
-    if (isPhoneEMI) {
-      // For EMI Phone Sales
+    if (isEMI) {
       _showEMIVerificationDialog(sale, collection, docId);
+    } else if (transaction['category'] == 'phone') {
+      _showNonEMIPhoneVerificationDialog(sale, collection, docId, purchaseMode);
     } else {
-      // For other sales with payment breakdown
-      _showPaymentBreakdownDialog(sale, collection, docId);
+      // For accessories, base models, and seconds phones
+      _showGenericPaymentVerificationDialog(sale, collection, docId);
     }
   }
 
@@ -1672,12 +2228,16 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
   ) {
     bool downPaymentReceived = sale['downPaymentReceived'] ?? false;
     bool disbursementReceived = sale['disbursementReceived'] ?? false;
+    String shopName = _getShopName(sale);
 
     showDialog(
       context: context,
       builder: (context) {
+        bool localDownPaymentReceived = downPaymentReceived;
+        bool localDisbursementReceived = disbursementReceived;
+
         return StatefulBuilder(
-          builder: (context, setStateDialog) {
+          builder: (context, setState) {
             return AlertDialog(
               title: const Text('Verify EMI Payment'),
               content: SizedBox(
@@ -1691,7 +2251,15 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                       style: const TextStyle(fontSize: 14),
                     ),
                     Text(
-                      'Amount: ₹${_formatNumber((sale['amountToPay'] as num?)?.toDouble() ?? 0)}',
+                      'Shop: $shopName',
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                    Text(
+                      'Product: ${sale['brand'] ?? ''} ${sale['productModel'] ?? ''}',
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                    Text(
+                      'Total Amount: ₹${_formatNumber(_getTotalAmount(sale))}',
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
@@ -1701,10 +2269,10 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                     _buildEMIPaymentRow(
                       'Down Payment',
                       (sale['downPayment'] as num?)?.toDouble() ?? 0,
-                      downPaymentReceived,
+                      localDownPaymentReceived,
                       (value) {
-                        setStateDialog(() {
-                          downPaymentReceived = value;
+                        setState(() {
+                          localDownPaymentReceived = value;
                         });
                       },
                     ),
@@ -1712,10 +2280,10 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                     _buildEMIPaymentRow(
                       'Disbursement',
                       (sale['disbursementAmount'] as num?)?.toDouble() ?? 0,
-                      disbursementReceived,
+                      localDisbursementReceived,
                       (value) {
-                        setStateDialog(() {
-                          disbursementReceived = value;
+                        setState(() {
+                          localDisbursementReceived = value;
                         });
                       },
                     ),
@@ -1730,26 +2298,39 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 ElevatedButton(
                   onPressed: () async {
                     try {
-                      await _updatePaymentVerification(collection, docId, {
-                        'downPaymentReceived': downPaymentReceived,
-                        'disbursementReceived': disbursementReceived,
+                      final updates = <String, dynamic>{
+                        'downPaymentReceived': localDownPaymentReceived,
+                        'disbursementReceived': localDisbursementReceived,
                         'paymentVerified':
-                            downPaymentReceived && disbursementReceived,
-                      });
+                            localDownPaymentReceived &&
+                            localDisbursementReceived,
+                      };
 
-                      // Update local state immediately
-                      sale['downPaymentReceived'] = downPaymentReceived;
-                      sale['disbursementReceived'] = disbursementReceived;
-                      sale['paymentVerified'] =
-                          downPaymentReceived && disbursementReceived;
+                      await _updatePaymentVerification(
+                        collection,
+                        docId,
+                        updates,
+                      );
 
                       setState(() {
-                        // Trigger UI update
+                        sale['downPaymentReceived'] = localDownPaymentReceived;
+                        sale['disbursementReceived'] =
+                            localDisbursementReceived;
+                        sale['paymentVerified'] =
+                            localDownPaymentReceived &&
+                            localDisbursementReceived;
+                        sale['paymentBreakdownVerified'] = {
+                          'cash':
+                              localDownPaymentReceived &&
+                              localDisbursementReceived,
+                          'card': false,
+                          'gpay': false,
+                        };
                       });
 
                       Navigator.pop(context);
                       _showSnackBar(
-                        'Payment verified successfully',
+                        'EMI payment verified successfully',
                         Colors.green,
                       );
                     } catch (e) {
@@ -1766,79 +2347,401 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     );
   }
 
-  void _showPaymentBreakdownDialog(
+  // UPDATED: Non-EMI phone verification dialog with exchange value, discount, and payment breakdown
+  void _showNonEMIPhoneVerificationDialog(
     Map<String, dynamic> sale,
     String collection,
     String docId,
+    String purchaseMode,
   ) {
-    // Extract current payment breakdown
-    final paymentBreakdown = sale['paymentBreakdownVerified'];
-    bool cashVerified = _convertToBool(paymentBreakdown['cash']);
-    bool cardVerified = _convertToBool(paymentBreakdown['card']);
-    bool gpayVerified = _convertToBool(paymentBreakdown['gpay']);
+    // Extract payment breakdown data
+    final paymentBreakdown =
+        sale['paymentBreakdown'] ??
+        {'cash': 0, 'card': 0, 'credit': 0, 'gpay': 0};
 
-    // Extract amounts - FIXED: Properly handle the extraction
+    final paymentBreakdownVerified =
+        sale['paymentBreakdownVerified'] ??
+        {'cash': false, 'card': false, 'gpay': false};
+
+    bool cashVerified = _convertToBool(paymentBreakdownVerified['cash']);
+    bool cardVerified = _convertToBool(paymentBreakdownVerified['card']);
+    bool gpayVerified = _convertToBool(paymentBreakdownVerified['gpay']);
+
+    String shopName = _getShopName(sale);
+    String mode = purchaseMode.toLowerCase();
+
+    // Extract amounts
+    double exchangeValue = (sale['exchangeValue'] as num?)?.toDouble() ?? 0;
+    double discount = (sale['discount'] as num?)?.toDouble() ?? 0;
+    double totalAmount = _getTotalAmount(sale);
+    double price = (sale['price'] as num?)?.toDouble() ?? 0;
+    double effectivePrice = (sale['effectivePrice'] as num?)?.toDouble() ?? 0;
+    double amountToPay = (sale['amountToPay'] as num?)?.toDouble() ?? 0;
+
+    // Payment breakdown amounts
     double cashAmount = _extractAmount(sale, ['cashAmount', 'cash']);
     double cardAmount = _extractAmount(sale, ['cardAmount', 'card']);
-    double gpayAmount = _extractAmount(sale, ['gpayAmount', 'gpay']);
+    double gpayAmount = _extractAmount(sale, [
+      'gpayAmount',
+      'upiAmount',
+      'gpay',
+      'upi',
+    ]);
+    double creditAmount = _extractAmount(sale, ['creditAmount', 'credit']);
 
-    // Get total amount
-    double totalAmount = _getTotalAmount(sale);
+    // If paymentBreakdown map exists, use those values
+    if (paymentBreakdown is Map) {
+      // Convert Map<dynamic, dynamic> to Map<String, dynamic>
+      Map<String, dynamic> stringKeyMap = {};
+      paymentBreakdown.forEach((key, value) {
+        stringKeyMap[key.toString()] = value;
+      });
+
+      cashAmount = _extractAmount(stringKeyMap, ['cash']);
+      cardAmount = _extractAmount(stringKeyMap, ['card']);
+      gpayAmount = _extractAmount(stringKeyMap, ['gpay']);
+      creditAmount = _extractAmount(stringKeyMap, ['credit']);
+    }
 
     showDialog(
       context: context,
       builder: (context) {
+        bool localCashVerified = cashVerified;
+        bool localCardVerified = cardVerified;
+        bool localGpayVerified = gpayVerified;
+
         return StatefulBuilder(
-          builder: (context, setStateDialog) {
+          builder: (context, setState) {
+            double verifiedAmount = 0;
+            if (localCashVerified) verifiedAmount += cashAmount;
+            if (localCardVerified) verifiedAmount += cardAmount;
+            if (localGpayVerified) verifiedAmount += gpayAmount;
+
+            // For Ready Cash mode, we expect total to equal cash amount
+            // For other modes, we compare with amountToPay or effectivePrice
+            double expectedAmount = amountToPay > 0
+                ? amountToPay
+                : effectivePrice;
+            if (expectedAmount <= 0) expectedAmount = totalAmount;
+
+            bool isFullyVerified =
+                (verifiedAmount - expectedAmount).abs() < 0.01;
+
             return AlertDialog(
-              title: const Text('Verify Payment Methods'),
-              content: SizedBox(
-                width: MediaQuery.of(context).size.width * 0.9,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Customer: ${sale['customerName'] ?? 'Walk-in'}',
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                    Text(
-                      'Total: ₹${_formatNumber(totalAmount)}',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
+              title: const Text('Verify Phone Sale Payment'),
+              content: SingleChildScrollView(
+                child: SizedBox(
+                  width: MediaQuery.of(context).size.width * 0.9,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Customer: ${sale['customerName'] ?? 'Unknown'}',
+                        style: const TextStyle(fontSize: 14),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    if (cashAmount > 0)
-                      _buildPaymentMethodRow('Cash', cashAmount, cashVerified, (
-                        value,
-                      ) {
-                        setStateDialog(() {
-                          cashVerified = value;
-                        });
-                      }),
-                    if (cardAmount > 0) ...[
+                      Text(
+                        'Shop: $shopName',
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                      Text(
+                        'Product: ${sale['brand'] ?? ''} ${sale['productModel'] ?? ''}',
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                      Text(
+                        'Phone: ${sale['customerPhone'] ?? ''}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Original Price and Discount/Exchange Section
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Price Details',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.blue[900],
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Original Price:',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                ),
+                                Text(
+                                  '₹${_formatNumber(price)}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (discount > 0) ...[
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Discount:',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.green.shade700,
+                                    ),
+                                  ),
+                                  Text(
+                                    '-₹${_formatNumber(discount)}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.green.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                            if (exchangeValue > 0) ...[
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Exchange Value:',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.orange.shade700,
+                                    ),
+                                  ),
+                                  Text(
+                                    '-₹${_formatNumber(exchangeValue)}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.orange.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                            const SizedBox(height: 4),
+                            Divider(color: Colors.grey.shade300, height: 1),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Amount to Pay:',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.blue[900],
+                                  ),
+                                ),
+                                Text(
+                                  '₹${_formatNumber(expectedAmount)}',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blue[900],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // Payment Breakdown Section
+                      Text(
+                        'Payment Breakdown',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.blue[900],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Cash Payment
+                      if (cashAmount > 0) ...[
+                        _buildPaymentMethodRowWithAmount(
+                          'Cash',
+                          cashAmount,
+                          localCashVerified,
+                          (value) {
+                            setState(() {
+                              localCashVerified = value;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+
+                      // Card Payment
+                      if (cardAmount > 0) ...[
+                        _buildPaymentMethodRowWithAmount(
+                          'Card',
+                          cardAmount,
+                          localCardVerified,
+                          (value) {
+                            setState(() {
+                              localCardVerified = value;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+
+                      // UPI Payment
+                      if (gpayAmount > 0) ...[
+                        _buildPaymentMethodRowWithAmount(
+                          'UPI',
+                          gpayAmount,
+                          localGpayVerified,
+                          (value) {
+                            setState(() {
+                              localGpayVerified = value;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+
+                      // Credit Payment (read-only)
+                      if (creditAmount > 0) ...[
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.grey.shade300),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Credit',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                  Text(
+                                    '₹${_formatNumber(creditAmount)}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  'Pending',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.blue,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+
+                      // Verification Status
                       const SizedBox(height: 12),
-                      _buildPaymentMethodRow('Card', cardAmount, cardVerified, (
-                        value,
-                      ) {
-                        setStateDialog(() {
-                          cardVerified = value;
-                        });
-                      }),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: isFullyVerified
+                              ? Colors.green.withOpacity(0.1)
+                              : Colors.orange.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isFullyVerified
+                                ? Colors.green
+                                : Colors.orange,
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              isFullyVerified ? Icons.check_circle : Icons.info,
+                              color: isFullyVerified
+                                  ? Colors.green
+                                  : Colors.orange,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    isFullyVerified
+                                        ? 'Fully Verified'
+                                        : 'Partial Verification',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: isFullyVerified
+                                          ? Colors.green
+                                          : Colors.orange,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Verified: ₹${_formatNumber(verifiedAmount)} / ₹${_formatNumber(expectedAmount)}',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
-                    if (gpayAmount > 0) ...[
-                      const SizedBox(height: 12),
-                      _buildPaymentMethodRow('GPay', gpayAmount, gpayVerified, (
-                        value,
-                      ) {
-                        setStateDialog(() {
-                          gpayVerified = value;
-                        });
-                      }),
-                    ],
-                  ],
+                  ),
                 ),
               ),
               actions: [
@@ -1850,45 +2753,41 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                   onPressed: () async {
                     try {
                       final newPaymentBreakdown = {
-                        'cash': cashVerified,
-                        'card': cardVerified,
-                        'gpay': gpayVerified,
+                        'cash': localCashVerified,
+                        'card': localCardVerified,
+                        'gpay': localGpayVerified,
                       };
 
-                      // Check if all payment methods are verified
-                      double verifiedAmount = 0;
-                      if (cashAmount > 0 && cashVerified)
-                        verifiedAmount += cashAmount;
-                      if (cardAmount > 0 && cardVerified)
-                        verifiedAmount += cardAmount;
-                      if (gpayAmount > 0 && gpayVerified)
-                        verifiedAmount += gpayAmount;
+                      bool isVerified = isFullyVerified;
 
-                      bool allVerified = verifiedAmount >= totalAmount;
-
-                      await _updatePaymentVerification(collection, docId, {
+                      final updates = <String, dynamic>{
                         'paymentBreakdownVerified': newPaymentBreakdown,
-                        'paymentVerified': allVerified,
-                      });
+                        'paymentVerified': isVerified,
+                      };
 
-                      // Update local state immediately
-                      sale['paymentBreakdownVerified'] = newPaymentBreakdown;
-                      sale['paymentVerified'] = allVerified;
+                      await _updatePaymentVerification(
+                        collection,
+                        docId,
+                        updates,
+                      );
 
                       setState(() {
-                        // Trigger UI update
+                        sale['paymentBreakdownVerified'] = newPaymentBreakdown;
+                        sale['paymentVerified'] = isVerified;
                       });
 
                       Navigator.pop(context);
                       _showSnackBar(
-                        'Payment verified successfully',
-                        Colors.green,
+                        isVerified
+                            ? 'Payment fully verified successfully!'
+                            : 'Payment partially verified',
+                        isVerified ? Colors.green : Colors.orange,
                       );
                     } catch (e) {
                       _showSnackBar('Error: $e', Colors.red);
                     }
                   },
-                  child: const Text('Save'),
+                  child: const Text('Save & Update'),
                 ),
               ],
             );
@@ -1896,6 +2795,127 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
         );
       },
     );
+  }
+
+  // NEW: Unified payment verification dialog for all generic sales
+  void _showGenericPaymentVerificationDialog(
+    Map<String, dynamic> sale,
+    String collection,
+    String docId,
+  ) {
+    print(
+      'Showing payment verification dialog for: ${sale['id']} in collection: $collection',
+    );
+
+    // Get current payment breakdown
+    final paymentBreakdown = sale['paymentBreakdownVerified'];
+
+    bool initialCashVerified = false;
+    bool initialCardVerified = false;
+    bool initialGpayVerified = false;
+
+    if (paymentBreakdown is Map) {
+      initialCashVerified = _convertToBool(paymentBreakdown['cash']);
+      initialCardVerified = _convertToBool(paymentBreakdown['card']);
+      initialGpayVerified = _convertToBool(paymentBreakdown['gpay']);
+    }
+
+    // Get payment amounts based on collection type
+    final paymentAmounts = _getPaymentAmounts(collection, sale);
+    final cashAmount = paymentAmounts['cash']!;
+    final cardAmount = paymentAmounts['card']!;
+    final gpayAmount = paymentAmounts['gpay']!;
+
+    final totalAmount = _getTotalAmount(sale);
+    final shopName = _getShopName(sale);
+
+    // Determine if we need to use switches or radio buttons
+    // For accessories with multiple payment methods > 0, use switches
+    // For base models and seconds phones where only one payment method > 0, use radio buttons
+    final hasMultiplePayments =
+        (cashAmount > 0 && cardAmount > 0) ||
+        (cashAmount > 0 && gpayAmount > 0) ||
+        (cardAmount > 0 && gpayAmount > 0);
+
+    final isAccessories = collection == 'accessories_service_sales';
+    final useSwitches = isAccessories && hasMultiplePayments;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return _GenericPaymentVerificationDialog(
+          sale: sale,
+          collection: collection,
+          docId: docId,
+          shopName: shopName,
+          totalAmount: totalAmount,
+          cashAmount: cashAmount,
+          cardAmount: cardAmount,
+          gpayAmount: gpayAmount,
+          initialCashVerified: initialCashVerified,
+          initialCardVerified: initialCardVerified,
+          initialGpayVerified: initialGpayVerified,
+          useSwitches: useSwitches,
+          onUpdate: (newPaymentBreakdown, isVerified) async {
+            try {
+              final updates = <String, dynamic>{
+                'paymentBreakdownVerified': newPaymentBreakdown,
+                'paymentVerified': isVerified,
+              };
+
+              await _updatePaymentVerification(collection, docId, updates);
+
+              // Update local state
+              setState(() {
+                sale['paymentBreakdownVerified'] = newPaymentBreakdown;
+                sale['paymentVerified'] = isVerified;
+
+                // Update in the appropriate list
+                _updateLocalData(collection, docId, {
+                  'paymentBreakdownVerified': newPaymentBreakdown,
+                  'paymentVerified': isVerified,
+                });
+              });
+
+              return true;
+            } catch (e) {
+              print('Error updating: $e');
+              return false;
+            }
+          },
+        );
+      },
+    );
+  }
+
+  void _updateLocalData(
+    String collection,
+    String docId,
+    Map<String, dynamic> updates,
+  ) {
+    List<Map<String, dynamic>> targetList;
+
+    switch (collection) {
+      case 'phoneSales':
+        targetList = _phoneSales;
+        break;
+      case 'accessories_service_sales':
+        targetList = _accessoriesServiceSales;
+        break;
+      case 'base_model_sale':
+        targetList = _baseModelSales;
+        break;
+      case 'seconds_phone_sale':
+        targetList = _secondsPhoneSales;
+        break;
+      default:
+        return;
+    }
+
+    final index = targetList.indexWhere((item) => item['id'] == docId);
+    if (index != -1) {
+      targetList[index].addAll(updates);
+    }
   }
 
   Widget _buildEMIPaymentRow(
@@ -1955,6 +2975,495 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           activeColor: Colors.green,
         ),
       ],
+    );
+  }
+
+  Widget _buildPaymentMethodRowWithAmount(
+    String method,
+    double amount,
+    bool verified,
+    ValueChanged<bool> onChanged,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: verified ? Colors.green.withOpacity(0.1) : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: verified ? Colors.green : Colors.grey,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$method Payment',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: verified ? Colors.green : Colors.black,
+                  ),
+                ),
+                Text(
+                  '₹${_formatNumber(amount)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: verified ? Colors.green : Colors.grey,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: verified,
+            onChanged: onChanged,
+            activeColor: Colors.green,
+            inactiveThumbColor: Colors.grey,
+            inactiveTrackColor: Colors.grey.shade300,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// NEW: Generic payment verification dialog for all sales types
+class _GenericPaymentVerificationDialog extends StatefulWidget {
+  final Map<String, dynamic> sale;
+  final String collection;
+  final String docId;
+  final String shopName;
+  final double totalAmount;
+  final double cashAmount;
+  final double cardAmount;
+  final double gpayAmount;
+  final bool initialCashVerified;
+  final bool initialCardVerified;
+  final bool initialGpayVerified;
+  final bool useSwitches;
+  final Future<bool> Function(Map<String, dynamic>, bool) onUpdate;
+
+  const _GenericPaymentVerificationDialog({
+    required this.sale,
+    required this.collection,
+    required this.docId,
+    required this.shopName,
+    required this.totalAmount,
+    required this.cashAmount,
+    required this.cardAmount,
+    required this.gpayAmount,
+    required this.initialCashVerified,
+    required this.initialCardVerified,
+    required this.initialGpayVerified,
+    required this.useSwitches,
+    required this.onUpdate,
+  });
+
+  @override
+  __GenericPaymentVerificationDialogState createState() =>
+      __GenericPaymentVerificationDialogState();
+}
+
+class __GenericPaymentVerificationDialogState
+    extends State<_GenericPaymentVerificationDialog> {
+  late bool _cashVerified;
+  late bool _cardVerified;
+  late bool _gpayVerified;
+
+  @override
+  void initState() {
+    super.initState();
+    _cashVerified = widget.initialCashVerified;
+    _cardVerified = widget.initialCardVerified;
+    _gpayVerified = widget.initialGpayVerified;
+
+    print(
+      'Dialog initialized with: Cash: $_cashVerified, Card: $_cardVerified, Gpay: $_gpayVerified',
+    );
+    print(
+      'Amounts - Cash: ${widget.cashAmount}, Card: ${widget.cardAmount}, Gpay: ${widget.gpayAmount}, Total: ${widget.totalAmount}',
+    );
+  }
+
+  double _calculateVerifiedAmount() {
+    double verified = 0;
+    if (_cashVerified) verified += widget.cashAmount;
+    if (_cardVerified) verified += widget.cardAmount;
+    if (_gpayVerified) verified += widget.gpayAmount;
+    return verified;
+  }
+
+  bool _isFullyVerified() {
+    final verifiedAmount = _calculateVerifiedAmount();
+    return (verifiedAmount - widget.totalAmount).abs() < 0.01;
+  }
+
+  String _formatNumber(double number) {
+    return NumberFormat('#,##0').format(number);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final verifiedAmount = _calculateVerifiedAmount();
+    final isFullyVerified = _isFullyVerified();
+
+    return AlertDialog(
+      title: const Text('Verify Payment'),
+      content: SingleChildScrollView(
+        child: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.9,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Customer: ${widget.sale['customerName'] ?? 'Walk-in'}',
+                style: const TextStyle(fontSize: 14),
+              ),
+              Text(
+                'Shop: ${widget.shopName}',
+                style: const TextStyle(fontSize: 14),
+              ),
+              if (widget.sale.containsKey('modelName')) ...[
+                Text(
+                  'Model: ${widget.sale['modelName']}',
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ] else if (widget.sale.containsKey('productName')) ...[
+                Text(
+                  'Product: ${widget.sale['productName']}',
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ],
+              Text(
+                'Total: ₹${_formatNumber(widget.totalAmount)}',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Cash Payment Row
+              if (widget.cashAmount > 0) ...[
+                if (widget.useSwitches)
+                  _buildSwitchPaymentRow(
+                    'Cash',
+                    widget.cashAmount,
+                    _cashVerified,
+                    (value) {
+                      setState(() {
+                        _cashVerified = value;
+                        print('Cash toggled to: $value');
+                      });
+                    },
+                  )
+                else
+                  _buildRadioPaymentRow(
+                    'Cash',
+                    widget.cashAmount,
+                    _cashVerified,
+                    (value) {
+                      setState(() {
+                        _cashVerified = value;
+                        if (value) {
+                          _cardVerified = false;
+                          _gpayVerified = false;
+                        }
+                        print('Cash selected: $value');
+                      });
+                    },
+                  ),
+                const SizedBox(height: 12),
+              ],
+
+              // Card Payment Row
+              if (widget.cardAmount > 0) ...[
+                if (widget.useSwitches)
+                  _buildSwitchPaymentRow(
+                    'Card',
+                    widget.cardAmount,
+                    _cardVerified,
+                    (value) {
+                      setState(() {
+                        _cardVerified = value;
+                        print('Card toggled to: $value');
+                      });
+                    },
+                  )
+                else
+                  _buildRadioPaymentRow(
+                    'Card',
+                    widget.cardAmount,
+                    _cardVerified,
+                    (value) {
+                      setState(() {
+                        _cardVerified = value;
+                        if (value) {
+                          _cashVerified = false;
+                          _gpayVerified = false;
+                        }
+                        print('Card selected: $value');
+                      });
+                    },
+                  ),
+                const SizedBox(height: 12),
+              ],
+
+              // UPI Payment Row
+              if (widget.gpayAmount > 0) ...[
+                if (widget.useSwitches)
+                  _buildSwitchPaymentRow(
+                    'UPI',
+                    widget.gpayAmount,
+                    _gpayVerified,
+                    (value) {
+                      setState(() {
+                        _gpayVerified = value;
+                        print('UPI toggled to: $value');
+                      });
+                    },
+                  )
+                else
+                  _buildRadioPaymentRow(
+                    'UPI',
+                    widget.gpayAmount,
+                    _gpayVerified,
+                    (value) {
+                      setState(() {
+                        _gpayVerified = value;
+                        if (value) {
+                          _cashVerified = false;
+                          _cardVerified = false;
+                        }
+                        print('UPI selected: $value');
+                      });
+                    },
+                  ),
+              ],
+
+              const SizedBox(height: 16),
+
+              // Verification Status
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: isFullyVerified
+                      ? Colors.green.withOpacity(0.1)
+                      : Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isFullyVerified ? Colors.green : Colors.orange,
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      isFullyVerified ? Icons.check_circle : Icons.info,
+                      color: isFullyVerified ? Colors.green : Colors.orange,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isFullyVerified
+                                ? 'Fully Verified'
+                                : 'Partial Verification',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: isFullyVerified
+                                  ? Colors.green
+                                  : Colors.orange,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Verified: ₹${_formatNumber(verifiedAmount)} / ₹${_formatNumber(widget.totalAmount)}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            final newPaymentBreakdown = {
+              'cash': _cashVerified,
+              'card': _cardVerified,
+              'gpay': _gpayVerified,
+            };
+
+            final isVerified = _isFullyVerified();
+
+            final success = await widget.onUpdate(
+              newPaymentBreakdown,
+              isVerified,
+            );
+
+            if (success) {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    isVerified
+                        ? 'Payment fully verified successfully!'
+                        : 'Payment partially verified',
+                  ),
+                  backgroundColor: isVerified ? Colors.green : Colors.orange,
+                ),
+              );
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Failed to update payment verification'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          },
+          child: const Text('Save & Update'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSwitchPaymentRow(
+    String method,
+    double amount,
+    bool verified,
+    ValueChanged<bool> onChanged,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: verified ? Colors.green.withOpacity(0.1) : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: verified ? Colors.green : Colors.grey,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$method Payment',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: verified ? Colors.green : Colors.black,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '₹${_formatNumber(amount)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: verified ? Colors.green : Colors.grey,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: verified,
+            onChanged: onChanged,
+            activeColor: Colors.green,
+            inactiveThumbColor: Colors.grey,
+            inactiveTrackColor: Colors.grey.shade300,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRadioPaymentRow(
+    String method,
+    double amount,
+    bool selected,
+    ValueChanged<bool> onChanged,
+  ) {
+    return InkWell(
+      onTap: () {
+        onChanged(!selected);
+      },
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: selected
+              ? Colors.green.withOpacity(0.1)
+              : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? Colors.green : Colors.grey,
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Radio<bool>(
+              value: true,
+              groupValue: selected,
+              onChanged: (value) {
+                onChanged(value ?? false);
+              },
+              activeColor: Colors.green,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    method,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: selected ? Colors.green : Colors.black,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '₹${_formatNumber(amount)}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: selected ? Colors.green : Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
