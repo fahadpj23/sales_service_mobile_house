@@ -31,38 +31,23 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     'Base Models',
   ];
 
-  // Month/Year filter variables
-  int selectedYear = DateTime.now().year;
-  int selectedMonth = DateTime.now().month;
-  List<int> years = [];
-  final List<String> months = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-  ];
-
-  // Debug variables
-  String debugInfo = '';
+  // Current month info
+  late DateTime currentMonthStart;
+  late DateTime currentMonthEnd;
+  String currentMonthName = '';
+  int currentYear = 0;
 
   @override
   void initState() {
     super.initState();
-    // Generate years (current year and previous 5 years)
-    final currentYear = DateTime.now().year;
-    for (int i = currentYear; i >= currentYear - 5; i--) {
-      years.add(i);
-    }
 
-    // Check if shopId is provided
+    // Initialize current month range
+    final now = DateTime.now();
+    currentMonthStart = DateTime(now.year, now.month, 1);
+    currentMonthEnd = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+    currentMonthName = _getMonthName(now.month);
+    currentYear = now.year;
+
     if (widget.shopId.isEmpty) {
       _showError('Shop ID is required to view sales history');
       setState(() => isLoading = false);
@@ -74,9 +59,9 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   Future<void> fetchSalesData() async {
     setState(() {
       isLoading = true;
-      debugInfo = 'Fetching data for shopId: ${widget.shopId}';
+      allSales.clear();
+      filteredSales.clear();
     });
-    allSales.clear();
 
     // Check if shopId is valid
     if (widget.shopId.isEmpty) {
@@ -84,213 +69,150 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       return;
     }
 
-    // Calculate start and end dates for the selected month
-    final startDate = DateTime(selectedYear, selectedMonth, 1);
-    final endDate = DateTime(selectedYear, selectedMonth + 1, 0, 23, 59, 59);
-
-    debugInfo +=
-        '\nDate range: ${startDate.toIso8601String()} to ${endDate.toIso8601String()}';
-    debugInfo += '\nSelected month: ${months[selectedMonth - 1]} $selectedYear';
-
     int totalFetched = 0;
 
     for (var collection in collectionNames) {
       try {
-        debugInfo += '\n\nFetching from collection: $collection';
+        final List<Map<String, dynamic>> monthSales =
+            await _fetchSalesForCollection(collection);
 
-        QuerySnapshot snapshot;
+        for (var sale in monthSales) {
+          // Add collection info and formatted data
+          sale['collection'] = collection;
+          sale['type'] = _getSaleType(collection);
+          sale['displayDate'] = _formatDate(sale, collection);
+          sale['displayAmount'] = _getAmount(sale, collection);
+          sale['customerInfo'] = _getCustomerInfo(sale);
+          sale['paymentInfo'] = _getPaymentInfo(sale, collection);
+          sale['shopName'] = _getShopName(sale, collection);
 
-        // Different date fields for different collections
-        String dateField;
-        switch (collection) {
-          case 'phoneSales':
-            dateField = 'addedAt';
-            break;
-          default:
-            dateField = 'uploadedAt';
-            break;
-        }
-
-        debugInfo += '\nUsing date field: $dateField';
-
-        // First try: Get all documents for the shop without date filter to debug
-        try {
-          final testSnapshot = await FirebaseFirestore.instance
-              .collection(collection)
-              .where('shopId', isEqualTo: widget.shopId)
-              .limit(5)
-              .get();
-
-          debugInfo +=
-              '\nShop has ${testSnapshot.docs.length} documents in $collection (without date filter)';
-
-          if (testSnapshot.docs.isNotEmpty) {
-            for (var doc in testSnapshot.docs.take(1)) {
-              final data = doc.data() as Map<String, dynamic>;
-              debugInfo += '\nSample document fields: ${data.keys.toList()}';
-              if (data.containsKey(dateField)) {
-                debugInfo += '\n$dateField exists: ${data[dateField]}';
-              }
-            }
-          }
-        } catch (e) {
-          debugInfo += '\nTest query error: $e';
-        }
-
-        // Main query with shopId and date range filtering
-        snapshot = await FirebaseFirestore.instance
-            .collection(collection)
-            .where('shopId', isEqualTo: widget.shopId)
-            .where(
-              dateField,
-              isGreaterThanOrEqualTo: Timestamp.fromDate(startDate),
-            )
-            .where(dateField, isLessThanOrEqualTo: Timestamp.fromDate(endDate))
-            .orderBy(dateField, descending: true)
-            .get();
-
-        debugInfo +=
-            '\nDate-filtered query found ${snapshot.docs.length} documents';
-
-        for (var doc in snapshot.docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          data['id'] = doc.id;
-          data['collection'] = collection;
-          data['type'] = _getSaleType(collection);
-          data['displayDate'] = _formatDate(data, collection);
-          data['displayAmount'] = _getAmount(data, collection);
-          data['customerInfo'] = _getCustomerInfo(data);
-          data['paymentInfo'] = _getPaymentInfo(data, collection);
-          data['shopName'] = _getShopName(data, collection);
-
-          allSales.add(data);
+          allSales.add(sale);
           totalFetched++;
         }
       } catch (e) {
-        debugInfo += '\nError fetching $collection: $e';
         print('Error fetching $collection: $e');
-        // Try alternative date fields
-        await _fetchWithAlternativeDateField(collection, startDate, endDate);
       }
     }
 
-    debugInfo += '\n\nTotal documents fetched: $totalFetched';
-    debugInfo += '\nAll sales count: ${allSales.length}';
-
-    // If no data found with date filter, try without date filter
-    if (allSales.isEmpty) {
-      debugInfo +=
-          '\nNo data found with date filter. Trying without date filter...';
-      await fetchAllSalesForShop();
-    }
-
-    // Apply type filter
+    // Apply initial filter
     _applyFilter();
-
-    debugInfo += '\nFiltered sales count: ${filteredSales.length}';
 
     setState(() => isLoading = false);
   }
 
-  Future<void> fetchAllSalesForShop() async {
-    debugInfo += '\n\n=== FETCHING ALL SALES FOR SHOP ===';
+  Future<List<Map<String, dynamic>>> _fetchSalesForCollection(
+    String collection,
+  ) async {
+    final List<Map<String, dynamic>> sales = [];
 
-    for (var collection in collectionNames) {
-      try {
-        debugInfo += '\nFetching all from $collection';
+    try {
+      // Get all sales for this shop (we'll filter by date in memory)
+      final snapshot = await FirebaseFirestore.instance
+          .collection(collection)
+          .where('shopId', isEqualTo: widget.shopId)
+          .get();
 
-        final snapshot = await FirebaseFirestore.instance
-            .collection(collection)
-            .where('shopId', isEqualTo: widget.shopId)
-            .limit(50)
-            .get();
+      for (var doc in snapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
 
-        debugInfo += '\nFound ${snapshot.docs.length} documents in $collection';
-
-        for (var doc in snapshot.docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          data['id'] = doc.id;
-          data['collection'] = collection;
-          data['type'] = _getSaleType(collection);
-          data['displayDate'] = _formatDate(data, collection);
-          data['displayAmount'] = _getAmount(data, collection);
-          data['customerInfo'] = _getCustomerInfo(data);
-          data['paymentInfo'] = _getPaymentInfo(data, collection);
-          data['shopName'] = _getShopName(data, collection);
-
-          allSales.add(data);
+        // Check if sale is in current month
+        final saleDate = _getSaleDate(data, collection);
+        if (_isDateInCurrentMonth(saleDate)) {
+          sales.add(data);
         }
-      } catch (e) {
-        debugInfo += '\nError in all sales fetch for $collection: $e';
-        print('Error in all sales fetch for $collection: $e');
       }
+    } catch (e) {
+      print('Error in _fetchSalesForCollection for $collection: $e');
     }
 
-    debugInfo += '\nTotal all sales fetched: ${allSales.length}';
+    return sales;
   }
 
-  Future<void> _fetchWithAlternativeDateField(
-    String collection,
-    DateTime startDate,
-    DateTime endDate,
-  ) async {
-    debugInfo += '\nTrying alternative date fields for $collection';
+  DateTime _getSaleDate(Map<String, dynamic> data, String collection) {
+    try {
+      // Try different date fields based on collection and data structure
+      List<String> dateFields = [];
 
-    List<String> dateFields = [];
-
-    switch (collection) {
-      case 'phoneSales':
-        dateFields = ['createdAt', 'saleDate', 'addedAt', 'timestamp', 'date'];
-        break;
-      default:
-        dateFields = ['uploadedAt', 'timestamp', 'date', 'createdAt'];
-        break;
-    }
-
-    for (var dateField in dateFields) {
-      try {
-        debugInfo += '\nTrying date field: $dateField';
-
-        final snapshot = await FirebaseFirestore.instance
-            .collection(collection)
-            .where('shopId', isEqualTo: widget.shopId)
-            .where(
-              dateField,
-              isGreaterThanOrEqualTo: Timestamp.fromDate(startDate),
-            )
-            .where(dateField, isLessThanOrEqualTo: Timestamp.fromDate(endDate))
-            .get();
-
-        debugInfo +=
-            '\nAlternative query with $dateField found ${snapshot.docs.length} documents';
-
-        for (var doc in snapshot.docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          data['id'] = doc.id;
-          data['collection'] = collection;
-          data['type'] = _getSaleType(collection);
-          data['displayDate'] = _formatDate(data, collection);
-          data['displayAmount'] = _getAmount(data, collection);
-          data['customerInfo'] = _getCustomerInfo(data);
-          data['paymentInfo'] = _getPaymentInfo(data, collection);
-          data['shopName'] = _getShopName(data, collection);
-
-          allSales.add(data);
-        }
-
-        if (snapshot.docs.isNotEmpty) {
-          debugInfo += '\nSuccess with date field: $dateField';
+      switch (collection) {
+        case 'accessories_service_sales':
+          dateFields = ['date', 'timestamp'];
           break;
-        }
-      } catch (e) {
-        debugInfo += '\nError with date field $dateField: $e';
+        case 'phoneSales':
+          dateFields = [
+            'addedAt',
+            'createdAt',
+            'saleDate',
+            'date',
+            'timestamp',
+          ];
+          break;
+        case 'base_model_sale':
+        case 'seconds_phone_sale':
+          dateFields = ['uploadedAt', 'date', 'timestamp'];
+          break;
+        default:
+          dateFields = ['uploadedAt', 'date', 'timestamp', 'createdAt'];
       }
+
+      for (var field in dateFields) {
+        if (data[field] != null) {
+          if (data[field] is Timestamp) {
+            return (data[field] as Timestamp).toDate();
+          } else if (data[field] is int) {
+            return DateTime.fromMillisecondsSinceEpoch(data[field]);
+          } else if (data[field] is String) {
+            try {
+              return DateTime.parse(data[field]);
+            } catch (_) {
+              // Try custom parsing for date strings
+              return _parseDateString(data[field].toString());
+            }
+          }
+        }
+      }
+
+      // If no date field found, check for timestamp in milliseconds
+      if (data['timestamp'] != null && data['timestamp'] is int) {
+        return DateTime.fromMillisecondsSinceEpoch(data['timestamp']);
+      }
+
+      return DateTime.now();
+    } catch (e) {
+      return DateTime.now();
     }
+  }
+
+  DateTime _parseDateString(String dateString) {
+    try {
+      // Try to parse common date formats
+      if (dateString.contains('/')) {
+        final parts = dateString.split('/');
+        if (parts.length >= 3) {
+          final day = int.tryParse(parts[0]) ?? 1;
+          final month = int.tryParse(parts[1]) ?? 1;
+          final year = int.tryParse(parts[2]) ?? DateTime.now().year;
+          return DateTime(year, month, day);
+        }
+      }
+
+      // Try ISO format
+      return DateTime.parse(dateString);
+    } catch (_) {
+      return DateTime.now();
+    }
+  }
+
+  bool _isDateInCurrentMonth(DateTime date) {
+    return date.isAfter(
+          currentMonthStart.subtract(const Duration(seconds: 1)),
+        ) &&
+        date.isBefore(currentMonthEnd.add(const Duration(seconds: 1)));
   }
 
   void _applyFilter() {
     if (selectedFilter == 'All') {
-      filteredSales = allSales;
+      filteredSales = List.from(allSales);
     } else {
       switch (selectedFilter) {
         case 'Accessories':
@@ -322,40 +244,10 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
 
     // Sort by date (newest first)
     filteredSales.sort((a, b) {
-      final dateA = _parseDateForSorting(a);
-      final dateB = _parseDateForSorting(b);
+      final dateA = _getSaleDate(a, a['collection'] as String);
+      final dateB = _getSaleDate(b, b['collection'] as String);
       return dateB.compareTo(dateA);
     });
-  }
-
-  DateTime _parseDateForSorting(Map<String, dynamic> sale) {
-    try {
-      final collection = sale['collection'] as String;
-      final data = sale;
-
-      if (collection == 'phoneSales') {
-        if (data['addedAt'] != null && data['addedAt'] is Timestamp) {
-          return (data['addedAt'] as Timestamp).toDate();
-        } else if (data['createdAt'] != null &&
-            data['createdAt'] is Timestamp) {
-          return (data['createdAt'] as Timestamp).toDate();
-        } else if (data['saleDate'] != null && data['saleDate'] is Timestamp) {
-          return (data['saleDate'] as Timestamp).toDate();
-        }
-      } else if (data['uploadedAt'] != null &&
-          data['uploadedAt'] is Timestamp) {
-        return (data['uploadedAt'] as Timestamp).toDate();
-      } else if (data['timestamp'] != null) {
-        if (data['timestamp'] is Timestamp) {
-          return (data['timestamp'] as Timestamp).toDate();
-        } else if (data['timestamp'] is int) {
-          return DateTime.fromMillisecondsSinceEpoch(data['timestamp']);
-        }
-      }
-      return DateTime.now();
-    } catch (e) {
-      return DateTime.now();
-    }
   }
 
   String _getSaleType(String collection) {
@@ -375,55 +267,28 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
 
   String _formatDate(Map<String, dynamic> data, String collection) {
     try {
-      // Try different date fields based on collection type
-      if (collection == 'phoneSales') {
-        if (data['saleDate'] != null) {
-          final timestamp = data['saleDate'] as Timestamp;
-          final date = timestamp.toDate();
-          return DateFormat('dd MMM yyyy, hh:mm a').format(date);
-        } else if (data['saleDate'] != null) {
-          final timestamp = data['saleDate'] as Timestamp;
-          final date = timestamp.toDate();
-          return DateFormat('dd MMM yyyy, hh:mm a').format(date);
-        } else if (data['saleDate'] != null) {
-          final timestamp = data['saleDate'] as Timestamp;
-          final date = timestamp.toDate();
-          return DateFormat('dd MMM yyyy, hh:mm a').format(date);
-        }
-      } else if (data['date'] != null) {
-        final timestamp = data['date'] as Timestamp;
-        final date = timestamp.toDate();
-        return DateFormat('dd MMM yyyy, hh:mm a').format(date);
-      } else if (data['timestamp'] != null) {
-        final timestamp = data['timestamp'];
-        if (timestamp is Timestamp) {
-          final date = timestamp.toDate();
-          return DateFormat('dd MMM yyyy, hh:mm a').format(date);
-        } else if (timestamp is int) {
-          final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
-          return DateFormat('dd MMM yyyy, hh:mm a').format(date);
-        }
-      } else if (data['date'] != null) {
-        return data['date'].toString();
-      }
-      return 'Date not available';
+      final date = _getSaleDate(data, collection);
+      return DateFormat('dd MMM yyyy, hh:mm a').format(date);
     } catch (e) {
-      return 'Invalid date';
+      return 'Date not available';
     }
   }
 
   double _getAmount(Map<String, dynamic> data, String collection) {
-    switch (collection) {
-      case 'accessories_service_sales':
-        return (data['totalSaleAmount'] ?? 0).toDouble();
-      case 'phoneSales':
-        return (data['effectivePrice'] ?? data['price'] ?? 0).toDouble();
-      case 'base_model_sale':
-        return (data['price'] ?? data['totalPayment'] ?? 0).toDouble();
-      case 'seconds_phone_sale':
-        return (data['price'] ?? data['totalPayment'] ?? 0).toDouble();
-      default:
-        return 0.0;
+    try {
+      switch (collection) {
+        case 'accessories_service_sales':
+          return (data['totalSaleAmount'] ?? 0).toDouble();
+        case 'phoneSales':
+          return (data['effectivePrice'] ?? data['price'] ?? 0).toDouble();
+        case 'base_model_sale':
+        case 'seconds_phone_sale':
+          return (data['price'] ?? data['totalPayment'] ?? 0).toDouble();
+        default:
+          return 0.0;
+      }
+    } catch (e) {
+      return 0.0;
     }
   }
 
@@ -460,22 +325,26 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       'downPayment': 0.0,
     };
 
-    if (collection == 'accessories_service_sales') {
-      paymentInfo['cash'] = (data['cashAmount'] ?? 0).toDouble();
-      paymentInfo['card'] = (data['cardAmount'] ?? 0).toDouble();
-      paymentInfo['gpay'] = (data['gpayAmount'] ?? 0).toDouble();
-    } else if (collection == 'phoneSales') {
-      final paymentBreakdown = data['paymentBreakdown'] ?? {};
-      paymentInfo['cash'] = (paymentBreakdown['cash'] ?? 0).toDouble();
-      paymentInfo['card'] = (paymentBreakdown['card'] ?? 0).toDouble();
-      paymentInfo['gpay'] = (paymentBreakdown['gpay'] ?? 0).toDouble();
-      paymentInfo['credit'] = (data['customerCredit'] ?? 0).toDouble();
-      paymentInfo['downPayment'] = (data['downPayment'] ?? 0).toDouble();
-    } else if (collection == 'base_model_sale' ||
-        collection == 'seconds_phone_sale') {
-      paymentInfo['cash'] = (data['cash'] ?? 0).toDouble();
-      paymentInfo['card'] = (data['card'] ?? 0).toDouble();
-      paymentInfo['gpay'] = (data['gpay'] ?? 0).toDouble();
+    try {
+      if (collection == 'accessories_service_sales') {
+        paymentInfo['cash'] = (data['cashAmount'] ?? 0).toDouble();
+        paymentInfo['card'] = (data['cardAmount'] ?? 0).toDouble();
+        paymentInfo['gpay'] = (data['gpayAmount'] ?? 0).toDouble();
+      } else if (collection == 'phoneSales') {
+        final paymentBreakdown = data['paymentBreakdown'] ?? {};
+        paymentInfo['cash'] = (paymentBreakdown['cash'] ?? 0).toDouble();
+        paymentInfo['card'] = (paymentBreakdown['card'] ?? 0).toDouble();
+        paymentInfo['gpay'] = (paymentBreakdown['gpay'] ?? 0).toDouble();
+        paymentInfo['credit'] = (data['customerCredit'] ?? 0).toDouble();
+        paymentInfo['downPayment'] = (data['downPayment'] ?? 0).toDouble();
+      } else if (collection == 'base_model_sale' ||
+          collection == 'seconds_phone_sale') {
+        paymentInfo['cash'] = (data['cash'] ?? 0).toDouble();
+        paymentInfo['card'] = (data['card'] ?? 0).toDouble();
+        paymentInfo['gpay'] = (data['gpay'] ?? 0).toDouble();
+      }
+    } catch (e) {
+      print('Error getting payment info: $e');
     }
 
     return paymentInfo;
@@ -511,133 +380,22 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     }
   }
 
-  Future<void> _selectMonthYear(BuildContext context) async {
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return Container(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 60,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 20),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const Text(
-                    'Select Month & Year',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 20),
-                  // Year Selection
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.grey.shade300),
-                    ),
-                    child: DropdownButton<int>(
-                      value: selectedYear,
-                      isExpanded: true,
-                      underline: const SizedBox(),
-                      items: years.map((year) {
-                        return DropdownMenuItem<int>(
-                          value: year,
-                          child: Text('Year: $year'),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          selectedYear = value!;
-                        });
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  // Month Selection
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.grey.shade300),
-                    ),
-                    child: DropdownButton<int>(
-                      value: selectedMonth,
-                      isExpanded: true,
-                      underline: const SizedBox(),
-                      items: List.generate(12, (index) {
-                        return DropdownMenuItem<int>(
-                          value: index + 1,
-                          child: Text('Month: ${months[index]}'),
-                        );
-                      }),
-                      onChanged: (value) {
-                        setState(() {
-                          selectedMonth = value!;
-                        });
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 30),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.pop(context),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: const Text('Cancel'),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            fetchSalesData();
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: const Text(
-                            'Apply',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
+  String _getMonthName(int month) {
+    final months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+    return months[month - 1];
   }
 
   void _showError(String message) {
@@ -650,21 +408,10 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     );
   }
 
-  void _showDebugInfo(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Debug Information'),
-          content: SingleChildScrollView(child: Text(debugInfo)),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
-            ),
-          ],
-        );
-      },
+  double _calculateTotalAmount() {
+    return filteredSales.fold(
+      0.0,
+      (sum, sale) => sum + (sale['displayAmount'] as double),
     );
   }
 
@@ -676,16 +423,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.bug_report),
-            onPressed: () => _showDebugInfo(context),
-            tooltip: 'Debug Info',
-          ),
-          IconButton(
-            icon: const Icon(Icons.filter_alt),
-            onPressed: () => _selectMonthYear(context),
-            tooltip: 'Select Month & Year',
-          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: fetchSalesData,
@@ -723,7 +460,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
             )
           : Column(
               children: [
-                // Shop Info Header
+                // Month Header
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -733,67 +470,46 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                     ),
                   ),
                   child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: Colors.green.shade100,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.store,
-                          size: 20,
-                          color: Colors.green.shade800,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Shop ID: ${widget.shopId}',
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '$currentMonthName $currentYear',
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Showing current month sales only',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.green,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              'Shop: ${widget.shopId}',
                               style: const TextStyle(
-                                fontSize: 14,
+                                color: Colors.white,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Viewing: ${months[selectedMonth - 1]} $selectedYear',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                            if (filteredSales.isNotEmpty)
-                              Text(
-                                '${filteredSales.length} sales found',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.green.shade700,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.green.shade100,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Text(
-                          '${filteredSales.length} sales',
-                          style: const TextStyle(
-                            color: Colors.green,
-                            fontWeight: FontWeight.w600,
                           ),
-                        ),
+                        ],
                       ),
                     ],
                   ),
@@ -860,7 +576,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                               ),
                               const SizedBox(height: 16),
                               Text(
-                                'No sales found for ${months[selectedMonth - 1]} $selectedYear',
+                                'No sales for $currentMonthName $currentYear',
                                 style: TextStyle(
                                   fontSize: 18,
                                   color: Colors.grey.shade500,
@@ -877,7 +593,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                'Try selecting a different month or year',
+                                'Sales will appear here when recorded',
                                 style: TextStyle(
                                   fontSize: 14,
                                   color: Colors.grey.shade500,
@@ -886,19 +602,9 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                               ),
                               const SizedBox(height: 16),
                               ElevatedButton.icon(
-                                onPressed: () => _selectMonthYear(context),
-                                icon: const Icon(Icons.calendar_today),
-                                label: const Text('Select Different Month'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green,
-                                  foregroundColor: Colors.white,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              TextButton.icon(
-                                onPressed: () => _showDebugInfo(context),
-                                icon: const Icon(Icons.bug_report),
-                                label: const Text('Show Debug Info'),
+                                onPressed: fetchSalesData,
+                                icon: const Icon(Icons.refresh),
+                                label: const Text('Refresh'),
                               ),
                             ],
                           ),
@@ -927,7 +633,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                           CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          'Total Sales',
+                                          'Monthly Sales',
                                           style: TextStyle(
                                             fontSize: 12,
                                             color: Colors.grey.shade600,
@@ -948,7 +654,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                           CrossAxisAlignment.end,
                                       children: [
                                         Text(
-                                          'Total Amount',
+                                          'Monthly Amount',
                                           style: TextStyle(
                                             fontSize: 12,
                                             color: Colors.grey.shade600,
@@ -1092,13 +798,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     );
   }
 
-  double _calculateTotalAmount() {
-    return filteredSales.fold(
-      0.0,
-      (sum, sale) => sum + (sale['displayAmount'] as double),
-    );
-  }
-
   Widget _buildPaymentChips(
     Map<String, dynamic> paymentInfo,
     String collection,
@@ -1230,7 +929,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                 '₹${(sale['displayAmount'] as double).toStringAsFixed(0)}',
               ),
 
-              // Phone-specific details
+              // Collection-specific details
               if (sale['collection'] == 'phoneSales') ...[
                 if (sale['productModel'] != null)
                   _buildDetailRow('Product', sale['productModel'].toString()),
@@ -1248,13 +947,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                     'Finance Type',
                     sale['financeType'].toString(),
                   ),
-                if (sale['effectivePrice'] != null)
-                  _buildDetailRow(
-                    'Effective Price',
-                    '₹${sale['effectivePrice']}',
-                  ),
-                if (sale['discount'] != null && (sale['discount'] as num) > 0)
-                  _buildDetailRow('Discount', '₹${sale['discount']}'),
               ],
 
               // Other collection details
