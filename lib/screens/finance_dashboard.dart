@@ -2221,73 +2221,603 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     }
   }
 
+  // UPDATED EMI Verification Dialog with discount, exchange, payment breakdown, credit, and addedAt timestamp
   void _showEMIVerificationDialog(
     Map<String, dynamic> sale,
     String collection,
     String docId,
   ) {
+    // Extract all relevant data from the sale
+    double downPayment = (sale['downPayment'] as num?)?.toDouble() ?? 0;
+    double disbursement = (sale['disbursementAmount'] as num?)?.toDouble() ?? 0;
+    double discount = (sale['discount'] as num?)?.toDouble() ?? 0;
+    double exchangeValue = (sale['exchangeValue'] as num?)?.toDouble() ?? 0;
+    double price = (sale['price'] as num?)?.toDouble() ?? 0;
+    double effectivePrice = (sale['effectivePrice'] as num?)?.toDouble() ?? 0;
+    double amountToPay = (sale['amountToPay'] as num?)?.toDouble() ?? 0;
+    double balanceReturned =
+        (sale['balanceReturnedToCustomer'] as num?)?.toDouble() ?? 0;
+    double customerCredit = (sale['customerCredit'] as num?)?.toDouble() ?? 0;
+
     bool downPaymentReceived = sale['downPaymentReceived'] ?? false;
     bool disbursementReceived = sale['disbursementReceived'] ?? false;
     String shopName = _getShopName(sale);
+
+    // Extract payment breakdown
+    final paymentBreakdown =
+        sale['paymentBreakdown'] ??
+        {'cash': 0, 'card': 0, 'credit': 0, 'gpay': 0};
+    final paymentBreakdownVerified =
+        sale['paymentBreakdownVerified'] ??
+        {'cash': false, 'card': false, 'gpay': false};
+
+    double cashAmount = _extractAmount(paymentBreakdown, ['cash']);
+    double cardAmount = _extractAmount(paymentBreakdown, ['card']);
+    double creditAmount = _extractAmount(paymentBreakdown, ['credit']);
+    double gpayAmount = _extractAmount(paymentBreakdown, ['gpay']);
+
+    bool cashVerified = _convertToBool(paymentBreakdownVerified['cash']);
+    bool cardVerified = _convertToBool(paymentBreakdownVerified['card']);
+    bool gpayVerified = _convertToBool(paymentBreakdownVerified['gpay']);
+
+    // Get timestamp for addedAt
+    DateTime? addedAt;
+    if (sale['addedAt'] != null) {
+      addedAt = _parseDate(sale['addedAt']);
+    } else if (sale['createdAt'] != null) {
+      addedAt = _parseDate(sale['createdAt']);
+    } else if (sale['saleDate'] != null) {
+      addedAt = _parseDate(sale['saleDate']);
+    }
+
+    // Calculate totals
+    double totalPayable = amountToPay > 0 ? amountToPay : effectivePrice;
+    if (totalPayable <= 0) totalPayable = price;
 
     showDialog(
       context: context,
       builder: (context) {
         bool localDownPaymentReceived = downPaymentReceived;
         bool localDisbursementReceived = disbursementReceived;
+        bool localCashVerified = cashVerified;
+        bool localCardVerified = cardVerified;
+        bool localGpayVerified = gpayVerified;
 
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
               title: const Text('Verify EMI Payment'),
-              content: SizedBox(
-                width: MediaQuery.of(context).size.width * 0.9,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Customer: ${sale['customerName'] ?? 'Unknown'}',
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                    Text(
-                      'Shop: $shopName',
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                    Text(
-                      'Product: ${sale['brand'] ?? ''} ${sale['productModel'] ?? ''}',
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                    Text(
-                      'Total Amount: ₹${_formatNumber(_getTotalAmount(sale))}',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
+              content: SingleChildScrollView(
+                child: SizedBox(
+                  width: MediaQuery.of(context).size.width * 0.9,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Customer Info
+                      Text(
+                        'Customer: ${sale['customerName'] ?? 'Unknown'}',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildEMIPaymentRow(
-                      'Down Payment',
-                      (sale['downPayment'] as num?)?.toDouble() ?? 0,
-                      localDownPaymentReceived,
-                      (value) {
-                        setState(() {
-                          localDownPaymentReceived = value;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    _buildEMIPaymentRow(
-                      'Disbursement',
-                      (sale['disbursementAmount'] as num?)?.toDouble() ?? 0,
-                      localDisbursementReceived,
-                      (value) {
-                        setState(() {
-                          localDisbursementReceived = value;
-                        });
-                      },
-                    ),
-                  ],
+                      Text(
+                        'Shop: $shopName',
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                      Text(
+                        'Product: ${sale['brand'] ?? ''} ${sale['productModel'] ?? ''}',
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Price Breakdown Section
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Price Breakdown',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.blue[900],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+
+                            // Original Price
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Original Price:',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                ),
+                                Text(
+                                  '₹${_formatNumber(price)}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            // Discount
+                            if (discount > 0) ...[
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Discount:',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.green.shade700,
+                                    ),
+                                  ),
+                                  Text(
+                                    '-₹${_formatNumber(discount)}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.green.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+
+                            // Exchange Value
+                            if (exchangeValue > 0) ...[
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Exchange Value:',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.orange.shade700,
+                                    ),
+                                  ),
+                                  Text(
+                                    '-₹${_formatNumber(exchangeValue)}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.orange.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+
+                            // Customer Credit
+                            if (customerCredit > 0) ...[
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Customer Credit:',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.purple.shade700,
+                                    ),
+                                  ),
+                                  Text(
+                                    '-₹${_formatNumber(customerCredit)}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.purple.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+
+                            const SizedBox(height: 4),
+                            Divider(color: Colors.grey.shade300, height: 1),
+                            const SizedBox(height: 4),
+
+                            // Effective Price
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Effective Price:',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.blue[900],
+                                  ),
+                                ),
+                                Text(
+                                  '₹${_formatNumber(effectivePrice)}',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blue[900],
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            // Balance Returned
+                            if (balanceReturned > 0) ...[
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Balance Returned:',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.blue.shade700,
+                                    ),
+                                  ),
+                                  Text(
+                                    '₹${_formatNumber(balanceReturned)}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.blue.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+
+                            // Amount to Pay
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Amount to Pay:',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.blue[900],
+                                  ),
+                                ),
+                                Text(
+                                  '₹${_formatNumber(amountToPay)}',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blue[900],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // Down Payment Section
+                      Text(
+                        'Down Payment',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.blue[900],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Down Payment Row with Verification
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Amount:',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                                Text(
+                                  '₹${_formatNumber(downPayment)}',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Switch(
+                            value: localDownPaymentReceived,
+                            onChanged: (value) {
+                              setState(() {
+                                localDownPaymentReceived = value;
+                              });
+                            },
+                            activeColor: Colors.green,
+                          ),
+                        ],
+                      ),
+
+                      // Payment Breakdown for Down Payment
+                      if (downPayment > 0 && localDownPaymentReceived) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Down Payment Breakdown',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+
+                        // Cash Payment
+                        if (cashAmount > 0)
+                          _buildEMIPaymentBreakdownRow(
+                            'Cash',
+                            cashAmount,
+                            localCashVerified,
+                            (value) {
+                              setState(() {
+                                localCashVerified = value;
+                              });
+                            },
+                          ),
+
+                        // Card Payment
+                        if (cardAmount > 0)
+                          _buildEMIPaymentBreakdownRow(
+                            'Card',
+                            cardAmount,
+                            localCardVerified,
+                            (value) {
+                              setState(() {
+                                localCardVerified = value;
+                              });
+                            },
+                          ),
+
+                        // UPI Payment
+                        if (gpayAmount > 0)
+                          _buildEMIPaymentBreakdownRow(
+                            'UPI',
+                            gpayAmount,
+                            localGpayVerified,
+                            (value) {
+                              setState(() {
+                                localGpayVerified = value;
+                              });
+                            },
+                          ),
+
+                        // Credit Payment (read-only)
+                        if (creditAmount > 0)
+                          _buildEMICreditPaymentRow(creditAmount),
+                      ],
+
+                      const SizedBox(height: 16),
+
+                      // Disbursement Section
+                      Text(
+                        'Disbursement',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.blue[900],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Amount:',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                                Text(
+                                  '₹${_formatNumber(disbursement)}',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Switch(
+                            value: localDisbursementReceived,
+                            onChanged: (value) {
+                              setState(() {
+                                localDisbursementReceived = value;
+                              });
+                            },
+                            activeColor: Colors.green,
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // Transaction Details Section
+                      Text(
+                        'Transaction Details',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.blue[900],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (addedAt != null) ...[
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.access_time,
+                                    size: 14,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Added At:',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade600,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                DateFormat(
+                                  'dd MMMM yyyy, HH:mm:ss',
+                                ).format(addedAt!),
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ],
+
+                            const SizedBox(height: 8),
+
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.person,
+                                  size: 14,
+                                  color: Colors.grey.shade600,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Added By:',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade600,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              sale['userEmail'] ?? 'Unknown',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      // Verification Summary
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color:
+                              (localDownPaymentReceived &&
+                                  localDisbursementReceived)
+                              ? Colors.green.withOpacity(0.1)
+                              : Colors.orange.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color:
+                                (localDownPaymentReceived &&
+                                    localDisbursementReceived)
+                                ? Colors.green
+                                : Colors.orange,
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              (localDownPaymentReceived &&
+                                      localDisbursementReceived)
+                                  ? Icons.check_circle
+                                  : Icons.info,
+                              color:
+                                  (localDownPaymentReceived &&
+                                      localDisbursementReceived)
+                                  ? Colors.green
+                                  : Colors.orange,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    (localDownPaymentReceived &&
+                                            localDisbursementReceived)
+                                        ? 'Fully Verified'
+                                        : 'Partial Verification',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color:
+                                          (localDownPaymentReceived &&
+                                              localDisbursementReceived)
+                                          ? Colors.green
+                                          : Colors.orange,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Down Payment: ${localDownPaymentReceived ? '✓' : '✗'} | '
+                                    'Disbursement: ${localDisbursementReceived ? '✓' : '✗'}',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               actions: [
@@ -2298,6 +2828,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 ElevatedButton(
                   onPressed: () async {
                     try {
+                      // Create updates map
                       final updates = <String, dynamic>{
                         'downPaymentReceived': localDownPaymentReceived,
                         'disbursementReceived': localDisbursementReceived,
@@ -2306,12 +2837,22 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                             localDisbursementReceived,
                       };
 
+                      // Only update payment breakdown if down payment is received
+                      if (localDownPaymentReceived) {
+                        updates['paymentBreakdownVerified'] = {
+                          'cash': localCashVerified,
+                          'card': localCardVerified,
+                          'gpay': localGpayVerified,
+                        };
+                      }
+
                       await _updatePaymentVerification(
                         collection,
                         docId,
                         updates,
                       );
 
+                      // Update local state
                       setState(() {
                         sale['downPaymentReceived'] = localDownPaymentReceived;
                         sale['disbursementReceived'] =
@@ -2319,13 +2860,14 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         sale['paymentVerified'] =
                             localDownPaymentReceived &&
                             localDisbursementReceived;
-                        sale['paymentBreakdownVerified'] = {
-                          'cash':
-                              localDownPaymentReceived &&
-                              localDisbursementReceived,
-                          'card': false,
-                          'gpay': false,
-                        };
+
+                        if (localDownPaymentReceived) {
+                          sale['paymentBreakdownVerified'] = {
+                            'cash': localCashVerified,
+                            'card': localCardVerified,
+                            'gpay': localGpayVerified,
+                          };
+                        }
                       });
 
                       Navigator.pop(context);
@@ -2337,7 +2879,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                       _showSnackBar('Error: $e', Colors.red);
                     }
                   },
-                  child: const Text('Save'),
+                  child: const Text('Save & Update'),
                 ),
               ],
             );
@@ -3025,6 +3567,116 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
             activeColor: Colors.green,
             inactiveThumbColor: Colors.grey,
             inactiveTrackColor: Colors.grey.shade300,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Helper method to build EMI payment breakdown row
+  Widget _buildEMIPaymentBreakdownRow(
+    String method,
+    double amount,
+    bool verified,
+    ValueChanged<bool> onChanged,
+  ) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: verified ? Colors.green.withOpacity(0.1) : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: verified ? Colors.green : Colors.grey.shade300,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  method,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: verified ? Colors.green : Colors.black,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '₹${_formatNumber(amount)}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: verified ? Colors.green : Colors.grey,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: verified,
+            onChanged: onChanged,
+            activeColor: Colors.green,
+            inactiveThumbColor: Colors.grey,
+            inactiveTrackColor: Colors.grey.shade300,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Helper method to show EMI credit payment (read-only)
+  Widget _buildEMICreditPaymentRow(double amount) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.blue.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.blue, width: 1),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Credit',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.blue,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '₹${_formatNumber(amount)}',
+                  style: TextStyle(fontSize: 11, color: Colors.blue),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.blue.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: const Text(
+              'Pending',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.blue,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ),
         ],
       ),
