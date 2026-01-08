@@ -2310,6 +2310,10 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         'Product: ${sale['brand'] ?? ''} ${sale['productModel'] ?? ''}',
                         style: const TextStyle(fontSize: 14),
                       ),
+                      Text(
+                        'finance: ${sale['financeType'] ?? ''} ',
+                        style: const TextStyle(fontSize: 14),
+                      ),
                       const SizedBox(height: 12),
 
                       // Price Breakdown Section

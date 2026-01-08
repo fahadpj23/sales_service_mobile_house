@@ -136,23 +136,23 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
 
       switch (collection) {
         case 'accessories_service_sales':
-          dateFields = ['date', 'timestamp'];
+          dateFields = ['date', 'uploadedAt', 'timestamp'];
           break;
         case 'phoneSales':
           dateFields = [
-            'addedAt',
-            'createdAt',
             'saleDate',
             'date',
+            'addedAt',
+            'createdAt',
             'timestamp',
           ];
           break;
         case 'base_model_sale':
         case 'seconds_phone_sale':
-          dateFields = ['uploadedAt', 'date', 'timestamp'];
+          dateFields = ['date', 'uploadedAt', 'timestamp'];
           break;
         default:
-          dateFields = ['uploadedAt', 'date', 'timestamp', 'createdAt'];
+          dateFields = ['date', 'uploadedAt', 'timestamp', 'createdAt'];
       }
 
       for (var field in dateFields) {
@@ -924,6 +924,15 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               _buildDetailRow('Customer', sale['customerInfo'] as String),
               _buildDetailRow('Shop', sale['shopName'].toString()),
               _buildDetailRow('Date', sale['displayDate'] as String),
+              if (sale['collection'] == 'accessories_service_sales') ...[
+                if (sale['accessoriesAmount'] != null)
+                  _buildDetailRow(
+                    'Accessories',
+                    sale['accessoriesAmount'].toString(),
+                  ),
+                if (sale['serviceAmount'] != null)
+                  _buildDetailRow('Service', sale['serviceAmount'].toString()),
+              ],
               _buildDetailRow(
                 'Total Amount',
                 '₹${(sale['displayAmount'] as double).toStringAsFixed(0)}',
@@ -933,8 +942,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               if (sale['collection'] == 'phoneSales') ...[
                 if (sale['productModel'] != null)
                   _buildDetailRow('Product', sale['productModel'].toString()),
-                if (sale['brand'] != null)
-                  _buildDetailRow('Brand', sale['brand'].toString()),
+                // if (sale['brand'] != null)
+                //   _buildDetailRow('Brand', sale['brand'].toString()),
                 if (sale['imei'] != null)
                   _buildDetailRow('IMEI', sale['imei'].toString()),
                 if (sale['purchaseMode'] != null)
