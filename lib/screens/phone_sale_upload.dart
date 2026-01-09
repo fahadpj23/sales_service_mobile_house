@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
 
 class PhoneSaleUpload extends StatefulWidget {
   const PhoneSaleUpload({super.key});
@@ -514,6 +515,8 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Text('Date: ${DateFormat('dd/MM/yyyy').format(_saleDate)}'),
+                const SizedBox(height: 8),
                 Text('Shop: $_shopName'),
                 const SizedBox(height: 8),
                 Text(
