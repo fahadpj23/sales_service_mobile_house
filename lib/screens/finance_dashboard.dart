@@ -2,11 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'package:sales_stock/screens/login_screen.dart';
+import '../providers/auth_provider.dart';
+import '../services/auth_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-  runApp(const FinanceDashboardApp());
+  runApp(
+    MultiProvider(
+      providers: [ChangeNotifierProvider(create: (_) => AuthProvider())],
+      child: const FinanceDashboardApp(),
+    ),
+  );
 }
 
 class FinanceDashboardApp extends StatelessWidget {
@@ -52,7 +61,14 @@ class FinanceDashboardApp extends StatelessWidget {
           bodySmall: TextStyle(fontSize: 10),
         ),
       ),
-      home: const FinanceDashboard(),
+      home: Consumer<AuthProvider>(
+        builder: (context, authProvider, child) {
+          if (authProvider.user == null) {
+            return LoginScreen(); // Make sure to import the LoginScreen
+          }
+          return const FinanceDashboard();
+        },
+      ),
     );
   }
 }
@@ -69,7 +85,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
   bool _isLoading = false;
   bool _isDrawerOpen = false;
   String? _selectedShop;
-
+  final authService = AuthService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   List<Map<String, dynamic>> _phoneSales = [];
@@ -523,10 +539,59 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       print('✅ Payment verification updated successfully for $docId');
       print('📝 Updates: $updates');
       _showSnackBar('Updated successfully!', Colors.green);
+
+      // Refresh data immediately after update
+      await _refreshUpdatedData(collection, docId, updates);
     } catch (e) {
       print('❌ Error updating payment verification: $e');
       _showSnackBar('Error updating: $e', Colors.red);
       rethrow;
+    }
+  }
+
+  Future<void> _refreshUpdatedData(
+    String collection,
+    String docId,
+    Map<String, dynamic> updates,
+  ) async {
+    // Update the local data immediately without reloading everything
+    switch (collection) {
+      case 'phoneSales':
+        final index = _phoneSales.indexWhere((sale) => sale['id'] == docId);
+        if (index != -1) {
+          setState(() {
+            _phoneSales[index].addAll(updates);
+          });
+        }
+        break;
+      case 'accessories_service_sales':
+        final index = _accessoriesServiceSales.indexWhere(
+          (sale) => sale['id'] == docId,
+        );
+        if (index != -1) {
+          setState(() {
+            _accessoriesServiceSales[index].addAll(updates);
+          });
+        }
+        break;
+      case 'base_model_sale':
+        final index = _baseModelSales.indexWhere((sale) => sale['id'] == docId);
+        if (index != -1) {
+          setState(() {
+            _baseModelSales[index].addAll(updates);
+          });
+        }
+        break;
+      case 'seconds_phone_sale':
+        final index = _secondsPhoneSales.indexWhere(
+          (sale) => sale['id'] == docId,
+        );
+        if (index != -1) {
+          setState(() {
+            _secondsPhoneSales[index].addAll(updates);
+          });
+        }
+        break;
     }
   }
 
@@ -564,6 +629,12 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
             ),
             onPressed: _isLoading ? null : _loadAllData,
             tooltip: 'Refresh Data',
+          ),
+          // Logout button in app bar
+          IconButton(
+            color: Colors.white,
+            icon: const Icon(Icons.logout),
+            onPressed: () => _showLogoutConfirmationDialog(),
           ),
         ],
       ),
@@ -669,9 +740,85 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
               ),
             ),
           ),
+          // Logout button at the bottom of sidebar
+          _buildLogoutButton(),
         ],
       ),
     );
+  }
+
+  Widget _buildLogoutButton() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.red.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ListTile(
+        leading: const Icon(Icons.logout, color: Colors.red),
+        title: const Text('Logout', style: TextStyle(color: Colors.red)),
+        onTap: () => _showLogoutConfirmationDialog(),
+      ),
+    );
+  }
+
+  Future<void> _showLogoutConfirmationDialog() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm Logout'),
+        content: const Text('Are you sure you want to logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldLogout == true) {
+      await authService.signOut();
+      Provider.of<AuthProvider>(context, listen: false).clearUser();
+    }
+  }
+
+  Future<void> _performLogout() async {
+    try {
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      // Perform logout using your existing auth service
+      final authService = AuthService();
+      await authService.signOut();
+      Provider.of<AuthProvider>(context, listen: false).clearUser();
+
+      // Close loading dialog
+      if (mounted) Navigator.pop(context);
+
+      // Show success message
+      _showSnackBar('Logged out successfully', Colors.green);
+
+      // Note: The app will automatically navigate to login screen via Consumer in FinanceDashboardApp
+    } catch (e) {
+      // Close loading dialog
+      if (mounted) Navigator.pop(context);
+
+      // Show error message
+      _showSnackBar('Error during logout: $e', Colors.red);
+    }
   }
 
   Widget _buildSidebarItem({
@@ -2201,7 +2348,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     }
   }
 
-  // UPDATED: Payment verification method
+  // UPDATED: Payment verification method with immediate UI update
   void _verifyPayment(Map<String, dynamic> transaction) async {
     final Map<String, dynamic> sale = transaction['data'];
     final String collection = transaction['collection'];
@@ -2221,13 +2368,12 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     }
   }
 
-  // UPDATED EMI Verification Dialog with discount, exchange, payment breakdown, credit, and addedAt timestamp
+  // UPDATED EMI Verification Dialog with immediate UI update
   void _showEMIVerificationDialog(
     Map<String, dynamic> sale,
     String collection,
     String docId,
   ) {
-    // Extract all relevant data from the sale
     double downPayment = (sale['downPayment'] as num?)?.toDouble() ?? 0;
     double disbursement = (sale['disbursementAmount'] as num?)?.toDouble() ?? 0;
     double discount = (sale['discount'] as num?)?.toDouble() ?? 0;
@@ -2243,7 +2389,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     bool disbursementReceived = sale['disbursementReceived'] ?? false;
     String shopName = _getShopName(sale);
 
-    // Extract payment breakdown
     final paymentBreakdown =
         sale['paymentBreakdown'] ??
         {'cash': 0, 'card': 0, 'credit': 0, 'gpay': 0};
@@ -2260,7 +2405,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     bool cardVerified = _convertToBool(paymentBreakdownVerified['card']);
     bool gpayVerified = _convertToBool(paymentBreakdownVerified['gpay']);
 
-    // Get timestamp for addedAt
     DateTime? addedAt;
     if (sale['addedAt'] != null) {
       addedAt = _parseDate(sale['addedAt']);
@@ -2269,10 +2413,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     } else if (sale['saleDate'] != null) {
       addedAt = _parseDate(sale['saleDate']);
     }
-
-    // Calculate totals
-    double totalPayable = amountToPay > 0 ? amountToPay : effectivePrice;
-    if (totalPayable <= 0) totalPayable = price;
 
     showDialog(
       context: context,
@@ -2294,7 +2434,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Customer Info
                       Text(
                         'Customer: ${sale['customerName'] ?? 'Unknown'}',
                         style: const TextStyle(
@@ -2316,7 +2455,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                       ),
                       const SizedBox(height: 12),
 
-                      // Price Breakdown Section
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
@@ -2335,8 +2473,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                               ),
                             ),
                             const SizedBox(height: 8),
-
-                            // Original Price
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
@@ -2356,8 +2492,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                                 ),
                               ],
                             ),
-
-                            // Discount
                             if (discount > 0) ...[
                               const SizedBox(height: 4),
                               Row(
@@ -2382,8 +2516,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                                 ],
                               ),
                             ],
-
-                            // Exchange Value
                             if (exchangeValue > 0) ...[
                               const SizedBox(height: 4),
                               Row(
@@ -2408,8 +2540,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                                 ],
                               ),
                             ],
-
-                            // Customer Credit
                             if (customerCredit > 0) ...[
                               const SizedBox(height: 4),
                               Row(
@@ -2434,12 +2564,9 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                                 ],
                               ),
                             ],
-
                             const SizedBox(height: 4),
                             Divider(color: Colors.grey.shade300, height: 1),
                             const SizedBox(height: 4),
-
-                            // Effective Price
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
@@ -2461,8 +2588,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                                 ),
                               ],
                             ),
-
-                            // Balance Returned
                             if (balanceReturned > 0) ...[
                               const SizedBox(height: 4),
                               Row(
@@ -2487,8 +2612,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                                 ],
                               ),
                             ],
-
-                            // Amount to Pay
                             const SizedBox(height: 4),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2517,7 +2640,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
 
                       const SizedBox(height: 16),
 
-                      // Down Payment Section
                       Text(
                         'Down Payment',
                         style: TextStyle(
@@ -2528,7 +2650,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                       ),
                       const SizedBox(height: 8),
 
-                      // Down Payment Row with Verification
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -2565,7 +2686,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         ],
                       ),
 
-                      // Payment Breakdown for Down Payment
                       if (downPayment > 0 && localDownPaymentReceived) ...[
                         const SizedBox(height: 8),
                         Text(
@@ -2578,7 +2698,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         ),
                         const SizedBox(height: 8),
 
-                        // Cash Payment
                         if (cashAmount > 0)
                           _buildEMIPaymentBreakdownRow(
                             'Cash',
@@ -2591,7 +2710,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                             },
                           ),
 
-                        // Card Payment
                         if (cardAmount > 0)
                           _buildEMIPaymentBreakdownRow(
                             'Card',
@@ -2604,7 +2722,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                             },
                           ),
 
-                        // UPI Payment
                         if (gpayAmount > 0)
                           _buildEMIPaymentBreakdownRow(
                             'UPI',
@@ -2617,14 +2734,12 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                             },
                           ),
 
-                        // Credit Payment (read-only)
                         if (creditAmount > 0)
                           _buildEMICreditPaymentRow(creditAmount),
                       ],
 
                       const SizedBox(height: 16),
 
-                      // Disbursement Section
                       Text(
                         'Disbursement',
                         style: TextStyle(
@@ -2673,7 +2788,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
 
                       const SizedBox(height: 16),
 
-                      // Transaction Details Section
                       Text(
                         'Transaction Details',
                         style: TextStyle(
@@ -2752,7 +2866,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
 
                       const SizedBox(height: 8),
 
-                      // Verification Summary
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
@@ -2832,7 +2945,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 ElevatedButton(
                   onPressed: () async {
                     try {
-                      // Create updates map
                       final updates = <String, dynamic>{
                         'downPaymentReceived': localDownPaymentReceived,
                         'disbursementReceived': localDisbursementReceived,
@@ -2841,7 +2953,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                             localDisbursementReceived,
                       };
 
-                      // Only update payment breakdown if down payment is received
                       if (localDownPaymentReceived) {
                         updates['paymentBreakdownVerified'] = {
                           'cash': localCashVerified,
@@ -2856,23 +2967,15 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         updates,
                       );
 
-                      // Update local state
-                      setState(() {
-                        sale['downPaymentReceived'] = localDownPaymentReceived;
-                        sale['disbursementReceived'] =
-                            localDisbursementReceived;
-                        sale['paymentVerified'] =
-                            localDownPaymentReceived &&
-                            localDisbursementReceived;
-
-                        if (localDownPaymentReceived) {
-                          sale['paymentBreakdownVerified'] = {
-                            'cash': localCashVerified,
-                            'card': localCardVerified,
-                            'gpay': localGpayVerified,
-                          };
-                        }
-                      });
+                      // Update local state immediately
+                      final index = _phoneSales.indexWhere(
+                        (s) => s['id'] == docId,
+                      );
+                      if (index != -1) {
+                        setState(() {
+                          _phoneSales[index].addAll(updates);
+                        });
+                      }
 
                       Navigator.pop(context);
                       _showSnackBar(
@@ -2893,14 +2996,13 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     );
   }
 
-  // UPDATED: Non-EMI phone verification dialog with exchange value, discount, and payment breakdown
+  // UPDATED: Non-EMI phone verification dialog with immediate UI update
   void _showNonEMIPhoneVerificationDialog(
     Map<String, dynamic> sale,
     String collection,
     String docId,
     String purchaseMode,
   ) {
-    // Extract payment breakdown data
     final paymentBreakdown =
         sale['paymentBreakdown'] ??
         {'cash': 0, 'card': 0, 'credit': 0, 'gpay': 0};
@@ -2916,7 +3018,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     String shopName = _getShopName(sale);
     String mode = purchaseMode.toLowerCase();
 
-    // Extract amounts
     double exchangeValue = (sale['exchangeValue'] as num?)?.toDouble() ?? 0;
     double discount = (sale['discount'] as num?)?.toDouble() ?? 0;
     double totalAmount = _getTotalAmount(sale);
@@ -2924,7 +3025,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     double effectivePrice = (sale['effectivePrice'] as num?)?.toDouble() ?? 0;
     double amountToPay = (sale['amountToPay'] as num?)?.toDouble() ?? 0;
 
-    // Payment breakdown amounts
     double cashAmount = _extractAmount(sale, ['cashAmount', 'cash']);
     double cardAmount = _extractAmount(sale, ['cardAmount', 'card']);
     double gpayAmount = _extractAmount(sale, [
@@ -2935,9 +3035,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     ]);
     double creditAmount = _extractAmount(sale, ['creditAmount', 'credit']);
 
-    // If paymentBreakdown map exists, use those values
     if (paymentBreakdown is Map) {
-      // Convert Map<dynamic, dynamic> to Map<String, dynamic>
       Map<String, dynamic> stringKeyMap = {};
       paymentBreakdown.forEach((key, value) {
         stringKeyMap[key.toString()] = value;
@@ -2963,8 +3061,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
             if (localCardVerified) verifiedAmount += cardAmount;
             if (localGpayVerified) verifiedAmount += gpayAmount;
 
-            // For Ready Cash mode, we expect total to equal cash amount
-            // For other modes, we compare with amountToPay or effectivePrice
             double expectedAmount = amountToPay > 0
                 ? amountToPay
                 : effectivePrice;
@@ -3003,7 +3099,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                       ),
                       const SizedBox(height: 8),
 
-                      // Original Price and Discount/Exchange Section
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
@@ -3119,7 +3214,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
 
                       const SizedBox(height: 16),
 
-                      // Payment Breakdown Section
                       Text(
                         'Payment Breakdown',
                         style: TextStyle(
@@ -3130,7 +3224,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                       ),
                       const SizedBox(height: 8),
 
-                      // Cash Payment
                       if (cashAmount > 0) ...[
                         _buildPaymentMethodRowWithAmount(
                           'Cash',
@@ -3145,7 +3238,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         const SizedBox(height: 8),
                       ],
 
-                      // Card Payment
                       if (cardAmount > 0) ...[
                         _buildPaymentMethodRowWithAmount(
                           'Card',
@@ -3160,7 +3252,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         const SizedBox(height: 8),
                       ],
 
-                      // UPI Payment
                       if (gpayAmount > 0) ...[
                         _buildPaymentMethodRowWithAmount(
                           'UPI',
@@ -3175,7 +3266,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         const SizedBox(height: 8),
                       ],
 
-                      // Credit Payment (read-only)
                       if (creditAmount > 0) ...[
                         Container(
                           padding: const EdgeInsets.all(12),
@@ -3230,7 +3320,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         const SizedBox(height: 8),
                       ],
 
-                      // Verification Status
                       const SizedBox(height: 12),
                       Container(
                         padding: const EdgeInsets.all(8),
@@ -3317,10 +3406,15 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         updates,
                       );
 
-                      setState(() {
-                        sale['paymentBreakdownVerified'] = newPaymentBreakdown;
-                        sale['paymentVerified'] = isVerified;
-                      });
+                      // Update local state immediately
+                      final index = _phoneSales.indexWhere(
+                        (s) => s['id'] == docId,
+                      );
+                      if (index != -1) {
+                        setState(() {
+                          _phoneSales[index].addAll(updates);
+                        });
+                      }
 
                       Navigator.pop(context);
                       _showSnackBar(
@@ -3343,17 +3437,12 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     );
   }
 
-  // NEW: Unified payment verification dialog for all generic sales
+  // UPDATED: Generic payment verification dialog with immediate UI update
   void _showGenericPaymentVerificationDialog(
     Map<String, dynamic> sale,
     String collection,
     String docId,
   ) {
-    print(
-      'Showing payment verification dialog for: ${sale['id']} in collection: $collection',
-    );
-
-    // Get current payment breakdown
     final paymentBreakdown = sale['paymentBreakdownVerified'];
 
     bool initialCashVerified = false;
@@ -3366,7 +3455,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       initialGpayVerified = _convertToBool(paymentBreakdown['gpay']);
     }
 
-    // Get payment amounts based on collection type
     final paymentAmounts = _getPaymentAmounts(collection, sale);
     final cashAmount = paymentAmounts['cash']!;
     final cardAmount = paymentAmounts['card']!;
@@ -3375,9 +3463,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     final totalAmount = _getTotalAmount(sale);
     final shopName = _getShopName(sale);
 
-    // Determine if we need to use switches or radio buttons
-    // For accessories with multiple payment methods > 0, use switches
-    // For base models and seconds phones where only one payment method > 0, use radio buttons
     final hasMultiplePayments =
         (cashAmount > 0 && cardAmount > 0) ||
         (cashAmount > 0 && gpayAmount > 0) ||
@@ -3411,17 +3496,30 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
 
               await _updatePaymentVerification(collection, docId, updates);
 
-              // Update local state
-              setState(() {
-                sale['paymentBreakdownVerified'] = newPaymentBreakdown;
-                sale['paymentVerified'] = isVerified;
+              // Update local state immediately
+              List<Map<String, dynamic>> targetList;
+              switch (collection) {
+                case 'accessories_service_sales':
+                  targetList = _accessoriesServiceSales;
+                  break;
+                case 'base_model_sale':
+                  targetList = _baseModelSales;
+                  break;
+                case 'seconds_phone_sale':
+                  targetList = _secondsPhoneSales;
+                  break;
+                default:
+                  targetList = _phoneSales;
+              }
 
-                // Update in the appropriate list
-                _updateLocalData(collection, docId, {
-                  'paymentBreakdownVerified': newPaymentBreakdown,
-                  'paymentVerified': isVerified,
+              final index = targetList.indexWhere(
+                (item) => item['id'] == docId,
+              );
+              if (index != -1) {
+                setState(() {
+                  targetList[index].addAll(updates);
                 });
-              });
+              }
 
               return true;
             } catch (e) {
@@ -3431,96 +3529,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           },
         );
       },
-    );
-  }
-
-  void _updateLocalData(
-    String collection,
-    String docId,
-    Map<String, dynamic> updates,
-  ) {
-    List<Map<String, dynamic>> targetList;
-
-    switch (collection) {
-      case 'phoneSales':
-        targetList = _phoneSales;
-        break;
-      case 'accessories_service_sales':
-        targetList = _accessoriesServiceSales;
-        break;
-      case 'base_model_sale':
-        targetList = _baseModelSales;
-        break;
-      case 'seconds_phone_sale':
-        targetList = _secondsPhoneSales;
-        break;
-      default:
-        return;
-    }
-
-    final index = targetList.indexWhere((item) => item['id'] == docId);
-    if (index != -1) {
-      targetList[index].addAll(updates);
-    }
-  }
-
-  Widget _buildEMIPaymentRow(
-    String label,
-    double amount,
-    bool verified,
-    ValueChanged<bool> onChanged,
-  ) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: const TextStyle(fontSize: 14)),
-              Text(
-                '₹${_formatNumber(amount)}',
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-            ],
-          ),
-        ),
-        Switch(
-          value: verified,
-          onChanged: onChanged,
-          activeColor: Colors.green,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPaymentMethodRow(
-    String method,
-    double amount,
-    bool verified,
-    ValueChanged<bool> onChanged,
-  ) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(method, style: const TextStyle(fontSize: 14)),
-              Text(
-                '₹${_formatNumber(amount)}',
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-            ],
-          ),
-        ),
-        Switch(
-          value: verified,
-          onChanged: onChanged,
-          activeColor: Colors.green,
-        ),
-      ],
     );
   }
 
@@ -3577,7 +3585,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     );
   }
 
-  // Helper method to build EMI payment breakdown row
   Widget _buildEMIPaymentBreakdownRow(
     String method,
     double amount,
@@ -3634,7 +3641,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     );
   }
 
-  // Helper method to show EMI credit payment (read-only)
   Widget _buildEMICreditPaymentRow(double amount) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -3688,7 +3694,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
   }
 }
 
-// NEW: Generic payment verification dialog for all sales types
 class _GenericPaymentVerificationDialog extends StatefulWidget {
   final Map<String, dynamic> sale;
   final String collection;
@@ -3737,13 +3742,6 @@ class __GenericPaymentVerificationDialogState
     _cashVerified = widget.initialCashVerified;
     _cardVerified = widget.initialCardVerified;
     _gpayVerified = widget.initialGpayVerified;
-
-    print(
-      'Dialog initialized with: Cash: $_cashVerified, Card: $_cardVerified, Gpay: $_gpayVerified',
-    );
-    print(
-      'Amounts - Cash: ${widget.cashAmount}, Card: ${widget.cardAmount}, Gpay: ${widget.gpayAmount}, Total: ${widget.totalAmount}',
-    );
   }
 
   double _calculateVerifiedAmount() {
@@ -3805,7 +3803,6 @@ class __GenericPaymentVerificationDialogState
               ),
               const SizedBox(height: 16),
 
-              // Cash Payment Row
               if (widget.cashAmount > 0) ...[
                 if (widget.useSwitches)
                   _buildSwitchPaymentRow(
@@ -3815,7 +3812,6 @@ class __GenericPaymentVerificationDialogState
                     (value) {
                       setState(() {
                         _cashVerified = value;
-                        print('Cash toggled to: $value');
                       });
                     },
                   )
@@ -3831,14 +3827,12 @@ class __GenericPaymentVerificationDialogState
                           _cardVerified = false;
                           _gpayVerified = false;
                         }
-                        print('Cash selected: $value');
                       });
                     },
                   ),
                 const SizedBox(height: 12),
               ],
 
-              // Card Payment Row
               if (widget.cardAmount > 0) ...[
                 if (widget.useSwitches)
                   _buildSwitchPaymentRow(
@@ -3848,7 +3842,6 @@ class __GenericPaymentVerificationDialogState
                     (value) {
                       setState(() {
                         _cardVerified = value;
-                        print('Card toggled to: $value');
                       });
                     },
                   )
@@ -3864,14 +3857,12 @@ class __GenericPaymentVerificationDialogState
                           _cashVerified = false;
                           _gpayVerified = false;
                         }
-                        print('Card selected: $value');
                       });
                     },
                   ),
                 const SizedBox(height: 12),
               ],
 
-              // UPI Payment Row
               if (widget.gpayAmount > 0) ...[
                 if (widget.useSwitches)
                   _buildSwitchPaymentRow(
@@ -3881,7 +3872,6 @@ class __GenericPaymentVerificationDialogState
                     (value) {
                       setState(() {
                         _gpayVerified = value;
-                        print('UPI toggled to: $value');
                       });
                     },
                   )
@@ -3897,7 +3887,6 @@ class __GenericPaymentVerificationDialogState
                           _cashVerified = false;
                           _cardVerified = false;
                         }
-                        print('UPI selected: $value');
                       });
                     },
                   ),
@@ -3905,7 +3894,6 @@ class __GenericPaymentVerificationDialogState
 
               const SizedBox(height: 16),
 
-              // Verification Status
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
