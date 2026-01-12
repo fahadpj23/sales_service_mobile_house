@@ -942,8 +942,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               if (sale['collection'] == 'phoneSales') ...[
                 if (sale['productModel'] != null)
                   _buildDetailRow('Product', sale['productModel'].toString()),
-                // if (sale['brand'] != null)
-                //   _buildDetailRow('Brand', sale['brand'].toString()),
+                if (sale['brand'] != null)
+                  _buildDetailRow('Brand', sale['brand'].toString()),
                 if (sale['imei'] != null)
                   _buildDetailRow('IMEI', sale['imei'].toString()),
                 if (sale['purchaseMode'] != null)

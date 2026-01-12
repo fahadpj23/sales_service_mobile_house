@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:math';
+import 'package:provider/provider.dart';
+import 'package:sales_stock/screens/login_screen.dart';
+import '../providers/auth_provider.dart';
+import '../services/auth_service.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   @override
@@ -10,9 +14,6 @@ class AdminDashboardScreen extends StatefulWidget {
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   DateTime _selectedDate = DateTime.now();
-  DateTime? _customStartDate;
-  DateTime? _customEndDate;
-  String? _selectedShop;
   String _timePeriod = 'monthly';
   bool _isLoading = true;
 
@@ -29,6 +30,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   );
   final CollectionReference secondsPhoneSales = FirebaseFirestore.instance
       .collection('seconds_phone_sale');
+  final CollectionReference shopsCollection = FirebaseFirestore.instance
+      .collection('Mobile_house_Shops');
 
   // Green color scheme
   final Color primaryGreen = Color(0xFF0A4D2E);
@@ -102,10 +105,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           saleDate = DateFormat('yyyy-MM-dd').parse(dateStr);
         }
 
-        // Calculate profit (assume 35% margin for accessories and service)
         final totalAmount = (data['totalSaleAmount'] ?? 0).toDouble();
-        final profit = totalAmount * 0.35;
-        final costPrice = totalAmount - profit;
 
         allSales.add(
           Sale(
@@ -118,8 +118,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             customerName: _getCustomerNameFromData(data),
             category: 'Service',
             itemName: 'Accessories & Services',
-            profit: profit,
-            costPrice: costPrice,
             cashAmount: (data['cashAmount'] ?? 0).toDouble(),
             cardAmount: (data['cardAmount'] ?? 0).toDouble(),
             gpayAmount: (data['gpayAmount'] ?? 0).toDouble(),
@@ -150,8 +148,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         }
 
         final price = (data['price'] ?? 0).toDouble();
-        final profit = price * 0.25;
-        final costPrice = price - profit;
 
         allSales.add(
           Sale(
@@ -166,8 +162,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             itemName: data['modelName'] ?? 'Base Model Phone',
             brand: data['brand'] ?? '',
             model: data['modelName'] ?? '',
-            profit: profit,
-            costPrice: costPrice,
             cashAmount: (data['cash'] ?? 0).toDouble(),
             cardAmount: (data['card'] ?? 0).toDouble(),
             gpayAmount: (data['gpay'] ?? 0).toDouble(),
@@ -199,8 +193,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         }
 
         final effectivePrice = (data['effectivePrice'] ?? 0).toDouble();
-        final disbursementAmount = (data['disbursementAmount'] ?? 0).toDouble();
-        final profit = effectivePrice - disbursementAmount;
 
         allSales.add(
           Sale(
@@ -215,10 +207,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             itemName: data['productModel'] ?? 'New Phone',
             brand: data['brand'] ?? '',
             model: data['productModel'] ?? '',
-            profit: profit > 0 ? profit : effectivePrice * 0.2,
-            costPrice: disbursementAmount > 0
-                ? disbursementAmount
-                : effectivePrice * 0.8,
             cashAmount: (data['paymentBreakdown']?['cash'] ?? 0).toDouble(),
             cardAmount: (data['paymentBreakdown']?['card'] ?? 0).toDouble(),
             downPayment: (data['downPayment'] ?? 0).toDouble(),
@@ -263,8 +251,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         }
 
         final price = (data['price'] ?? 0).toDouble();
-        final profit = price * 0.3;
-        final costPrice = price - profit;
 
         allSales.add(
           Sale(
@@ -277,8 +263,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             customerName: data['customerName'] ?? 'Unknown Customer',
             category: 'Second Phone',
             itemName: data['productName'] ?? 'Second Hand Phone',
-            profit: profit,
-            costPrice: costPrice,
             cashAmount: (data['cash'] ?? 0).toDouble(),
             cardAmount: (data['card'] ?? 0).toDouble(),
             gpayAmount: (data['gpay'] ?? 0).toDouble(),
@@ -296,48 +280,41 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   Future<void> _fetchShops() async {
     try {
-      final shopIds = <String>{};
-      final shopMap = <String, Map<String, dynamic>>{};
+      final snapshot = await shopsCollection.get();
 
-      for (var sale in allSales) {
-        if (!shopIds.contains(sale.shopId)) {
-          shopIds.add(sale.shopId);
-          shopMap[sale.shopId] = {
-            'id': sale.shopId,
-            'name': sale.shopName,
-            'target': _getShopTarget(sale.shopName),
-          };
-        }
+      shops.clear();
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        shops.add({
+          'id': doc.id,
+          'name': data['shopName'] ?? 'Unknown Shop',
+          'address': data['address'] ?? '',
+          'manager': data['managerName'] ?? '',
+        });
       }
 
-      shops = shopMap.values.toList();
-
-      if (shops.isEmpty) {
-        shops = [
-          {
-            'id': 'Mk9k3DiuelPsEbE0MCqQ',
-            'name': 'MobileHouse1(shed)',
-            'target': 150000.0,
-          },
-          {
-            'id': 'BrqQtjE0Uo9mCYcUSiK3',
-            'name': 'MobileHouse2(3way)',
-            'target': 180000.0,
-          },
-        ];
-      }
+      // Sort shops by name
+      shops.sort(
+        (a, b) => (a['name'] as String).compareTo(b['name'] as String),
+      );
     } catch (e) {
       print('Error fetching shops: $e');
-    }
-  }
-
-  double _getShopTarget(String shopName) {
-    if (shopName.contains('MobileHouse1')) {
-      return 150000.0;
-    } else if (shopName.contains('MobileHouse2')) {
-      return 180000.0;
-    } else {
-      return 100000.0;
+      // Fallback to default shops if collection doesn't exist
+      shops = [
+        {
+          'id': 'Mk9k3DiuelPsEbE0MCqQ',
+          'name': 'MobileHouse1(shed)',
+          'address': 'Shed Area',
+          'manager': 'Manager 1',
+        },
+        {
+          'id': 'BrqQtjE0Uo9mCYcUSiK3',
+          'name': 'MobileHouse2(3way)',
+          'address': '3-way Junction',
+          'manager': 'Manager 2',
+        },
+      ];
     }
   }
 
@@ -350,6 +327,43 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       return 'Customer of ${data['salesPersonName']}';
     } else {
       return 'Walk-in Customer';
+    }
+  }
+
+  Future<void> _showLogoutConfirmation(BuildContext context) async {
+    final authService = AuthService();
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm Logout'),
+        content: const Text('Are you sure you want to logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldLogout == true) {
+      await authService.signOut();
+      Provider.of<AuthProvider>(context, listen: false).clearUser();
+
+      // Navigate to LoginScreen after logout
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => LoginScreen()),
+        (route) => false, // Remove all previous routes
+      );
     }
   }
 
@@ -371,10 +385,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         centerTitle: true,
         actions: [
           IconButton(
-            icon: Icon(Icons.refresh),
+            icon: Icon(Icons.refresh, color: Colors.white),
             onPressed: _fetchAllData,
             tooltip: 'Refresh Data',
-            color: Colors.white,
           ),
         ],
       ),
@@ -409,6 +422,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Widget _buildDashboardContent() {
+    List<Sale> filteredSales = _filterSales();
+
     return RefreshIndicator(
       onRefresh: _refreshData,
       color: secondaryGreen,
@@ -418,7 +433,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         child: Column(
           children: [
             _buildHeader(),
-            _buildFilters(),
+            _buildTimePeriodSelector(),
+            _buildKPIStats(filteredSales),
             _buildPerformanceInsights(),
             SizedBox(height: 20),
           ],
@@ -428,6 +444,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Widget _buildHeader() {
+    List<Sale> filteredSales = _filterSales();
+    double totalSales = _calculateTotalSales();
+
     return Container(
       padding: EdgeInsets.symmetric(vertical: 20, horizontal: 16),
       decoration: BoxDecoration(
@@ -459,7 +478,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Monthly Revenue',
+                      _getPeriodLabel(),
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.9),
                         fontSize: 14,
@@ -468,7 +487,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     ),
                     SizedBox(height: 6),
                     Text(
-                      '₹${_formatNumber(_calculateTotalSales())}',
+                      '₹${_formatNumber(totalSales)}',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 32,
@@ -483,124 +502,29 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ),
                     ),
                     SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.calendar_month,
-                          color: Colors.white.withOpacity(0.8),
-                          size: 14,
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          DateFormat('MMMM yyyy').format(_selectedDate),
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.8),
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withOpacity(0.3)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 8,
-                      offset: Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    Icon(Icons.trending_up, color: Colors.white, size: 24),
-                    SizedBox(height: 6),
-                    Text(
-                      '+12.5%',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
                   ],
                 ),
               ),
             ],
-          ),
-          SizedBox(height: 16),
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _buildHeaderStat(
-                  'Total Sales',
-                  '₹${_formatNumber(_calculateTotalSales())}',
-                  Icons.currency_rupee,
-                ),
-                Container(
-                  height: 40,
-                  width: 1,
-                  color: Colors.white.withOpacity(0.3),
-                ),
-                _buildHeaderStat(
-                  'Transactions',
-                  '${_filterSales().length}',
-                  Icons.receipt,
-                ),
-              ],
-            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildHeaderStat(String label, String value, IconData icon) {
-    return Expanded(
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: Colors.white.withOpacity(0.9), size: 16),
-              SizedBox(width: 4),
-              Text(
-                value,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.8),
-              fontSize: 11,
-              letterSpacing: 0.3,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildTimePeriodSelector() {
+    List<Map<String, dynamic>> periods = [
+      {'label': 'Daily', 'icon': Icons.today, 'value': 'daily'},
+      {'label': 'Yesterday', 'icon': Icons.history, 'value': 'yesterday'},
+      {
+        'label': 'Last Month',
+        'icon': Icons.calendar_view_month,
+        'value': 'last_month',
+      },
+      {'label': 'Monthly', 'icon': Icons.calendar_month, 'value': 'monthly'},
+      {'label': 'Yearly', 'icon': Icons.calendar_today, 'value': 'yearly'},
+    ];
 
-  Widget _buildFilters() {
     return Container(
       padding: EdgeInsets.all(16),
       child: Card(
@@ -609,88 +533,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildTimePeriodSelector(),
-              SizedBox(height: 16),
-              _buildShopFilter(),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTimePeriodSelector() {
-    List<Map<String, dynamic>> periods = [
-      {'label': 'Today', 'icon': Icons.today, 'value': 'daily'},
-      {'label': 'Week', 'icon': Icons.calendar_view_week, 'value': 'weekly'},
-      {'label': 'Month', 'icon': Icons.calendar_month, 'value': 'monthly'},
-      {'label': 'Year', 'icon': Icons.calendar_today, 'value': 'yearly'},
-      {'label': 'Custom', 'icon': Icons.date_range, 'value': 'custom'},
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Time Period',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: primaryGreen,
-          ),
-        ),
-        SizedBox(height: 8),
-        SizedBox(
-          height: 44,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            itemCount: periods.length,
-            itemBuilder: (context, index) {
-              bool isSelected = _timePeriod == periods[index]['value'];
-              return Container(
-                margin: EdgeInsets.only(right: 8),
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _timePeriod = periods[index]['value'];
-                      if (_timePeriod == 'custom') {
-                        _showCustomDateRangePicker();
-                      }
-                    });
-                  },
-                  child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: isSelected ? secondaryGreen : Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: isSelected
-                            ? secondaryGreen
-                            : Colors.grey.shade300,
-                        width: 1.5,
-                      ),
-                      boxShadow: isSelected
-                          ? [
-                              BoxShadow(
-                                color: secondaryGreen.withOpacity(0.3),
-                                blurRadius: 6,
-                                offset: Offset(0, 2),
-                              ),
-                            ]
-                          : [],
-                    ),
-                    child: Row(
+              Text(
+                'Select Time Period',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: primaryGreen,
+                ),
+              ),
+              SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: periods.map((period) {
+                  bool isSelected = _timePeriod == period['value'];
+                  return FilterChip(
+                    label: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          periods[index]['icon'],
+                          period['icon'],
                           size: 16,
                           color: isSelected ? Colors.white : secondaryGreen,
                         ),
-                        SizedBox(width: 6),
+                        SizedBox(width: 4),
                         Text(
-                          periods[index]['label'],
+                          period['label'],
                           style: TextStyle(
                             color: isSelected ? Colors.white : Colors.grey[700],
                             fontSize: 12,
@@ -699,91 +569,102 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         ),
                       ],
                     ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildShopFilter() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Shop Filter',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: primaryGreen,
-          ),
-        ),
-        SizedBox(height: 8),
-        Container(
-          padding: EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: Colors.grey.shade50,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade200, width: 1.5),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.store, color: secondaryGreen, size: 20),
-              SizedBox(width: 12),
-              Expanded(
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _selectedShop,
-                    hint: Text(
-                      'All Shops',
-                      style: TextStyle(color: Colors.grey[700], fontSize: 14),
-                    ),
-                    isExpanded: true,
-                    items: [
-                      DropdownMenuItem<String>(
-                        value: null,
-                        child: Text(
-                          'All Shops',
-                          style: TextStyle(color: Colors.grey[700]),
-                        ),
-                      ),
-                      ...shops.map<DropdownMenuItem<String>>((shop) {
-                        return DropdownMenuItem<String>(
-                          value: shop['id'] as String,
-                          child: Text(
-                            shop['name'] as String,
-                            style: TextStyle(fontSize: 14),
-                          ),
-                        );
-                      }).toList(),
-                    ],
-                    onChanged: (String? value) {
+                    selected: isSelected,
+                    onSelected: (selected) {
                       setState(() {
-                        _selectedShop = value;
+                        _timePeriod = period['value'];
                       });
                     },
-                    dropdownColor: Colors.white,
-                    elevation: 2,
-                    icon: Icon(Icons.arrow_drop_down, color: secondaryGreen),
-                  ),
-                ),
+                    backgroundColor: Colors.grey.shade100,
+                    selectedColor: secondaryGreen,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  );
+                }).toList(),
               ),
-              if (_selectedShop != null)
-                IconButton(
-                  icon: Icon(Icons.clear, size: 18, color: Colors.grey[600]),
-                  onPressed: () {
-                    setState(() {
-                      _selectedShop = null;
-                    });
-                  },
-                ),
             ],
           ),
         ),
-      ],
+      ),
+    );
+  }
+
+  Widget _buildKPIStats(List<Sale> filteredSales) {
+    double totalSales = _calculateTotalSales();
+    int transactionCount = filteredSales.length;
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 16),
+      child: GridView.count(
+        shrinkWrap: true,
+        physics: NeverScrollableScrollPhysics(),
+        crossAxisCount: 2,
+        childAspectRatio: 1.2,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+        children: [
+          _buildKPIStatCard(
+            'Total Sales',
+            '₹${_formatNumber(totalSales)}',
+            Icons.currency_rupee,
+            primaryGreen,
+          ),
+
+          _buildKPIStatCard(
+            'Transactions',
+            '$transactionCount',
+            Icons.receipt,
+            Color(0xFF9C27B0),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKPIStatCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        padding: EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: color, size: 24),
+            ),
+            SizedBox(height: 12),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              title,
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -825,22 +706,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
     Map<String, double> categoryPerformance = {};
     Map<String, int> categoryCount = {};
-    Map<String, double> categoryProfit = {};
 
     for (var sale in filteredSales) {
       categoryPerformance[sale.category] =
           (categoryPerformance[sale.category] ?? 0.0) + sale.amount;
       categoryCount[sale.category] = (categoryCount[sale.category] ?? 0) + 1;
-      categoryProfit[sale.category] =
-          (categoryProfit[sale.category] ?? 0.0) + (sale.profit ?? 0.0);
     }
 
     // Get total sales for percentage calculation
     double totalSales = _calculateTotalSales();
-    double totalProfit = categoryProfit.values.fold(
-      0.0,
-      (sum, profit) => sum + profit,
-    );
 
     // Sort categories by amount (highest first)
     var sortedCategories = categoryPerformance.entries.toList()
@@ -903,26 +777,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         ),
                       ],
                     ),
-                    Column(
-                      children: [
-                        Text(
-                          'Total Profit',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          '₹${_formatNumber(totalProfit)}',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF4CAF50),
-                          ),
-                        ),
-                      ],
-                    ),
+
                     Column(
                       children: [
                         Text(
@@ -953,13 +808,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 String category = entry.key;
                 double amount = entry.value;
                 int count = categoryCount[category] ?? 0;
-                double profit = categoryProfit[category] ?? 0.0;
-                double percentage = totalSales > 0
-                    ? (amount / totalSales) * 100
-                    : 0.0;
-                double profitMargin = amount > 0
-                    ? (profit / amount) * 100
-                    : 0.0;
 
                 return Container(
                   margin: EdgeInsets.only(bottom: 16),
@@ -1045,37 +893,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                         ),
                                         SizedBox(height: 2),
                                         Text(
-                                          'Profit: ₹${_formatNumber(profit)}',
+                                          '$count transactions',
                                           style: TextStyle(
                                             fontSize: 12,
                                             color: Colors.grey[600],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.end,
-                                      children: [
-                                        Text(
-                                          '${percentage.toStringAsFixed(1)}%',
-                                          style: TextStyle(
-                                            color: Colors.grey[600],
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        SizedBox(height: 2),
-                                        Text(
-                                          '${profitMargin.toStringAsFixed(1)}% margin',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: profitMargin > 20
-                                                ? Colors.green
-                                                : profitMargin > 10
-                                                ? Colors.orange
-                                                : Colors.red,
-                                            fontWeight: FontWeight.w500,
                                           ),
                                         ),
                                       ],
@@ -1086,16 +907,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             ),
                           ),
                         ],
-                      ),
-                      SizedBox(height: 8),
-                      LinearProgressIndicator(
-                        value: percentage / 100,
-                        backgroundColor: Colors.grey.shade200,
-                        valueColor: AlwaysStoppedAnimation(
-                          _getCategoryColor(category),
-                        ),
-                        minHeight: 8,
-                        borderRadius: BorderRadius.circular(4),
                       ),
                     ],
                   ),
@@ -1160,7 +971,52 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             isSelected: true,
           ),
           Divider(height: 1),
-          // Phone Sales Section
+
+          // Specific Reports
+          Divider(height: 1),
+          // Shop Reports
+          Padding(
+            padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
+            child: Text(
+              'SHOP REPORTS',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          _buildDrawerItem(
+            Icons.store,
+            'Shop-wise Report',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ShopWiseReportScreen(
+                    allSales: allSales,
+                    shops: shops,
+                    formatNumber: _formatNumber,
+                    getCategoryColor: _getCategoryColor,
+                  ),
+                ),
+              );
+            },
+          ),
+          Divider(height: 1),
+          // Category Reports
+          Padding(
+            padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
+            child: Text(
+              'CATEGORY REPORTS',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
           _buildDrawerItem(
             Icons.phone_android,
             'Phone Sales Details',
@@ -1196,8 +1052,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               );
             },
           ),
-          Divider(height: 1),
-          // Other Categories
           _buildDrawerItem(
             Icons.build,
             'Accessories & Service',
@@ -1252,18 +1106,111 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               );
             },
           ),
-          Divider(height: 1),
+          Padding(
+            padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
+            child: Text(
+              'SPECIFIC REPORTS',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
           _buildDrawerItem(
-            Icons.store,
-            'Shop-wise Details',
+            Icons.today,
+            'Daily Report',
             onTap: () {
               Navigator.pop(context);
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => ShopWiseDetailsScreen(
-                    sales: _filterSales(),
+                  builder: (context) => SpecificReportScreen(
+                    title: 'Daily Report',
+                    timePeriod: 'daily',
+                    allSales: allSales,
                     formatNumber: _formatNumber,
+                    shops: shops,
+                    getCategoryColor: _getCategoryColor,
+                  ),
+                ),
+              );
+            },
+          ),
+          _buildDrawerItem(
+            Icons.history,
+            'Yesterday Report',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => SpecificReportScreen(
+                    title: 'Yesterday Report',
+                    timePeriod: 'yesterday',
+                    allSales: allSales,
+                    formatNumber: _formatNumber,
+                    shops: shops,
+                    getCategoryColor: _getCategoryColor,
+                  ),
+                ),
+              );
+            },
+          ),
+          _buildDrawerItem(
+            Icons.calendar_view_month,
+            'Last Month Report',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => SpecificReportScreen(
+                    title: 'Last Month Report',
+                    timePeriod: 'last_month',
+                    allSales: allSales,
+                    formatNumber: _formatNumber,
+                    shops: shops,
+                    getCategoryColor: _getCategoryColor,
+                  ),
+                ),
+              );
+            },
+          ),
+          _buildDrawerItem(
+            Icons.calendar_month,
+            'Monthly Report',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => SpecificReportScreen(
+                    title: 'Monthly Report',
+                    timePeriod: 'monthly',
+                    allSales: allSales,
+                    formatNumber: _formatNumber,
+                    shops: shops,
+                    getCategoryColor: _getCategoryColor,
+                  ),
+                ),
+              );
+            },
+          ),
+          _buildDrawerItem(
+            Icons.calendar_today,
+            'Yearly Report',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => SpecificReportScreen(
+                    title: 'Yearly Report',
+                    timePeriod: 'yearly',
+                    allSales: allSales,
+                    formatNumber: _formatNumber,
+                    shops: shops,
                     getCategoryColor: _getCategoryColor,
                   ),
                 ),
@@ -1272,19 +1219,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
           Divider(height: 1),
           _buildDrawerItem(
-            Icons.settings,
-            'Settings',
-            onTap: () {
-              Navigator.pop(context);
-              // Add settings navigation
-            },
-          ),
-          _buildDrawerItem(
             Icons.logout,
             'Logout',
             onTap: () {
-              Navigator.pop(context);
-              // Add logout functionality
+              _showLogoutConfirmation(context);
             },
           ),
         ],
@@ -1299,52 +1237,28 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     bool isSelected = false,
   }) {
     return ListTile(
+      dense: true,
       leading: Icon(
         icon,
         color: isSelected ? secondaryGreen : Colors.grey[700],
+        size: 20,
       ),
       title: Text(
         title,
         style: TextStyle(
           color: isSelected ? secondaryGreen : Colors.grey[700],
           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          fontSize: 13,
         ),
       ),
       tileColor: isSelected ? secondaryGreen.withOpacity(0.1) : null,
       onTap: onTap,
+      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
     );
   }
 
   Future<void> _refreshData() async {
     await _fetchAllData();
-  }
-
-  Future<void> _showCustomDateRangePicker() async {
-    final DateTimeRange? picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2024),
-      lastDate: DateTime(2026),
-      initialDateRange: _customStartDate != null && _customEndDate != null
-          ? DateTimeRange(start: _customStartDate!, end: _customEndDate!)
-          : null,
-      builder: (context, child) {
-        return Theme(
-          data: ThemeData.light().copyWith(
-            colorScheme: ColorScheme.light(
-              primary: secondaryGreen,
-              secondary: accentGreen,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-    if (picked != null) {
-      setState(() {
-        _customStartDate = picked.start;
-        _customEndDate = picked.end;
-      });
-    }
   }
 
   // Data calculation methods
@@ -1361,11 +1275,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         );
         endDate = startDate.add(Duration(days: 1, seconds: -1));
         break;
-      case 'weekly':
-        startDate = _selectedDate.subtract(
-          Duration(days: _selectedDate.weekday - 1),
+      case 'yesterday':
+        final yesterday = _selectedDate.subtract(Duration(days: 1));
+        startDate = DateTime(yesterday.year, yesterday.month, yesterday.day);
+        endDate = startDate.add(Duration(days: 1, seconds: -1));
+        break;
+      case 'last_month':
+        final firstDayOfLastMonth = DateTime(
+          _selectedDate.year,
+          _selectedDate.month - 1,
+          1,
         );
-        endDate = startDate.add(Duration(days: 7, seconds: -1));
+        startDate = firstDayOfLastMonth;
+        endDate = DateTime(
+          _selectedDate.year,
+          _selectedDate.month,
+          1,
+        ).add(Duration(seconds: -1));
         break;
       case 'monthly':
         startDate = DateTime(_selectedDate.year, _selectedDate.month, 1);
@@ -1383,11 +1309,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           1,
         ).add(Duration(seconds: -1));
         break;
-      case 'custom':
-        startDate =
-            _customStartDate ?? DateTime.now().subtract(Duration(days: 30));
-        endDate = _customEndDate ?? DateTime.now();
-        break;
       default:
         startDate = DateTime(
           _selectedDate.year,
@@ -1401,8 +1322,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       bool dateMatch =
           sale.date.isAfter(startDate.subtract(Duration(seconds: 1))) &&
           sale.date.isBefore(endDate.add(Duration(seconds: 1)));
-      bool shopMatch = _selectedShop == null || sale.shopId == _selectedShop;
-      return dateMatch && shopMatch;
+      return dateMatch;
     }).toList();
   }
 
@@ -1410,10 +1330,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     return _filterSales().fold(0.0, (sum, sale) => sum + sale.amount);
   }
 
-  double _calculateAverageSale() {
-    List<Sale> sales = _filterSales();
-    if (sales.isEmpty) return 0.0;
-    return sales.fold(0.0, (sum, sale) => sum + sale.amount) / sales.length;
+  String _getPeriodLabel() {
+    switch (_timePeriod) {
+      case 'daily':
+        return 'Today\'s Sale';
+      case 'yesterday':
+        return 'Yesterday\'s Sale';
+      case 'last_month':
+        return 'Last Month Sale';
+      case 'monthly':
+        return 'Monthly Sale';
+      case 'yearly':
+        return 'Yearly Sale';
+      default:
+        return 'Sale';
+    }
   }
 
   String _formatNumber(double number) {
@@ -1471,8 +1402,6 @@ class Sale {
   final String itemName;
   final String? brand;
   final String? model;
-  final double? profit;
-  final double? costPrice;
   final double? cashAmount;
   final double? cardAmount;
   final double? gpayAmount;
@@ -1503,8 +1432,6 @@ class Sale {
     required this.itemName,
     this.brand,
     this.model,
-    this.profit,
-    this.costPrice,
     this.cashAmount,
     this.cardAmount,
     this.gpayAmount,
@@ -1523,6 +1450,828 @@ class Sale {
     this.customerCredit,
     this.addedAt,
   });
+}
+
+// Specific Report Screen
+class SpecificReportScreen extends StatelessWidget {
+  final String title;
+  final String timePeriod;
+  final List<Sale> allSales;
+  final String Function(double) formatNumber;
+  final List<Map<String, dynamic>> shops;
+  final Color Function(String) getCategoryColor;
+
+  SpecificReportScreen({
+    required this.title,
+    required this.timePeriod,
+    required this.allSales,
+    required this.formatNumber,
+    required this.shops,
+    required this.getCategoryColor,
+  });
+
+  List<Sale> _filterSalesByPeriod() {
+    DateTime startDate;
+    DateTime endDate;
+    DateTime now = DateTime.now();
+
+    switch (timePeriod) {
+      case 'daily':
+        startDate = DateTime(now.year, now.month, now.day);
+        endDate = startDate.add(Duration(days: 1, seconds: -1));
+        break;
+      case 'yesterday':
+        final yesterday = now.subtract(Duration(days: 1));
+        startDate = DateTime(yesterday.year, yesterday.month, yesterday.day);
+        endDate = startDate.add(Duration(days: 1, seconds: -1));
+        break;
+      case 'last_month':
+        final firstDayOfLastMonth = DateTime(now.year, now.month - 1, 1);
+        startDate = firstDayOfLastMonth;
+        endDate = DateTime(now.year, now.month, 1).add(Duration(seconds: -1));
+        break;
+      case 'monthly':
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = DateTime(
+          now.year,
+          now.month + 1,
+          1,
+        ).add(Duration(seconds: -1));
+        break;
+      case 'yearly':
+        startDate = DateTime(now.year, 1, 1);
+        endDate = DateTime(now.year + 1, 1, 1).add(Duration(seconds: -1));
+        break;
+      default:
+        startDate = DateTime(now.year, now.month, now.day);
+        endDate = startDate.add(Duration(days: 1, seconds: -1));
+    }
+
+    return allSales.where((sale) {
+      return sale.date.isAfter(startDate.subtract(Duration(seconds: 1))) &&
+          sale.date.isBefore(endDate.add(Duration(seconds: 1)));
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    List<Sale> filteredSales = _filterSalesByPeriod();
+    double totalSales = filteredSales.fold(
+      0.0,
+      (sum, sale) => sum + sale.amount,
+    );
+
+    // Group by shop
+    Map<String, List<Sale>> shopGroups = {};
+    for (var sale in filteredSales) {
+      if (!shopGroups.containsKey(sale.shopName)) {
+        shopGroups[sale.shopName] = [];
+      }
+      shopGroups[sale.shopName]!.add(sale);
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(title),
+        backgroundColor: Color(0xFF0A4D2E),
+        elevation: 2,
+        centerTitle: true,
+      ),
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            // Summary Card
+            Container(
+              padding: EdgeInsets.all(16),
+              child: Card(
+                elevation: 4,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      Text(
+                        'Summary',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0A4D2E),
+                        ),
+                      ),
+                      SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _buildSummaryStat(
+                            'Total Sales',
+                            '₹${formatNumber(totalSales)}',
+                            Icons.currency_rupee,
+                            Color(0xFF0A4D2E),
+                          ),
+                          _buildSummaryStat(
+                            'Transactions',
+                            '${filteredSales.length}',
+                            Icons.receipt,
+                            Color(0xFF2196F3),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Shop-wise Performance
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                'Shop-wise Performance',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0A4D2E),
+                ),
+              ),
+            ),
+            SizedBox(height: 8),
+
+            ...shopGroups.entries.map((entry) {
+              String shopName = entry.key;
+              List<Sale> shopSales = entry.value;
+              double shopTotal = shopSales.fold(
+                0.0,
+                (sum, sale) => sum + sale.amount,
+              );
+
+              // Find shop manager from shops list
+              String? shopManager = '';
+              for (var shop in shops) {
+                if (shop['name'] == shopName) {
+                  shopManager = shop['manager'];
+                  break;
+                }
+              }
+
+              return Container(
+                margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Card(
+                  elevation: 3,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    shopName,
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  if (shopManager != null &&
+                                      shopManager.isNotEmpty)
+                                    Text(
+                                      'Manager: $shopManager',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Color(0xFF1A7D4A).withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '${shopSales.length} sales',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF1A7D4A),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 12),
+                        Text(
+                          'Sales: ₹${formatNumber(shopTotal)}',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0A4D2E),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+
+            // Category Breakdown
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              child: Text(
+                'Category Breakdown',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0A4D2E),
+                ),
+              ),
+            ),
+
+            // Category Performance
+            Container(
+              margin: EdgeInsets.symmetric(horizontal: 16),
+              child: Card(
+                elevation: 3,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      // Category stats
+                      ..._getCategoryStats(filteredSales).map((category) {
+                        return Padding(
+                          padding: EdgeInsets.only(bottom: 12),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: getCategoryColor(
+                                    category['name'],
+                                  ).withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Center(
+                                  child: Icon(
+                                    _getCategoryIconByName(category['name']),
+                                    color: getCategoryColor(category['name']),
+                                    size: 20,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      category['name'],
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${category['count']} sales • ₹${formatNumber(category['amount'])}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryStat(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Column(
+      children: [
+        Container(
+          padding: EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: color, size: 20),
+        ),
+        SizedBox(height: 8),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        SizedBox(height: 4),
+        Text(title, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+      ],
+    );
+  }
+
+  List<Map<String, dynamic>> _getCategoryStats(List<Sale> sales) {
+    Map<String, Map<String, dynamic>> categoryStats = {};
+
+    for (var sale in sales) {
+      if (!categoryStats.containsKey(sale.category)) {
+        categoryStats[sale.category] = {
+          'name': sale.category,
+          'amount': 0.0,
+          'count': 0,
+        };
+      }
+      categoryStats[sale.category]!['amount'] += sale.amount;
+      categoryStats[sale.category]!['count'] += 1;
+    }
+
+    List<Map<String, dynamic>> result = [];
+    categoryStats.forEach((key, value) {
+      result.add({
+        'name': key,
+        'amount': value['amount'],
+        'count': value['count'],
+      });
+    });
+
+    // Sort by amount (highest first)
+    result.sort(
+      (a, b) => (b['amount'] as double).compareTo(a['amount'] as double),
+    );
+
+    return result;
+  }
+
+  IconData _getCategoryIconByName(String category) {
+    switch (category) {
+      case 'New Phone':
+        return Icons.phone_android;
+      case 'Base Model':
+        return Icons.phone_iphone;
+      case 'Second Phone':
+        return Icons.phone_iphone_outlined;
+      case 'Service':
+        return Icons.build;
+      default:
+        return Icons.category;
+    }
+  }
+}
+
+// Shop Wise Report Screen
+class ShopWiseReportScreen extends StatelessWidget {
+  final List<Sale> allSales;
+  final List<Map<String, dynamic>> shops;
+  final String Function(double) formatNumber;
+  final Color Function(String) getCategoryColor;
+
+  ShopWiseReportScreen({
+    required this.allSales,
+    required this.shops,
+    required this.formatNumber,
+    required this.getCategoryColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      initialIndex: 3,
+      length: 5,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(
+            'Shop-wise Reports',
+            style: TextStyle(color: Colors.white),
+          ),
+          backgroundColor: Color(0xFF0A4D2E),
+          elevation: 2,
+          centerTitle: true,
+          bottom: TabBar(
+            isScrollable: true,
+            indicatorColor: Colors.white,
+            unselectedLabelColor: Colors.grey, // Unselected tab label color
+            labelStyle: TextStyle(
+              fontWeight: FontWeight.normal,
+              color: Colors.white,
+            ),
+            tabs: [
+              Tab(text: 'Monthly'),
+              Tab(text: 'Daily'),
+              Tab(text: 'Yesterday'),
+              Tab(text: 'Last Month'),
+              Tab(text: 'Yearly'),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          children: [
+            _buildShopReport('monthly'),
+            _buildShopReport('daily'),
+            _buildShopReport('yesterday'),
+            _buildShopReport('last_month'),
+            _buildShopReport('yearly'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShopReport(String period) {
+    List<Sale> filteredSales = _filterSalesByPeriod(period);
+
+    // Calculate shop performance
+    List<Map<String, dynamic>> shopPerformance = [];
+
+    for (var shop in shops) {
+      String shopName = shop['name'];
+
+      // Get sales for this shop
+      List<Sale> shopSales = filteredSales
+          .where((sale) => sale.shopName == shopName)
+          .toList();
+
+      double totalSales = shopSales.fold(0.0, (sum, sale) => sum + sale.amount);
+      int transactionCount = shopSales.length;
+      double avgSale = transactionCount > 0 ? totalSales / transactionCount : 0;
+
+      // Get category breakdown
+      Map<String, double> categorySales = {};
+      for (var sale in shopSales) {
+        categorySales[sale.category] =
+            (categorySales[sale.category] ?? 0.0) + sale.amount;
+      }
+
+      shopPerformance.add({
+        'shop': shop,
+        'totalSales': totalSales,
+        'transactionCount': transactionCount,
+        'avgSale': avgSale,
+        'categorySales': categorySales,
+      });
+    }
+
+    // Sort by total sales (highest first)
+    shopPerformance.sort((a, b) => b['totalSales'].compareTo(a['totalSales']));
+
+    double totalAllSales = shopPerformance.fold(
+      0.0,
+      (sum, item) => sum + item['totalSales'],
+    );
+
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          // Summary
+          Container(
+            padding: EdgeInsets.all(16),
+            child: Card(
+              elevation: 3,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    Text(
+                      '${_getPeriodLabel(period)} Shop Performance',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF0A4D2E),
+                      ),
+                    ),
+                    SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _buildReportStat(
+                          'Total Shops',
+                          '${shops.length}',
+                          Icons.store,
+                          Color(0xFF2196F3),
+                        ),
+                        _buildReportStat(
+                          'Total Sales',
+                          '₹${formatNumber(totalAllSales)}',
+                          Icons.currency_rupee,
+                          Color(0xFF4CAF50),
+                        ),
+                        _buildReportStat(
+                          'Avg/Shop',
+                          '₹${formatNumber(shopPerformance.isNotEmpty ? totalAllSales / shopPerformance.length : 0)}',
+                          Icons.assessment,
+                          Color(0xFF9C27B0),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // Shop List
+          ...shopPerformance.map((performance) {
+            var shop = performance['shop'] as Map<String, dynamic>;
+            String shopName = shop['name'];
+            String shopManager = shop['manager'] ?? '';
+            String shopAddress = shop['address'] ?? '';
+
+            return Container(
+              margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Card(
+                elevation: 3,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: ExpansionTile(
+                  leading: Icon(Icons.store, color: Color(0xFF1A7D4A)),
+                  title: Text(
+                    shopName,
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$shopManager • $shopAddress',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        '${performance['transactionCount']} transactions',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                  trailing: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '₹${formatNumber(performance['totalSales'])}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0A4D2E),
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      child: Column(
+                        children: [
+                          // Shop summary
+                          Container(
+                            padding: EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Color(0xFFE8F5E9),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Shop Summary',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF0A4D2E),
+                                      ),
+                                    ),
+                                    SizedBox(height: 4),
+                                    Text(
+                                      'Avg. Sale: ₹${formatNumber(performance['avgSale'])}',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: 12),
+
+                          // Brands within this shop
+                          if ((performance['categorySales']
+                                  as Map<String, double>)
+                              .isNotEmpty)
+                            Column(
+                              children: [
+                                Text(
+                                  'Category Breakdown',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF0A4D2E),
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                ...(performance['categorySales']
+                                        as Map<String, double>)
+                                    .entries
+                                    .map((entry) {
+                                      String category = entry.key;
+                                      double amount = entry.value;
+
+                                      return Padding(
+                                        padding: EdgeInsets.only(bottom: 8),
+                                        child: Row(
+                                          children: [
+                                            Container(
+                                              width: 8,
+                                              height: 8,
+                                              decoration: BoxDecoration(
+                                                color: getCategoryColor(
+                                                  category,
+                                                ),
+                                                shape: BoxShape.circle,
+                                              ),
+                                            ),
+                                            SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                category,
+                                                style: TextStyle(fontSize: 14),
+                                              ),
+                                            ),
+                                            Text(
+                                              '₹${formatNumber(amount)}',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    })
+                                    .toList(),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+
+          SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReportStat(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Column(
+      children: [
+        Container(
+          padding: EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: color, size: 20),
+        ),
+        SizedBox(height: 8),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(title, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+      ],
+    );
+  }
+
+  Widget _buildPerformanceStat(String label, String value) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF0A4D2E),
+          ),
+        ),
+        SizedBox(height: 2),
+        Text(label, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
+      ],
+    );
+  }
+
+  List<Sale> _filterSalesByPeriod(String period) {
+    DateTime startDate;
+    DateTime endDate;
+    DateTime now = DateTime.now();
+
+    switch (period) {
+      case 'daily':
+        startDate = DateTime(now.year, now.month, now.day);
+        endDate = startDate.add(Duration(days: 1, seconds: -1));
+        break;
+      case 'yesterday':
+        final yesterday = now.subtract(Duration(days: 1));
+        startDate = DateTime(yesterday.year, yesterday.month, yesterday.day);
+        endDate = startDate.add(Duration(days: 1, seconds: -1));
+        break;
+      case 'last_month':
+        final firstDayOfLastMonth = DateTime(now.year, now.month - 1, 1);
+        startDate = firstDayOfLastMonth;
+        endDate = DateTime(now.year, now.month, 1).add(Duration(seconds: -1));
+        break;
+      case 'monthly':
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = DateTime(
+          now.year,
+          now.month + 1,
+          1,
+        ).add(Duration(seconds: -1));
+        break;
+      case 'yearly':
+        startDate = DateTime(now.year, 1, 1);
+        endDate = DateTime(now.year + 1, 1, 1).add(Duration(seconds: -1));
+        break;
+      default:
+        startDate = DateTime(now.year, now.month, now.day);
+        endDate = startDate.add(Duration(days: 1, seconds: -1));
+    }
+
+    return allSales.where((sale) {
+      return sale.date.isAfter(startDate.subtract(Duration(seconds: 1))) &&
+          sale.date.isBefore(endDate.add(Duration(seconds: 1)));
+    }).toList();
+  }
+
+  String _getPeriodLabel(String period) {
+    switch (period) {
+      case 'daily':
+        return 'Daily';
+      case 'yesterday':
+        return 'Yesterday';
+      case 'last_month':
+        return 'Last Month';
+      case 'monthly':
+        return 'Monthly';
+      case 'yearly':
+        return 'Yearly';
+      default:
+        return 'Period';
+    }
+  }
 }
 
 // Category Details Screen
@@ -1642,10 +2391,6 @@ class CategoryDetailsScreen extends StatelessWidget {
                 0.0,
                 (sum, sale) => sum + sale.amount,
               );
-              double shopProfit = shopSales.fold(
-                0.0,
-                (sum, sale) => sum + (sale.profit ?? 0.0),
-              );
 
               return Container(
                 margin: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -1704,14 +2449,6 @@ class CategoryDetailsScreen extends StatelessWidget {
                                     color: Color(0xFF0A4D2E),
                                   ),
                                 ),
-                                SizedBox(height: 2),
-                                Text(
-                                  'Profit: ₹${formatNumber(shopProfit)}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
                               ],
                             ),
                             Text(
@@ -1725,348 +2462,6 @@ class CategoryDetailsScreen extends StatelessWidget {
                         ),
                       ],
                     ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// Shop Wise Details Screen
-class ShopWiseDetailsScreen extends StatelessWidget {
-  final List<Sale> sales;
-  final String Function(double) formatNumber;
-  final Color Function(String) getCategoryColor;
-
-  ShopWiseDetailsScreen({
-    required this.sales,
-    required this.formatNumber,
-    required this.getCategoryColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    // Group by shop
-    Map<String, List<Sale>> shopWiseSales = {};
-    for (var sale in sales) {
-      if (!shopWiseSales.containsKey(sale.shopName)) {
-        shopWiseSales[sale.shopName] = [];
-      }
-      shopWiseSales[sale.shopName]!.add(sale);
-    }
-
-    // Calculate shop totals
-    Map<String, Map<String, dynamic>> shopTotals = {};
-    shopWiseSales.forEach((shopName, salesList) {
-      double totalSales = salesList.fold(0.0, (sum, sale) => sum + sale.amount);
-      double totalProfit = salesList.fold(
-        0.0,
-        (sum, sale) => sum + (sale.profit ?? 0.0),
-      );
-      int transactionCount = salesList.length;
-      double averageSale = totalSales / transactionCount;
-
-      // Group by category within shop
-      Map<String, double> categorySales = {};
-      Map<String, int> categoryCount = {};
-      for (var sale in salesList) {
-        categorySales[sale.category] =
-            (categorySales[sale.category] ?? 0.0) + sale.amount;
-        categoryCount[sale.category] = (categoryCount[sale.category] ?? 0) + 1;
-      }
-
-      shopTotals[shopName] = {
-        'totalSales': totalSales,
-        'totalProfit': totalProfit,
-        'transactionCount': transactionCount,
-        'averageSale': averageSale,
-        'categorySales': categorySales,
-        'categoryCount': categoryCount,
-      };
-    });
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Shop-wise Details'),
-        backgroundColor: Color(0xFF0A4D2E),
-        elevation: 2,
-        centerTitle: true,
-      ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // Summary
-            Container(
-              padding: EdgeInsets.all(16),
-              child: Card(
-                elevation: 3,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            children: [
-                              Text(
-                                'Total Shops',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                '${shopWiseSales.length}',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF0A4D2E),
-                                ),
-                              ),
-                            ],
-                          ),
-                          Column(
-                            children: [
-                              Text(
-                                'Total Transactions',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                '${sales.length}',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF1A7D4A),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            children: [
-                              Text(
-                                'Total Sales',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                '₹${formatNumber(sales.fold(0.0, (sum, sale) => sum + sale.amount))}',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF0A4D2E),
-                                ),
-                              ),
-                            ],
-                          ),
-                          Column(
-                            children: [
-                              Text(
-                                'Total Profit',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                '₹${formatNumber(sales.fold(0.0, (sum, sale) => sum + (sale.profit ?? 0.0)))}',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF4CAF50),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            // Shop Details
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                'Shop Performance',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF0A4D2E),
-                ),
-              ),
-            ),
-            SizedBox(height: 8),
-            ...shopTotals.entries.map((entry) {
-              String shopName = entry.key;
-              var data = entry.value;
-
-              return Container(
-                margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Card(
-                  elevation: 3,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: ExpansionTile(
-                    leading: Icon(Icons.store, color: Color(0xFF1A7D4A)),
-                    title: Text(
-                      shopName,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                    subtitle: Text(
-                      '${data['transactionCount']} transactions',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                    trailing: Text(
-                      '₹${formatNumber(data['totalSales'])}',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF0A4D2E),
-                        fontSize: 16,
-                      ),
-                    ),
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('Profit:'),
-                                Text(
-                                  '₹${formatNumber(data['totalProfit'])}',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF4CAF50),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: 8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('Avg Sale:'),
-                                Text(
-                                  '₹${formatNumber(data['averageSale'])}',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: 12),
-                            Divider(),
-                            SizedBox(height: 8),
-                            Text(
-                              'Category Breakdown',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF0A4D2E),
-                              ),
-                            ),
-                            SizedBox(height: 8),
-                            ...(data['categorySales'] as Map<String, double>)
-                                .entries
-                                .map((categoryEntry) {
-                                  String category = categoryEntry.key;
-                                  double amount = categoryEntry.value;
-                                  int count =
-                                      (data['categoryCount']
-                                          as Map<String, int>)[category] ??
-                                      0;
-
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Container(
-                                              width: 8,
-                                              height: 8,
-                                              decoration: BoxDecoration(
-                                                color: getCategoryColor(
-                                                  category,
-                                                ).withOpacity(0.8),
-                                                shape: BoxShape.circle,
-                                              ),
-                                            ),
-                                            SizedBox(width: 8),
-                                            Text(category),
-                                          ],
-                                        ),
-                                        Row(
-                                          children: [
-                                            Text(
-                                              '₹${formatNumber(amount)}',
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                            SizedBox(width: 8),
-                                            Container(
-                                              padding: EdgeInsets.symmetric(
-                                                horizontal: 6,
-                                                vertical: 2,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: Color(
-                                                  0xFF1A7D4A,
-                                                ).withOpacity(0.1),
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                              ),
-                                              child: Text(
-                                                '$count',
-                                                style: TextStyle(
-                                                  fontSize: 10,
-                                                  color: Color(0xFF1A7D4A),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                })
-                                .toList(),
-                          ],
-                        ),
-                      ),
-                    ],
                   ),
                 ),
               );
@@ -2186,10 +2581,6 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
     return _phoneSales.fold(0.0, (sum, sale) => sum + sale.amount);
   }
 
-  double _calculateTotalProfit() {
-    return _phoneSales.fold(0.0, (sum, sale) => sum + (sale.profit ?? 0));
-  }
-
   Color _getStatusColor(String purchaseMode) {
     switch (purchaseMode?.toLowerCase()) {
       case 'emi':
@@ -2272,26 +2663,6 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFF0A4D2E),
-                          ),
-                        ),
-                      ],
-                    ),
-                    Column(
-                      children: [
-                        Text(
-                          'Total Profit',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          '₹${widget.formatNumber(_calculateTotalProfit())}',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF4CAF50),
                           ),
                         ),
                       ],
@@ -2511,24 +2882,6 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF0A4D2E),
-                      ),
-                    ),
-                  ],
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      'Profit',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      '₹${widget.formatNumber(sale.profit ?? 0)}',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF4CAF50),
                       ),
                     ),
                   ],
@@ -2866,7 +3219,7 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
 }
 
 // Phone Sales Reports Screen
-class PhoneSalesReportsScreen extends StatelessWidget {
+class PhoneSalesReportsScreen extends StatefulWidget {
   final List<Sale> allSales;
   final List<Sale> phoneSales;
   final String Function(double) formatNumber;
@@ -2878,38 +3231,380 @@ class PhoneSalesReportsScreen extends StatelessWidget {
   });
 
   @override
+  _PhoneSalesReportsScreenState createState() =>
+      _PhoneSalesReportsScreenState();
+}
+
+class _PhoneSalesReportsScreenState extends State<PhoneSalesReportsScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  List<Sale> _filteredPhoneSales = [];
+  DateTime? _customStartDate;
+  DateTime? _customEndDate;
+
+  // Time periods
+  final List<String> _timePeriods = [
+    'today',
+    'yesterday',
+    'monthly',
+    'last_monthly',
+    'yearly',
+    'custom',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(
+      length: 6,
+      vsync: this,
+      initialIndex: 2,
+    ); // Default to monthly
+    _filteredPhoneSales = _filterByTimePeriod('monthly');
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging) {
+        _handleTabChange(_tabController.index);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  void _handleTabChange(int index) {
+    final period = _timePeriods[index];
+    if (period == 'custom') {
+      _showCustomDateRangePicker();
+    } else {
+      setState(() {
+        _filteredPhoneSales = _filterByTimePeriod(period);
+      });
+    }
+  }
+
+  List<Sale> _filterByTimePeriod(String period) {
+    final now = DateTime.now();
+    DateTime startDate;
+    DateTime endDate;
+
+    switch (period) {
+      case 'today':
+        startDate = DateTime(now.year, now.month, now.day);
+        endDate = startDate.add(Duration(days: 1, seconds: -1));
+        break;
+      case 'yesterday':
+        final yesterday = now.subtract(Duration(days: 1));
+        startDate = DateTime(yesterday.year, yesterday.month, yesterday.day);
+        endDate = startDate.add(Duration(days: 1, seconds: -1));
+        break;
+      case 'monthly':
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = DateTime(
+          now.year,
+          now.month + 1,
+          1,
+        ).add(Duration(seconds: -1));
+        break;
+      case 'last_monthly':
+        final firstDayOfLastMonth = DateTime(now.year, now.month - 1, 1);
+        startDate = firstDayOfLastMonth;
+        endDate = DateTime(now.year, now.month, 1).add(Duration(seconds: -1));
+        break;
+      case 'yearly':
+        startDate = DateTime(now.year, 1, 1);
+        endDate = DateTime(now.year + 1, 1, 1).add(Duration(seconds: -1));
+        break;
+      case 'custom':
+        if (_customStartDate != null && _customEndDate != null) {
+          startDate = _customStartDate!;
+          endDate = _customEndDate!.add(Duration(days: 1, seconds: -1));
+        } else {
+          // Default to monthly if no custom date selected
+          startDate = DateTime(now.year, now.month, 1);
+          endDate = DateTime(
+            now.year,
+            now.month + 1,
+            1,
+          ).add(Duration(seconds: -1));
+        }
+        break;
+      default:
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = DateTime(
+          now.year,
+          now.month + 1,
+          1,
+        ).add(Duration(seconds: -1));
+    }
+
+    return widget.phoneSales.where((sale) {
+      return sale.date.isAfter(startDate.subtract(Duration(seconds: 1))) &&
+          sale.date.isBefore(endDate.add(Duration(seconds: 1)));
+    }).toList();
+  }
+
+  Future<void> _showCustomDateRangePicker() async {
+    final DateTime? start = await showDatePicker(
+      context: context,
+      initialDate: _customStartDate ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.light().copyWith(
+            primaryColor: Color(0xFF0A4D2E),
+            colorScheme: ColorScheme.light(primary: Color(0xFF0A4D2E)),
+            buttonTheme: ButtonThemeData(textTheme: ButtonTextTheme.primary),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (start != null) {
+      final DateTime? end = await showDatePicker(
+        context: context,
+        initialDate: _customEndDate ?? start,
+        firstDate: start,
+        lastDate: DateTime.now(),
+        builder: (context, child) {
+          return Theme(
+            data: ThemeData.light().copyWith(
+              primaryColor: Color(0xFF0A4D2E),
+              colorScheme: ColorScheme.light(primary: Color(0xFF0A4D2E)),
+              buttonTheme: ButtonThemeData(textTheme: ButtonTextTheme.primary),
+            ),
+            child: child!,
+          );
+        },
+      );
+
+      if (end != null) {
+        setState(() {
+          _customStartDate = start;
+          _customEndDate = end;
+          _filteredPhoneSales = _filterByTimePeriod('custom');
+        });
+      }
+    }
+  }
+
+  String _getPeriodLabel(String period) {
+    switch (period) {
+      case 'today':
+        return 'Today';
+      case 'yesterday':
+        return 'Yesterday';
+      case 'monthly':
+        return 'Monthly';
+      case 'last_monthly':
+        return 'Last Month';
+      case 'yearly':
+        return 'Yearly';
+      case 'custom':
+        if (_customStartDate != null && _customEndDate != null) {
+          return '${DateFormat('dd MMM').format(_customStartDate!)} - ${DateFormat('dd MMM yyyy').format(_customEndDate!)}';
+        }
+        return 'Custom';
+      default:
+        return 'Monthly';
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(
-            'Phone Sales Reports',
-            style: TextStyle(color: Colors.white),
-          ),
-          backgroundColor: Color(0xFF0A4D2E),
-          elevation: 2,
-          centerTitle: true,
-          bottom: TabBar(
-            indicatorColor: Colors.white,
-            labelStyle: TextStyle(fontWeight: FontWeight.bold),
-            tabs: [
-              Tab(text: 'Brand Wise'),
-              Tab(text: 'Shop Wise'),
-            ],
-          ),
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          'Phone Sales Reports',
+          style: TextStyle(color: Colors.white),
         ),
-        body: TabBarView(
-          children: [_buildBrandWiseReport(), _buildShopWiseReport()],
+        backgroundColor: Color(0xFF0A4D2E),
+        elevation: 2,
+        centerTitle: true,
+        bottom: TabBar(
+          controller: _tabController,
+          isScrollable: true,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white.withOpacity(0.7),
+          tabs: [
+            Tab(text: 'Today'),
+            Tab(text: 'Yesterday'),
+            Tab(text: 'Monthly'),
+            Tab(text: 'Last Month'),
+            Tab(text: 'Yearly'),
+            Tab(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.calendar_today, size: 16),
+                  SizedBox(width: 4),
+                  Text('Custom'),
+                ],
+              ),
+            ),
+          ],
         ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildReportView(),
+          _buildReportView(),
+          _buildReportView(),
+          _buildReportView(),
+          _buildReportView(),
+          _buildReportView(),
+        ],
       ),
     );
   }
 
+  Widget _buildReportView() {
+    final period = _timePeriods[_tabController.index];
+    final periodLabel = _getPeriodLabel(period);
+
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        children: [
+          // Period Summary Card
+          Container(
+            padding: EdgeInsets.all(16),
+            color: Color(0xFFE8F5E9),
+            child: Card(
+              elevation: 3,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    Text(
+                      periodLabel,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF0A4D2E),
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _buildSummaryStat(
+                          'Total Sales',
+                          '₹${widget.formatNumber(_filteredPhoneSales.fold(0.0, (sum, sale) => sum + sale.amount))}',
+                          Icons.currency_rupee,
+                          Color(0xFF0A4D2E),
+                        ),
+                        _buildSummaryStat(
+                          'Transactions',
+                          '${_filteredPhoneSales.length}',
+                          Icons.receipt,
+                          Color(0xFF2196F3),
+                        ),
+                        _buildSummaryStat(
+                          'Avg Sale',
+                          _filteredPhoneSales.isNotEmpty
+                              ? '₹${widget.formatNumber(_filteredPhoneSales.fold(0.0, (sum, sale) => sum + sale.amount) / _filteredPhoneSales.length)}'
+                              : '₹0',
+                          Icons.trending_up,
+                          Color(0xFF4CAF50),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // Brand Wise & Shop Wise Tabs
+          Container(
+            color: Color(0xFF0A4D2E),
+            child: TabBar(
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white.withOpacity(0.7),
+              indicatorColor: Colors.white,
+              tabs: [
+                Tab(text: 'Brand Wise'),
+                Tab(text: 'Shop Wise'),
+              ],
+            ),
+          ),
+
+          Expanded(
+            child: TabBarView(
+              children: [_buildBrandWiseReport(), _buildShopWiseReport()],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryStat(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Column(
+      children: [
+        Container(
+          padding: EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: color, size: 20),
+        ),
+        SizedBox(height: 8),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        SizedBox(height: 4),
+        Text(title, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
+      ],
+    );
+  }
+
   Widget _buildBrandWiseReport() {
+    if (_filteredPhoneSales.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.phone_iphone, size: 64, color: Colors.grey[400]),
+            SizedBox(height: 16),
+            Text(
+              'No phone sales data',
+              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Try selecting a different time period',
+              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+            ),
+          ],
+        ),
+      );
+    }
+
     // Group by brand
     Map<String, List<Sale>> brandGroups = {};
-    for (var sale in phoneSales) {
+    for (var sale in _filteredPhoneSales) {
       String brand = sale.brand ?? 'Unknown';
       if (!brandGroups.containsKey(brand)) {
         brandGroups[brand] = [];
@@ -2921,20 +3616,14 @@ class PhoneSalesReportsScreen extends StatelessWidget {
     List<Map<String, dynamic>> brandData = [];
     brandGroups.forEach((brand, sales) {
       double totalAmount = sales.fold(0.0, (sum, s) => sum + s.amount);
-      double totalProfit = sales.fold(0.0, (sum, s) => sum + (s.profit ?? 0));
       int count = sales.length;
       double avgSale = count > 0 ? totalAmount / count : 0;
-      double profitMargin = totalAmount > 0
-          ? (totalProfit / totalAmount) * 100
-          : 0;
 
       brandData.add({
         'brand': brand,
         'totalAmount': totalAmount,
-        'totalProfit': totalProfit,
         'count': count,
         'avgSale': avgSale,
-        'profitMargin': profitMargin,
       });
     });
 
@@ -2945,15 +3634,11 @@ class PhoneSalesReportsScreen extends StatelessWidget {
       0.0,
       (sum, item) => sum + item['totalAmount'],
     );
-    double totalAllProfit = brandData.fold(
-      0.0,
-      (sum, item) => sum + item['totalProfit'],
-    );
 
     return SingleChildScrollView(
       child: Column(
         children: [
-          // Summary
+          // Brand Performance Summary
           Container(
             padding: EdgeInsets.all(16),
             child: Card(
@@ -2966,33 +3651,33 @@ class PhoneSalesReportsScreen extends StatelessWidget {
                 child: Column(
                   children: [
                     Text(
-                      'Brand Performance Summary',
+                      'Brand Performance',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF0A4D2E),
                       ),
                     ),
-                    SizedBox(height: 16),
+                    SizedBox(height: 12),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        _buildStatCard(
-                          'Total Brands',
+                        _buildMiniStatCard(
+                          'Brands',
                           '${brandData.length}',
                           Icons.branding_watermark,
                           Color(0xFF2196F3),
                         ),
-                        _buildStatCard(
+                        _buildMiniStatCard(
                           'Total Sales',
-                          '₹${formatNumber(totalAllSales)}',
+                          '₹${widget.formatNumber(totalAllSales)}',
                           Icons.currency_rupee,
                           Color(0xFF4CAF50),
                         ),
-                        _buildStatCard(
-                          'Total Profit',
-                          '₹${formatNumber(totalAllProfit)}',
-                          Icons.trending_up,
+                        _buildMiniStatCard(
+                          'Avg/Brand',
+                          '₹${widget.formatNumber(brandData.isNotEmpty ? totalAllSales / brandData.length : 0)}',
+                          Icons.assessment,
                           Color(0xFF9C27B0),
                         ),
                       ],
@@ -3004,18 +3689,6 @@ class PhoneSalesReportsScreen extends StatelessWidget {
           ),
 
           // Brand List
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              'Brand-wise Performance',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF0A4D2E),
-              ),
-            ),
-          ),
-          SizedBox(height: 8),
           ...brandData.map((brand) {
             return Container(
               margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -3076,7 +3749,7 @@ class PhoneSalesReportsScreen extends StatelessWidget {
                               ),
                               SizedBox(height: 4),
                               Text(
-                                '₹${formatNumber(brand['totalAmount'])}',
+                                '₹${widget.formatNumber(brand['totalAmount'])}',
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
@@ -3086,7 +3759,7 @@ class PhoneSalesReportsScreen extends StatelessWidget {
                             ],
                           ),
                           Column(
-                            crossAxisAlignment: CrossAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
                               Text(
                                 'Avg. Sale',
@@ -3097,7 +3770,7 @@ class PhoneSalesReportsScreen extends StatelessWidget {
                               ),
                               SizedBox(height: 4),
                               Text(
-                                '₹${formatNumber(brand['avgSale'])}',
+                                '₹${widget.formatNumber(brand['avgSale'])}',
                                 style: TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
@@ -3105,41 +3778,19 @@ class PhoneSalesReportsScreen extends StatelessWidget {
                               ),
                             ],
                           ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                'Profit Margin',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                '${brand['profitMargin'].toStringAsFixed(1)}%',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                  color: brand['profitMargin'] > 15
-                                      ? Colors.green
-                                      : brand['profitMargin'] > 10
-                                      ? Colors.orange
-                                      : Colors.red,
-                                ),
-                              ),
-                            ],
-                          ),
                         ],
                       ),
-                      SizedBox(height: 8),
-                      Text(
-                        'Profit: ₹${formatNumber(brand['totalProfit'])}',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Color(0xFF4CAF50),
-                          fontWeight: FontWeight.w600,
+                      SizedBox(height: 12),
+                      LinearProgressIndicator(
+                        value: brandData.isNotEmpty
+                            ? brand['totalAmount'] / totalAllSales
+                            : 0,
+                        backgroundColor: Colors.grey[200],
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Color(0xFF4CAF50),
                         ),
+                        minHeight: 6,
+                        borderRadius: BorderRadius.circular(3),
                       ),
                     ],
                   ),
@@ -3147,16 +3798,39 @@ class PhoneSalesReportsScreen extends StatelessWidget {
               ),
             );
           }).toList(),
+
+          SizedBox(height: 20),
         ],
       ),
     );
   }
 
   Widget _buildShopWiseReport() {
+    if (_filteredPhoneSales.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.store, size: 64, color: Colors.grey[400]),
+            SizedBox(height: 16),
+            Text(
+              'No shop sales data',
+              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Try selecting a different time period',
+              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+            ),
+          ],
+        ),
+      );
+    }
+
     // Group by shop, then by brand within each shop
     Map<String, Map<String, List<Sale>>> shopBrandGroups = {};
 
-    for (var sale in phoneSales) {
+    for (var sale in _filteredPhoneSales) {
       String shop = sale.shopName;
       String brand = sale.brand ?? 'Unknown';
 
@@ -3173,24 +3847,20 @@ class PhoneSalesReportsScreen extends StatelessWidget {
     List<Map<String, dynamic>> shopData = [];
     shopBrandGroups.forEach((shop, brandMap) {
       double shopTotal = 0;
-      double shopProfit = 0;
       int shopCount = 0;
 
       List<Map<String, dynamic>> brandsInShop = [];
 
       brandMap.forEach((brand, sales) {
         double brandTotal = sales.fold(0.0, (sum, s) => sum + s.amount);
-        double brandProfit = sales.fold(0.0, (sum, s) => sum + (s.profit ?? 0));
         int brandCount = sales.length;
 
         shopTotal += brandTotal;
-        shopProfit += brandProfit;
         shopCount += brandCount;
 
         brandsInShop.add({
           'brand': brand,
           'total': brandTotal,
-          'profit': brandProfit,
           'count': brandCount,
         });
       });
@@ -3201,7 +3871,6 @@ class PhoneSalesReportsScreen extends StatelessWidget {
       shopData.add({
         'shop': shop,
         'total': shopTotal,
-        'profit': shopProfit,
         'count': shopCount,
         'brands': brandsInShop,
       });
@@ -3214,15 +3883,11 @@ class PhoneSalesReportsScreen extends StatelessWidget {
       0.0,
       (sum, item) => sum + item['total'],
     );
-    double totalAllProfit = shopData.fold(
-      0.0,
-      (sum, item) => sum + item['profit'],
-    );
 
     return SingleChildScrollView(
       child: Column(
         children: [
-          // Summary
+          // Shop Performance Summary
           Container(
             padding: EdgeInsets.all(16),
             child: Card(
@@ -3235,32 +3900,32 @@ class PhoneSalesReportsScreen extends StatelessWidget {
                 child: Column(
                   children: [
                     Text(
-                      'Shop Performance Summary',
+                      'Shop Performance',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF0A4D2E),
                       ),
                     ),
-                    SizedBox(height: 16),
+                    SizedBox(height: 12),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        _buildStatCard(
-                          'Total Shops',
+                        _buildMiniStatCard(
+                          'Shops',
                           '${shopData.length}',
                           Icons.store,
                           Color(0xFF2196F3),
                         ),
-                        _buildStatCard(
+                        _buildMiniStatCard(
                           'Total Sales',
-                          '₹${formatNumber(totalAllSales)}',
+                          '₹${widget.formatNumber(totalAllSales)}',
                           Icons.currency_rupee,
                           Color(0xFF4CAF50),
                         ),
-                        _buildStatCard(
+                        _buildMiniStatCard(
                           'Avg/Shop',
-                          '₹${formatNumber(shopData.isNotEmpty ? totalAllSales / shopData.length : 0)}',
+                          '₹${widget.formatNumber(shopData.isNotEmpty ? totalAllSales / shopData.length : 0)}',
                           Icons.assessment,
                           Color(0xFF9C27B0),
                         ),
@@ -3273,23 +3938,7 @@ class PhoneSalesReportsScreen extends StatelessWidget {
           ),
 
           // Shop List
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              'Shop-wise Performance',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF0A4D2E),
-              ),
-            ),
-          ),
-          SizedBox(height: 8),
           ...shopData.map((shop) {
-            double shopMargin = shop['total'] > 0
-                ? (shop['profit'] / shop['total']) * 100
-                : 0;
-
             return Container(
               margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Card(
@@ -3312,18 +3961,30 @@ class PhoneSalesReportsScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
-                        '₹${formatNumber(shop['total'])}',
+                        '₹${widget.formatNumber(shop['total'])}',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF0A4D2E),
                           fontSize: 16,
                         ),
                       ),
-                      Text(
-                        'Profit: ₹${formatNumber(shop['profit'])}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF4CAF50),
+                      SizedBox(height: 4),
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Color(0xFF4CAF50).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${shop['count']} sales',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Color(0xFF4CAF50),
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ],
@@ -3358,29 +4019,8 @@ class PhoneSalesReportsScreen extends StatelessWidget {
                                     ),
                                     SizedBox(height: 4),
                                     Text(
-                                      'Avg. Sale: ₹${formatNumber(shop['total'] / shop['count'])}',
+                                      'Avg. Sale: ₹${widget.formatNumber(shop['total'] / shop['count'])}',
                                       style: TextStyle(fontSize: 12),
-                                    ),
-                                  ],
-                                ),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      'Margin',
-                                      style: TextStyle(fontSize: 12),
-                                    ),
-                                    SizedBox(height: 4),
-                                    Text(
-                                      '${shopMargin.toStringAsFixed(1)}%',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: shopMargin > 15
-                                            ? Colors.green
-                                            : shopMargin > 10
-                                            ? Colors.orange
-                                            : Colors.red,
-                                      ),
                                     ),
                                   ],
                                 ),
@@ -3424,7 +4064,7 @@ class PhoneSalesReportsScreen extends StatelessWidget {
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
                                       Text(
-                                        '₹${formatNumber(brand['total'])}',
+                                        '₹${widget.formatNumber(brand['total'])}',
                                         style: TextStyle(
                                           fontWeight: FontWeight.bold,
                                           color: Color(0xFF0A4D2E),
@@ -3436,14 +4076,6 @@ class PhoneSalesReportsScreen extends StatelessWidget {
                                           Text(
                                             '${brand['count']} sales',
                                             style: TextStyle(fontSize: 11),
-                                          ),
-                                          SizedBox(width: 8),
-                                          Text(
-                                            '₹${formatNumber(brand['profit'])} profit',
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Color(0xFF4CAF50),
-                                            ),
                                           ),
                                         ],
                                       ),
@@ -3466,7 +4098,7 @@ class PhoneSalesReportsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildStatCard(
+  Widget _buildMiniStatCard(
     String title,
     String value,
     IconData icon,
@@ -3474,18 +4106,18 @@ class PhoneSalesReportsScreen extends StatelessWidget {
   ) {
     return Column(
       children: [
-        Icon(icon, color: color, size: 24),
+        Icon(icon, color: color, size: 20),
         SizedBox(height: 4),
         Text(
           value,
           style: TextStyle(
-            fontSize: 14,
+            fontSize: 12,
             fontWeight: FontWeight.bold,
             color: color,
           ),
         ),
         SizedBox(height: 2),
-        Text(title, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
+        Text(title, style: TextStyle(fontSize: 9, color: Colors.grey[600])),
       ],
     );
   }
