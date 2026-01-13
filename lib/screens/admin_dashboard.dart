@@ -16,6 +16,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   DateTime _selectedDate = DateTime.now();
   String _timePeriod = 'monthly';
   bool _isLoading = true;
+  final authService = AuthService();
 
   // Firebase instances
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -330,43 +331,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
   }
 
-  Future<void> _showLogoutConfirmation(BuildContext context) async {
-    final authService = AuthService();
-    final shouldLogout = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirm Logout'),
-        content: const Text('Are you sure you want to logout?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Logout'),
-          ),
-        ],
-      ),
-    );
-
-    if (shouldLogout == true) {
-      await authService.signOut();
-      Provider.of<AuthProvider>(context, listen: false).clearUser();
-
-      // Navigate to LoginScreen after logout
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => LoginScreen()),
-        (route) => false, // Remove all previous routes
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -384,10 +348,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         elevation: 2,
         centerTitle: true,
         actions: [
-          IconButton(
-            icon: Icon(Icons.refresh, color: Colors.white),
-            onPressed: _fetchAllData,
-            tooltip: 'Refresh Data',
+          Row(
+            children: [
+              IconButton(
+                icon: Icon(Icons.refresh, color: Colors.white),
+                onPressed: _fetchAllData,
+                tooltip: 'Refresh Data',
+              ),
+              IconButton(
+                icon: const Icon(Icons.logout),
+                color: _isLoading ? Colors.grey : Colors.white,
+                onPressed: () async {
+                  await authService.signOut();
+                  Provider.of<AuthProvider>(context, listen: false).clearUser();
+                },
+              ),
+            ],
           ),
         ],
       ),
@@ -1215,14 +1191,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   ),
                 ),
               );
-            },
-          ),
-          Divider(height: 1),
-          _buildDrawerItem(
-            Icons.logout,
-            'Logout',
-            onTap: () {
-              _showLogoutConfirmation(context);
             },
           ),
         ],

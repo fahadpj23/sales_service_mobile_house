@@ -4,8 +4,43 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:sales_stock/screens/login_screen.dart';
+import 'package:sales_stock/screens/user_dashboard.dart';
 import '../providers/auth_provider.dart';
 import '../services/auth_service.dart';
+
+// Navigation Service for global navigation
+class NavigationService {
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
+
+  static Future<dynamic> navigateTo(String routeName, {Object? arguments}) {
+    return navigatorKey.currentState!.pushNamed(
+      routeName,
+      arguments: arguments,
+    );
+  }
+
+  static void goBack() {
+    return navigatorKey.currentState!.pop();
+  }
+
+  static Future<dynamic> navigateAndReplace(
+    String routeName, {
+    Object? arguments,
+  }) {
+    return navigatorKey.currentState!.pushReplacementNamed(
+      routeName,
+      arguments: arguments,
+    );
+  }
+
+  static Future<dynamic> navigateAndRemoveUntil(String routeName) {
+    return navigatorKey.currentState!.pushNamedAndRemoveUntil(
+      routeName,
+      (route) => false,
+    );
+  }
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,12 +61,13 @@ class FinanceDashboardApp extends StatelessWidget {
     return MaterialApp(
       title: 'Finance Dashboard',
       debugShowCheckedModeBanner: false,
+      navigatorKey: NavigationService.navigatorKey,
       theme: ThemeData(
-        primarySwatch: Colors.blue,
-        primaryColor: Colors.blue[900],
+        primarySwatch: Colors.green,
+        primaryColor: Colors.green[900],
         scaffoldBackgroundColor: Colors.grey.shade50,
         appBarTheme: AppBarTheme(
-          backgroundColor: Colors.blue[900],
+          backgroundColor: Colors.green[900],
           elevation: 0,
           centerTitle: true,
           titleTextStyle: const TextStyle(
@@ -42,7 +78,7 @@ class FinanceDashboardApp extends StatelessWidget {
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.blue[800],
+            backgroundColor: Colors.green[800],
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
             shape: RoundedRectangleBorder(
@@ -64,7 +100,11 @@ class FinanceDashboardApp extends StatelessWidget {
       home: Consumer<AuthProvider>(
         builder: (context, authProvider, child) {
           if (authProvider.user == null) {
-            return LoginScreen(); // Make sure to import the LoginScreen
+            return const LoginScreen();
+          }
+          // Check user role - if not finance, show user dashboard
+          if (authProvider.user?.role != 'finance') {
+            return const UserDashboard();
           }
           return const FinanceDashboard();
         },
@@ -350,7 +390,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     return 0.0;
   }
 
-  // UPDATED: Get payment amounts based on collection type
   Map<String, double> _getPaymentAmounts(
     String collection,
     Map<String, dynamic> sale,
@@ -622,19 +661,25 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           },
         ),
         actions: [
-          IconButton(
-            icon: Icon(
-              Icons.refresh,
-              color: _isLoading ? Colors.grey : Colors.white,
-            ),
-            onPressed: _isLoading ? null : _loadAllData,
-            tooltip: 'Refresh Data',
-          ),
-          // Logout button in app bar
-          IconButton(
-            color: Colors.white,
-            icon: const Icon(Icons.logout),
-            onPressed: () => _showLogoutConfirmationDialog(),
+          Row(
+            children: [
+              IconButton(
+                icon: Icon(
+                  Icons.refresh,
+                  color: _isLoading ? Colors.grey : Colors.white,
+                ),
+                onPressed: _isLoading ? null : _loadAllData,
+                tooltip: 'Refresh Data',
+              ),
+              IconButton(
+                icon: const Icon(Icons.logout),
+                color: _isLoading ? Colors.grey : Colors.white,
+                onPressed: () async {
+                  await authService.signOut();
+                  Provider.of<AuthProvider>(context, listen: false).clearUser();
+                },
+              ),
+            ],
           ),
         ],
       ),
@@ -643,7 +688,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           _isDrawerOpen
               ? Container(
                   width: 250,
-                  color: Colors.blue[900],
+                  color: Colors.green[900],
                   child: _buildSidebar(),
                 )
               : const SizedBox.shrink(),
@@ -661,7 +706,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     final overdueCount = _getOverdueSales().length;
 
     return Container(
-      color: Colors.blue[900],
+      color: Colors.green[900],
       child: Column(
         children: [
           const SizedBox(height: 20),
@@ -740,85 +785,9 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
               ),
             ),
           ),
-          // Logout button at the bottom of sidebar
-          _buildLogoutButton(),
         ],
       ),
     );
-  }
-
-  Widget _buildLogoutButton() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.red.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: ListTile(
-        leading: const Icon(Icons.logout, color: Colors.red),
-        title: const Text('Logout', style: TextStyle(color: Colors.red)),
-        onTap: () => _showLogoutConfirmationDialog(),
-      ),
-    );
-  }
-
-  Future<void> _showLogoutConfirmationDialog() async {
-    final shouldLogout = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirm Logout'),
-        content: const Text('Are you sure you want to logout?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Logout'),
-          ),
-        ],
-      ),
-    );
-
-    if (shouldLogout == true) {
-      await authService.signOut();
-      Provider.of<AuthProvider>(context, listen: false).clearUser();
-    }
-  }
-
-  Future<void> _performLogout() async {
-    try {
-      // Show loading indicator
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
-      );
-
-      // Perform logout using your existing auth service
-      final authService = AuthService();
-      await authService.signOut();
-      Provider.of<AuthProvider>(context, listen: false).clearUser();
-
-      // Close loading dialog
-      if (mounted) Navigator.pop(context);
-
-      // Show success message
-      _showSnackBar('Logged out successfully', Colors.green);
-
-      // Note: The app will automatically navigate to login screen via Consumer in FinanceDashboardApp
-    } catch (e) {
-      // Close loading dialog
-      if (mounted) Navigator.pop(context);
-
-      // Show error message
-      _showSnackBar('Error during logout: $e', Colors.red);
-    }
   }
 
   Widget _buildSidebarItem({
@@ -1045,7 +1014,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: Colors.blue[900],
+                  color: Colors.green[900],
                 ),
               ),
               const SizedBox(height: 8),
@@ -1135,7 +1104,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: Colors.blue[900],
+                    color: Colors.green[900],
                   ),
                 ),
                 if (_selectedShop != null)
@@ -1145,20 +1114,20 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.blue.withOpacity(0.1),
+                      color: Colors.green.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.blue, width: 1),
+                      border: Border.all(color: Colors.green, width: 1),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.store, size: 12, color: Colors.blue),
+                        const Icon(Icons.store, size: 12, color: Colors.green),
                         const SizedBox(width: 4),
                         Text(
                           _selectedShop!,
                           style: const TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
-                            color: Colors.blue,
+                            color: Colors.green,
                           ),
                         ),
                       ],
@@ -1174,7 +1143,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                   'Total',
                   total.toString(),
                   Icons.list,
-                  Colors.blue,
+                  Colors.green,
                 ),
                 _buildMobileSummaryItem(
                   'Verified',
@@ -1299,7 +1268,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 IconButton(
                   icon: Icon(
                     Icons.remove_red_eye,
-                    color: Colors.blue[800],
+                    color: Colors.green[800],
                     size: 20,
                   ),
                   onPressed: () =>
@@ -1486,7 +1455,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: Colors.blue[900],
+                  color: Colors.green[900],
                 ),
               ),
               const SizedBox(height: 4),
@@ -1508,7 +1477,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: Colors.blue[900],
+                  color: Colors.green[900],
                 ),
               ),
               const SizedBox(height: 8),
@@ -1632,7 +1601,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 IconButton(
                   icon: Icon(
                     Icons.remove_red_eye,
-                    color: Colors.blue[800],
+                    color: Colors.green[800],
                     size: 20,
                   ),
                   onPressed: () => _verifyPayment(
@@ -1748,7 +1717,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: Colors.blue[900],
+                color: Colors.green[900],
               ),
             ),
             const SizedBox(height: 8),
@@ -2019,16 +1988,16 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.1),
+                            color: Colors.green.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: Colors.blue, width: 1),
+                            border: Border.all(color: Colors.green, width: 1),
                           ),
                           child: Text(
                             sale['purchaseMode'] ?? 'Cash',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w500,
-                              color: Colors.blue,
+                              color: Colors.green,
                             ),
                           ),
                         ),
@@ -2299,7 +2268,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       case 'cash':
         return Colors.green.withOpacity(0.1);
       case 'card':
-        return Colors.blue.withOpacity(0.1);
+        return Colors.green.withOpacity(0.1);
       case 'upi':
       case 'gpay':
       case 'phonepe':
@@ -2318,7 +2287,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       case 'cash':
         return Colors.green;
       case 'card':
-        return Colors.blue;
+        return Colors.green;
       case 'upi':
       case 'gpay':
       case 'phonepe':
@@ -2337,7 +2306,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       case 'cash':
         return Colors.green;
       case 'card':
-        return Colors.blue;
+        return Colors.green;
       case 'upi':
       case 'gpay':
       case 'phonepe':
@@ -2348,7 +2317,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     }
   }
 
-  // UPDATED: Payment verification method with immediate UI update
   void _verifyPayment(Map<String, dynamic> transaction) async {
     final Map<String, dynamic> sale = transaction['data'];
     final String collection = transaction['collection'];
@@ -2368,7 +2336,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     }
   }
 
-  // UPDATED EMI Verification Dialog with immediate UI update
   void _showEMIVerificationDialog(
     Map<String, dynamic> sale,
     String collection,
@@ -2469,7 +2436,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
-                                color: Colors.blue[900],
+                                color: Colors.green[900],
                               ),
                             ),
                             const SizedBox(height: 8),
@@ -2575,7 +2542,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                                   style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w600,
-                                    color: Colors.blue[900],
+                                    color: Colors.green[900],
                                   ),
                                 ),
                                 Text(
@@ -2583,7 +2550,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                                   style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.blue[900],
+                                    color: Colors.green[900],
                                   ),
                                 ),
                               ],
@@ -2598,7 +2565,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                                     'Balance Returned:',
                                     style: TextStyle(
                                       fontSize: 12,
-                                      color: Colors.blue.shade700,
+                                      color: Colors.green.shade700,
                                     ),
                                   ),
                                   Text(
@@ -2606,7 +2573,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                                     style: TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w500,
-                                      color: Colors.blue.shade700,
+                                      color: Colors.green.shade700,
                                     ),
                                   ),
                                 ],
@@ -2621,7 +2588,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                                   style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w600,
-                                    color: Colors.blue[900],
+                                    color: Colors.green[900],
                                   ),
                                 ),
                                 Text(
@@ -2629,7 +2596,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                                   style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.blue[900],
+                                    color: Colors.green[900],
                                   ),
                                 ),
                               ],
@@ -2645,7 +2612,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: Colors.blue[900],
+                          color: Colors.green[900],
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -2745,7 +2712,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: Colors.blue[900],
+                          color: Colors.green[900],
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -2793,7 +2760,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: Colors.blue[900],
+                          color: Colors.green[900],
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -2996,7 +2963,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     );
   }
 
-  // UPDATED: Non-EMI phone verification dialog with immediate UI update
   void _showNonEMIPhoneVerificationDialog(
     Map<String, dynamic> sale,
     String collection,
@@ -3113,7 +3079,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
-                                color: Colors.blue[900],
+                                color: Colors.green[900],
                               ),
                             ),
                             const SizedBox(height: 6),
@@ -3195,7 +3161,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                                   style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w600,
-                                    color: Colors.blue[900],
+                                    color: Colors.green[900],
                                   ),
                                 ),
                                 Text(
@@ -3203,7 +3169,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                                   style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.blue[900],
+                                    color: Colors.green[900],
                                   ),
                                 ),
                               ],
@@ -3219,7 +3185,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: Colors.blue[900],
+                          color: Colors.green[900],
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -3302,14 +3268,14 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                                   vertical: 4,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.blue.withOpacity(0.1),
+                                  color: Colors.green.withOpacity(0.1),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: const Text(
                                   'Pending',
                                   style: TextStyle(
                                     fontSize: 11,
-                                    color: Colors.blue,
+                                    color: Colors.green,
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
@@ -3437,7 +3403,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     );
   }
 
-  // UPDATED: Generic payment verification dialog with immediate UI update
   void _showGenericPaymentVerificationDialog(
     Map<String, dynamic> sale,
     String collection,
@@ -3646,9 +3611,9 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: Colors.blue.withOpacity(0.1),
+        color: Colors.green.withOpacity(0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.blue, width: 1),
+        border: Border.all(color: Colors.green, width: 1),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -3662,13 +3627,13 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
-                    color: Colors.blue,
+                    color: Colors.green,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   '₹${_formatNumber(amount)}',
-                  style: TextStyle(fontSize: 11, color: Colors.blue),
+                  style: TextStyle(fontSize: 11, color: Colors.green),
                 ),
               ],
             ),
@@ -3676,14 +3641,14 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.2),
+              color: Colors.green.withOpacity(0.2),
               borderRadius: BorderRadius.circular(4),
             ),
             child: const Text(
               'Pending',
               style: TextStyle(
                 fontSize: 10,
-                color: Colors.blue,
+                color: Colors.green,
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -4111,3 +4076,5 @@ class __GenericPaymentVerificationDialogState
     );
   }
 }
+
+// Add the UserDashboard class at the end of the file
