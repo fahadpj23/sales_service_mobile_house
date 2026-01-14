@@ -4407,7 +4407,7 @@ class _AccessoriesServiceReportScreenState
               child: GridView.count(
                 shrinkWrap: true,
                 physics: NeverScrollableScrollPhysics(),
-                crossAxisCount: 3,
+                crossAxisCount: 2,
                 childAspectRatio: 1.2,
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
@@ -4706,8 +4706,8 @@ class _AccessoriesServiceReportScreenState
     return Card(
       elevation: 3,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: SizedBox(
-        height: 110, // Fixed height ensures visibility
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: 110, maxHeight: 110),
         child: Padding(
           padding: EdgeInsets.all(12),
           child: Column(
@@ -4722,26 +4722,32 @@ class _AccessoriesServiceReportScreenState
                 ),
                 child: Icon(icon, color: color, size: 20),
               ),
-              Flexible(
-                child: Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: color,
+              Expanded(
+                child: SizedBox(
+                  width: double.infinity,
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              Flexible(
-                child: Text(
-                  title,
-                  style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+              Expanded(
+                child: SizedBox(
+                  width: double.infinity,
+                  child: Text(
+                    title,
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ),
             ],
