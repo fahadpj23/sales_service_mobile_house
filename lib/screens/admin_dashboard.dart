@@ -58,6 +58,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     });
 
     try {
+      // Clear existing data before fetching new data
+      allSales.clear();
+      shops.clear();
+
       // Fetch all data concurrently
       await Future.wait([
         _fetchAccessoriesServiceSales(),
@@ -294,8 +298,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     try {
       final snapshot = await shopsCollection.get();
 
-      shops.clear();
-
       for (var doc in snapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
         shops.add({
@@ -373,6 +375,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 icon: const Icon(Icons.logout),
                 color: _isLoading ? Colors.grey : Colors.white,
                 onPressed: () async {
+                  // Clear data before logout
+                  allSales.clear();
+                  shops.clear();
                   await authService.signOut();
                   Provider.of<AuthProvider>(context, listen: false).clearUser();
                 },
