@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'dart:math';
 import 'package:provider/provider.dart';
 import 'package:sales_stock/screens/login_screen.dart';
 import '../providers/auth_provider.dart';
@@ -107,6 +106,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         }
 
         final totalAmount = (data['totalSaleAmount'] ?? 0).toDouble();
+        final serviceAmount = (data['serviceAmount'] ?? 0).toDouble();
+        final accessoriesAmount =
+            (data['accessoriesAmount'] ?? (totalAmount - serviceAmount))
+                .toDouble();
 
         allSales.add(
           Sale(
@@ -122,7 +125,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             cashAmount: (data['cashAmount'] ?? 0).toDouble(),
             cardAmount: (data['cardAmount'] ?? 0).toDouble(),
             gpayAmount: (data['gpayAmount'] ?? 0).toDouble(),
-            salesPersonName: data['salesPersonName'] ?? 'Unknown',
+            salesPersonName: data['salesPersonName'] ?? '',
+            salesPersonEmail: data['salesPersonEmail'] ?? '',
+            serviceAmount: serviceAmount,
+            accessoriesAmount: accessoriesAmount,
+            paymentBreakdownVerified: data['paymentBreakdownVerified'] != null
+                ? Map<String, dynamic>.from(data['paymentBreakdownVerified'])
+                : null,
+            paymentVerified: data['paymentVerified'] ?? false,
+            notes: data['notes'] ?? '',
           ),
         );
       }
@@ -340,12 +351,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           'Admin Dashboard',
           style: TextStyle(
             fontWeight: FontWeight.bold,
-            fontSize: 20,
+            fontSize: 24,
             color: Colors.white,
+            letterSpacing: 0.5,
           ),
         ),
         backgroundColor: primaryGreen,
-        elevation: 2,
+        foregroundColor: Colors.white,
+        elevation: 4,
         centerTitle: true,
         actions: [
           Row(
@@ -355,6 +368,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 onPressed: _fetchAllData,
                 tooltip: 'Refresh Data',
               ),
+
               IconButton(
                 icon: const Icon(Icons.logout),
                 color: _isLoading ? Colors.grey : Colors.white,
@@ -981,6 +995,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             },
           ),
           Divider(height: 1),
+
           // Category Reports
           Padding(
             padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
@@ -994,21 +1009,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             ),
           ),
           _buildDrawerItem(
-            Icons.phone_android,
-            'Phone Sales Details',
+            Icons.analytics,
+            'Accessories & Service Report',
             onTap: () {
               Navigator.pop(context);
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => PhoneSalesDetailsScreen(
+                  builder: (context) => AccessoriesServiceReportScreen(
                     allSales: allSales,
                     formatNumber: _formatNumber,
+                    shops: shops,
                   ),
                 ),
               );
             },
           ),
+
           _buildDrawerItem(
             Icons.bar_chart,
             'Phone Sales Reports',
@@ -1028,24 +1045,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               );
             },
           ),
-          _buildDrawerItem(
-            Icons.build,
-            'Accessories & Service',
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => CategoryDetailsScreen(
-                    category: 'Service',
-                    sales: _filterSales(),
-                    formatNumber: _formatNumber,
-                    getCategoryColor: _getCategoryColor,
-                  ),
-                ),
-              );
-            },
-          ),
+          // _buildDrawerItem(
+          //   Icons.build,
+          //   'Accessories & Service',
+          //   onTap: () {
+          //     Navigator.pop(context);
+          //     Navigator.push(
+          //       context,
+          //       MaterialPageRoute(
+          //         builder: (context) => CategoryDetailsScreen(
+          //           category: 'Service',
+          //           sales: _filterSales(),
+          //           formatNumber: _formatNumber,
+          //           getCategoryColor: _getCategoryColor,
+          //         ),
+          //       ),
+          //     );
+          //   },
+          // ),
           _buildDrawerItem(
             Icons.phone_iphone,
             'Second Phone Sales',
@@ -1082,6 +1099,35 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               );
             },
           ),
+          Divider(height: 1),
+          Padding(
+            padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
+            child: Text(
+              'DETAILED REPORTS',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          _buildDrawerItem(
+            Icons.phone_android,
+            'Phone Sales Details',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PhoneSalesDetailsScreen(
+                    allSales: allSales,
+                    formatNumber: _formatNumber,
+                  ),
+                ),
+              );
+            },
+          ),
+          Divider(height: 1),
           Padding(
             padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
             child: Text(
@@ -1387,6 +1433,11 @@ class Sale {
   final double? balanceReturnedToCustomer;
   final double? customerCredit;
   final DateTime? addedAt;
+  final double? serviceAmount;
+  final double? accessoriesAmount;
+  final Map<String, dynamic>? paymentBreakdownVerified;
+  final bool? paymentVerified;
+  final String? notes;
 
   Sale({
     required this.id,
@@ -1417,6 +1468,11 @@ class Sale {
     this.balanceReturnedToCustomer,
     this.customerCredit,
     this.addedAt,
+    this.serviceAmount,
+    this.accessoriesAmount,
+    this.paymentBreakdownVerified,
+    this.paymentVerified,
+    this.notes,
   });
 }
 
@@ -1500,9 +1556,17 @@ class SpecificReportScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(title),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+            color: Colors.white,
+          ),
+        ),
         backgroundColor: Color(0xFF0A4D2E),
-        elevation: 2,
+        foregroundColor: Colors.white,
+        elevation: 3,
         centerTitle: true,
       ),
       body: SingleChildScrollView(
@@ -1840,21 +1904,26 @@ class ShopWiseReportScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      initialIndex: 3,
+      initialIndex: 0, // Changed to 0 for Monthly as default
       length: 5,
       child: Scaffold(
         appBar: AppBar(
           title: Text(
             'Shop-wise Reports',
-            style: TextStyle(color: Colors.white),
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 20,
+              color: Colors.white,
+            ),
           ),
           backgroundColor: Color(0xFF0A4D2E),
-          elevation: 2,
+          foregroundColor: Colors.white,
+          elevation: 3,
           centerTitle: true,
           bottom: TabBar(
             isScrollable: true,
             indicatorColor: Colors.white,
-            unselectedLabelColor: Colors.grey, // Unselected tab label color
+            unselectedLabelColor: Colors.grey,
             labelStyle: TextStyle(
               fontWeight: FontWeight.normal,
               color: Colors.white,
@@ -2273,9 +2342,17 @@ class CategoryDetailsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('$category Details'),
+        title: Text(
+          '$category Details',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+            color: Colors.white,
+          ),
+        ),
         backgroundColor: Color(0xFF0A4D2E),
-        elevation: 2,
+        foregroundColor: Colors.white,
+        elevation: 3,
         centerTitle: true,
       ),
       body: SingleChildScrollView(
@@ -2568,10 +2645,15 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
       appBar: AppBar(
         title: Text(
           'Phone Sales Details',
-          style: TextStyle(color: Colors.white),
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+            color: Colors.white,
+          ),
         ),
         backgroundColor: Color(0xFF0A4D2E),
-        elevation: 2,
+        foregroundColor: Colors.white,
+        elevation: 3,
         centerTitle: true,
         actions: [
           IconButton(
@@ -3064,15 +3146,15 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                 child: Text('Select $label'),
               ),
               items: [
-                DropdownMenuItem(
+                DropdownMenuItem<String>(
                   value: null,
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: 12),
                     child: Text('All $label'),
                   ),
                 ),
-                ...items.map((item) {
-                  return DropdownMenuItem(
+                ...items.map<DropdownMenuItem<String>>((String item) {
+                  return DropdownMenuItem<String>(
                     value: item,
                     child: Padding(
                       padding: EdgeInsets.symmetric(horizontal: 12),
@@ -3212,9 +3294,9 @@ class _PhoneSalesReportsScreenState extends State<PhoneSalesReportsScreen>
 
   // Time periods
   final List<String> _timePeriods = [
+    'monthly',
     'today',
     'yesterday',
-    'monthly',
     'last_monthly',
     'yearly',
     'custom',
@@ -3226,8 +3308,8 @@ class _PhoneSalesReportsScreenState extends State<PhoneSalesReportsScreen>
     _tabController = TabController(
       length: 6,
       vsync: this,
-      initialIndex: 2,
-    ); // Default to monthly
+      initialIndex: 0,
+    ); // Default to monthly (index 0)
     _filteredPhoneSales = _filterByTimePeriod('monthly');
     _tabController.addListener(() {
       if (_tabController.indexIsChanging) {
@@ -3388,10 +3470,15 @@ class _PhoneSalesReportsScreenState extends State<PhoneSalesReportsScreen>
       appBar: AppBar(
         title: Text(
           'Phone Sales Reports',
-          style: TextStyle(color: Colors.white),
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+            color: Colors.white,
+          ),
         ),
         backgroundColor: Color(0xFF0A4D2E),
-        elevation: 2,
+        foregroundColor: Colors.white,
+        elevation: 3,
         centerTitle: true,
         bottom: TabBar(
           controller: _tabController,
@@ -3400,9 +3487,9 @@ class _PhoneSalesReportsScreenState extends State<PhoneSalesReportsScreen>
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white.withOpacity(0.7),
           tabs: [
+            Tab(text: 'Monthly'),
             Tab(text: 'Today'),
             Tab(text: 'Yesterday'),
-            Tab(text: 'Monthly'),
             Tab(text: 'Last Month'),
             Tab(text: 'Yearly'),
             Tab(
@@ -4087,6 +4174,580 @@ class _PhoneSalesReportsScreenState extends State<PhoneSalesReportsScreen>
         SizedBox(height: 2),
         Text(title, style: TextStyle(fontSize: 9, color: Colors.grey[600])),
       ],
+    );
+  }
+}
+
+// Accessories Service Report Screen
+class AccessoriesServiceReportScreen extends StatefulWidget {
+  final List<Sale> allSales;
+  final String Function(double) formatNumber;
+  final List<Map<String, dynamic>> shops;
+
+  AccessoriesServiceReportScreen({
+    required this.allSales,
+    required this.formatNumber,
+    required this.shops,
+  });
+
+  @override
+  _AccessoriesServiceReportScreenState createState() =>
+      _AccessoriesServiceReportScreenState();
+}
+
+class _AccessoriesServiceReportScreenState
+    extends State<AccessoriesServiceReportScreen> {
+  String _selectedTimePeriod = 'monthly';
+  String? _selectedShop;
+
+  List<Map<String, dynamic>> _timePeriods = [
+    {'label': 'Monthly', 'value': 'monthly'},
+    {'label': 'Daily', 'value': 'daily'},
+    {'label': 'Yesterday', 'value': 'yesterday'},
+    {'label': 'Last Month', 'value': 'last_month'},
+    {'label': 'Yearly', 'value': 'yearly'},
+  ];
+
+  List<Sale> _getFilteredSales() {
+    DateTime startDate;
+    DateTime endDate;
+    DateTime now = DateTime.now();
+
+    switch (_selectedTimePeriod) {
+      case 'daily':
+        startDate = DateTime(now.year, now.month, now.day);
+        endDate = startDate.add(Duration(days: 1, seconds: -1));
+        break;
+      case 'yesterday':
+        final yesterday = now.subtract(Duration(days: 1));
+        startDate = DateTime(yesterday.year, yesterday.month, yesterday.day);
+        endDate = startDate.add(Duration(days: 1, seconds: -1));
+        break;
+      case 'last_month':
+        final firstDayOfLastMonth = DateTime(now.year, now.month - 1, 1);
+        startDate = firstDayOfLastMonth;
+        endDate = DateTime(now.year, now.month, 1).add(Duration(seconds: -1));
+        break;
+      case 'monthly':
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = DateTime(
+          now.year,
+          now.month + 1,
+          1,
+        ).add(Duration(seconds: -1));
+        break;
+      case 'yearly':
+        startDate = DateTime(now.year, 1, 1);
+        endDate = DateTime(now.year + 1, 1, 1).add(Duration(seconds: -1));
+        break;
+      default:
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = DateTime(
+          now.year,
+          now.month + 1,
+          1,
+        ).add(Duration(seconds: -1));
+    }
+
+    return widget.allSales.where((sale) {
+      if (sale.type != 'accessories_service_sale') return false;
+      if (_selectedShop != null && sale.shopName != _selectedShop) return false;
+      return sale.date.isAfter(startDate.subtract(Duration(seconds: 1))) &&
+          sale.date.isBefore(endDate.add(Duration(seconds: 1)));
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    List<Sale> filteredSales = _getFilteredSales();
+
+    // Calculate totals - now showing serviceAmount and accessoriesAmount separately
+    double totalService = filteredSales.fold(
+      0.0,
+      (sum, sale) => sum + (sale.serviceAmount ?? 0),
+    );
+    double totalAccessories = filteredSales.fold(
+      0.0,
+      (sum, sale) => sum + (sale.accessoriesAmount ?? 0),
+    );
+    double totalCombined = totalService + totalAccessories;
+
+    // Group by shop
+    Map<String, List<Sale>> shopGroups = {};
+    for (var sale in filteredSales) {
+      if (!shopGroups.containsKey(sale.shopName)) {
+        shopGroups[sale.shopName] = [];
+      }
+      shopGroups[sale.shopName]!.add(sale);
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          'Accessories & Service Report',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+            color: Colors.white,
+          ),
+        ),
+        backgroundColor: Color(0xFF0A4D2E),
+        foregroundColor: Colors.white,
+        elevation: 3,
+        centerTitle: true,
+      ),
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            // Filters
+            Container(
+              padding: EdgeInsets.all(16),
+              child: Card(
+                elevation: 3,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Filters',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF0A4D2E),
+                        ),
+                      ),
+                      SizedBox(height: 12),
+                      // Time Period
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _timePeriods.map((period) {
+                          bool isSelected =
+                              _selectedTimePeriod == period['value'];
+                          return FilterChip(
+                            label: Text(
+                              period['label'],
+                              style: TextStyle(
+                                color: isSelected
+                                    ? Colors.white
+                                    : Colors.grey[700],
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            selected: isSelected,
+                            onSelected: (selected) {
+                              setState(() {
+                                _selectedTimePeriod = period['value'];
+                              });
+                            },
+                            backgroundColor: Colors.grey.shade100,
+                            selectedColor: Color(0xFF1A7D4A),
+                          );
+                        }).toList(),
+                      ),
+                      SizedBox(height: 12),
+                      // Shop Filter
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey[300]!),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _selectedShop,
+                            isExpanded: true,
+                            hint: Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 12),
+                              child: Text('All Shops'),
+                            ),
+                            items: [
+                              DropdownMenuItem<String>(
+                                value: null,
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 12),
+                                  child: Text('All Shops'),
+                                ),
+                              ),
+                              ...widget.shops.map<DropdownMenuItem<String>>((
+                                shop,
+                              ) {
+                                return DropdownMenuItem<String>(
+                                  value: shop['name'] as String?,
+                                  child: Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                    ),
+                                    child: Text(shop['name'] as String),
+                                  ),
+                                );
+                              }).toList(),
+                            ],
+                            onChanged: (value) {
+                              setState(() {
+                                _selectedShop = value;
+                              });
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Summary Cards - Now showing separate amounts
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: GridView.count(
+                shrinkWrap: true,
+                physics: NeverScrollableScrollPhysics(),
+                crossAxisCount: 3,
+                childAspectRatio: 1.2,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                children: [
+                  _buildSummaryCard(
+                    'Total Combined',
+                    '₹${widget.formatNumber(totalCombined)}',
+                    Icons.currency_rupee,
+                    Color(0xFF0A4D2E),
+                  ),
+                  _buildSummaryCard(
+                    'Service Amount',
+                    '₹${widget.formatNumber(totalService)}',
+                    Icons.build,
+                    Color(0xFF2196F3),
+                  ),
+                  _buildSummaryCard(
+                    'Accessories Amount',
+                    '₹${widget.formatNumber(totalAccessories)}',
+                    Icons.shopping_bag,
+                    Color(0xFF9C27B0),
+                  ),
+                ],
+              ),
+            ),
+
+            // Transaction Count
+            Container(
+              padding: EdgeInsets.all(16),
+              child: Card(
+                elevation: 3,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Text(
+                        'Transactions Summary',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF0A4D2E),
+                        ),
+                      ),
+                      SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          Column(
+                            children: [
+                              Text(
+                                'Total Transactions',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                '${filteredSales.length}',
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF0A4D2E),
+                                ),
+                              ),
+                            ],
+                          ),
+                          Column(
+                            children: [
+                              Text(
+                                'Payment Methods',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                'Cash/Card/GPay',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF1A7D4A),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Shop-wise Breakdown
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                'Shop-wise Breakdown',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0A4D2E),
+                ),
+              ),
+            ),
+            SizedBox(height: 12),
+
+            ...shopGroups.entries.map((entry) {
+              String shopName = entry.key;
+              List<Sale> shopSales = entry.value;
+
+              double shopService = shopSales.fold(
+                0.0,
+                (sum, sale) => sum + (sale.serviceAmount ?? 0),
+              );
+              double shopAccessories = shopSales.fold(
+                0.0,
+                (sum, sale) => sum + (sale.accessoriesAmount ?? 0),
+              );
+              double shopCombined = shopService + shopAccessories;
+
+              return Container(
+                margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: ExpansionTile(
+                    leading: Icon(Icons.store, color: Color(0xFF1A7D4A)),
+                    title: Text(
+                      shopName,
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text('${shopSales.length} transactions'),
+                    trailing: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '₹${widget.formatNumber(shopCombined)}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0A4D2E),
+                          ),
+                        ),
+                      ],
+                    ),
+                    children: [
+                      Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            // Service vs Accessories
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Service Amount',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                    Text(
+                                      '₹${widget.formatNumber(shopService)}',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF2196F3),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      'Accessories Amount',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                    Text(
+                                      '₹${widget.formatNumber(shopAccessories)}',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF9C27B0),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: 12),
+
+                            // Payment Breakdown
+                            Text(
+                              'Payment Breakdown',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF0A4D2E),
+                              ),
+                            ),
+                            SizedBox(height: 8),
+                            ...shopSales.map((sale) {
+                              return ListTile(
+                                dense: true,
+                                title: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      DateFormat(
+                                        'dd MMM yyyy',
+                                      ).format(sale.date),
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                    Text(
+                                      'Service: ₹${widget.formatNumber(sale.serviceAmount ?? 0)} | Accessories: ₹${widget.formatNumber(sale.accessoriesAmount ?? 0)}',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Cash: ₹${widget.formatNumber(sale.cashAmount ?? 0)}',
+                                      style: TextStyle(fontSize: 11),
+                                    ),
+                                    Text(
+                                      'Card: ₹${widget.formatNumber(sale.cardAmount ?? 0)}',
+                                      style: TextStyle(fontSize: 11),
+                                    ),
+                                    Text(
+                                      'GPay: ₹${widget.formatNumber(sale.gpayAmount ?? 0)}',
+                                      style: TextStyle(fontSize: 11),
+                                    ),
+                                  ],
+                                ),
+                                trailing: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      'Total: ₹${widget.formatNumber(sale.amount)}',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF0A4D2E),
+                                      ),
+                                    ),
+                                    SizedBox(height: 2),
+                                    Text(
+                                      'Combined',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+
+            SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Card(
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: SizedBox(
+        height: 110, // Fixed height ensures visibility
+        child: Padding(
+          padding: EdgeInsets.all(12),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: color, size: 20),
+              ),
+              Flexible(
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Flexible(
+                child: Text(
+                  title,
+                  style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
