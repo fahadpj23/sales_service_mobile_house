@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:sales_stock/screens/phone_stock_screen.dart';
 import '../providers/auth_provider.dart';
 import '../services/auth_service.dart';
 import 'accessories_sale_upload.dart';
@@ -107,7 +108,7 @@ class UserDashboard extends StatelessWidget {
                       crossAxisSpacing: spacing,
                       childAspectRatio: childAspectRatio,
                     ),
-                    itemCount: 4,
+                    itemCount: 5,
                     itemBuilder: (context, index) {
                       return _buildResponsiveSalesOptionCard(
                         context: context,
@@ -206,6 +207,13 @@ class UserDashboard extends StatelessWidget {
         'subtitle': 'Upload base model sales',
         'color': Colors.purple,
         'screen': const BaseModelSaleUpload(),
+      },
+      {
+        'icon': Icons.inventory,
+        'title': 'Phone Stock',
+        'subtitle': 'Manage phone inventory',
+        'color': Colors.red,
+        'screen': const PhoneStockScreen(),
       },
     ];
 
