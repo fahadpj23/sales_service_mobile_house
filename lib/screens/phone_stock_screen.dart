@@ -11,7 +11,8 @@ class PhoneStockScreen extends StatefulWidget {
   State<PhoneStockScreen> createState() => _PhoneStockScreenState();
 }
 
-class _PhoneStockScreenState extends State<PhoneStockScreen> {
+class _PhoneStockScreenState extends State<PhoneStockScreen>
+    with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final _firestore = FirebaseFirestore.instance;
   final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey =
@@ -67,15 +68,30 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
   String? _modalError;
   String? _modalSuccess;
 
+  // For tabs
+  late TabController _tabController;
+  int _currentTabIndex = 0;
+
+  // For search focus
+  final FocusNode _searchFocusNode = FocusNode();
+
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      setState(() {
+        _currentTabIndex = _tabController.index;
+      });
+    });
     _loadExistingProducts();
     _loadShops();
   }
 
   @override
   void dispose() {
+    _tabController.dispose();
+    _searchFocusNode.dispose();
     // Dispose all controllers
     for (var controller in _imeiControllers) {
       controller.dispose();
@@ -685,53 +701,94 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
         ),
         const SizedBox(height: 8),
         Container(
-          height: 100,
+          constraints: const BoxConstraints(maxHeight: 120),
           decoration: BoxDecoration(
             border: Border.all(color: Colors.grey.shade300),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: ListView.builder(
-            itemCount: _filteredProducts.length + 1, // +1 for "Add New" option
-            itemBuilder: (context, index) {
-              if (index == _filteredProducts.length) {
-                return ListTile(
-                  leading: const Icon(Icons.add, color: Colors.green, size: 20),
-                  title: const Text(
-                    'Add New Product...',
-                    style: TextStyle(fontSize: 12),
+          child: _filteredProducts.isEmpty
+              ? const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(8.0),
+                    child: Text(
+                      'No products found',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
                   ),
-                  onTap: () {
-                    _handleProductSelection('add_new');
+                )
+              : ListView.builder(
+                  shrinkWrap: true,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  itemCount:
+                      _filteredProducts.length + 1, // +1 for "Add New" option
+                  itemBuilder: (context, index) {
+                    if (index == _filteredProducts.length) {
+                      return ListTile(
+                        leading: const Icon(
+                          Icons.add,
+                          color: Colors.green,
+                          size: 18,
+                        ),
+                        title: const Text(
+                          'Add New Product...',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
+                        onTap: () {
+                          _handleProductSelection('add_new');
+                        },
+                      );
+                    }
+
+                    final product = _filteredProducts[index];
+                    final productName = product['productName'] as String? ?? '';
+                    final price = product['price'];
+                    String priceText = '';
+
+                    if (price is double) {
+                      priceText = '₹${price.toStringAsFixed(0)}';
+                    } else if (price is int) {
+                      priceText = '₹$price';
+                    }
+
+                    return ListTile(
+                      title: Text(
+                        productName,
+                        style: const TextStyle(fontSize: 12),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        priceText,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: Colors.green,
+                        ),
+                      ),
+                      dense: true,
+                      visualDensity: VisualDensity.compact,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      onTap: () {
+                        _handleProductSelection(productName);
+                      },
+                      trailing: _selectedProduct == productName
+                          ? const Icon(
+                              Icons.check,
+                              color: Colors.green,
+                              size: 16,
+                            )
+                          : null,
+                    );
                   },
-                );
-              }
-
-              final product = _filteredProducts[index];
-              final productName = product['productName'] as String? ?? '';
-              final price = product['price'];
-              String priceText = '';
-
-              if (price is double) {
-                priceText = '₹${price.toStringAsFixed(0)}';
-              } else if (price is int) {
-                priceText = '₹$price';
-              }
-
-              return ListTile(
-                title: Text(productName, style: const TextStyle(fontSize: 12)),
-                subtitle: Text(
-                  priceText,
-                  style: const TextStyle(fontSize: 11, color: Colors.green),
                 ),
-                onTap: () {
-                  _handleProductSelection(productName);
-                },
-                trailing: _selectedProduct == productName
-                    ? const Icon(Icons.check, color: Colors.green, size: 18)
-                    : null,
-              );
-            },
-          ),
         ),
       ],
     );
@@ -741,484 +798,48 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
     return Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.all(16),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.2),
-              blurRadius: 20,
-              spreadRadius: 2,
-            ),
-          ],
-        ),
-        child: SingleChildScrollView(
+      child: SingleChildScrollView(
+        child: Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.9,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 20,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               // Main form content
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Add Phone Stock',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green,
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.close, size: 20),
-                            onPressed: () {
-                              setState(() {
-                                _showAddStockModal = false;
-                                _productSearchController.clear();
-                                _priceChangeController.clear();
-                                _clearModalMessages();
-                              });
-                            },
-                          ),
-                        ],
-                      ),
-                      const Divider(),
-                      const SizedBox(height: 16),
-
-                      // Brand Selection
-                      DropdownButtonFormField<String>(
-                        value: _selectedBrand,
-                        decoration: const InputDecoration(
-                          labelText: 'Select Brand *',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.branding_watermark, size: 18),
-                          labelStyle: TextStyle(fontSize: 12),
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 12,
-                          ),
-                        ),
-                        style: const TextStyle(fontSize: 12),
-                        items: _brands.map<DropdownMenuItem<String>>((brand) {
-                          return DropdownMenuItem<String>(
-                            value: brand,
-                            child: Text(
-                              brand,
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedBrand = value;
-                            _selectedProduct = null;
-                            _showAddProductForm = false;
-                            _showPriceChangeOption = false;
-                            _newProductName = null;
-                            _newProductPrice = null;
-                            _productSearchController.clear();
-                            _priceChangeController.clear();
-                            _clearModalMessages();
-                          });
-                        },
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please select a brand';
-                          }
-                          return null;
-                        },
-                      ),
-
-                      const SizedBox(height: 12),
-
-                      // Product Search and Selection (only show if brand is selected)
-                      if (_selectedBrand != null) ...[
-                        _buildProductSearchDropdown(),
-                        const SizedBox(height: 12),
-
-                        // Add Product Form (shown when "Add New Product" is selected)
-                        if (_showAddProductForm) ...[
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.grey.shade300),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    const Text(
-                                      'New Product Details',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 12,
-                                        color: Colors.green,
-                                      ),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.arrow_back,
-                                        size: 16,
-                                      ),
-                                      onPressed: _cancelAddNewProduct,
-                                      tooltip: 'Back to product selection',
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-
-                                // Product Name
-                                TextFormField(
-                                  decoration: const InputDecoration(
-                                    labelText: 'Product Name *',
-                                    border: OutlineInputBorder(),
-                                    labelStyle: TextStyle(fontSize: 12),
-                                    hintText: 'e.g., iPhone 15 Pro Max 256GB',
-                                    contentPadding: EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 12,
-                                    ),
-                                  ),
-                                  style: const TextStyle(fontSize: 12),
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _newProductName = value;
-                                      _clearModalMessages();
-                                    });
-                                  },
-                                  validator: (value) {
-                                    if (value == null || value.trim().isEmpty) {
-                                      return 'Please enter product name';
-                                    }
-                                    return null;
-                                  },
-                                ),
-
-                                const SizedBox(height: 10),
-
-                                // Price
-                                TextFormField(
-                                  decoration: const InputDecoration(
-                                    labelText: 'Price *',
-                                    border: OutlineInputBorder(),
-                                    labelStyle: TextStyle(fontSize: 12),
-                                    prefixText: '₹ ',
-                                    hintText: 'e.g., 129999',
-                                    contentPadding: EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 12,
-                                    ),
-                                  ),
-                                  style: const TextStyle(fontSize: 12),
-                                  keyboardType: TextInputType.number,
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _newProductPrice = double.tryParse(value);
-                                      _clearModalMessages();
-                                    });
-                                  },
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return 'Please enter price';
-                                    }
-                                    final price = double.tryParse(value);
-                                    if (price == null || price <= 0) {
-                                      return 'Please enter valid price';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-
-                        // Price Change Option for existing products
-                        if (_showPriceChangeOption &&
-                            _originalProductPrice != null) ...[
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.blue.shade100),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Price Change Option',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
-                                    color: Colors.blue,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'Original Price: ${_formatPrice(_originalProductPrice)}',
-                                  style: const TextStyle(fontSize: 11),
-                                ),
-                                const SizedBox(height: 8),
-                                TextFormField(
-                                  controller: _priceChangeController,
-                                  decoration: const InputDecoration(
-                                    labelText: 'New Price (optional)',
-                                    border: OutlineInputBorder(),
-                                    labelStyle: TextStyle(fontSize: 12),
-                                    prefixText: '₹ ',
-                                    hintText: 'Enter new price',
-                                    contentPadding: EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 12,
-                                    ),
-                                  ),
-                                  style: const TextStyle(fontSize: 12),
-                                  keyboardType: TextInputType.number,
-                                  onChanged: (value) {
-                                    _clearModalMessages();
-                                  },
-                                  validator: (value) {
-                                    if (value != null && value.isNotEmpty) {
-                                      final price = double.tryParse(value);
-                                      if (price == null || price <= 0) {
-                                        return 'Please enter valid price';
-                                      }
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 6),
-                                const Text(
-                                  'Note: Changing price will update this product\'s price for all future stock entries.',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-                      ],
-
-                      // Quantity Input (only show if product is selected/added)
-                      if (_selectedProduct != null || _showAddProductForm) ...[
-                        TextFormField(
-                          decoration: const InputDecoration(
-                            labelText: 'Quantity *',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.numbers, size: 18),
-                            labelStyle: TextStyle(fontSize: 12),
-                            hintText: 'Enter number of units',
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 12,
-                            ),
-                          ),
-                          style: const TextStyle(fontSize: 12),
-                          keyboardType: TextInputType.number,
-                          onChanged: (value) {
-                            _handleQuantityChange(value);
-                            _clearModalMessages();
-                          },
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter quantity';
-                            }
-                            final qty = int.tryParse(value);
-                            if (qty == null || qty <= 0) {
-                              return 'Please enter valid quantity (min: 1)';
-                            }
-                            if (qty > 50) {
-                              return 'Maximum 50 units at a time';
-                            }
-                            return null;
-                          },
-                        ),
-
-                        const SizedBox(height: 12),
-                      ],
-
-                      // IMEI Input Fields (dynamically generated based on quantity)
-                      if (_quantity != null && _quantity! > 0) ...[
-                        const Text(
-                          'Enter IMEI Numbers: *',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Each IMEI must be 15-16 digits (${_quantity} required)',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-
-                        ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: _quantity!,
-                          itemBuilder: (context, index) {
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: TextFormField(
-                                controller: _imeiControllers[index],
-                                decoration: InputDecoration(
-                                  labelText: 'IMEI ${index + 1} *',
-                                  border: const OutlineInputBorder(),
-                                  prefixIcon: const Icon(
-                                    Icons.confirmation_number,
-                                    size: 18,
-                                  ),
-                                  labelStyle: const TextStyle(fontSize: 12),
-                                  suffixIcon:
-                                      index < _imeiNumbers.length &&
-                                          _imeiNumbers[index].isNotEmpty
-                                      ? Icon(
-                                          Icons.check_circle,
-                                          color:
-                                              _imeiNumbers[index].length >= 15
-                                              ? Colors.green
-                                              : Colors.orange,
-                                          size: 16,
-                                        )
-                                      : null,
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 12,
-                                  ),
-                                ),
-                                style: const TextStyle(fontSize: 12),
-                                onChanged: (value) {
-                                  if (index < _imeiNumbers.length) {
-                                    setState(() {
-                                      _imeiNumbers[index] = value;
-                                      _clearModalMessages();
-                                    });
-                                  }
-                                },
-                                validator: (value) {
-                                  if (value == null || value.trim().isEmpty) {
-                                    return 'Please enter IMEI';
-                                  }
-                                  final trimmedValue = value.trim();
-                                  if (trimmedValue.length < 15) {
-                                    return 'IMEI must be at least 15 digits';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            );
-                          },
-                        ),
-
-                        const SizedBox(height: 12),
-                      ],
-
-                      // Error/Success Messages at the bottom (above buttons)
-                      if (_modalError != null)
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          margin: const EdgeInsets.only(bottom: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.red.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.red.shade100),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.error_outline,
-                                color: Colors.red,
-                                size: 16,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  _modalError!,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.red,
-                                  ),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close, size: 16),
-                                onPressed: _clearModalMessages,
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                      if (_modalSuccess != null)
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          margin: const EdgeInsets.only(bottom: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.green.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.green.shade100),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.check_circle,
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Add Phone Stock',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
                                 color: Colors.green,
-                                size: 16,
                               ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  _modalSuccess!,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.green,
-                                  ),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close, size: 16),
-                                onPressed: _clearModalMessages,
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                      // Action Buttons
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 20),
                               onPressed: () {
                                 setState(() {
                                   _showAddStockModal = false;
@@ -1227,46 +848,503 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
                                   _clearModalMessages();
                                 });
                               },
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 10,
-                                ),
-                              ),
-                              child: const Text(
-                                'Cancel',
-                                style: TextStyle(fontSize: 12),
-                              ),
+                            ),
+                          ],
+                        ),
+                        const Divider(),
+                        const SizedBox(height: 16),
+
+                        // Brand Selection
+                        DropdownButtonFormField<String>(
+                          value: _selectedBrand,
+                          decoration: const InputDecoration(
+                            labelText: 'Select Brand *',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(
+                              Icons.branding_watermark,
+                              size: 18,
+                            ),
+                            labelStyle: TextStyle(fontSize: 12),
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 12,
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: _saveStock,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 10,
-                                ),
+                          style: const TextStyle(fontSize: 12),
+                          items: _brands.map<DropdownMenuItem<String>>((brand) {
+                            return DropdownMenuItem<String>(
+                              value: brand,
+                              child: Text(
+                                brand,
+                                style: const TextStyle(fontSize: 12),
                               ),
-                              child: _isLoading
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedBrand = value;
+                              _selectedProduct = null;
+                              _showAddProductForm = false;
+                              _showPriceChangeOption = false;
+                              _newProductName = null;
+                              _newProductPrice = null;
+                              _productSearchController.clear();
+                              _priceChangeController.clear();
+                              _clearModalMessages();
+                            });
+                          },
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please select a brand';
+                            }
+                            return null;
+                          },
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        // Product Search and Selection (only show if brand is selected)
+                        if (_selectedBrand != null) ...[
+                          _buildProductSearchDropdown(),
+                          const SizedBox(height: 12),
+
+                          // Add Product Form (shown when "Add New Product" is selected)
+                          if (_showAddProductForm) ...[
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.grey.shade300),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text(
+                                        'New Product Details',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                          color: Colors.green,
+                                        ),
                                       ),
-                                    )
-                                  : const Text(
-                                      'Save Stock',
-                                      style: TextStyle(fontSize: 12),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.arrow_back,
+                                          size: 16,
+                                        ),
+                                        onPressed: _cancelAddNewProduct,
+                                        tooltip: 'Back to product selection',
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+
+                                  // Product Name
+                                  TextFormField(
+                                    decoration: const InputDecoration(
+                                      labelText: 'Product Name *',
+                                      border: OutlineInputBorder(),
+                                      labelStyle: TextStyle(fontSize: 12),
+                                      hintText: 'e.g., iPhone 15 Pro Max 256GB',
+                                      contentPadding: EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 12,
+                                      ),
                                     ),
+                                    style: const TextStyle(fontSize: 12),
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _newProductName = value;
+                                        _clearModalMessages();
+                                      });
+                                    },
+                                    validator: (value) {
+                                      if (value == null ||
+                                          value.trim().isEmpty) {
+                                        return 'Please enter product name';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+
+                                  const SizedBox(height: 10),
+
+                                  // Price
+                                  TextFormField(
+                                    decoration: const InputDecoration(
+                                      labelText: 'Price *',
+                                      border: OutlineInputBorder(),
+                                      labelStyle: TextStyle(fontSize: 12),
+                                      prefixText: '₹ ',
+                                      hintText: 'e.g., 129999',
+                                      contentPadding: EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 12,
+                                      ),
+                                    ),
+                                    style: const TextStyle(fontSize: 12),
+                                    keyboardType: TextInputType.number,
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _newProductPrice = double.tryParse(
+                                          value,
+                                        );
+                                        _clearModalMessages();
+                                      });
+                                    },
+                                    validator: (value) {
+                                      if (value == null || value.isEmpty) {
+                                        return 'Please enter price';
+                                      }
+                                      final price = double.tryParse(value);
+                                      if (price == null || price <= 0) {
+                                        return 'Please enter valid price';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+
+                          // Price Change Option for existing products
+                          if (_showPriceChangeOption &&
+                              _originalProductPrice != null) ...[
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.blue.shade100),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Price Change Option',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                      color: Colors.blue,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Original Price: ${_formatPrice(_originalProductPrice)}',
+                                    style: const TextStyle(fontSize: 11),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextFormField(
+                                    controller: _priceChangeController,
+                                    decoration: const InputDecoration(
+                                      labelText: 'New Price (optional)',
+                                      border: OutlineInputBorder(),
+                                      labelStyle: TextStyle(fontSize: 12),
+                                      prefixText: '₹ ',
+                                      hintText: 'Enter new price',
+                                      contentPadding: EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 12,
+                                      ),
+                                    ),
+                                    style: const TextStyle(fontSize: 12),
+                                    keyboardType: TextInputType.number,
+                                    onChanged: (value) {
+                                      _clearModalMessages();
+                                    },
+                                    validator: (value) {
+                                      if (value != null && value.isNotEmpty) {
+                                        final price = double.tryParse(value);
+                                        if (price == null || price <= 0) {
+                                          return 'Please enter valid price';
+                                        }
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  const SizedBox(height: 6),
+                                  const Text(
+                                    'Note: Changing price will update this product\'s price for all future stock entries.',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                        ],
+
+                        // Quantity Input (only show if product is selected/added)
+                        if (_selectedProduct != null ||
+                            _showAddProductForm) ...[
+                          TextFormField(
+                            decoration: const InputDecoration(
+                              labelText: 'Quantity *',
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.numbers, size: 18),
+                              labelStyle: TextStyle(fontSize: 12),
+                              hintText: 'Enter number of units',
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 12,
+                              ),
+                            ),
+                            style: const TextStyle(fontSize: 12),
+                            keyboardType: TextInputType.number,
+                            onChanged: (value) {
+                              _handleQuantityChange(value);
+                              _clearModalMessages();
+                            },
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Please enter quantity';
+                              }
+                              final qty = int.tryParse(value);
+                              if (qty == null || qty <= 0) {
+                                return 'Please enter valid quantity (min: 1)';
+                              }
+                              if (qty > 50) {
+                                return 'Maximum 50 units at a time';
+                              }
+                              return null;
+                            },
+                          ),
+
+                          const SizedBox(height: 12),
+                        ],
+
+                        // IMEI Input Fields (dynamically generated based on quantity)
+                        if (_quantity != null && _quantity! > 0) ...[
+                          const Text(
+                            'Enter IMEI Numbers: *',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Each IMEI must be 15-16 digits (${_quantity} required)',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+
+                          SizedBox(
+                            height: _quantity! <= 3 ? _quantity! * 70.0 : 210.0,
+                            child: ListView.builder(
+                              shrinkWrap: true,
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              itemCount: _quantity!,
+                              itemBuilder: (context, index) {
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: TextFormField(
+                                    controller: _imeiControllers[index],
+                                    decoration: InputDecoration(
+                                      labelText: 'IMEI ${index + 1} *',
+                                      border: const OutlineInputBorder(),
+                                      prefixIcon: const Icon(
+                                        Icons.confirmation_number,
+                                        size: 18,
+                                      ),
+                                      labelStyle: const TextStyle(fontSize: 12),
+                                      suffixIcon:
+                                          index < _imeiNumbers.length &&
+                                              _imeiNumbers[index].isNotEmpty
+                                          ? Icon(
+                                              Icons.check_circle,
+                                              color:
+                                                  _imeiNumbers[index].length >=
+                                                      15
+                                                  ? Colors.green
+                                                  : Colors.orange,
+                                              size: 16,
+                                            )
+                                          : null,
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 12,
+                                          ),
+                                    ),
+                                    style: const TextStyle(fontSize: 12),
+                                    onChanged: (value) {
+                                      if (index < _imeiNumbers.length) {
+                                        setState(() {
+                                          _imeiNumbers[index] = value;
+                                          _clearModalMessages();
+                                        });
+                                      }
+                                    },
+                                    validator: (value) {
+                                      if (value == null ||
+                                          value.trim().isEmpty) {
+                                        return 'Please enter IMEI';
+                                      }
+                                      final trimmedValue = value.trim();
+                                      if (trimmedValue.length < 15) {
+                                        return 'IMEI must be at least 15 digits';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+
+                          const SizedBox(height: 12),
                         ],
-                      ),
-                    ],
+
+                        // Error/Success Messages at the bottom (above buttons)
+                        if (_modalError != null)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            margin: const EdgeInsets.only(bottom: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.red.shade100),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.error_outline,
+                                  color: Colors.red,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _modalError!,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.red,
+                                    ),
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.close, size: 16),
+                                  onPressed: _clearModalMessages,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                        if (_modalSuccess != null)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            margin: const EdgeInsets.only(bottom: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.green.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.green.shade100),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.check_circle,
+                                  color: Colors.green,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _modalSuccess!,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.green,
+                                    ),
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.close, size: 16),
+                                  onPressed: _clearModalMessages,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                        // Action Buttons (Fixed at bottom)
+                        Container(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: () {
+                                    setState(() {
+                                      _showAddStockModal = false;
+                                      _productSearchController.clear();
+                                      _priceChangeController.clear();
+                                      _clearModalMessages();
+                                    });
+                                  },
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 10,
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    'Cancel',
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: ElevatedButton(
+                                  onPressed: _saveStock,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 10,
+                                    ),
+                                  ),
+                                  child: _isLoading
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : const Text(
+                                          'Save Stock',
+                                          style: TextStyle(fontSize: 12),
+                                        ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1295,23 +1373,37 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
     return Dialog(
       backgroundColor: Colors.transparent,
       child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.8,
+        ),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
         ),
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                _selectedAction == 'sell' ? 'Sell Phone' : 'Transfer Phone',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.blue,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _selectedAction == 'sell' ? 'Sell Phone' : 'Transfer Phone',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: () {
+                      setState(() => _selectedPhoneForAction = null);
+                    },
+                  ),
+                ],
               ),
               const Divider(),
               const SizedBox(height: 12),
@@ -1332,6 +1424,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
                       ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
                     Row(
@@ -1355,6 +1449,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
                     Text(
                       'IMEI: $imei',
                       style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
@@ -1434,12 +1530,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
                     ),
                   )
                 else
-                  Container(
+                  SizedBox(
                     height: 150,
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
                     child: ListView.builder(
                       shrinkWrap: true,
                       itemCount: filteredShops.length,
@@ -1454,6 +1546,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
                           title: Text(
                             shop['name'],
                             style: const TextStyle(fontSize: 12),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                           subtitle:
                               shop['address'] != null &&
@@ -1461,6 +1555,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
                               ? Text(
                                   shop['address'],
                                   style: const TextStyle(fontSize: 10),
+                                  maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 )
                               : null,
@@ -1476,8 +1571,10 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
                                   );
                                 },
                           dense: true,
+                          visualDensity: VisualDensity.compact,
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 12,
+                            vertical: 4,
                           ),
                         );
                       },
@@ -1546,6 +1643,360 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
     }
   }
 
+  Widget _buildStockList(String status) {
+    final authProvider = Provider.of<AuthProvider>(context);
+    final user = authProvider.user;
+    final currentShopId = user?.shopId;
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('phoneStock')
+          .where('shopId', isEqualTo: currentShopId)
+          .where('status', isEqualTo: status)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error, color: Colors.red, size: 32),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    'Error loading data',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 12, color: Colors.red),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final stocks = snapshot.data!.docs;
+
+        if (stocks.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  status == 'available'
+                      ? Icons.inventory_2
+                      : Icons.shopping_cart_checkout,
+                  size: 50,
+                  color: Colors.grey,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  status == 'available'
+                      ? 'No available phones'
+                      : 'No sold phones',
+                  style: const TextStyle(fontSize: 14, color: Colors.grey),
+                ),
+                const SizedBox(height: 6),
+                if (status == 'available')
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _showAddStockModal = true;
+                        _clearModalMessages();
+                      });
+                    },
+                    icon: const Icon(Icons.add, size: 16),
+                    label: const Text(
+                      'Add First Phone',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          );
+        }
+
+        // Sort documents client-side by uploadedAt
+        stocks.sort((a, b) {
+          final aData = a.data() as Map<String, dynamic>;
+          final bData = b.data() as Map<String, dynamic>;
+          final aDate = aData['uploadedAt'];
+          final bDate = bData['uploadedAt'];
+
+          if (aDate == null || bDate == null) return 0;
+          if (aDate is Timestamp && bDate is Timestamp) {
+            return bDate.compareTo(aDate); // Descending
+          }
+          return 0;
+        });
+
+        // Filter stocks based on search query
+        final filteredStocks = stocks.where((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+
+          // Search filter
+          if (_searchQuery.isNotEmpty) {
+            final imei = data['imei'] as String? ?? '';
+            final productName = data['productName'] as String? ?? '';
+            final productBrand = data['productBrand'] as String? ?? '';
+
+            return imei.toLowerCase().contains(_searchQuery) ||
+                productName.toLowerCase().contains(_searchQuery) ||
+                productBrand.toLowerCase().contains(_searchQuery);
+          }
+
+          return true;
+        }).toList();
+
+        if (filteredStocks.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.search_off, size: 50, color: Colors.grey[400]),
+                const SizedBox(height: 12),
+                const Text(
+                  'No matching items',
+                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Try different search',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          );
+        }
+
+        // Calculate statistics for current tab
+        double totalValue = 0;
+        int totalPhones = 0;
+        final Map<String, Map<String, dynamic>> brandStats = {};
+
+        for (final doc in filteredStocks) {
+          final data = doc.data() as Map<String, dynamic>;
+          final price = _parsePrice(data['productPrice']);
+          final brand = data['productBrand'] as String? ?? 'Unknown';
+
+          totalPhones++;
+          totalValue += price;
+
+          // Update brand statistics
+          if (!brandStats.containsKey(brand)) {
+            brandStats[brand] = {'count': 0, 'value': 0.0};
+          }
+
+          brandStats[brand]!['count'] = brandStats[brand]!['count'] + 1;
+          brandStats[brand]!['value'] = brandStats[brand]!['value'] + price;
+        }
+
+        return Column(
+          children: [
+            // Statistics for current tab
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  // Total Value
+                  Expanded(
+                    child: _buildStatCard(
+                      status == 'available' ? 'Available Value' : 'Sold Value',
+                      _formatPrice(totalValue),
+                      '$totalPhones phones',
+                      status == 'available' ? Colors.green : Colors.orange,
+                      status == 'available'
+                          ? Icons.inventory
+                          : Icons.shopping_cart_checkout,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  // Brands count
+                  Expanded(
+                    child: _buildStatCard(
+                      'Brands',
+                      '${brandStats.length}',
+                      'Varieties',
+                      Colors.purple,
+                      Icons.category,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Brand-wise Grid
+            if (brandStats.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: Text(
+                  'Brand-wise Summary',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 70,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  itemCount: brandStats.length,
+                  itemBuilder: (context, index) {
+                    final brand = brandStats.keys.toList()[index];
+                    final stats = brandStats[brand]!;
+                    return Container(
+                      width: 100,
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Text(
+                            brand,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            maxLines: 1,
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${stats['count']}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue,
+                            ),
+                          ),
+                          Text(
+                            _formatPrice(stats['value']),
+                            style: const TextStyle(
+                              fontSize: 9,
+                              color: Colors.green,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12),
+              child: Divider(),
+            ),
+
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Phones: ${filteredStocks.length}',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                  if (status == 'available')
+                    Text(
+                      'Status: Available',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    )
+                  else
+                    Text(
+                      'Status: Sold',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // Grid View of Phones - UPDATED for taller cards
+            Expanded(
+              child: GridView.builder(
+                padding: const EdgeInsets.all(8),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 6,
+                  mainAxisSpacing: 8,
+                  childAspectRatio: 1.3, // Increased for taller cards
+                ),
+                itemCount: filteredStocks.length,
+                itemBuilder: (context, index) {
+                  final doc = filteredStocks[index];
+                  final stock = doc.data() as Map<String, dynamic>;
+                  final productName =
+                      stock['productName'] as String? ?? 'Unknown';
+                  final productBrand =
+                      stock['productBrand'] as String? ?? 'Unknown';
+                  final imei = stock['imei'] as String? ?? 'N/A';
+                  final price = stock['productPrice'];
+                  final uploadedAt = stock['uploadedAt'];
+                  final soldAt = stock['soldAt'];
+
+                  return _buildPhoneCard(
+                    productName: productName,
+                    productBrand: productBrand,
+                    imei: imei,
+                    price: price,
+                    uploadedAt: uploadedAt,
+                    soldAt: soldAt,
+                    status: status,
+                    onSell: status == 'available'
+                        ? () {
+                            setState(() {
+                              _selectedPhoneForAction = {
+                                ...stock,
+                                'id': doc.id,
+                              };
+                              _selectedAction = 'sell';
+                            });
+                          }
+                        : null,
+                    onTransfer: status == 'available'
+                        ? () {
+                            setState(() {
+                              _selectedPhoneForAction = {
+                                ...stock,
+                                'id': doc.id,
+                              };
+                              _selectedAction = 'transfer';
+                            });
+                          }
+                        : null,
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
@@ -1558,12 +2009,18 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
         children: [
           Scaffold(
             appBar: AppBar(
-              title: const Text('Phone Stock', style: TextStyle(fontSize: 14)),
+              title: const Text('Phone Stock', style: TextStyle(fontSize: 16)),
               backgroundColor: Colors.green,
               foregroundColor: Colors.white,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back, size: 22),
+                onPressed: () => Navigator.pop(context),
+              ),
               actions: [
-                Padding(
-                  padding: const EdgeInsets.only(right: 8.0),
+                // Center aligned Add button
+                Container(
+                  height: 40, // Match app bar height
+                  alignment: Alignment.center,
                   child: ElevatedButton.icon(
                     onPressed: () {
                       setState(() {
@@ -1578,16 +2035,18 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
                       foregroundColor: Colors.green,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(20),
                       ),
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
-                        vertical: 4,
+                        vertical: 6,
                       ),
                     ),
                   ),
                 ),
               ],
+              centerTitle: true,
+              toolbarHeight: 56, // Standard app bar height
             ),
             body: _isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -1607,472 +2066,148 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
                   )
                 : Column(
                     children: [
-                      // Search Bar
-                      Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: TextField(
-                          controller: _searchController,
-                          decoration: InputDecoration(
-                            labelText: 'Search IMEI, Product, Brand',
-                            labelStyle: const TextStyle(fontSize: 12),
-                            prefixIcon: const Icon(Icons.search, size: 18),
-                            suffixIcon: _searchQuery.isNotEmpty
-                                ? IconButton(
-                                    icon: const Icon(Icons.clear, size: 18),
-                                    onPressed: () {
-                                      _searchController.clear();
-                                      setState(() => _searchQuery = '');
-                                    },
-                                  )
-                                : null,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
+                      // Tabs with better spacing
+                      Container(
+                        color: Colors.white,
+                        child: Column(
+                          children: [
+                            Container(
+                              width: double.infinity,
+                              height: 40,
+                              child: TabBar(
+                                controller: _tabController,
+                                labelColor: Colors.green,
+                                unselectedLabelColor: Colors.grey,
+                                indicatorColor: Colors.green,
+                                indicatorWeight: 3,
+                                indicatorSize: TabBarIndicatorSize.tab,
+                                labelStyle: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                unselectedLabelStyle: const TextStyle(
+                                  fontSize: 12,
+                                ),
+                                labelPadding:
+                                    EdgeInsets.zero, // Remove extra padding
+                                tabs: const [
+                                  Tab(
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Icon(Icons.inventory, size: 18),
+                                        SizedBox(width: 4),
+                                        Flexible(
+                                          child: Text(
+                                            'Available',
+                                            overflow: TextOverflow.ellipsis,
+                                            maxLines: 1,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Tab(
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.shopping_cart_checkout,
+                                          size: 18,
+                                        ),
+                                        SizedBox(width: 4),
+                                        Flexible(
+                                          child: Text(
+                                            'Sold',
+                                            overflow: TextOverflow.ellipsis,
+                                            maxLines: 1,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                          ),
-                          style: const TextStyle(fontSize: 12),
-                          onChanged: (value) {
-                            setState(() => _searchQuery = value.toLowerCase());
-                          },
+                          ],
                         ),
                       ),
 
-                      // Stock List
-                      Expanded(
-                        child: StreamBuilder<QuerySnapshot>(
-                          stream: FirebaseFirestore.instance
-                              .collection('phoneStock')
-                              .where('shopId', isEqualTo: currentShopId)
-                              .snapshots(),
-                          builder: (context, snapshot) {
-                            if (snapshot.hasError) {
-                              return Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Icon(
-                                      Icons.error,
-                                      color: Colors.red,
-                                      size: 32,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                      ),
-                                      child: Text(
-                                        'Error loading data',
-                                        textAlign: TextAlign.center,
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.red,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }
-
-                            if (snapshot.connectionState ==
-                                ConnectionState.waiting) {
-                              return const Center(
-                                child: CircularProgressIndicator(),
-                              );
-                            }
-
-                            final stocks = snapshot.data!.docs;
-
-                            if (stocks.isEmpty) {
-                              return Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.inventory_2,
-                                      size: 50,
-                                      color: Colors.grey,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    const Text(
-                                      'No stock items',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    ElevatedButton.icon(
-                                      onPressed: () {
-                                        setState(() {
-                                          _showAddStockModal = true;
-                                          _clearModalMessages();
-                                        });
-                                      },
-                                      icon: const Icon(Icons.add, size: 16),
-                                      label: const Text(
-                                        'Add First Phone',
-                                        style: TextStyle(fontSize: 12),
-                                      ),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.green,
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 16,
-                                          vertical: 8,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }
-
-                            // Sort documents client-side by uploadedAt
-                            stocks.sort((a, b) {
-                              final aData = a.data() as Map<String, dynamic>;
-                              final bData = b.data() as Map<String, dynamic>;
-                              final aDate = aData['uploadedAt'];
-                              final bDate = bData['uploadedAt'];
-
-                              if (aDate == null || bDate == null) return 0;
-                              if (aDate is Timestamp && bDate is Timestamp) {
-                                return bDate.compareTo(aDate); // Descending
-                              }
-                              return 0;
-                            });
-
-                            // Filter stocks based on search query
-                            final filteredStocks = stocks.where((doc) {
-                              final data = doc.data() as Map<String, dynamic>;
-
-                              // Search filter
-                              if (_searchQuery.isNotEmpty) {
-                                final imei = data['imei'] as String? ?? '';
-                                final productName =
-                                    data['productName'] as String? ?? '';
-                                final productBrand =
-                                    data['productBrand'] as String? ?? '';
-
-                                return imei.toLowerCase().contains(
-                                      _searchQuery,
-                                    ) ||
-                                    productName.toLowerCase().contains(
-                                      _searchQuery,
-                                    ) ||
-                                    productBrand.toLowerCase().contains(
-                                      _searchQuery,
-                                    );
-                              }
-
-                              return true;
-                            }).toList();
-
-                            if (filteredStocks.isEmpty) {
-                              return Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.search_off,
-                                      size: 50,
-                                      color: Colors.grey[400],
-                                    ),
-                                    const SizedBox(height: 12),
-                                    const Text(
-                                      'No matching items',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      'Try different search',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey[600],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }
-
-                            // Calculate statistics
-                            double totalValue = 0;
-                            int totalPhones = 0;
-                            int availablePhones = 0;
-                            int soldPhones = 0;
-                            double availableValue = 0;
-                            double soldValue = 0;
-
-                            final Map<String, Map<String, dynamic>> brandStats =
-                                {};
-
-                            for (final doc in filteredStocks) {
-                              final data = doc.data() as Map<String, dynamic>;
-                              final price = _parsePrice(data['productPrice']);
-                              final status =
-                                  data['status'] as String? ?? 'available';
-                              final brand =
-                                  data['productBrand'] as String? ?? 'Unknown';
-
-                              totalPhones++;
-                              totalValue += price;
-
-                              if (status == 'available') {
-                                availablePhones++;
-                                availableValue += price;
-                              } else if (status == 'sold') {
-                                soldPhones++;
-                                soldValue += price;
-                              }
-
-                              // Update brand statistics
-                              if (!brandStats.containsKey(brand)) {
-                                brandStats[brand] = {'count': 0, 'value': 0.0};
-                              }
-
-                              brandStats[brand]!['count'] =
-                                  brandStats[brand]!['count'] + 1;
-                              brandStats[brand]!['value'] =
-                                  brandStats[brand]!['value'] + price;
-                            }
-
-                            return Column(
-                              children: [
-                                // Statistics Grid
-                                Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: GridView.count(
-                                    shrinkWrap: true,
-                                    crossAxisCount: 2,
-                                    childAspectRatio: 2.5,
-                                    crossAxisSpacing: 10,
-                                    mainAxisSpacing: 10,
-                                    children: [
-                                      // Total Value
-                                      _buildStatCard(
-                                        'Total Value',
-                                        _formatPrice(totalValue),
-                                        '$totalPhones phones',
-                                        Colors.blue,
-                                        Icons.currency_rupee,
-                                      ),
-                                      // Available Value
-                                      _buildStatCard(
-                                        'Available',
-                                        _formatPrice(availableValue),
-                                        '$availablePhones phones',
-                                        Colors.green,
-                                        Icons.inventory,
-                                      ),
-                                      // Sold Value
-                                      _buildStatCard(
-                                        'Sold',
-                                        _formatPrice(soldValue),
-                                        '$soldPhones phones',
-                                        Colors.orange,
-                                        Icons.shopping_cart_checkout,
-                                      ),
-                                      // Brands
-                                      _buildStatCard(
-                                        'Brands',
-                                        '${brandStats.length}',
-                                        'Varieties',
-                                        Colors.purple,
-                                        Icons.category,
-                                      ),
-                                    ],
+                      // Search Bar
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        color: Colors.white,
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _searchController,
+                                focusNode: _searchFocusNode,
+                                decoration: InputDecoration(
+                                  labelText: 'Search IMEI, Product, Brand',
+                                  labelStyle: const TextStyle(fontSize: 13),
+                                  prefixIcon: const Icon(
+                                    Icons.search,
+                                    size: 20,
                                   ),
-                                ),
-
-                                // Brand-wise Grid
-                                if (brandStats.isNotEmpty) ...[
-                                  const Padding(
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                    ),
-                                    child: Text(
-                                      'Brand-wise Summary',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
+                                  suffixIcon: _searchQuery.isNotEmpty
+                                      ? IconButton(
+                                          icon: const Icon(
+                                            Icons.clear,
+                                            size: 20,
+                                          ),
+                                          onPressed: () {
+                                            _searchController.clear();
+                                            setState(() => _searchQuery = '');
+                                            _searchFocusNode.unfocus();
+                                          },
+                                        )
+                                      : null,
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
                                   ),
-                                  const SizedBox(height: 8),
-                                  SizedBox(
-                                    height: 70,
-                                    child: ListView.builder(
-                                      scrollDirection: Axis.horizontal,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                      ),
-                                      itemCount: brandStats.length,
-                                      itemBuilder: (context, index) {
-                                        final brand = brandStats.keys
-                                            .toList()[index];
-                                        final stats = brandStats[brand]!;
-                                        return Container(
-                                          width: 100,
-                                          margin: const EdgeInsets.only(
-                                            right: 8,
-                                          ),
-                                          padding: const EdgeInsets.all(8),
-                                          decoration: BoxDecoration(
-                                            color: Colors.grey.shade50,
-                                            borderRadius: BorderRadius.circular(
-                                              8,
-                                            ),
-                                            border: Border.all(
-                                              color: Colors.grey.shade300,
-                                            ),
-                                          ),
-                                          child: Column(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.center,
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.center,
-                                            children: [
-                                              Text(
-                                                brand,
-                                                style: const TextStyle(
-                                                  fontSize: 10,
-                                                  fontWeight: FontWeight.bold,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                ),
-                                                maxLines: 1,
-                                                textAlign: TextAlign.center,
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                '${stats['count']}',
-                                                style: const TextStyle(
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Colors.blue,
-                                                ),
-                                              ),
-                                              Text(
-                                                _formatPrice(stats['value']),
-                                                style: const TextStyle(
-                                                  fontSize: 9,
-                                                  color: Colors.green,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                ],
-
-                                const Padding(
-                                  padding: EdgeInsets.symmetric(horizontal: 12),
-                                  child: Divider(),
-                                ),
-
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
+                                  contentPadding: const EdgeInsets.symmetric(
                                     horizontal: 12,
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        'Phones: ${filteredStocks.length}',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.grey[600],
-                                        ),
-                                      ),
-                                      Text(
-                                        'Status: ${availablePhones}A ${soldPhones}S',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.grey[600],
-                                        ),
-                                      ),
-                                    ],
+                                    vertical: 10,
                                   ),
                                 ),
+                                style: const TextStyle(fontSize: 13),
+                                onChanged: (value) {
+                                  setState(
+                                    () => _searchQuery = value.toLowerCase(),
+                                  );
+                                },
+                                onSubmitted: (value) {
+                                  _searchFocusNode.unfocus();
+                                },
+                              ),
+                            ),
+                            if (_searchQuery.isNotEmpty)
+                              IconButton(
+                                icon: const Icon(Icons.keyboard_hide, size: 22),
+                                onPressed: () {
+                                  _searchFocusNode.unfocus();
+                                },
+                                tooltip: 'Hide keyboard',
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
 
-                                const SizedBox(height: 8),
+                      // Tab Content
+                      Expanded(
+                        child: TabBarView(
+                          controller: _tabController,
+                          children: [
+                            // Available Tab
+                            _buildStockList('available'),
 
-                                // Grid View of Phones
-                                Expanded(
-                                  child: GridView.builder(
-                                    padding: const EdgeInsets.all(12),
-                                    gridDelegate:
-                                        const SliverGridDelegateWithFixedCrossAxisCount(
-                                          crossAxisCount: 2,
-                                          crossAxisSpacing: 10,
-                                          mainAxisSpacing: 10,
-                                          childAspectRatio: 1.2,
-                                        ),
-                                    itemCount: filteredStocks.length,
-                                    itemBuilder: (context, index) {
-                                      final doc = filteredStocks[index];
-                                      final stock =
-                                          doc.data() as Map<String, dynamic>;
-                                      final productName =
-                                          stock['productName'] as String? ??
-                                          'Unknown';
-                                      final productBrand =
-                                          stock['productBrand'] as String? ??
-                                          'Unknown';
-                                      final imei =
-                                          stock['imei'] as String? ?? 'N/A';
-                                      final price = stock['productPrice'];
-                                      final status =
-                                          stock['status'] as String? ??
-                                          'available';
-                                      final uploadedAt = stock['uploadedAt'];
-
-                                      return _buildPhoneCard(
-                                        productName: productName,
-                                        productBrand: productBrand,
-                                        imei: imei,
-                                        price: price,
-                                        uploadedAt: uploadedAt,
-                                        onSell: status == 'available'
-                                            ? () {
-                                                setState(() {
-                                                  _selectedPhoneForAction = {
-                                                    ...stock,
-                                                    'id': doc.id,
-                                                  };
-                                                  _selectedAction = 'sell';
-                                                });
-                                              }
-                                            : null,
-                                        onTransfer: status == 'available'
-                                            ? () {
-                                                setState(() {
-                                                  _selectedPhoneForAction = {
-                                                    ...stock,
-                                                    'id': doc.id,
-                                                  };
-                                                  _selectedAction = 'transfer';
-                                                });
-                                              }
-                                            : null,
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ],
-                            );
-                          },
+                            // Sold Tab
+                            _buildStockList('sold'),
+                          ],
                         ),
                       ),
                     ],
@@ -2153,6 +2288,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
     required String imei,
     required dynamic price,
     required dynamic uploadedAt,
+    dynamic soldAt,
+    required String status,
     VoidCallback? onSell,
     VoidCallback? onTransfer,
   }) {
@@ -2168,6 +2305,13 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
       }
     }
 
+    // Determine status color and text
+    Color statusColor = status == 'available' ? Colors.green : Colors.orange;
+    String statusText = status == 'available' ? 'Available' : 'Sold';
+    IconData statusIcon = status == 'available'
+        ? Icons.inventory
+        : Icons.shopping_cart_checkout;
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -2182,37 +2326,51 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(4),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // Header with actions only (status removed)
+            // Header with status and actions - COMPACT
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Product brand label
+                // Status badge - COMPACT
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 6,
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(4),
+                    color: statusColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: statusColor.withOpacity(0.3)),
                   ),
-                  child: Text(
-                    productBrand,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.blue.shade800,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(statusIcon, size: 10, color: statusColor),
+                      const SizedBox(width: 4),
+                      Text(
+                        statusText,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          color: statusColor,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
 
-                if (onSell != null || onTransfer != null)
+                // Actions menu (only for available phones)
+                if (status == 'available' &&
+                    (onSell != null || onTransfer != null))
                   PopupMenuButton<String>(
-                    icon: const Icon(Icons.more_vert, size: 16),
+                    icon: const Icon(Icons.more_vert, size: 14),
+                    padding: EdgeInsets.zero,
+                    constraints: BoxConstraints.tight(const Size(30, 30)),
                     onSelected: (value) {
                       if (value == 'sell') {
                         onSell?.call();
@@ -2225,14 +2383,15 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
                         const PopupMenuItem<String>(
                           value: 'sell',
                           child: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(
                                 Icons.shopping_cart_checkout,
-                                size: 14,
+                                size: 12,
                                 color: Colors.green,
                               ),
                               SizedBox(width: 6),
-                              Text('Sell', style: TextStyle(fontSize: 12)),
+                              Text('Sell', style: TextStyle(fontSize: 11)),
                             ],
                           ),
                         ),
@@ -2240,14 +2399,15 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
                         const PopupMenuItem<String>(
                           value: 'transfer',
                           child: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(
                                 Icons.swap_horiz,
-                                size: 14,
+                                size: 12,
                                 color: Colors.blue,
                               ),
                               SizedBox(width: 6),
-                              Text('Transfer', style: TextStyle(fontSize: 12)),
+                              Text('Transfer', style: TextStyle(fontSize: 11)),
                             ],
                           ),
                         ),
@@ -2256,84 +2416,91 @@ class _PhoneStockScreenState extends State<PhoneStockScreen> {
               ],
             ),
 
-            const SizedBox(height: 8),
+            const SizedBox(height: 3),
 
-            // Product name
+            // Product name - SINGLE LINE
             Text(
               productName,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-
-            const Spacer(),
-
-            // Price and details row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _formatPrice(price),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green,
-                      ),
-                    ),
-                    Text(
-                      _formatDate(uploadedAt),
-                      style: TextStyle(fontSize: 8, color: Colors.grey[500]),
-                    ),
-                  ],
-                ),
-
-                // Quick action buttons (only show if available)
-                if (onSell != null || onTransfer != null)
-                  Row(
-                    children: [
-                      if (onSell != null)
-                        IconButton(
-                          icon: const Icon(
-                            Icons.shopping_cart_checkout,
-                            size: 14,
-                            color: Colors.green,
-                          ),
-                          onPressed: onSell,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          tooltip: 'Sell',
-                        ),
-                      if (onTransfer != null)
-                        IconButton(
-                          icon: const Icon(
-                            Icons.swap_horiz,
-                            size: 14,
-                            color: Colors.blue,
-                          ),
-                          onPressed: onTransfer,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          tooltip: 'Transfer',
-                        ),
-                    ],
-                  ),
-              ],
-            ),
-
-            // IMEI - Show full IMEI without truncation
-            Text(
-              'IMEI: $displayImei',
-              style: TextStyle(
-                fontSize: 9,
-                color: Colors.grey[600],
-                fontFamily: 'Monospace',
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                height: 1.1,
               ),
-              maxLines: 2,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
+
+            const SizedBox(height: 4),
+
+            // // Brand - MINIMAL
+            // Text(
+            //   productBrand,
+            //   style: TextStyle(
+            //     fontSize: 10,
+            //     fontWeight: FontWeight.w500,
+            //     color: Colors.blue.shade800,
+            //   ),
+            //   maxLines: 1,
+            //   overflow: TextOverflow.ellipsis,
+            // ),
+            // const SizedBox(height: 4),
+
+            // Price - PROMINENT
+            Text(
+              _formatPrice(price),
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: Colors.green,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+
+            const SizedBox(height: 2),
+
+            // IMEI - COMPACT with better display
+            Expanded(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const Text(
+                    'IMEI:',
+                    style: TextStyle(fontSize: 11, color: Colors.black),
+                  ),
+                  const SizedBox(height: 2),
+                  Flexible(
+                    child: Text(
+                      displayImei,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.black,
+                        fontFamily: 'Monospace',
+                        height: 1.1,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 2),
+
+            // Date information - COMPACT
+            Text(
+              'Added: ${_formatDate(uploadedAt)}',
+              style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (status == 'sold' && soldAt != null)
+              Text(
+                'Sold: ${_formatDate(soldAt)}',
+                style: TextStyle(fontSize: 8, color: Colors.grey[500]),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
           ],
         ),
       ),
