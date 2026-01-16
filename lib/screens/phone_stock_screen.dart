@@ -127,6 +127,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
       final snapshot = await _firestore.collection('phones').get();
 
+      // Initialize all brands with empty lists
       _productsByBrand.clear();
       for (var brand in _brands) {
         _productsByBrand[brand] = [];
@@ -149,9 +150,15 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           }
 
           if (priceDouble != null) {
+            // Add brand to _brands if it doesn't exist
+            if (!_brands.contains(brand)) {
+              _brands.add(brand);
+            }
+
             if (!_productsByBrand.containsKey(brand)) {
               _productsByBrand[brand] = [];
             }
+
             _productsByBrand[brand]!.add({
               'id': doc.id,
               'productName': productName,
@@ -672,11 +679,17 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     }
 
     final products = _productsByBrand[_selectedBrand!] ?? [];
-    _filteredProducts = products.where((product) {
-      final productName = product['productName'] as String? ?? '';
-      final searchText = _productSearchController.text.toLowerCase();
-      return productName.toLowerCase().contains(searchText);
-    }).toList();
+    final searchText = _productSearchController.text.toLowerCase();
+
+    // Filter products based on search text
+    if (searchText.isNotEmpty) {
+      _filteredProducts = products.where((product) {
+        final productName = product['productName'] as String? ?? '';
+        return productName.toLowerCase().contains(searchText);
+      }).toList();
+    } else {
+      _filteredProducts = List.from(products);
+    }
 
     return Column(
       children: [
@@ -706,89 +719,74 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             border: Border.all(color: Colors.grey.shade300),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: _filteredProducts.isEmpty
-              ? const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(8.0),
-                    child: Text(
-                      'No products found',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
+          child: ListView.builder(
+            shrinkWrap: true,
+            physics: const AlwaysScrollableScrollPhysics(),
+            itemCount: _filteredProducts.length + 1, // +1 for "Add New" option
+            itemBuilder: (context, index) {
+              // Last item is always "Add New Product"
+              if (index == _filteredProducts.length) {
+                return ListTile(
+                  leading: const Icon(Icons.add, color: Colors.green, size: 18),
+                  title: const Text(
+                    'Add New Product...',
+                    style: TextStyle(fontSize: 12),
                   ),
-                )
-              : ListView.builder(
-                  shrinkWrap: true,
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  itemCount:
-                      _filteredProducts.length + 1, // +1 for "Add New" option
-                  itemBuilder: (context, index) {
-                    if (index == _filteredProducts.length) {
-                      return ListTile(
-                        leading: const Icon(
-                          Icons.add,
-                          color: Colors.green,
-                          size: 18,
-                        ),
-                        title: const Text(
-                          'Add New Product...',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                        dense: true,
-                        visualDensity: VisualDensity.compact,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
-                        ),
-                        onTap: () {
-                          _handleProductSelection('add_new');
-                        },
-                      );
-                    }
-
-                    final product = _filteredProducts[index];
-                    final productName = product['productName'] as String? ?? '';
-                    final price = product['price'];
-                    String priceText = '';
-
-                    if (price is double) {
-                      priceText = '₹${price.toStringAsFixed(0)}';
-                    } else if (price is int) {
-                      priceText = '₹$price';
-                    }
-
-                    return ListTile(
-                      title: Text(
-                        productName,
-                        style: const TextStyle(fontSize: 12),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text(
-                        priceText,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: Colors.green,
-                        ),
-                      ),
-                      dense: true,
-                      visualDensity: VisualDensity.compact,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 4,
-                      ),
-                      onTap: () {
-                        _handleProductSelection(productName);
-                      },
-                      trailing: _selectedProduct == productName
-                          ? const Icon(
-                              Icons.check,
-                              color: Colors.green,
-                              size: 16,
-                            )
-                          : null,
-                    );
+                  subtitle: products.isEmpty
+                      ? const Text(
+                          'No products found for this brand',
+                          style: TextStyle(fontSize: 10, color: Colors.grey),
+                        )
+                      : null,
+                  dense: true,
+                  visualDensity: VisualDensity.compact,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  onTap: () {
+                    _handleProductSelection('add_new');
                   },
+                );
+              }
+
+              final product = _filteredProducts[index];
+              final productName = product['productName'] as String? ?? '';
+              final price = product['price'];
+              String priceText = '';
+
+              if (price is double) {
+                priceText = '₹${price.toStringAsFixed(0)}';
+              } else if (price is int) {
+                priceText = '₹$price';
+              }
+
+              return ListTile(
+                title: Text(
+                  productName,
+                  style: const TextStyle(fontSize: 12),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
+                subtitle: Text(
+                  priceText,
+                  style: const TextStyle(fontSize: 10, color: Colors.green),
+                ),
+                dense: true,
+                visualDensity: VisualDensity.compact,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
+                onTap: () {
+                  _handleProductSelection(productName);
+                },
+                trailing: _selectedProduct == productName
+                    ? const Icon(Icons.check, color: Colors.green, size: 16)
+                    : null,
+              );
+            },
+          ),
         ),
       ],
     );
@@ -902,6 +900,40 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                         ),
 
                         const SizedBox(height: 12),
+
+                        // Show message when no products exist for selected brand
+                        if (_selectedBrand != null &&
+                            (_productsByBrand[_selectedBrand!]?.isEmpty ??
+                                true) &&
+                            !_showAddProductForm)
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            margin: const EdgeInsets.only(bottom: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.orange.shade100),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.info,
+                                  color: Colors.orange,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'No products found for $_selectedBrand. Please add a new product.',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.orange.shade800,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
 
                         // Product Search and Selection (only show if brand is selected)
                         if (_selectedBrand != null) ...[
@@ -2431,19 +2463,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             ),
 
             const SizedBox(height: 4),
-
-            // // Brand - MINIMAL
-            // Text(
-            //   productBrand,
-            //   style: TextStyle(
-            //     fontSize: 10,
-            //     fontWeight: FontWeight.w500,
-            //     color: Colors.blue.shade800,
-            //   ),
-            //   maxLines: 1,
-            //   overflow: TextOverflow.ellipsis,
-            // ),
-            // const SizedBox(height: 4),
 
             // Price - PROMINENT
             Text(
