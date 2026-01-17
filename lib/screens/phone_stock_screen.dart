@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../providers/auth_provider.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 class PhoneStockScreen extends StatefulWidget {
   const PhoneStockScreen({super.key});
@@ -52,7 +53,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
   // For actions on phone
   Map<String, dynamic>? _selectedPhoneForAction;
-  String _selectedAction = 'sell'; // 'sell' or 'transfer'
+  String _selectedAction = 'sell';
 
   // For product search in dropdown
   late TextEditingController _productSearchController;
@@ -70,9 +71,16 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   // For tabs
   late TabController _tabController;
   int _currentTabIndex = 0;
+  final List<String> _tabTitles = ['Available', 'Sold', 'Returned'];
 
   // For search focus
   final FocusNode _searchFocusNode = FocusNode();
+
+  // For IMEI Scanner
+  bool _showScanner = false;
+  MobileScannerController? _scannerController;
+  String? _lastScannedImei;
+  int? _currentImeiFieldIndex;
 
   @override
   void initState() {
@@ -82,7 +90,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     _productSearchController = TextEditingController();
     _priceChangeController = TextEditingController();
 
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
       setState(() {
         _currentTabIndex = _tabController.index;
@@ -96,13 +104,13 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   void dispose() {
     _tabController.dispose();
     _searchFocusNode.dispose();
+    _scannerController?.dispose();
 
     // Dispose all controllers
     _disposeAllControllers();
     super.dispose();
   }
 
-  // Helper method to safely dispose all controllers
   void _disposeAllControllers() {
     _searchController.dispose();
     _productSearchController.dispose();
@@ -110,7 +118,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     _disposeImeiControllers();
   }
 
-  // Helper method to safely dispose IMEI controllers
   void _disposeImeiControllers() {
     for (var controller in _imeiControllers) {
       controller.dispose();
@@ -143,7 +150,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
       final snapshot = await _firestore.collection('phones').get();
 
-      // Clear existing data
       _productsByBrand.clear();
 
       for (var doc in snapshot.docs) {
@@ -163,30 +169,25 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           }
 
           if (priceDouble != null) {
-            // Add brand to _brands if it doesn't exist
             if (!_brands.contains(brand)) {
               _brands.add(brand);
             }
 
-            // Initialize brand list if it doesn't exist
             if (!_productsByBrand.containsKey(brand)) {
               _productsByBrand[brand] = [];
             }
 
-            // Check if product already exists in the list
             final existingProductIndex = _productsByBrand[brand]!.indexWhere(
               (p) => p['productName'] == productName,
             );
 
             if (existingProductIndex == -1) {
-              // Add new product
               _productsByBrand[brand]!.add({
                 'id': doc.id,
                 'productName': productName,
                 'price': priceDouble,
               });
             } else {
-              // Update existing product price
               _productsByBrand[brand]![existingProductIndex]['price'] =
                   priceDouble;
             }
@@ -194,10 +195,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         }
       }
 
-      // Sort brands alphabetically
       _brands.sort();
 
-      // Sort products by name for each brand
       for (var brand in _productsByBrand.keys) {
         _productsByBrand[brand]!.sort(
           (a, b) => (a['productName'] as String).compareTo(
@@ -233,7 +232,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         _productSearchController.clear();
         _clearModalMessages();
 
-        // Check if product exists and get its price
         if (_selectedBrand != null && value != null) {
           final products = _productsByBrand[_selectedBrand!];
           if (products != null) {
@@ -272,21 +270,18 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   void _handleQuantityChange(String value) {
     final qty = int.tryParse(value);
     if (qty != null && qty > 0) {
-      // Dispose old controllers
       _disposeImeiControllers();
 
       setState(() {
         _quantity = qty;
         _imeiNumbers = List.filled(qty, '');
 
-        // Create new controllers
         for (int i = 0; i < qty; i++) {
           _imeiControllers.add(TextEditingController());
         }
         _clearModalMessages();
       });
     } else if (value.isEmpty) {
-      // If quantity field is cleared
       _disposeImeiControllers();
       setState(() {
         _quantity = null;
@@ -322,25 +317,22 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         'createdAt': FieldValue.serverTimestamp(),
       };
 
-      // Save to phones collection
       await _firestore.collection('phones').add(newProduct);
 
-      // Add to local cache
       if (!_productsByBrand.containsKey(_selectedBrand!)) {
         _productsByBrand[_selectedBrand!] = [];
       }
 
-      // Check if product already exists
       final existingProductIndex = _productsByBrand[_selectedBrand!]!
           .indexWhere((p) => p['productName'] == _newProductName!.trim());
 
       if (existingProductIndex == -1) {
         _productsByBrand[_selectedBrand!]!.add({
+          'id': 'temp',
           'productName': _newProductName!.trim(),
           'price': _newProductPrice!,
         });
 
-        // Sort products by name
         _productsByBrand[_selectedBrand!]!.sort(
           (a, b) => (a['productName'] as String).compareTo(
             b['productName'] as String,
@@ -387,9 +379,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       double productPrice;
       String? productId;
 
-      // Handle product selection or creation
       if (_showAddProductForm) {
-        // Adding new product
         if (_newProductName == null || _newProductName!.trim().isEmpty) {
           _showModalError('Please enter product name');
           return;
@@ -402,12 +392,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         productName = _newProductName!.trim();
         productPrice = _newProductPrice!;
 
-        // Save the new product
         await _saveNewProduct();
-
-        // After saving product, continue with stock saving
       } else {
-        // Selecting existing product
         if (_selectedProduct == null || _selectedProduct!.isEmpty) {
           _showModalError('Please select a product');
           return;
@@ -433,13 +419,11 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         final productPriceTemp = product['price'];
         productId = product['id'] as String?;
 
-        // Handle price change
         if (_showPriceChangeOption && _priceChangeController.text.isNotEmpty) {
           final newPrice = double.tryParse(_priceChangeController.text);
           if (newPrice != null && newPrice > 0) {
             productPrice = newPrice;
-            // Update price in phones collection
-            if (productId != null) {
+            if (productId != null && productId != 'temp') {
               await _firestore.collection('phones').doc(productId).update({
                 'price': productPrice,
                 'updatedAt': FieldValue.serverTimestamp(),
@@ -457,7 +441,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         }
       }
 
-      // Validate quantity
       if (_quantity == null || _quantity! <= 0) {
         _showModalError('Please enter valid quantity');
         return;
@@ -468,7 +451,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         return;
       }
 
-      // Validate IMEI numbers
       for (int i = 0; i < _imeiNumbers.length; i++) {
         final imei = _imeiNumbers[i];
         if (imei.isEmpty) {
@@ -502,7 +484,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           user.email?.trim() ?? user.name?.trim() ?? 'Unknown User';
       final uploadedById = user.uid;
 
-      // Check for duplicate IMEIs
       try {
         for (String imei in _imeiNumbers) {
           final existingQuery = await _firestore
@@ -520,7 +501,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         print('IMEI check error: $e');
       }
 
-      // Save stock to database
       final savedCount = _imeiNumbers.length;
       final batch = _firestore.batch();
 
@@ -549,10 +529,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
       if (!mounted) return;
 
-      // Show success message
       _showSuccess('Successfully added $savedCount phone(s) to stock!');
 
-      // Close modal and reset form
       _closeAddStockModal();
     } catch (e) {
       print('Save stock error: $e');
@@ -564,9 +542,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     }
   }
 
-  // New method to reset the add stock form
   void _resetAddStockForm() {
-    // Clear all form data first
     setState(() {
       _selectedBrand = null;
       _selectedProduct = null;
@@ -580,20 +556,16 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       _clearModalMessages();
     });
 
-    // Clear text controllers
     _productSearchController.clear();
     _priceChangeController.clear();
 
-    // Dispose IMEI controllers AFTER clearing state
     _disposeImeiControllers();
 
-    // Reset the form
     if (_formKey.currentState != null) {
       _formKey.currentState!.reset();
     }
   }
 
-  // Method to clear data when opening the modal
   void _openAddStockModal() {
     _resetAddStockForm();
     setState(() {
@@ -601,14 +573,11 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     });
   }
 
-  // Method to close the modal and clear data
   void _closeAddStockModal() {
-    // Close modal first
     setState(() {
       _showAddStockModal = false;
     });
 
-    // Then reset form after a short delay
     Future.delayed(const Duration(milliseconds: 300), () {
       if (mounted) {
         _resetAddStockForm();
@@ -678,7 +647,96 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     }
   }
 
-  // Clear modal messages
+  Future<void> _returnPhone(
+    String phoneId,
+    Map<String, dynamic> phoneData,
+  ) async {
+    try {
+      setState(() => _isLoading = true);
+
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final user = authProvider.user;
+
+      final returnData = {
+        'phoneId': phoneId,
+        'productBrand': phoneData['productBrand'],
+        'productName': phoneData['productName'],
+        'productPrice': phoneData['productPrice'],
+        'imei': phoneData['imei'],
+        'originalShopId': phoneData['shopId'],
+        'originalShopName': phoneData['shopName'],
+        'returnedBy': user?.email ?? user?.name ?? 'Unknown',
+        'returnedById': user?.uid ?? '',
+        'returnedAt': FieldValue.serverTimestamp(),
+        'reason': 'returned_to_inventory',
+        'status': 'returned', // Add status field for filtering
+        'createdAt': FieldValue.serverTimestamp(),
+      };
+
+      await _firestore.collection('phoneReturns').add(returnData);
+
+      await _firestore.collection('phoneStock').doc(phoneId).delete();
+
+      setState(() {
+        _selectedPhoneForAction = null;
+      });
+
+      _showSuccess('Phone returned successfully!');
+    } catch (e) {
+      _showError('Failed to return phone: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  void _openScannerForImei(int index) {
+    setState(() {
+      _currentImeiFieldIndex = index;
+      _showScanner = true;
+      _scannerController = MobileScannerController();
+      _lastScannedImei = null;
+    });
+  }
+
+  void _closeScanner() {
+    setState(() {
+      _showScanner = false;
+      _currentImeiFieldIndex = null;
+      _scannerController?.dispose();
+      _scannerController = null;
+    });
+  }
+
+  void _handleBarcodeScan(BarcodeCapture capture) {
+    final List<Barcode> barcodes = capture.barcodes;
+    if (barcodes.isNotEmpty) {
+      final String scannedData = barcodes.first.rawValue ?? '';
+
+      if (RegExp(r'^\d{15,16}$').hasMatch(scannedData)) {
+        if (_currentImeiFieldIndex != null &&
+            _currentImeiFieldIndex! < _imeiNumbers.length) {
+          setState(() {
+            _imeiNumbers[_currentImeiFieldIndex!] = scannedData;
+            _imeiControllers[_currentImeiFieldIndex!].text = scannedData;
+            _lastScannedImei = scannedData;
+          });
+
+          Future.delayed(const Duration(milliseconds: 500), () {
+            if (mounted) {
+              _closeScanner();
+            }
+          });
+        }
+      } else {
+        setState(() {
+          _lastScannedImei = 'Invalid IMEI format: $scannedData';
+        });
+      }
+    }
+  }
+
   void _clearModalMessages() {
     setState(() {
       _modalError = null;
@@ -686,7 +744,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     });
   }
 
-  // Show error in modal context
   void _showModalError(String message) {
     if (!mounted) return;
     setState(() {
@@ -696,7 +753,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     });
   }
 
-  // Show success in modal context
   void _showModalSuccess(String message) {
     if (!mounted) return;
     setState(() {
@@ -741,10 +797,99 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     );
   }
 
+  Widget _buildProductList() {
+    final brandHasNoProducts =
+        !_productsByBrand.containsKey(_selectedBrand!) ||
+        (_productsByBrand[_selectedBrand!] ?? []).isEmpty;
+
+    final searchHasNoResults =
+        _productSearchController.text.isNotEmpty && _filteredProducts.isEmpty;
+
+    final shouldShowAddNew = brandHasNoProducts || searchHasNoResults;
+
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const AlwaysScrollableScrollPhysics(),
+      itemCount: _filteredProducts.length + (shouldShowAddNew ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (shouldShowAddNew && index == _filteredProducts.length) {
+          return _buildAddNewProductTile();
+        }
+
+        final product = _filteredProducts[index];
+        final productName = product['productName'] as String? ?? '';
+        final price = product['price'];
+        String priceText = '';
+
+        if (price is double) {
+          priceText = '₹${price.toStringAsFixed(0)}';
+        } else if (price is int) {
+          priceText = '₹$price';
+        }
+
+        return ListTile(
+          title: Text(
+            productName,
+            style: const TextStyle(fontSize: 12, color: Colors.black),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: Text(
+            priceText,
+            style: const TextStyle(fontSize: 10, color: Colors.green),
+          ),
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 4,
+          ),
+          onTap: () {
+            _handleProductSelection(productName);
+          },
+          trailing: _selectedProduct == productName
+              ? const Icon(Icons.check, color: Colors.green, size: 16)
+              : null,
+        );
+      },
+    );
+  }
+
+  Widget _buildAddNewProductTile() {
+    String subtitleText = '';
+
+    if (!_productsByBrand.containsKey(_selectedBrand!) ||
+        (_productsByBrand[_selectedBrand!] ?? []).isEmpty) {
+      subtitleText = 'No products found for this brand';
+    } else if (_productSearchController.text.isNotEmpty &&
+        _filteredProducts.isEmpty) {
+      subtitleText = 'No matching products found';
+    }
+
+    return ListTile(
+      leading: const Icon(Icons.add, color: Colors.green, size: 18),
+      title: const Text(
+        'Add New Product...',
+        style: TextStyle(fontSize: 12, color: Colors.black),
+      ),
+      subtitle: subtitleText.isNotEmpty
+          ? Text(
+              subtitleText,
+              style: const TextStyle(fontSize: 10, color: Colors.grey),
+            )
+          : null,
+      dense: true,
+      visualDensity: VisualDensity.compact,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      onTap: () {
+        _handleProductSelection('add_new');
+      },
+    );
+  }
+
   Widget _buildProductSearchDropdown() {
     if (_selectedBrand == null) return const SizedBox();
 
-    // Don't show search dropdown if adding new product
     if (_showAddProductForm) {
       return Container(
         padding: const EdgeInsets.all(12),
@@ -783,7 +928,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     final products = _productsByBrand[_selectedBrand!] ?? [];
     final searchText = _productSearchController.text.toLowerCase();
 
-    // Filter products based on search text
     if (searchText.isNotEmpty) {
       _filteredProducts = products.where((product) {
         final productName = product['productName'] as String? ?? '';
@@ -816,7 +960,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         ),
         const SizedBox(height: 8),
 
-        // Success message when product is added
         if (_modalSuccess != null && _modalSuccess!.contains('Product added'))
           Container(
             width: double.infinity,
@@ -848,114 +991,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             border: Border.all(color: Colors.grey.shade300),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: products.isEmpty
-              ? ListView(
-                  shrinkWrap: true,
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  children: [
-                    ListTile(
-                      leading: const Icon(
-                        Icons.add,
-                        color: Colors.green,
-                        size: 18,
-                      ),
-                      title: const Text(
-                        'Add New Product...',
-                        style: TextStyle(fontSize: 12, color: Colors.black),
-                      ),
-                      subtitle: const Text(
-                        'No products found for this brand',
-                        style: TextStyle(fontSize: 10, color: Colors.grey),
-                      ),
-                      dense: true,
-                      visualDensity: VisualDensity.compact,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 4,
-                      ),
-                      onTap: () {
-                        _handleProductSelection('add_new');
-                      },
-                    ),
-                  ],
-                )
-              : ListView.builder(
-                  shrinkWrap: true,
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  itemCount:
-                      _filteredProducts.length + 1, // +1 for "Add New" option
-                  itemBuilder: (context, index) {
-                    // Last item is always "Add New Product"
-                    if (index == _filteredProducts.length) {
-                      return ListTile(
-                        leading: const Icon(
-                          Icons.add,
-                          color: Colors.green,
-                          size: 18,
-                        ),
-                        title: const Text(
-                          'Add New Product...',
-                          style: TextStyle(fontSize: 12, color: Colors.black),
-                        ),
-                        dense: true,
-                        visualDensity: VisualDensity.compact,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
-                        ),
-                        onTap: () {
-                          _handleProductSelection('add_new');
-                        },
-                      );
-                    }
-
-                    final product = _filteredProducts[index];
-                    final productName = product['productName'] as String? ?? '';
-                    final price = product['price'];
-                    String priceText = '';
-
-                    if (price is double) {
-                      priceText = '₹${price.toStringAsFixed(0)}';
-                    } else if (price is int) {
-                      priceText = '₹$price';
-                    }
-
-                    return ListTile(
-                      title: Text(
-                        productName,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.black,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text(
-                        priceText,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: Colors.green,
-                        ),
-                      ),
-                      dense: true,
-                      visualDensity: VisualDensity.compact,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 4,
-                      ),
-                      onTap: () {
-                        _handleProductSelection(productName);
-                      },
-                      trailing: _selectedProduct == productName
-                          ? const Icon(
-                              Icons.check,
-                              color: Colors.green,
-                              size: 16,
-                            )
-                          : null,
-                    );
-                  },
-                ),
+          child: _buildProductList(),
         ),
       ],
     );
@@ -984,7 +1020,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Main form content
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(20),
@@ -1014,7 +1049,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                         const Divider(),
                         const SizedBox(height: 16),
 
-                        // Brand Selection
                         DropdownButtonFormField<String>(
                           value: _selectedBrand,
                           dropdownColor: Colors.white,
@@ -1070,12 +1104,10 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
                         const SizedBox(height: 12),
 
-                        // Product Search and Selection (only show if brand is selected)
                         if (_selectedBrand != null) ...[
                           _buildProductSearchDropdown(),
                           const SizedBox(height: 12),
 
-                          // Add Product Form (shown when "Add New Product" is selected)
                           if (_showAddProductForm) ...[
                             Container(
                               padding: const EdgeInsets.all(12),
@@ -1111,7 +1143,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                                   ),
                                   const SizedBox(height: 10),
 
-                                  // Product Name
                                   TextFormField(
                                     decoration: const InputDecoration(
                                       labelText: 'Product Name *',
@@ -1144,7 +1175,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
                                   const SizedBox(height: 10),
 
-                                  // Price
                                   TextFormField(
                                     decoration: const InputDecoration(
                                       labelText: 'Price *',
@@ -1187,7 +1217,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                             const SizedBox(height: 12),
                           ],
 
-                          // Price Change Option for existing products
                           if (_showPriceChangeOption &&
                               _originalProductPrice != null) ...[
                             Container(
@@ -1260,7 +1289,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                           ],
                         ],
 
-                        // Quantity Input (only show if product is selected/added)
                         if (_selectedProduct != null ||
                             _showAddProductForm) ...[
                           TextFormField(
@@ -1302,7 +1330,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                           const SizedBox(height: 12),
                         ],
 
-                        // IMEI Input Fields (dynamically generated based on quantity)
                         if (_quantity != null && _quantity! > 0) ...[
                           const Text(
                             'Enter IMEI Numbers: *',
@@ -1328,7 +1355,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                               physics: const AlwaysScrollableScrollPhysics(),
                               itemCount: _quantity!,
                               itemBuilder: (context, index) {
-                                // Safety check for controller existence
                                 if (index >= _imeiControllers.length) {
                                   return Padding(
                                     padding: const EdgeInsets.only(bottom: 8),
@@ -1378,58 +1404,79 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
                                 return Padding(
                                   padding: const EdgeInsets.only(bottom: 8),
-                                  child: TextFormField(
-                                    controller: _imeiControllers[index],
-                                    decoration: InputDecoration(
-                                      labelText: 'IMEI ${index + 1} *',
-                                      border: const OutlineInputBorder(),
-                                      prefixIcon: const Icon(
-                                        Icons.confirmation_number,
-                                        size: 18,
-                                      ),
-                                      labelStyle: const TextStyle(fontSize: 12),
-                                      suffixIcon:
-                                          index < _imeiNumbers.length &&
-                                              _imeiNumbers[index].isNotEmpty
-                                          ? Icon(
-                                              Icons.check_circle,
-                                              color:
-                                                  _imeiNumbers[index].length >=
-                                                      15
-                                                  ? Colors.green
-                                                  : Colors.orange,
-                                              size: 16,
-                                            )
-                                          : null,
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 12,
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: TextFormField(
+                                          controller: _imeiControllers[index],
+                                          decoration: InputDecoration(
+                                            labelText: 'IMEI ${index + 1} *',
+                                            border: const OutlineInputBorder(),
+                                            prefixIcon: const Icon(
+                                              Icons.confirmation_number,
+                                              size: 18,
+                                            ),
+                                            suffixIcon:
+                                                index < _imeiNumbers.length &&
+                                                    _imeiNumbers[index]
+                                                        .isNotEmpty
+                                                ? Icon(
+                                                    Icons.check_circle,
+                                                    color:
+                                                        _imeiNumbers[index]
+                                                                .length >=
+                                                            15
+                                                        ? Colors.green
+                                                        : Colors.orange,
+                                                    size: 16,
+                                                  )
+                                                : null,
+                                            labelStyle: const TextStyle(
+                                              fontSize: 12,
+                                            ),
+                                            contentPadding:
+                                                const EdgeInsets.symmetric(
+                                                  horizontal: 12,
+                                                  vertical: 12,
+                                                ),
                                           ),
-                                    ),
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.black,
-                                    ),
-                                    onChanged: (value) {
-                                      if (index < _imeiNumbers.length) {
-                                        setState(() {
-                                          _imeiNumbers[index] = value;
-                                          _clearModalMessages();
-                                        });
-                                      }
-                                    },
-                                    validator: (value) {
-                                      if (value == null ||
-                                          value.trim().isEmpty) {
-                                        return 'Please enter IMEI';
-                                      }
-                                      final trimmedValue = value.trim();
-                                      if (trimmedValue.length < 15) {
-                                        return 'IMEI must be at least 15 digits';
-                                      }
-                                      return null;
-                                    },
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.black,
+                                          ),
+                                          onChanged: (value) {
+                                            if (index < _imeiNumbers.length) {
+                                              setState(() {
+                                                _imeiNumbers[index] = value;
+                                                _clearModalMessages();
+                                              });
+                                            }
+                                          },
+                                          validator: (value) {
+                                            if (value == null ||
+                                                value.trim().isEmpty) {
+                                              return 'Please enter IMEI';
+                                            }
+                                            final trimmedValue = value.trim();
+                                            if (trimmedValue.length < 15) {
+                                              return 'IMEI must be at least 15 digits';
+                                            }
+                                            return null;
+                                          },
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.qr_code_scanner,
+                                          size: 20,
+                                        ),
+                                        onPressed: () =>
+                                            _openScannerForImei(index),
+                                        tooltip: 'Scan IMEI',
+                                        color: Colors.blue,
+                                      ),
+                                    ],
                                   ),
                                 );
                               },
@@ -1439,7 +1486,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                           const SizedBox(height: 12),
                         ],
 
-                        // Error/Success Messages at the bottom (above buttons)
                         if (_modalError != null)
                           Container(
                             width: double.infinity,
@@ -1519,7 +1565,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                             ),
                           ),
 
-                        // Action Buttons (Fixed at bottom)
                         Container(
                           padding: const EdgeInsets.only(top: 12),
                           child: Row(
@@ -1589,7 +1634,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     final price = phone['productPrice'];
     final currentShopId = phone['shopId'] as String?;
 
-    // Filter shops to exclude current shop
     final filteredShops = _shops
         .where((shop) => shop['id'] != currentShopId)
         .toList();
@@ -1614,7 +1658,11 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    _selectedAction == 'sell' ? 'Sell Phone' : 'Transfer Phone',
+                    _selectedAction == 'sell'
+                        ? 'Sell Phone'
+                        : _selectedAction == 'transfer'
+                        ? 'Transfer Phone'
+                        : 'Return Phone',
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -1632,7 +1680,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               const Divider(),
               const SizedBox(height: 12),
 
-              // Phone Details
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -1826,9 +1873,181 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                     ),
                   ],
                 ),
+              ] else if (_selectedAction == 'return') ...[
+                const Text(
+                  'Are you sure you want to return this phone?',
+                  style: TextStyle(fontSize: 12, color: Colors.orange),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'This will remove the phone from available stock and create a return record.',
+                  style: TextStyle(fontSize: 10, color: Colors.grey),
+                ),
+
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          setState(() => _selectedPhoneForAction = null);
+                        },
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: _isLoading
+                            ? null
+                            : () {
+                                final phoneId = phone['id'] as String;
+                                _returnPhone(phoneId, phone);
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                'Return',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImeiScannerModal() {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.7,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Scan IMEI Barcode',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: _closeScanner,
+                  ),
+                ],
+              ),
+            ),
+            const Divider(),
+
+            Expanded(
+              child: Stack(
+                children: [
+                  if (_scannerController != null)
+                    MobileScanner(
+                      controller: _scannerController!,
+                      onDetect: _handleBarcodeScan,
+                    ),
+
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.white, width: 2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    margin: const EdgeInsets.all(40),
+                    child: Container(),
+                  ),
+
+                  Positioned(
+                    bottom: 20,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      color: Colors.black.withOpacity(0.7),
+                      child: Column(
+                        children: [
+                          const Text(
+                            'Point camera at IMEI barcode',
+                            style: TextStyle(fontSize: 14, color: Colors.white),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 8),
+                          if (_lastScannedImei != null)
+                            Text(
+                              'Scanned: $_lastScannedImei',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _lastScannedImei!.startsWith('Invalid')
+                                    ? Colors.red
+                                    : Colors.green,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  _closeScanner();
+                },
+                icon: const Icon(Icons.keyboard, size: 16),
+                label: const Text(
+                  'Enter IMEI Manually',
+                  style: TextStyle(fontSize: 12),
+                ),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 10,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1867,345 +2086,668 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     }
   }
 
-  Widget _buildStockList(String status) {
+  Widget _buildStockList(String type) {
     final authProvider = Provider.of<AuthProvider>(context);
     final user = authProvider.user;
     final currentShopId = user?.shopId;
 
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('phoneStock')
-          .where('shopId', isEqualTo: currentShopId)
-          .where('status', isEqualTo: status)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error, color: Colors.red, size: 32),
-                const SizedBox(height: 12),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                    'Error loading data',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 12, color: Colors.red),
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        final stocks = snapshot.data!.docs;
-
-        if (stocks.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  status == 'available'
-                      ? Icons.inventory_2
-                      : Icons.shopping_cart_checkout,
-                  size: 50,
-                  color: Colors.grey,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  status == 'available'
-                      ? 'No available phones'
-                      : 'No sold phones',
-                  style: const TextStyle(fontSize: 14, color: Colors.grey),
-                ),
-                const SizedBox(height: 6),
-                if (status == 'available')
-                  ElevatedButton.icon(
-                    onPressed: _openAddStockModal,
-                    icon: const Icon(Icons.add, size: 16),
-                    label: const Text(
-                      'Add First Phone',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          );
-        }
-
-        // Sort documents client-side by uploadedAt
-        stocks.sort((a, b) {
-          final aData = a.data() as Map<String, dynamic>;
-          final bData = b.data() as Map<String, dynamic>;
-          final aDate = aData['uploadedAt'];
-          final bDate = bData['uploadedAt'];
-
-          if (aDate == null || bDate == null) return 0;
-          if (aDate is Timestamp && bDate is Timestamp) {
-            return bDate.compareTo(aDate); // Descending
-          }
-          return 0;
-        });
-
-        // Filter stocks based on search query
-        final filteredStocks = stocks.where((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-
-          // Search filter
-          if (_searchQuery.isNotEmpty) {
-            final imei = data['imei'] as String? ?? '';
-            final productName = data['productName'] as String? ?? '';
-            final productBrand = data['productBrand'] as String? ?? '';
-
-            return imei.toLowerCase().contains(_searchQuery) ||
-                productName.toLowerCase().contains(_searchQuery) ||
-                productBrand.toLowerCase().contains(_searchQuery);
-          }
-
-          return true;
-        }).toList();
-
-        if (filteredStocks.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.search_off, size: 50, color: Colors.grey[400]),
-                const SizedBox(height: 12),
-                const Text(
-                  'No matching items',
-                  style: TextStyle(fontSize: 14, color: Colors.grey),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Try different search',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                ),
-              ],
-            ),
-          );
-        }
-
-        // Calculate statistics for current tab
-        double totalValue = 0;
-        int totalPhones = 0;
-        final Map<String, Map<String, dynamic>> brandStats = {};
-
-        for (final doc in filteredStocks) {
-          final data = doc.data() as Map<String, dynamic>;
-          final price = _parsePrice(data['productPrice']);
-          final brand = data['productBrand'] as String? ?? 'Unknown';
-
-          totalPhones++;
-          totalValue += price;
-
-          // Update brand statistics
-          if (!brandStats.containsKey(brand)) {
-            brandStats[brand] = {'count': 0, 'value': 0.0};
-          }
-
-          brandStats[brand]!['count'] = brandStats[brand]!['count'] + 1;
-          brandStats[brand]!['value'] = brandStats[brand]!['value'] + price;
-        }
-
-        return Column(
-          children: [
-            // Statistics for current tab
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
+    if (type == 'returned') {
+      // FIXED: Show all returned phones without status filter
+      return StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('phoneReturns')
+            .where('originalShopId', isEqualTo: currentShopId)
+            // REMOVED: .where('status', isEqualTo: 'returned')
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Total Value
-                  Expanded(
-                    child: _buildStatCard(
-                      status == 'available' ? 'Available Value' : 'Sold Value',
-                      _formatPrice(totalValue),
-                      '$totalPhones phones',
-                      status == 'available' ? Colors.green : Colors.orange,
-                      status == 'available'
-                          ? Icons.inventory
-                          : Icons.shopping_cart_checkout,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  // Brands count
-                  Expanded(
-                    child: _buildStatCard(
-                      'Brands',
-                      '${brandStats.length}',
-                      'Varieties',
-                      Colors.purple,
-                      Icons.category,
+                  const Icon(Icons.error, color: Colors.red, size: 32),
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Text(
+                      'Error loading returned phones: ${snapshot.error}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12, color: Colors.red),
                     ),
                   ),
                 ],
               ),
-            ),
+            );
+          }
 
-            // Brand-wise Grid
-            if (brandStats.isNotEmpty) ...[
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12),
-                child: Text(
-                  'Brand-wise Summary',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          final returns = snapshot.data!.docs;
+
+          if (returns.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.assignment_return, size: 50, color: Colors.grey),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'No returned phones',
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Shop: ${user?.shopName ?? 'Unknown'}',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          // Sort returns by returnedAt (most recent first)
+          returns.sort((a, b) {
+            final aData = a.data() as Map<String, dynamic>;
+            final bData = b.data() as Map<String, dynamic>;
+            final aDate = aData['returnedAt'];
+            final bDate = bData['returnedAt'];
+
+            if (aDate == null || bDate == null) return 0;
+            if (aDate is Timestamp && bDate is Timestamp) {
+              return bDate.compareTo(aDate); // Descending
+            }
+            return 0;
+          });
+
+          // Filter returns based on search query
+          final filteredReturns = returns.where((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+
+            if (_searchQuery.isNotEmpty) {
+              final imei = data['imei'] as String? ?? '';
+              final productName = data['productName'] as String? ?? '';
+              final productBrand = data['productBrand'] as String? ?? '';
+
+              return imei.toLowerCase().contains(_searchQuery) ||
+                  productName.toLowerCase().contains(_searchQuery) ||
+                  productBrand.toLowerCase().contains(_searchQuery);
+            }
+
+            return true;
+          }).toList();
+
+          if (filteredReturns.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.search_off, size: 50, color: Colors.grey[400]),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'No matching returned items',
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Try different search',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          // Calculate statistics for returned tab
+          double totalValue = 0;
+          int totalPhones = 0;
+          final Map<String, Map<String, dynamic>> brandStats = {};
+
+          for (final doc in filteredReturns) {
+            final data = doc.data() as Map<String, dynamic>;
+            final price = _parsePrice(data['productPrice']);
+            final brand = data['productBrand'] as String? ?? 'Unknown';
+
+            totalPhones++;
+            totalValue += price;
+
+            if (!brandStats.containsKey(brand)) {
+              brandStats[brand] = {'count': 0, 'value': 0.0};
+            }
+
+            brandStats[brand]!['count'] = brandStats[brand]!['count'] + 1;
+            brandStats[brand]!['value'] = brandStats[brand]!['value'] + price;
+          }
+
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _buildStatCard(
+                        'Returned Value',
+                        _formatPrice(totalValue),
+                        '$totalPhones phones',
+                        Colors.orange,
+                        Icons.assignment_return,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _buildStatCard(
+                        'Brands',
+                        '${brandStats.length}',
+                        'Varieties',
+                        Colors.purple,
+                        Icons.category,
+                      ),
+                    ),
+                  ],
                 ),
               ),
+
+              if (brandStats.isNotEmpty) ...[
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Text(
+                    'Returned by Brand',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 70,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    itemCount: brandStats.length,
+                    itemBuilder: (context, index) {
+                      final brand = brandStats.keys.toList()[index];
+                      final stats = brandStats[brand]!;
+                      return Container(
+                        width: 100,
+                        margin: const EdgeInsets.only(right: 8),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.orange.shade200),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Text(
+                              brand,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              maxLines: 1,
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${stats['count']}',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.orange,
+                              ),
+                            ),
+                            Text(
+                              _formatPrice(stats['value']),
+                              style: const TextStyle(
+                                fontSize: 9,
+                                color: Colors.orange,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: Divider(),
+              ),
+
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Returned Phones: ${filteredReturns.length}',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    ),
+                    Text(
+                      'Shop: ${user?.shopName ?? 'Unknown'}',
+                      style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+                    ),
+                  ],
+                ),
+              ),
+
               const SizedBox(height: 8),
-              SizedBox(
-                height: 70,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  itemCount: brandStats.length,
+
+              Expanded(
+                child: GridView.builder(
+                  padding: const EdgeInsets.all(8),
+                  shrinkWrap: true,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 1,
+                    crossAxisSpacing: 6,
+                    mainAxisSpacing: 8,
+                    childAspectRatio: 2.1,
+                  ),
+                  itemCount: filteredReturns.length,
                   itemBuilder: (context, index) {
-                    final brand = brandStats.keys.toList()[index];
-                    final stats = brandStats[brand]!;
-                    return Container(
-                      width: 100,
-                      margin: const EdgeInsets.only(right: 8),
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.grey.shade300),
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Text(
-                            brand,
-                            style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            maxLines: 1,
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${stats['count']}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue,
-                            ),
-                          ),
-                          Text(
-                            _formatPrice(stats['value']),
-                            style: const TextStyle(
-                              fontSize: 9,
-                              color: Colors.green,
-                            ),
-                          ),
-                        ],
-                      ),
+                    final doc = filteredReturns[index];
+                    final returnData = doc.data() as Map<String, dynamic>;
+                    final productName =
+                        returnData['productName'] as String? ?? 'Unknown';
+                    final productBrand =
+                        returnData['productBrand'] as String? ?? 'Unknown';
+                    final imei = returnData['imei'] as String? ?? 'N/A';
+                    final price = returnData['productPrice'];
+                    final returnedAt = returnData['returnedAt'];
+                    final returnedBy = returnData['returnedBy'] ?? 'Unknown';
+                    final reason =
+                        returnData['reason'] ?? 'returned_to_inventory';
+                    final originalShopName =
+                        returnData['originalShopName'] ?? 'Unknown Shop';
+
+                    return _buildReturnedPhoneCard(
+                      productName: productName,
+                      productBrand: productBrand,
+                      imei: imei,
+                      price: price,
+                      returnedAt: returnedAt,
+                      returnedBy: returnedBy,
+                      reason: reason,
+                      originalShopName: originalShopName,
                     );
                   },
                 ),
               ),
-              const SizedBox(height: 8),
             ],
-
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 12),
-              child: Divider(),
-            ),
-
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          );
+        },
+      );
+    } else {
+      // Show available or sold phones from phoneStock collection
+      return StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('phoneStock')
+            .where('shopId', isEqualTo: currentShopId)
+            .where('status', isEqualTo: type)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(
-                    'Phones: ${filteredStocks.length}',
-                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  const Icon(Icons.error, color: Colors.red, size: 32),
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Text(
+                      'Error loading data: ${snapshot.error}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12, color: Colors.red),
+                    ),
                   ),
                 ],
               ),
-            ),
+            );
+          }
 
-            const SizedBox(height: 8),
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-            // Grid View of Phones - FIXED childAspectRatio
-            Expanded(
-              child: GridView.builder(
-                padding: const EdgeInsets.all(8),
-                shrinkWrap: true,
-                physics: const AlwaysScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 6,
-                  mainAxisSpacing: 8,
-                  childAspectRatio: 1, // Adjusted for better fit
-                ),
-                itemCount: filteredStocks.length,
-                itemBuilder: (context, index) {
-                  final doc = filteredStocks[index];
-                  final stock = doc.data() as Map<String, dynamic>;
-                  final productName =
-                      stock['productName'] as String? ?? 'Unknown';
-                  final productBrand =
-                      stock['productBrand'] as String? ?? 'Unknown';
-                  final imei = stock['imei'] as String? ?? 'N/A';
-                  final price = stock['productPrice'];
-                  final uploadedAt = stock['uploadedAt'];
-                  final soldAt = stock['soldAt'];
+          final stocks = snapshot.data!.docs;
 
-                  return _buildPhoneCard(
-                    productName: productName,
-                    productBrand: productBrand,
-                    imei: imei,
-                    price: price,
-                    uploadedAt: uploadedAt,
-                    soldAt: soldAt,
-                    status: status,
-                    onSell: status == 'available'
-                        ? () {
-                            setState(() {
-                              _selectedPhoneForAction = {
-                                ...stock,
-                                'id': doc.id,
-                              };
-                              _selectedAction = 'sell';
-                            });
-                          }
-                        : null,
-                    onTransfer: status == 'available'
-                        ? () {
-                            setState(() {
-                              _selectedPhoneForAction = {
-                                ...stock,
-                                'id': doc.id,
-                              };
-                              _selectedAction = 'transfer';
-                            });
-                          }
-                        : null,
-                  );
-                },
+          if (stocks.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    type == 'available'
+                        ? Icons.inventory_2
+                        : Icons.shopping_cart_checkout,
+                    size: 50,
+                    color: Colors.grey,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    type == 'available'
+                        ? 'No available phones'
+                        : 'No sold phones',
+                    style: const TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 6),
+                  if (type == 'available')
+                    ElevatedButton.icon(
+                      onPressed: _openAddStockModal,
+                      icon: const Icon(Icons.add, size: 16),
+                      label: const Text(
+                        'Add First Phone',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                      ),
+                    ),
+                ],
               ),
-            ),
-          ],
-        );
-      },
-    );
+            );
+          }
+
+          stocks.sort((a, b) {
+            final aData = a.data() as Map<String, dynamic>;
+            final bData = b.data() as Map<String, dynamic>;
+            final aDate = aData['uploadedAt'];
+            final bDate = bData['uploadedAt'];
+
+            if (aDate == null || bDate == null) return 0;
+            if (aDate is Timestamp && bDate is Timestamp) {
+              return bDate.compareTo(aDate);
+            }
+            return 0;
+          });
+
+          final filteredStocks = stocks.where((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+
+            if (_searchQuery.isNotEmpty) {
+              final imei = data['imei'] as String? ?? '';
+              final productName = data['productName'] as String? ?? '';
+              final productBrand = data['productBrand'] as String? ?? '';
+
+              return imei.toLowerCase().contains(_searchQuery) ||
+                  productName.toLowerCase().contains(_searchQuery) ||
+                  productBrand.toLowerCase().contains(_searchQuery);
+            }
+
+            return true;
+          }).toList();
+
+          if (filteredStocks.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.search_off, size: 50, color: Colors.grey[400]),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'No matching items',
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Try different search',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          double totalValue = 0;
+          int totalPhones = 0;
+          final Map<String, Map<String, dynamic>> brandStats = {};
+
+          for (final doc in filteredStocks) {
+            final data = doc.data() as Map<String, dynamic>;
+            final price = _parsePrice(data['productPrice']);
+            final brand = data['productBrand'] as String? ?? 'Unknown';
+
+            totalPhones++;
+            totalValue += price;
+
+            if (!brandStats.containsKey(brand)) {
+              brandStats[brand] = {'count': 0, 'value': 0.0};
+            }
+
+            brandStats[brand]!['count'] = brandStats[brand]!['count'] + 1;
+            brandStats[brand]!['value'] = brandStats[brand]!['value'] + price;
+          }
+
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _buildStatCard(
+                        type == 'available' ? 'Available Value' : 'Sold Value',
+                        _formatPrice(totalValue),
+                        '$totalPhones phones',
+                        type == 'available' ? Colors.green : Colors.blue,
+                        type == 'available'
+                            ? Icons.inventory
+                            : Icons.shopping_cart_checkout,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _buildStatCard(
+                        'Brands',
+                        '${brandStats.length}',
+                        'Varieties',
+                        Colors.purple,
+                        Icons.category,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              if (brandStats.isNotEmpty) ...[
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Text(
+                    'Brand-wise Summary',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 70,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    itemCount: brandStats.length,
+                    itemBuilder: (context, index) {
+                      final brand = brandStats.keys.toList()[index];
+                      final stats = brandStats[brand]!;
+                      return Container(
+                        width: 100,
+                        margin: const EdgeInsets.only(right: 8),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: type == 'available'
+                              ? Colors.green.shade50
+                              : Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: type == 'available'
+                                ? Colors.green.shade200
+                                : Colors.blue.shade200,
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Text(
+                              brand,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              maxLines: 1,
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${stats['count']}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: type == 'available'
+                                    ? Colors.green
+                                    : Colors.blue,
+                              ),
+                            ),
+                            Text(
+                              _formatPrice(stats['value']),
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: type == 'available'
+                                    ? Colors.green
+                                    : Colors.blue,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: Divider(),
+              ),
+
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Phones: ${filteredStocks.length}',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    ),
+                    if (type == 'available')
+                      IconButton(
+                        icon: const Icon(Icons.qr_code_scanner, size: 20),
+                        onPressed: () {
+                          _showScannerForStockSearch();
+                        },
+                        tooltip: 'Scan IMEI to search',
+                      ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              Expanded(
+                child: GridView.builder(
+                  padding: const EdgeInsets.all(8),
+                  shrinkWrap: true,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 1,
+                    crossAxisSpacing: 6,
+                    mainAxisSpacing: 8,
+                    mainAxisExtent: 200,
+                  ),
+                  itemCount: filteredStocks.length,
+                  itemBuilder: (context, index) {
+                    final doc = filteredStocks[index];
+                    final stock = doc.data() as Map<String, dynamic>;
+                    final productName =
+                        stock['productName'] as String? ?? 'Unknown';
+                    final productBrand =
+                        stock['productBrand'] as String? ?? 'Unknown';
+                    final imei = stock['imei'] as String? ?? 'N/A';
+                    final price = stock['productPrice'];
+                    final uploadedAt = stock['uploadedAt'];
+                    final soldAt = stock['soldAt'];
+
+                    return _buildPhoneCard(
+                      productName: productName,
+                      productBrand: productBrand,
+                      imei: imei,
+                      price: price,
+                      uploadedAt: uploadedAt,
+                      soldAt: soldAt,
+                      status: type,
+                      onSell: type == 'available'
+                          ? () {
+                              setState(() {
+                                _selectedPhoneForAction = {
+                                  ...stock,
+                                  'id': doc.id,
+                                };
+                                _selectedAction = 'sell';
+                              });
+                            }
+                          : null,
+                      onTransfer: type == 'available'
+                          ? () {
+                              setState(() {
+                                _selectedPhoneForAction = {
+                                  ...stock,
+                                  'id': doc.id,
+                                };
+                                _selectedAction = 'transfer';
+                              });
+                            }
+                          : null,
+                      onReturn: type == 'available'
+                          ? () {
+                              setState(() {
+                                _selectedPhoneForAction = {
+                                  ...stock,
+                                  'id': doc.id,
+                                };
+                                _selectedAction = 'return';
+                              });
+                            }
+                          : null,
+                    );
+                  },
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    }
+  }
+
+  void _showScannerForStockSearch() {
+    setState(() {
+      _showScanner = true;
+      _scannerController = MobileScannerController();
+      _lastScannedImei = null;
+    });
   }
 
   @override
@@ -2228,9 +2770,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                 onPressed: () => Navigator.pop(context),
               ),
               actions: [
-                // Center aligned Add button
                 Container(
-                  height: 40, // Match app bar height
+                  height: 40,
                   margin: const EdgeInsets.all(3),
                   alignment: Alignment.center,
                   child: ElevatedButton.icon(
@@ -2253,7 +2794,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                 ),
               ],
               centerTitle: true,
-              toolbarHeight: 56, // Standard app bar height
+              toolbarHeight: 56,
             ),
             body: _isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -2273,7 +2814,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                   )
                 : Column(
                     children: [
-                      // Tabs with better spacing
                       Container(
                         color: Colors.white,
                         child: Column(
@@ -2295,19 +2835,18 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                                 unselectedLabelStyle: const TextStyle(
                                   fontSize: 12,
                                 ),
-                                labelPadding:
-                                    EdgeInsets.zero, // Remove extra padding
-                                tabs: const [
+                                labelPadding: EdgeInsets.zero,
+                                tabs: [
                                   Tab(
                                     child: Row(
                                       mainAxisAlignment:
                                           MainAxisAlignment.center,
                                       children: [
-                                        Icon(Icons.inventory, size: 18),
-                                        SizedBox(width: 4),
+                                        const Icon(Icons.inventory, size: 18),
+                                        const SizedBox(width: 4),
                                         Flexible(
                                           child: Text(
-                                            'Available',
+                                            _tabTitles[0],
                                             overflow: TextOverflow.ellipsis,
                                             maxLines: 1,
                                           ),
@@ -2320,14 +2859,34 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                                       mainAxisAlignment:
                                           MainAxisAlignment.center,
                                       children: [
-                                        Icon(
+                                        const Icon(
                                           Icons.shopping_cart_checkout,
                                           size: 18,
                                         ),
-                                        SizedBox(width: 4),
+                                        const SizedBox(width: 4),
                                         Flexible(
                                           child: Text(
-                                            'Sold',
+                                            _tabTitles[1],
+                                            overflow: TextOverflow.ellipsis,
+                                            maxLines: 1,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Tab(
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        const Icon(
+                                          Icons.assignment_return,
+                                          size: 18,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Flexible(
+                                          child: Text(
+                                            _tabTitles[2],
                                             overflow: TextOverflow.ellipsis,
                                             maxLines: 1,
                                           ),
@@ -2342,7 +2901,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                         ),
                       ),
 
-                      // Search Bar
                       Container(
                         padding: const EdgeInsets.all(12),
                         color: Colors.white,
@@ -2359,8 +2917,11 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                                     Icons.search,
                                     size: 20,
                                   ),
-                                  suffixIcon: _searchQuery.isNotEmpty
-                                      ? IconButton(
+                                  suffixIcon: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (_searchQuery.isNotEmpty)
+                                        IconButton(
                                           icon: const Icon(
                                             Icons.clear,
                                             size: 20,
@@ -2370,8 +2931,19 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                                             setState(() => _searchQuery = '');
                                             _searchFocusNode.unfocus();
                                           },
-                                        )
-                                      : null,
+                                        ),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.qr_code_scanner,
+                                          size: 22,
+                                        ),
+                                        onPressed: () {
+                                          _showScannerForStockSearch();
+                                        },
+                                        tooltip: 'Scan IMEI',
+                                      ),
+                                    ],
+                                  ),
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10),
                                   ),
@@ -2407,16 +2979,13 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                       ),
                       const SizedBox(height: 8),
 
-                      // Tab Content
                       Expanded(
                         child: TabBarView(
                           controller: _tabController,
                           children: [
-                            // Available Tab
                             _buildStockList('available'),
-
-                            // Sold Tab
                             _buildStockList('sold'),
+                            _buildStockList('returned'),
                           ],
                         ),
                       ),
@@ -2424,19 +2993,20 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                   ),
           ),
 
-          // Blurry background when modal is open
-          if (_showAddStockModal || _selectedPhoneForAction != null)
+          if (_showAddStockModal ||
+              _selectedPhoneForAction != null ||
+              _showScanner)
             Container(
               color: Colors.black.withOpacity(0.5),
               width: double.infinity,
               height: double.infinity,
             ),
 
-          // Add Stock Modal
           if (_showAddStockModal) _buildAddStockModal(),
 
-          // Action Modal (Sell/Transfer)
           if (_selectedPhoneForAction != null) _buildActionModal(),
+
+          if (_showScanner) _buildImeiScannerModal(),
         ],
       ),
     );
@@ -2502,11 +3072,10 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     required String status,
     VoidCallback? onSell,
     VoidCallback? onTransfer,
+    VoidCallback? onReturn,
   }) {
-    // Format IMEI to show full number with proper formatting
     String displayImei = imei;
     if (imei.length > 15) {
-      // Format IMEI with spaces for better readability: XXXXXX-XXXXXX-X
       if (imei.length == 15) {
         displayImei =
             '${imei.substring(0, 6)}-${imei.substring(6, 12)}-${imei.substring(12)}';
@@ -2515,18 +3084,29 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       }
     }
 
+    Color borderColor;
+    Color bgColor;
+
+    switch (status) {
+      case 'available':
+        borderColor = Colors.green.shade200;
+        bgColor = Colors.white;
+        break;
+      case 'sold':
+        borderColor = Colors.blue.shade200;
+        bgColor = Colors.blue.shade50;
+        break;
+      default:
+        borderColor = Colors.grey.shade300;
+        bgColor = Colors.white;
+    }
+
     return Container(
-      constraints: BoxConstraints(
-        minHeight: 180, // Ensure minimum height
-      ),
+      constraints: BoxConstraints(minHeight: 180),
       decoration: BoxDecoration(
-        color: status == 'available' ? Colors.white : Colors.grey.shade100,
+        color: bgColor,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: status == 'available'
-              ? Colors.green.shade200
-              : Colors.grey.shade300,
-        ),
+        border: Border.all(color: borderColor),
         boxShadow: [
           BoxShadow(
             color: Colors.grey.withOpacity(0.1),
@@ -2541,7 +3121,32 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // Product name with fixed height
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: status == 'available'
+                    ? Colors.green.shade100
+                    : status == 'sold'
+                    ? Colors.blue.shade100
+                    : Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                status.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                  color: status == 'available'
+                      ? Colors.green
+                      : status == 'sold'
+                      ? Colors.blue
+                      : Colors.grey,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 4),
+
             SizedBox(
               height: 32,
               child: Text(
@@ -2558,7 +3163,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
             const SizedBox(height: 2),
 
-            // Price
             Text(
               _formatPrice(price),
               style: const TextStyle(
@@ -2572,7 +3176,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
             const SizedBox(height: 2),
 
-            // Brand
             Text(
               productBrand,
               style: TextStyle(
@@ -2586,7 +3189,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
             const SizedBox(height: 2),
 
-            // IMEI with fixed height
             SizedBox(
               height: 24,
               child: Text(
@@ -2601,7 +3203,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               ),
             ),
 
-            // Date information
             Text(
               'Added: ${_formatDate(uploadedAt)}',
               style: TextStyle(fontSize: 10, color: Colors.grey[600]),
@@ -2616,8 +3217,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                 overflow: TextOverflow.ellipsis,
               ),
 
-            // Action Buttons (only for available phones)
-            if (status == 'available' && (onSell != null || onTransfer != null))
+            if (status == 'available' &&
+                (onSell != null || onTransfer != null || onReturn != null))
               Column(
                 children: [
                   const SizedBox(height: 8),
@@ -2628,7 +3229,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                       if (onSell != null)
                         Expanded(
                           child: SizedBox(
-                            height: 28, // Fixed button height
+                            height: 28,
                             child: ElevatedButton(
                               onPressed: onSell,
                               style: ElevatedButton.styleFrom(
@@ -2651,7 +3252,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                       if (onTransfer != null)
                         Expanded(
                           child: SizedBox(
-                            height: 28, // Fixed button height
+                            height: 28,
                             child: ElevatedButton(
                               onPressed: onTransfer,
                               style: ElevatedButton.styleFrom(
@@ -2669,10 +3270,178 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                             ),
                           ),
                         ),
+                      if ((onSell != null || onTransfer != null) &&
+                          onReturn != null)
+                        const SizedBox(width: 4),
+                      if (onReturn != null)
+                        Expanded(
+                          child: SizedBox(
+                            height: 28,
+                            child: ElevatedButton(
+                              onPressed: onReturn,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.orange,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                textStyle: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              child: const Text('Return'),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ],
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReturnedPhoneCard({
+    required String productName,
+    required String productBrand,
+    required String imei,
+    required dynamic price,
+    required dynamic returnedAt,
+    required String returnedBy,
+    required String reason,
+    required String originalShopName,
+  }) {
+    String displayImei = imei;
+    if (imei.length > 15) {
+      if (imei.length == 15) {
+        displayImei =
+            '${imei.substring(0, 6)}-${imei.substring(6, 12)}-${imei.substring(12)}';
+      } else if (imei.length == 16) {
+        displayImei = '${imei.substring(0, 8)}-${imei.substring(8)}';
+      }
+    }
+
+    return Container(
+      constraints: BoxConstraints(minHeight: 180),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.orange.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade100,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Text(
+                'RETURNED',
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.orange,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 4),
+
+            SizedBox(
+              height: 32,
+              child: Text(
+                productName,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+
+            const SizedBox(height: 2),
+
+            Text(
+              _formatPrice(price),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Colors.green,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+
+            const SizedBox(height: 2),
+
+            Text(
+              productBrand,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.orange.shade700,
+                fontWeight: FontWeight.w500,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+
+            const SizedBox(height: 2),
+
+            SizedBox(
+              height: 24,
+              child: Text(
+                'IMEI: $displayImei',
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: Colors.black,
+                  fontFamily: 'Monospace',
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+
+            Text(
+              'Returned: ${_formatDate(returnedAt)}',
+              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              'By: $returnedBy',
+              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              'Shop: $originalShopName',
+              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              'Reason: ${reason.replaceAll('_', ' ').toLowerCase()}',
+              style: TextStyle(fontSize: 9, color: Colors.orange.shade600),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ],
         ),
       ),
