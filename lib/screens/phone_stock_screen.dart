@@ -487,20 +487,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       if (!mounted) return;
 
       // Clear all fields and controllers
-      setState(() {
-        _selectedBrand = null;
-        _selectedProduct = null;
-        _quantity = null;
-        _imeiNumbers = [];
-        _imeiControllers = [];
-        _showAddProductForm = false;
-        _newProductName = null;
-        _newProductPrice = null;
-        _showAddStockModal = false;
-        _showPriceChangeOption = false;
-        _priceChangeController.clear();
-        _productSearchController.clear();
-      });
+      _resetAddStockForm();
 
       _formKey.currentState?.reset();
       _showSuccess('Successfully added $savedCount phone(s) to stock!');
@@ -512,6 +499,50 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  // New method to reset the add stock form
+  void _resetAddStockForm() {
+    // Dispose all IMEI controllers
+    for (var controller in _imeiControllers) {
+      controller.dispose();
+    }
+
+    // Clear all form data
+    setState(() {
+      _selectedBrand = null;
+      _selectedProduct = null;
+      _newProductName = null;
+      _newProductPrice = null;
+      _quantity = null;
+      _imeiNumbers = [];
+      _imeiControllers = [];
+      _showAddProductForm = false;
+      _showPriceChangeOption = false;
+      _originalProductPrice = null;
+      _productSearchController.clear();
+      _priceChangeController.clear();
+      _clearModalMessages();
+    });
+
+    // Reset the form
+    _formKey.currentState?.reset();
+  }
+
+  // Method to clear data when opening the modal
+  void _openAddStockModal() {
+    _resetAddStockForm();
+    setState(() {
+      _showAddStockModal = true;
+    });
+  }
+
+  // Method to close the modal and clear data
+  void _closeAddStockModal() {
+    _resetAddStockForm();
+    setState(() {
+      _showAddStockModal = false;
+    });
   }
 
   Future<void> _markAsSold(
@@ -705,7 +736,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               vertical: 12,
             ),
           ),
-          style: const TextStyle(fontSize: 12),
+          style: const TextStyle(fontSize: 12, color: Colors.black),
           onChanged: (value) {
             setState(() {
               _clearModalMessages();
@@ -730,7 +761,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                   leading: const Icon(Icons.add, color: Colors.green, size: 18),
                   title: const Text(
                     'Add New Product...',
-                    style: TextStyle(fontSize: 12),
+                    style: TextStyle(fontSize: 12, color: Colors.black),
                   ),
                   subtitle: products.isEmpty
                       ? const Text(
@@ -764,7 +795,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               return ListTile(
                 title: Text(
                   productName,
-                  style: const TextStyle(fontSize: 12),
+                  style: const TextStyle(fontSize: 12, color: Colors.black),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -838,23 +869,17 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                             ),
                             IconButton(
                               icon: const Icon(Icons.close, size: 20),
-                              onPressed: () {
-                                setState(() {
-                                  _showAddStockModal = false;
-                                  _productSearchController.clear();
-                                  _priceChangeController.clear();
-                                  _clearModalMessages();
-                                });
-                              },
+                              onPressed: _closeAddStockModal,
                             ),
                           ],
                         ),
                         const Divider(),
                         const SizedBox(height: 16),
 
-                        // Brand Selection
+                        // Brand Selection - FIXED: Changed dropdownColor to white
                         DropdownButtonFormField<String>(
                           value: _selectedBrand,
+                          dropdownColor: Colors.white, // Added this line
                           decoration: const InputDecoration(
                             labelText: 'Select Brand *',
                             border: OutlineInputBorder(),
@@ -868,13 +893,19 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                               vertical: 12,
                             ),
                           ),
-                          style: const TextStyle(fontSize: 12),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.black,
+                          ), // Added color: black
                           items: _brands.map<DropdownMenuItem<String>>((brand) {
                             return DropdownMenuItem<String>(
                               value: brand,
                               child: Text(
                                 brand,
-                                style: const TextStyle(fontSize: 12),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black,
+                                ), // Added color: black
                               ),
                             );
                           }).toList(),
@@ -988,7 +1019,10 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                                         vertical: 12,
                                       ),
                                     ),
-                                    style: const TextStyle(fontSize: 12),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.black,
+                                    ),
                                     onChanged: (value) {
                                       setState(() {
                                         _newProductName = value;
@@ -1019,7 +1053,10 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                                         vertical: 12,
                                       ),
                                     ),
-                                    style: const TextStyle(fontSize: 12),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.black,
+                                    ),
                                     keyboardType: TextInputType.number,
                                     onChanged: (value) {
                                       setState(() {
@@ -1086,7 +1123,10 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                                         vertical: 12,
                                       ),
                                     ),
-                                    style: const TextStyle(fontSize: 12),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.black,
+                                    ),
                                     keyboardType: TextInputType.number,
                                     onChanged: (value) {
                                       _clearModalMessages();
@@ -1131,7 +1171,10 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                                 vertical: 12,
                               ),
                             ),
-                            style: const TextStyle(fontSize: 12),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.black,
+                            ),
                             keyboardType: TextInputType.number,
                             onChanged: (value) {
                               _handleQuantityChange(value);
@@ -1212,7 +1255,10 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                                             vertical: 12,
                                           ),
                                     ),
-                                    style: const TextStyle(fontSize: 12),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.black,
+                                    ),
                                     onChanged: (value) {
                                       if (index < _imeiNumbers.length) {
                                         setState(() {
@@ -1327,14 +1373,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                             children: [
                               Expanded(
                                 child: OutlinedButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      _showAddStockModal = false;
-                                      _productSearchController.clear();
-                                      _priceChangeController.clear();
-                                      _clearModalMessages();
-                                    });
-                                  },
+                                  onPressed: _closeAddStockModal,
                                   style: OutlinedButton.styleFrom(
                                     padding: const EdgeInsets.symmetric(
                                       vertical: 10,
@@ -1735,12 +1774,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                 const SizedBox(height: 6),
                 if (status == 'available')
                   ElevatedButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _showAddStockModal = true;
-                        _clearModalMessages();
-                      });
-                    },
+                    onPressed: _openAddStockModal,
                     icon: const Icon(Icons.add, size: 16),
                     label: const Text(
                       'Add First Phone',
@@ -1950,16 +1984,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                     'Phones: ${filteredStocks.length}',
                     style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                   ),
-                  if (status == 'available')
-                    Text(
-                      'Status: Available',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    )
-                  else
-                    Text(
-                      'Status: Sold',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
                 ],
               ),
             ),
@@ -1974,7 +1998,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                   crossAxisCount: 2,
                   crossAxisSpacing: 6,
                   mainAxisSpacing: 8,
-                  childAspectRatio: 1.3, // Increased for taller cards
+                  childAspectRatio: 1.1, // Adjusted for buttons at bottom
                 ),
                 itemCount: filteredStocks.length,
                 itemBuilder: (context, index) {
@@ -2052,14 +2076,10 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                 // Center aligned Add button
                 Container(
                   height: 40, // Match app bar height
+                  margin: EdgeInsets.all(3),
                   alignment: Alignment.center,
                   child: ElevatedButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _showAddStockModal = true;
-                        _clearModalMessages();
-                      });
-                    },
+                    onPressed: _openAddStockModal,
                     icon: const Icon(Icons.add, size: 16),
                     label: const Text('Add', style: TextStyle(fontSize: 12)),
                     style: ElevatedButton.styleFrom(
@@ -2205,7 +2225,10 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                                     vertical: 10,
                                   ),
                                 ),
-                                style: const TextStyle(fontSize: 13),
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.black,
+                                ),
                                 onChanged: (value) {
                                   setState(
                                     () => _searchQuery = value.toLowerCase(),
@@ -2337,18 +2360,15 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       }
     }
 
-    // Determine status color and text
-    Color statusColor = status == 'available' ? Colors.green : Colors.orange;
-    String statusText = status == 'available' ? 'Available' : 'Sold';
-    IconData statusIcon = status == 'available'
-        ? Icons.inventory
-        : Icons.shopping_cart_checkout;
-
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: status == 'available' ? Colors.white : Colors.grey.shade100,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade300),
+        border: Border.all(
+          color: status == 'available'
+              ? Colors.green.shade200
+              : Colors.grey.shade300,
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.grey.withOpacity(0.1),
@@ -2358,117 +2378,31 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(4),
+        padding: const EdgeInsets.all(8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // Header with status and actions - COMPACT
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // Status badge - COMPACT
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: statusColor.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(statusIcon, size: 10, color: statusColor),
-                      const SizedBox(width: 4),
-                      Text(
-                        statusText,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w500,
-                          color: statusColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // Actions menu (only for available phones)
-                if (status == 'available' &&
-                    (onSell != null || onTransfer != null))
-                  PopupMenuButton<String>(
-                    icon: const Icon(Icons.more_vert, size: 14),
-                    padding: EdgeInsets.zero,
-                    constraints: BoxConstraints.tight(const Size(30, 30)),
-                    onSelected: (value) {
-                      if (value == 'sell') {
-                        onSell?.call();
-                      } else if (value == 'transfer') {
-                        onTransfer?.call();
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      if (onSell != null)
-                        const PopupMenuItem<String>(
-                          value: 'sell',
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.shopping_cart_checkout,
-                                size: 12,
-                                color: Colors.green,
-                              ),
-                              SizedBox(width: 6),
-                              Text('Sell', style: TextStyle(fontSize: 11)),
-                            ],
-                          ),
-                        ),
-                      if (onTransfer != null)
-                        const PopupMenuItem<String>(
-                          value: 'transfer',
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.swap_horiz,
-                                size: 12,
-                                color: Colors.blue,
-                              ),
-                              SizedBox(width: 6),
-                              Text('Transfer', style: TextStyle(fontSize: 11)),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-              ],
-            ),
-
-            const SizedBox(height: 3),
-
             // Product name - SINGLE LINE
             Text(
               productName,
               style: const TextStyle(
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: FontWeight.bold,
-                height: 1.1,
+                height: 1.2,
+                color: Colors.black,
               ),
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
 
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
 
             // Price - PROMINENT
             Text(
               _formatPrice(price),
               style: const TextStyle(
-                fontSize: 12,
+                fontSize: 13,
                 fontWeight: FontWeight.bold,
                 color: Colors.green,
               ),
@@ -2478,47 +2412,102 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
             const SizedBox(height: 2),
 
-            // IMEI - COMPACT with better display
-            Expanded(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  const Text(
-                    'IMEI:',
-                    style: TextStyle(fontSize: 11, color: Colors.black),
-                  ),
-                  const SizedBox(height: 2),
-                  Flexible(
-                    child: Text(
-                      displayImei,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.black,
-                        fontFamily: 'Monospace',
-                        height: 1.1,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
+            // Brand
+            Text(
+              productBrand,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.blue.shade700,
+                fontWeight: FontWeight.w500,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
+
             const SizedBox(height: 2),
+
+            // IMEI - COMPACT with better display
+            Text(
+              'IMEI: $displayImei',
+              style: const TextStyle(
+                fontSize: 10,
+                color: Colors.black,
+                fontFamily: 'Monospace',
+                height: 1.2,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
 
             // Date information - COMPACT
             Text(
               'Added: ${_formatDate(uploadedAt)}',
-              style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
             if (status == 'sold' && soldAt != null)
               Text(
                 'Sold: ${_formatDate(soldAt)}',
-                style: TextStyle(fontSize: 8, color: Colors.grey[500]),
+                style: TextStyle(fontSize: 9, color: Colors.grey[600]),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
+              ),
+
+            // Action Buttons (only for available phones)
+            if (status == 'available' && (onSell != null || onTransfer != null))
+              Column(
+                children: [
+                  const SizedBox(height: 8),
+                  const Divider(height: 1, color: Colors.grey),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      if (onSell != null)
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: onSell,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 6,
+                                horizontal: 4,
+                              ),
+                              minimumSize: const Size(0, 30),
+                              textStyle: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            child: const Text('Sell'),
+                          ),
+                        ),
+                      if (onSell != null && onTransfer != null)
+                        const SizedBox(width: 6),
+                      if (onTransfer != null)
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: onTransfer,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 6,
+                                horizontal: 4,
+                              ),
+                              minimumSize: const Size(0, 30),
+                              textStyle: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            child: const Text('Transfer'),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
               ),
           ],
         ),
