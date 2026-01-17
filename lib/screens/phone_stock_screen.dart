@@ -2153,7 +2153,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                   crossAxisCount: 2,
                   crossAxisSpacing: 6,
                   mainAxisSpacing: 8,
-                  childAspectRatio: 1.1, // Adjusted for better fit
+                  childAspectRatio: 1, // Adjusted for better fit
                 ),
                 itemCount: filteredStocks.length,
                 itemBuilder: (context, index) {

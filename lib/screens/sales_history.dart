@@ -86,6 +86,13 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
           sale['paymentInfo'] = _getPaymentInfo(sale, collection);
           sale['shopName'] = _getShopName(sale, collection);
 
+          // Include accessories and service amounts for accessories sales
+          if (collection == 'accessories_service_sales') {
+            sale['accessoriesAmount'] = (sale['accessoriesAmount'] ?? 0)
+                .toDouble();
+            sale['serviceAmount'] = (sale['serviceAmount'] ?? 0).toDouble();
+          }
+
           allSales.add(sale);
           totalFetched++;
         }
@@ -278,7 +285,15 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     try {
       switch (collection) {
         case 'accessories_service_sales':
-          return (data['totalSaleAmount'] ?? 0).toDouble();
+          // Check if totalSaleAmount exists, otherwise calculate from accessories + service
+          if (data['totalSaleAmount'] != null) {
+            return (data['totalSaleAmount'] ?? 0).toDouble();
+          } else {
+            // Calculate from accessories and service amounts
+            final accessories = (data['accessoriesAmount'] ?? 0).toDouble();
+            final service = (data['serviceAmount'] ?? 0).toDouble();
+            return accessories + service;
+          }
         case 'phoneSales':
           return (data['effectivePrice'] ?? data['price'] ?? 0).toDouble();
         case 'base_model_sale':
@@ -330,6 +345,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         paymentInfo['cash'] = (data['cashAmount'] ?? 0).toDouble();
         paymentInfo['card'] = (data['cardAmount'] ?? 0).toDouble();
         paymentInfo['gpay'] = (data['gpayAmount'] ?? 0).toDouble();
+        // For accessories sales, you might also have a credit field
+        paymentInfo['credit'] = (data['customerCredit'] ?? 0).toDouble();
       } else if (collection == 'phoneSales') {
         final paymentBreakdown = data['paymentBreakdown'] ?? {};
         paymentInfo['cash'] = (paymentBreakdown['cash'] ?? 0).toDouble();
@@ -494,8 +511,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                           const SizedBox(height: 4),
                           Container(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 5,
-                              vertical: 8,
+                              horizontal: 8,
+                              vertical: 4,
                             ),
                             decoration: BoxDecoration(
                               color: Colors.green,
@@ -506,6 +523,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w500,
+                                fontSize: 12,
                               ),
                             ),
                           ),
@@ -866,6 +884,9 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   }
 
   void _showSaleDetails(BuildContext context, Map<String, dynamic> sale) {
+    final accessoriesAmount = sale['accessoriesAmount'] as double? ?? 0.0;
+    final serviceAmount = sale['serviceAmount'] as double? ?? 0.0;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -924,15 +945,21 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               _buildDetailRow('Customer', sale['customerInfo'] as String),
               _buildDetailRow('Shop', sale['shopName'].toString()),
               _buildDetailRow('Date', sale['displayDate'] as String),
+
+              // Accessories and Service amounts for accessories sales
               if (sale['collection'] == 'accessories_service_sales') ...[
-                if (sale['accessoriesAmount'] != null)
+                if (accessoriesAmount > 0)
                   _buildDetailRow(
-                    'Accessories',
-                    sale['accessoriesAmount'].toString(),
+                    'Accessories Amount',
+                    '₹${accessoriesAmount.toStringAsFixed(0)}',
                   ),
-                if (sale['serviceAmount'] != null)
-                  _buildDetailRow('Service', sale['serviceAmount'].toString()),
+                if (serviceAmount > 0)
+                  _buildDetailRow(
+                    'Service Amount',
+                    '₹${serviceAmount.toStringAsFixed(0)}',
+                  ),
               ],
+
               _buildDetailRow(
                 'Total Amount',
                 '₹${(sale['displayAmount'] as double).toStringAsFixed(0)}',
