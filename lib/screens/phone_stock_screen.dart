@@ -20,7 +20,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
   // For existing stock view
   String _searchQuery = '';
-  TextEditingController _searchController = TextEditingController();
+  late TextEditingController _searchController;
 
   // For adding stock (modal)
   String? _selectedBrand;
@@ -55,14 +55,13 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   String _selectedAction = 'sell'; // 'sell' or 'transfer'
 
   // For product search in dropdown
-  final TextEditingController _productSearchController =
-      TextEditingController();
+  late TextEditingController _productSearchController;
   List<Map<String, dynamic>> _filteredProducts = [];
 
   // For price change
   double? _originalProductPrice;
   bool _showPriceChangeOption = false;
-  final TextEditingController _priceChangeController = TextEditingController();
+  late TextEditingController _priceChangeController;
 
   // For modal error display
   String? _modalError;
@@ -78,6 +77,11 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   @override
   void initState() {
     super.initState();
+    // Initialize controllers in initState
+    _searchController = TextEditingController();
+    _productSearchController = TextEditingController();
+    _priceChangeController = TextEditingController();
+
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() {
       setState(() {
@@ -92,14 +96,26 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   void dispose() {
     _tabController.dispose();
     _searchFocusNode.dispose();
+
     // Dispose all controllers
-    for (var controller in _imeiControllers) {
-      controller.dispose();
-    }
+    _disposeAllControllers();
+    super.dispose();
+  }
+
+  // Helper method to safely dispose all controllers
+  void _disposeAllControllers() {
     _searchController.dispose();
     _productSearchController.dispose();
     _priceChangeController.dispose();
-    super.dispose();
+    _disposeImeiControllers();
+  }
+
+  // Helper method to safely dispose IMEI controllers
+  void _disposeImeiControllers() {
+    for (var controller in _imeiControllers) {
+      controller.dispose();
+    }
+    _imeiControllers.clear();
   }
 
   Future<void> _loadShops() async {
@@ -127,11 +143,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
       final snapshot = await _firestore.collection('phones').get();
 
-      // Initialize all brands with empty lists
+      // Clear existing data
       _productsByBrand.clear();
-      for (var brand in _brands) {
-        _productsByBrand[brand] = [];
-      }
 
       for (var doc in snapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
@@ -155,17 +168,42 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               _brands.add(brand);
             }
 
+            // Initialize brand list if it doesn't exist
             if (!_productsByBrand.containsKey(brand)) {
               _productsByBrand[brand] = [];
             }
 
-            _productsByBrand[brand]!.add({
-              'id': doc.id,
-              'productName': productName,
-              'price': priceDouble,
-            });
+            // Check if product already exists in the list
+            final existingProductIndex = _productsByBrand[brand]!.indexWhere(
+              (p) => p['productName'] == productName,
+            );
+
+            if (existingProductIndex == -1) {
+              // Add new product
+              _productsByBrand[brand]!.add({
+                'id': doc.id,
+                'productName': productName,
+                'price': priceDouble,
+              });
+            } else {
+              // Update existing product price
+              _productsByBrand[brand]![existingProductIndex]['price'] =
+                  priceDouble;
+            }
           }
         }
+      }
+
+      // Sort brands alphabetically
+      _brands.sort();
+
+      // Sort products by name for each brand
+      for (var brand in _productsByBrand.keys) {
+        _productsByBrand[brand]!.sort(
+          (a, b) => (a['productName'] as String).compareTo(
+            b['productName'] as String,
+          ),
+        );
       }
 
       setState(() {});
@@ -235,18 +273,24 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     final qty = int.tryParse(value);
     if (qty != null && qty > 0) {
       // Dispose old controllers
-      for (var controller in _imeiControllers) {
-        controller.dispose();
-      }
+      _disposeImeiControllers();
 
       setState(() {
         _quantity = qty;
-        _imeiControllers.clear();
         _imeiNumbers = List.filled(qty, '');
 
+        // Create new controllers
         for (int i = 0; i < qty; i++) {
           _imeiControllers.add(TextEditingController());
         }
+        _clearModalMessages();
+      });
+    } else if (value.isEmpty) {
+      // If quantity field is cleared
+      _disposeImeiControllers();
+      setState(() {
+        _quantity = null;
+        _imeiNumbers = [];
         _clearModalMessages();
       });
     }
@@ -258,7 +302,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       return;
     }
 
-    if (_newProductName == null || _newProductName!.isEmpty) {
+    if (_newProductName == null || _newProductName!.trim().isEmpty) {
       _showModalError('Please enter product name');
       return;
     }
@@ -278,22 +322,37 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         'createdAt': FieldValue.serverTimestamp(),
       };
 
+      // Save to phones collection
       await _firestore.collection('phones').add(newProduct);
 
+      // Add to local cache
       if (!_productsByBrand.containsKey(_selectedBrand!)) {
         _productsByBrand[_selectedBrand!] = [];
       }
 
-      _productsByBrand[_selectedBrand!]!.add({
-        'productName': _newProductName!.trim(),
-        'price': _newProductPrice!,
-      });
+      // Check if product already exists
+      final existingProductIndex = _productsByBrand[_selectedBrand!]!
+          .indexWhere((p) => p['productName'] == _newProductName!.trim());
+
+      if (existingProductIndex == -1) {
+        _productsByBrand[_selectedBrand!]!.add({
+          'productName': _newProductName!.trim(),
+          'price': _newProductPrice!,
+        });
+
+        // Sort products by name
+        _productsByBrand[_selectedBrand!]!.sort(
+          (a, b) => (a['productName'] as String).compareTo(
+            b['productName'] as String,
+          ),
+        );
+      }
 
       if (!mounted) return;
 
       setState(() {
         _showAddProductForm = false;
-        _selectedProduct = _newProductName;
+        _selectedProduct = _newProductName!.trim();
         _newProductName = null;
         _newProductPrice = null;
         _clearModalMessages();
@@ -328,6 +387,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       double productPrice;
       String? productId;
 
+      // Handle product selection or creation
       if (_showAddProductForm) {
         // Adding new product
         if (_newProductName == null || _newProductName!.trim().isEmpty) {
@@ -338,8 +398,14 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           _showModalError('Please enter valid price');
           return;
         }
+
         productName = _newProductName!.trim();
         productPrice = _newProductPrice!;
+
+        // Save the new product
+        await _saveNewProduct();
+
+        // After saving product, continue with stock saving
       } else {
         // Selecting existing product
         if (_selectedProduct == null || _selectedProduct!.isEmpty) {
@@ -363,16 +429,11 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           return;
         }
 
-        final productNameTemp = product['productName'] as String?;
+        productName = product['productName'] as String;
         final productPriceTemp = product['price'];
         productId = product['id'] as String?;
 
-        if (productNameTemp == null || productPriceTemp == null) {
-          _showModalError('Invalid product data');
-          return;
-        }
-
-        // Check if price was changed
+        // Handle price change
         if (_showPriceChangeOption && _priceChangeController.text.isNotEmpty) {
           final newPrice = double.tryParse(_priceChangeController.text);
           if (newPrice != null && newPrice > 0) {
@@ -394,10 +455,9 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               ? productPriceTemp.toDouble()
               : productPriceTemp as double;
         }
-
-        productName = productNameTemp;
       }
 
+      // Validate quantity
       if (_quantity == null || _quantity! <= 0) {
         _showModalError('Please enter valid quantity');
         return;
@@ -408,6 +468,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         return;
       }
 
+      // Validate IMEI numbers
       for (int i = 0; i < _imeiNumbers.length; i++) {
         final imei = _imeiNumbers[i];
         if (imei.isEmpty) {
@@ -441,6 +502,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           user.email?.trim() ?? user.name?.trim() ?? 'Unknown User';
       final uploadedById = user.uid;
 
+      // Check for duplicate IMEIs
       try {
         for (String imei in _imeiNumbers) {
           final existingQuery = await _firestore
@@ -458,6 +520,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         print('IMEI check error: $e');
       }
 
+      // Save stock to database
       final savedCount = _imeiNumbers.length;
       final batch = _firestore.batch();
 
@@ -486,11 +549,11 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
       if (!mounted) return;
 
-      // Clear all fields and controllers
-      _resetAddStockForm();
-
-      _formKey.currentState?.reset();
+      // Show success message
       _showSuccess('Successfully added $savedCount phone(s) to stock!');
+
+      // Close modal and reset form
+      _closeAddStockModal();
     } catch (e) {
       print('Save stock error: $e');
       _showModalError('Failed to save stock: ${e.toString()}');
@@ -503,12 +566,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
   // New method to reset the add stock form
   void _resetAddStockForm() {
-    // Dispose all IMEI controllers
-    for (var controller in _imeiControllers) {
-      controller.dispose();
-    }
-
-    // Clear all form data
+    // Clear all form data first
     setState(() {
       _selectedBrand = null;
       _selectedProduct = null;
@@ -516,17 +574,23 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       _newProductPrice = null;
       _quantity = null;
       _imeiNumbers = [];
-      _imeiControllers = [];
       _showAddProductForm = false;
       _showPriceChangeOption = false;
       _originalProductPrice = null;
-      _productSearchController.clear();
-      _priceChangeController.clear();
       _clearModalMessages();
     });
 
+    // Clear text controllers
+    _productSearchController.clear();
+    _priceChangeController.clear();
+
+    // Dispose IMEI controllers AFTER clearing state
+    _disposeImeiControllers();
+
     // Reset the form
-    _formKey.currentState?.reset();
+    if (_formKey.currentState != null) {
+      _formKey.currentState!.reset();
+    }
   }
 
   // Method to clear data when opening the modal
@@ -539,9 +603,16 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
   // Method to close the modal and clear data
   void _closeAddStockModal() {
-    _resetAddStockForm();
+    // Close modal first
     setState(() {
       _showAddStockModal = false;
+    });
+
+    // Then reset form after a short delay
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) {
+        _resetAddStockForm();
+      }
     });
   }
 
@@ -744,80 +815,147 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           },
         ),
         const SizedBox(height: 8),
+
+        // Success message when product is added
+        if (_modalSuccess != null && _modalSuccess!.contains('Product added'))
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(8),
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.green.shade100),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.green, size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _modalSuccess!,
+                    style: const TextStyle(fontSize: 11, color: Colors.green),
+                    maxLines: 2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
         Container(
           constraints: const BoxConstraints(maxHeight: 120),
           decoration: BoxDecoration(
             border: Border.all(color: Colors.grey.shade300),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: ListView.builder(
-            shrinkWrap: true,
-            physics: const AlwaysScrollableScrollPhysics(),
-            itemCount: _filteredProducts.length + 1, // +1 for "Add New" option
-            itemBuilder: (context, index) {
-              // Last item is always "Add New Product"
-              if (index == _filteredProducts.length) {
-                return ListTile(
-                  leading: const Icon(Icons.add, color: Colors.green, size: 18),
-                  title: const Text(
-                    'Add New Product...',
-                    style: TextStyle(fontSize: 12, color: Colors.black),
-                  ),
-                  subtitle: products.isEmpty
-                      ? const Text(
-                          'No products found for this brand',
-                          style: TextStyle(fontSize: 10, color: Colors.grey),
-                        )
-                      : null,
-                  dense: true,
-                  visualDensity: VisualDensity.compact,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  onTap: () {
-                    _handleProductSelection('add_new');
+          child: products.isEmpty
+              ? ListView(
+                  shrinkWrap: true,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: [
+                    ListTile(
+                      leading: const Icon(
+                        Icons.add,
+                        color: Colors.green,
+                        size: 18,
+                      ),
+                      title: const Text(
+                        'Add New Product...',
+                        style: TextStyle(fontSize: 12, color: Colors.black),
+                      ),
+                      subtitle: const Text(
+                        'No products found for this brand',
+                        style: TextStyle(fontSize: 10, color: Colors.grey),
+                      ),
+                      dense: true,
+                      visualDensity: VisualDensity.compact,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      onTap: () {
+                        _handleProductSelection('add_new');
+                      },
+                    ),
+                  ],
+                )
+              : ListView.builder(
+                  shrinkWrap: true,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  itemCount:
+                      _filteredProducts.length + 1, // +1 for "Add New" option
+                  itemBuilder: (context, index) {
+                    // Last item is always "Add New Product"
+                    if (index == _filteredProducts.length) {
+                      return ListTile(
+                        leading: const Icon(
+                          Icons.add,
+                          color: Colors.green,
+                          size: 18,
+                        ),
+                        title: const Text(
+                          'Add New Product...',
+                          style: TextStyle(fontSize: 12, color: Colors.black),
+                        ),
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
+                        onTap: () {
+                          _handleProductSelection('add_new');
+                        },
+                      );
+                    }
+
+                    final product = _filteredProducts[index];
+                    final productName = product['productName'] as String? ?? '';
+                    final price = product['price'];
+                    String priceText = '';
+
+                    if (price is double) {
+                      priceText = '₹${price.toStringAsFixed(0)}';
+                    } else if (price is int) {
+                      priceText = '₹$price';
+                    }
+
+                    return ListTile(
+                      title: Text(
+                        productName,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        priceText,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: Colors.green,
+                        ),
+                      ),
+                      dense: true,
+                      visualDensity: VisualDensity.compact,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      onTap: () {
+                        _handleProductSelection(productName);
+                      },
+                      trailing: _selectedProduct == productName
+                          ? const Icon(
+                              Icons.check,
+                              color: Colors.green,
+                              size: 16,
+                            )
+                          : null,
+                    );
                   },
-                );
-              }
-
-              final product = _filteredProducts[index];
-              final productName = product['productName'] as String? ?? '';
-              final price = product['price'];
-              String priceText = '';
-
-              if (price is double) {
-                priceText = '₹${price.toStringAsFixed(0)}';
-              } else if (price is int) {
-                priceText = '₹$price';
-              }
-
-              return ListTile(
-                title: Text(
-                  productName,
-                  style: const TextStyle(fontSize: 12, color: Colors.black),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
-                subtitle: Text(
-                  priceText,
-                  style: const TextStyle(fontSize: 10, color: Colors.green),
-                ),
-                dense: true,
-                visualDensity: VisualDensity.compact,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
-                ),
-                onTap: () {
-                  _handleProductSelection(productName);
-                },
-                trailing: _selectedProduct == productName
-                    ? const Icon(Icons.check, color: Colors.green, size: 16)
-                    : null,
-              );
-            },
-          ),
         ),
       ],
     );
@@ -876,10 +1014,10 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                         const Divider(),
                         const SizedBox(height: 16),
 
-                        // Brand Selection - FIXED: Changed dropdownColor to white
+                        // Brand Selection
                         DropdownButtonFormField<String>(
                           value: _selectedBrand,
-                          dropdownColor: Colors.white, // Added this line
+                          dropdownColor: Colors.white,
                           decoration: const InputDecoration(
                             labelText: 'Select Brand *',
                             border: OutlineInputBorder(),
@@ -896,7 +1034,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                           style: const TextStyle(
                             fontSize: 12,
                             color: Colors.black,
-                          ), // Added color: black
+                          ),
                           items: _brands.map<DropdownMenuItem<String>>((brand) {
                             return DropdownMenuItem<String>(
                               value: brand,
@@ -905,7 +1043,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                                 style: const TextStyle(
                                   fontSize: 12,
                                   color: Colors.black,
-                                ), // Added color: black
+                                ),
                               ),
                             );
                           }).toList(),
@@ -931,40 +1069,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                         ),
 
                         const SizedBox(height: 12),
-
-                        // Show message when no products exist for selected brand
-                        if (_selectedBrand != null &&
-                            (_productsByBrand[_selectedBrand!]?.isEmpty ??
-                                true) &&
-                            !_showAddProductForm)
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            margin: const EdgeInsets.only(bottom: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.orange.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.orange.shade100),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.info,
-                                  color: Colors.orange,
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'No products found for $_selectedBrand. Please add a new product.',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.orange.shade800,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
 
                         // Product Search and Selection (only show if brand is selected)
                         if (_selectedBrand != null) ...[
@@ -1224,6 +1328,54 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                               physics: const AlwaysScrollableScrollPhysics(),
                               itemCount: _quantity!,
                               itemBuilder: (context, index) {
+                                // Safety check for controller existence
+                                if (index >= _imeiControllers.length) {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: TextFormField(
+                                      decoration: InputDecoration(
+                                        labelText: 'IMEI ${index + 1} *',
+                                        border: const OutlineInputBorder(),
+                                        prefixIcon: const Icon(
+                                          Icons.confirmation_number,
+                                          size: 18,
+                                        ),
+                                        labelStyle: const TextStyle(
+                                          fontSize: 12,
+                                        ),
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 12,
+                                            ),
+                                      ),
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.black,
+                                      ),
+                                      onChanged: (value) {
+                                        if (index < _imeiNumbers.length) {
+                                          setState(() {
+                                            _imeiNumbers[index] = value;
+                                            _clearModalMessages();
+                                          });
+                                        }
+                                      },
+                                      validator: (value) {
+                                        if (value == null ||
+                                            value.trim().isEmpty) {
+                                          return 'Please enter IMEI';
+                                        }
+                                        final trimmedValue = value.trim();
+                                        if (trimmedValue.length < 15) {
+                                          return 'IMEI must be at least 15 digits';
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                  );
+                                }
+
                                 return Padding(
                                   padding: const EdgeInsets.only(bottom: 8),
                                   child: TextFormField(
@@ -1327,7 +1479,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                             ),
                           ),
 
-                        if (_modalSuccess != null)
+                        if (_modalSuccess != null &&
+                            !_modalSuccess!.contains('Product added'))
                           Container(
                             width: double.infinity,
                             padding: const EdgeInsets.all(12),
@@ -1388,7 +1541,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                               const SizedBox(width: 12),
                               Expanded(
                                 child: ElevatedButton(
-                                  onPressed: _saveStock,
+                                  onPressed: _isLoading ? null : _saveStock,
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: Colors.green,
                                     foregroundColor: Colors.white,
@@ -1990,15 +2143,17 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
             const SizedBox(height: 8),
 
-            // Grid View of Phones - UPDATED for taller cards
+            // Grid View of Phones - FIXED childAspectRatio
             Expanded(
               child: GridView.builder(
                 padding: const EdgeInsets.all(8),
+                shrinkWrap: true,
+                physics: const AlwaysScrollableScrollPhysics(),
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 2,
                   crossAxisSpacing: 6,
                   mainAxisSpacing: 8,
-                  childAspectRatio: 1.1, // Adjusted for buttons at bottom
+                  childAspectRatio: 1.1, // Adjusted for better fit
                 ),
                 itemCount: filteredStocks.length,
                 itemBuilder: (context, index) {
@@ -2076,7 +2231,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                 // Center aligned Add button
                 Container(
                   height: 40, // Match app bar height
-                  margin: EdgeInsets.all(3),
+                  margin: const EdgeInsets.all(3),
                   alignment: Alignment.center,
                   child: ElevatedButton.icon(
                     onPressed: _openAddStockModal,
@@ -2361,6 +2516,9 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     }
 
     return Container(
+      constraints: BoxConstraints(
+        minHeight: 180, // Ensure minimum height
+      ),
       decoration: BoxDecoration(
         color: status == 'available' ? Colors.white : Colors.grey.shade100,
         borderRadius: BorderRadius.circular(10),
@@ -2383,22 +2541,24 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // Product name - SINGLE LINE
-            Text(
-              productName,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                height: 1.2,
-                color: Colors.black,
+            // Product name with fixed height
+            SizedBox(
+              height: 32,
+              child: Text(
+                productName,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
             ),
 
             const SizedBox(height: 2),
 
-            // Price - PROMINENT
+            // Price
             Text(
               _formatPrice(price),
               style: const TextStyle(
@@ -2426,20 +2586,22 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
             const SizedBox(height: 2),
 
-            // IMEI - COMPACT with better display
-            Text(
-              'IMEI: $displayImei',
-              style: const TextStyle(
-                fontSize: 10,
-                color: Colors.black,
-                fontFamily: 'Monospace',
-                height: 1.2,
+            // IMEI with fixed height
+            SizedBox(
+              height: 24,
+              child: Text(
+                'IMEI: $displayImei',
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: Colors.black,
+                  fontFamily: 'Monospace',
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
             ),
 
-            // Date information - COMPACT
+            // Date information
             Text(
               'Added: ${_formatDate(uploadedAt)}',
               style: TextStyle(fontSize: 10, color: Colors.grey[600]),
@@ -2465,44 +2627,46 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                     children: [
                       if (onSell != null)
                         Expanded(
-                          child: ElevatedButton(
-                            onPressed: onSell,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 6,
-                                horizontal: 4,
+                          child: SizedBox(
+                            height: 28, // Fixed button height
+                            child: ElevatedButton(
+                              onPressed: onSell,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                textStyle: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
-                              minimumSize: const Size(0, 30),
-                              textStyle: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w500,
-                              ),
+                              child: const Text('Sell'),
                             ),
-                            child: const Text('Sell'),
                           ),
                         ),
                       if (onSell != null && onTransfer != null)
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 4),
                       if (onTransfer != null)
                         Expanded(
-                          child: ElevatedButton(
-                            onPressed: onTransfer,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 6,
-                                horizontal: 4,
+                          child: SizedBox(
+                            height: 28, // Fixed button height
+                            child: ElevatedButton(
+                              onPressed: onTransfer,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                textStyle: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
-                              minimumSize: const Size(0, 30),
-                              textStyle: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w500,
-                              ),
+                              child: const Text('Transfer'),
                             ),
-                            child: const Text('Transfer'),
                           ),
                         ),
                     ],
