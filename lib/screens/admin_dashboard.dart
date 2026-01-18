@@ -370,7 +370,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 onPressed: _fetchAllData,
                 tooltip: 'Refresh Data',
               ),
-
               IconButton(
                 icon: const Icon(Icons.logout),
                 color: _isLoading ? Colors.grey : Colors.white,
@@ -430,6 +429,29 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             _buildHeader(),
             _buildTimePeriodSelector(),
             _buildKPIStats(filteredSales),
+            SizedBox(height: 16),
+            
+            // Brand Analysis Card
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: BrandAnalysisCard(
+                allSales: allSales,
+                formatNumber: _formatNumber,
+                onViewDetails: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => BrandAnalysisDetailsScreen(
+                        allSales: allSales,
+                        formatNumber: _formatNumber,
+                        shops: shops,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            
             _buildPerformanceInsights(),
             SizedBox(height: 20),
           ],
@@ -604,13 +626,36 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             '₹${_formatNumber(totalSales)}',
             Icons.currency_rupee,
             primaryGreen,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => SalesDetailsScreen(
+                    title: 'Total Sales Details',
+                    sales: filteredSales,
+                    formatNumber: _formatNumber,
+                    shops: shops,
+                  ),
+                ),
+              );
+            },
           ),
-
           _buildKPIStatCard(
             'Transactions',
             '$transactionCount',
             Icons.receipt,
             Color(0xFF9C27B0),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => TransactionsDetailsScreen(
+                    sales: filteredSales,
+                    formatNumber: _formatNumber,
+                  ),
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -621,43 +666,47 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     String title,
     String value,
     IconData icon,
-    Color color,
-  ) {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        padding: EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
+    Color color, {
+    VoidCallback? onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Card(
+        elevation: 4,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          padding: EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 24),
               ),
-              child: Icon(icon, color: color, size: 24),
-            ),
-            SizedBox(height: 12),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: color,
+              SizedBox(height: 12),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
               ),
-            ),
-            SizedBox(height: 4),
-            Text(
-              title,
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-            ),
-          ],
+              SizedBox(height: 4),
+              Text(
+                title,
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -772,7 +821,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         ),
                       ],
                     ),
-
                     Column(
                       children: [
                         Text(
@@ -804,106 +852,121 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 double amount = entry.value;
                 int count = categoryCount[category] ?? 0;
 
-                return Container(
-                  margin: EdgeInsets.only(bottom: 16),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: _getCategoryColor(
-                                category,
-                              ).withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Center(
-                              child: Icon(
-                                _getCategoryIcon(category),
-                                color: _getCategoryColor(category),
-                                size: 20,
+                return GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => CategoryDetailsScreen(
+                          category: category,
+                          sales: filteredSales,
+                          formatNumber: _formatNumber,
+                          getCategoryColor: _getCategoryColor,
+                        ),
+                      ),
+                    );
+                  },
+                  child: Container(
+                    margin: EdgeInsets.only(bottom: 16),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: _getCategoryColor(
+                                  category,
+                                ).withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Center(
+                                child: Icon(
+                                  _getCategoryIcon(category),
+                                  color: _getCategoryColor(category),
+                                  size: 20,
+                                ),
                               ),
                             ),
-                          ),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        category,
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 15,
-                                          color: Colors.grey[800],
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    SizedBox(width: 8),
-                                    Container(
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: secondaryGreen.withOpacity(0.1),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: Text(
-                                        '${count} sales',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: secondaryGreen,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                SizedBox(height: 4),
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          '₹${_formatNumber(amount)}',
+                            SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          category,
                                           style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: primaryGreen,
-                                            fontSize: 16,
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 15,
+                                            color: Colors.grey[800],
                                           ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                         ),
-                                        SizedBox(height: 2),
-                                        Text(
-                                          '$count transactions',
+                                      ),
+                                      SizedBox(width: 8),
+                                      Container(
+                                        padding: EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: secondaryGreen.withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: Text(
+                                          '${count} sales',
                                           style: TextStyle(
                                             fontSize: 12,
-                                            color: Colors.grey[600],
+                                            color: secondaryGreen,
+                                            fontWeight: FontWeight.w600,
                                           ),
                                         ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ],
+                                      ),
+                                    ],
+                                  ),
+                                  SizedBox(height: 4),
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            '₹${_formatNumber(amount)}',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: primaryGreen,
+                                              fontSize: 16,
+                                            ),
+                                          ),
+                                          SizedBox(height: 2),
+                                          Text(
+                                            '$count transactions',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey[600],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 );
               }).toList(),
@@ -967,7 +1030,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
           Divider(height: 1),
 
-          // INVENTORY MANAGEMENT SECTION - ADD THIS
+          // INVENTORY MANAGEMENT SECTION
           Padding(
             padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
             child: Text(
@@ -990,6 +1053,66 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   builder: (context) => InventoryDetailsScreen(
                     shops: shops,
                     formatNumber: _formatNumber,
+                  ),
+                ),
+              );
+            },
+          ),
+
+          // SEARCH SECTION
+          Padding(
+            padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
+            child: Text(
+              'SEARCH',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          _buildDrawerItem(
+            Icons.search,
+            'Search Inventory',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => SearchInventoryScreen(
+                    allSales: allSales,
+                    shops: shops,
+                    formatNumber: _formatNumber,
+                  ),
+                ),
+              );
+            },
+          ),
+
+          // BRAND ANALYSIS SECTION
+          Padding(
+            padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
+            child: Text(
+              'BRAND ANALYSIS',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          _buildDrawerItem(
+            Icons.bar_chart,
+            'Brand Performance',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => BrandAnalysisDetailsScreen(
+                    allSales: allSales,
+                    formatNumber: _formatNumber,
+                    shops: shops,
                   ),
                 ),
               );
@@ -1081,24 +1204,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               );
             },
           ),
-          // _buildDrawerItem(
-          //   Icons.build,
-          //   'Accessories & Service',
-          //   onTap: () {
-          //     Navigator.pop(context);
-          //     Navigator.push(
-          //       context,
-          //       MaterialPageRoute(
-          //         builder: (context) => CategoryDetailsScreen(
-          //           category: 'Service',
-          //           sales: _filterSales(),
-          //           formatNumber: _formatNumber,
-          //           getCategoryColor: _getCategoryColor,
-          //         ),
-          //       ),
-          //     );
-          //   },
-          // ),
           _buildDrawerItem(
             Icons.phone_iphone,
             'Second Phone Sales',
@@ -1511,6 +1616,3926 @@ class Sale {
     this.notes,
   });
 }
+
+// New Screens with Card Details
+
+// Sales Details Screen
+class SalesDetailsScreen extends StatelessWidget {
+  final String title;
+  final List<Sale> sales;
+  final String Function(double) formatNumber;
+  final List<Map<String, dynamic>> shops;
+
+  SalesDetailsScreen({
+    required this.title,
+    required this.sales,
+    required this.formatNumber,
+    required this.shops,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    double totalSales = sales.fold(0.0, (sum, sale) => sum + sale.amount);
+    
+    // Group by shop
+    Map<String, List<Sale>> shopGroups = {};
+    for (var sale in sales) {
+      if (!shopGroups.containsKey(sale.shopName)) {
+        shopGroups[sale.shopName] = [];
+      }
+      shopGroups[sale.shopName]!.add(sale);
+    }
+    
+    // Group by category
+    Map<String, List<Sale>> categoryGroups = {};
+    for (var sale in sales) {
+      if (!categoryGroups.containsKey(sale.category)) {
+        categoryGroups[sale.category] = [];
+      }
+      categoryGroups[sale.category]!.add(sale);
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+            color: Colors.white,
+          ),
+        ),
+        backgroundColor: Color(0xFF0A4D2E),
+        foregroundColor: Colors.white,
+        elevation: 3,
+        centerTitle: true,
+      ),
+      body: DefaultTabController(
+        length: 3,
+        child: Column(
+          children: [
+            Container(
+              color: Color(0xFF0A4D2E),
+              child: TabBar(
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.white.withOpacity(0.7),
+                indicatorColor: Colors.white,
+                tabs: [
+                  Tab(text: 'Summary'),
+                  Tab(text: 'Shop-wise'),
+                  Tab(text: 'Category-wise'),
+                ],
+              ),
+            ),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _buildSummaryTab(totalSales),
+                  _buildShopWiseTab(shopGroups),
+                  _buildCategoryWiseTab(categoryGroups),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryTab(double totalSales) {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    Icon(Icons.analytics, size: 64, color: Color(0xFF0A4D2E)),
+                    SizedBox(height: 16),
+                    Text(
+                      'Total Sales',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF0A4D2E),
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      '₹${formatNumber(totalSales)}',
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1A7D4A),
+                      ),
+                    ),
+                    SizedBox(height: 16),
+                    Text(
+                      '${sales.length} transactions',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            SizedBox(height: 16),
+            Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Sales Distribution',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF0A4D2E),
+                      ),
+                    ),
+                    SizedBox(height: 16),
+                    // Payment Methods
+                    _buildDistributionItem('Cash Sales', Icons.currency_rupee, 
+                      sales.fold(0.0, (sum, sale) => sum + (sale.cashAmount ?? 0)),
+                      Color(0xFF4CAF50)),
+                    _buildDistributionItem('Card Sales', Icons.credit_card, 
+                      sales.fold(0.0, (sum, sale) => sum + (sale.cardAmount ?? 0)),
+                      Color(0xFF2196F3)),
+                    _buildDistributionItem('GPay Sales', Icons.payment, 
+                      sales.fold(0.0, (sum, sale) => sum + (sale.gpayAmount ?? 0)),
+                      Color(0xFF9C27B0)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDistributionItem(String title, IconData icon, double amount, Color color) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Container(
+            padding: EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(fontSize: 14),
+                ),
+                Text(
+                  '₹${formatNumber(amount)}',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShopWiseTab(Map<String, List<Sale>> shopGroups) {
+    List<Map<String, dynamic>> shopData = [];
+    shopGroups.forEach((shopName, sales) {
+      double total = sales.fold(0.0, (sum, sale) => sum + sale.amount);
+      shopData.add({
+        'shopName': shopName,
+        'total': total,
+        'count': sales.length,
+        'sales': sales,
+      });
+    });
+    
+    // Sort by total sales
+    shopData.sort((a, b) => b['total'].compareTo(a['total']));
+
+    return ListView.builder(
+      itemCount: shopData.length,
+      itemBuilder: (context, index) {
+        var data = shopData[index];
+        return Card(
+          margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: ExpansionTile(
+            leading: Icon(Icons.store, color: Color(0xFF1A7D4A)),
+            title: Text(
+              data['shopName'],
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Text('${data['count']} sales'),
+            trailing: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '₹${formatNumber(data['total'])}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0A4D2E),
+                  ),
+                ),
+                Text(
+                  'Avg: ₹${formatNumber(data['total'] / data['count'])}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+            children: [
+              Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    ...(data['sales'] as List<Sale>).map((sale) {
+                      return ListTile(
+                        dense: true,
+                        leading: Icon(Icons.shopping_cart, size: 20),
+                        title: Text(sale.customerName),
+                        subtitle: Text(
+                          '${sale.category} • ${DateFormat('dd MMM yyyy').format(sale.date)}',
+                        ),
+                        trailing: Text(
+                          '₹${formatNumber(sale.amount)}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0A4D2E),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCategoryWiseTab(Map<String, List<Sale>> categoryGroups) {
+    List<Map<String, dynamic>> categoryData = [];
+    categoryGroups.forEach((category, sales) {
+      double total = sales.fold(0.0, (sum, sale) => sum + sale.amount);
+      categoryData.add({
+        'category': category,
+        'total': total,
+        'count': sales.length,
+        'sales': sales,
+      });
+    });
+    
+    // Sort by total sales
+    categoryData.sort((a, b) => b['total'].compareTo(a['total']));
+
+    return ListView.builder(
+      itemCount: categoryData.length,
+      itemBuilder: (context, index) {
+        var data = categoryData[index];
+        Color categoryColor = _getCategoryColor(data['category']);
+        
+        return Card(
+          margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: ExpansionTile(
+            leading: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: categoryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Center(
+                child: Icon(
+                  _getCategoryIcon(data['category']),
+                  color: categoryColor,
+                  size: 20,
+                ),
+              ),
+            ),
+            title: Text(
+              data['category'],
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Text('${data['count']} sales'),
+            trailing: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '₹${formatNumber(data['total'])}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0A4D2E),
+                  ),
+                ),
+                Text(
+                  'Avg: ₹${formatNumber(data['total'] / data['count'])}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+            children: [
+              Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    ...(data['sales'] as List<Sale>).map((sale) {
+                      return ListTile(
+                        dense: true,
+                        leading: Icon(Icons.person, size: 20),
+                        title: Text(sale.customerName),
+                        subtitle: Text(
+                          '${sale.shopName} • ${DateFormat('dd MMM yyyy').format(sale.date)}',
+                        ),
+                        trailing: Text(
+                          '₹${formatNumber(sale.amount)}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0A4D2E),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Color _getCategoryColor(String category) {
+    switch (category) {
+      case 'New Phone':
+        return Color(0xFF4CAF50);
+      case 'Base Model':
+        return Color(0xFF2196F3);
+      case 'Second Phone':
+        return Color(0xFF9C27B0);
+      case 'Service':
+        return Color(0xFFFF9800);
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getCategoryIcon(String category) {
+    switch (category) {
+      case 'New Phone':
+        return Icons.phone_android;
+      case 'Base Model':
+        return Icons.phone_iphone;
+      case 'Second Phone':
+        return Icons.phone_iphone_outlined;
+      case 'Service':
+        return Icons.build;
+      default:
+        return Icons.category;
+    }
+  }
+}
+
+// Transactions Details Screen
+class TransactionsDetailsScreen extends StatelessWidget {
+  final List<Sale> sales;
+  final String Function(double) formatNumber;
+
+  TransactionsDetailsScreen({
+    required this.sales,
+    required this.formatNumber,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          'Transactions Details',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+            color: Colors.white,
+          ),
+        ),
+        backgroundColor: Color(0xFF0A4D2E),
+        foregroundColor: Colors.white,
+        elevation: 3,
+        centerTitle: true,
+      ),
+      body: Column(
+        children: [
+          // Summary Card
+          Container(
+            padding: EdgeInsets.all(16),
+            child: Card(
+              elevation: 3,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      children: [
+                        Text(
+                          'Total Transactions',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          '${sales.length}',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0A4D2E),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Column(
+                      children: [
+                        Text(
+                          'Total Amount',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          '₹${formatNumber(sales.fold(0.0, (sum, sale) => sum + sale.amount))}',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1A7D4A),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // Transactions List
+          Expanded(
+            child: ListView.builder(
+              itemCount: sales.length,
+              itemBuilder: (context, index) {
+                final sale = sales[index];
+                return Card(
+                  margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: ListTile(
+                    leading: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: _getCategoryColor(sale.category).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Center(
+                        child: Icon(
+                          _getCategoryIcon(sale.category),
+                          color: _getCategoryColor(sale.category),
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                    title: Text(
+                      sale.customerName,
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${sale.category} • ${sale.shopName}',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        Text(
+                          DateFormat('dd MMM yyyy, hh:mm a').format(sale.date),
+                          style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
+                    trailing: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          '₹${formatNumber(sale.amount)}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0A4D2E),
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Color(0xFF1A7D4A).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            sale.type.replaceAll('_', ' '),
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: Color(0xFF1A7D4A),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    onTap: () {
+                      _showTransactionDetails(context, sale);
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showTransactionDetails(BuildContext context, Sale sale) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Transaction Details'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildDetailRow('Customer', sale.customerName),
+              _buildDetailRow('Category', sale.category),
+              _buildDetailRow('Shop', sale.shopName),
+              _buildDetailRow('Date', DateFormat('dd MMM yyyy, hh:mm a').format(sale.date)),
+              _buildDetailRow('Amount', '₹${formatNumber(sale.amount)}'),
+              if (sale.customerPhone != null) 
+                _buildDetailRow('Phone', sale.customerPhone!),
+              if (sale.brand != null) 
+                _buildDetailRow('Brand', sale.brand!),
+              if (sale.model != null) 
+                _buildDetailRow('Model', sale.model!),
+              if (sale.imei != null) 
+                _buildDetailRow('IMEI', sale.imei!),
+              if (sale.salesPersonName != null) 
+                _buildDetailRow('Sales Person', sale.salesPersonName!),
+              if (sale.cashAmount != null && sale.cashAmount! > 0)
+                _buildDetailRow('Cash', '₹${formatNumber(sale.cashAmount!)}'),
+              if (sale.cardAmount != null && sale.cardAmount! > 0)
+                _buildDetailRow('Card', '₹${formatNumber(sale.cardAmount!)}'),
+              if (sale.gpayAmount != null && sale.gpayAmount! > 0)
+                _buildDetailRow('GPay', '₹${formatNumber(sale.gpayAmount!)}'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 100,
+            child: Text(
+              '$label:',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
+          ),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(color: Colors.grey[800]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getCategoryColor(String category) {
+    switch (category) {
+      case 'New Phone':
+        return Color(0xFF4CAF50);
+      case 'Base Model':
+        return Color(0xFF2196F3);
+      case 'Second Phone':
+        return Color(0xFF9C27B0);
+      case 'Service':
+        return Color(0xFFFF9800);
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getCategoryIcon(String category) {
+    switch (category) {
+      case 'New Phone':
+        return Icons.phone_android;
+      case 'Base Model':
+        return Icons.phone_iphone;
+      case 'Second Phone':
+        return Icons.phone_iphone_outlined;
+      case 'Service':
+        return Icons.build;
+      default:
+        return Icons.category;
+    }
+  }
+}
+
+// Brand Analysis Card for Dashboard
+class BrandAnalysisCard extends StatefulWidget {
+  final List<Sale> allSales;
+  final String Function(double) formatNumber;
+  final VoidCallback onViewDetails;
+
+  BrandAnalysisCard({
+    required this.allSales,
+    required this.formatNumber,
+    required this.onViewDetails,
+  });
+
+  @override
+  _BrandAnalysisCardState createState() => _BrandAnalysisCardState();
+}
+
+class _BrandAnalysisCardState extends State<BrandAnalysisCard> {
+  String _selectedTimePeriod = 'monthly';
+  final List<String> _timePeriods = ['daily', 'monthly', 'yearly'];
+
+  List<Sale> _getFilteredSales() {
+    DateTime startDate;
+    DateTime endDate;
+    DateTime now = DateTime.now();
+
+    switch (_selectedTimePeriod) {
+      case 'daily':
+        startDate = DateTime(now.year, now.month, now.day);
+        endDate = startDate.add(Duration(days: 1, seconds: -1));
+        break;
+      case 'monthly':
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = DateTime(
+          now.year,
+          now.month + 1,
+          1,
+        ).add(Duration(seconds: -1));
+        break;
+      case 'yearly':
+        startDate = DateTime(now.year, 1, 1);
+        endDate = DateTime(now.year + 1, 1, 1).add(Duration(seconds: -1));
+        break;
+      default:
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = DateTime(
+          now.year,
+          now.month + 1,
+          1,
+        ).add(Duration(seconds: -1));
+    }
+
+    return widget.allSales.where((sale) {
+      return sale.date.isAfter(startDate.subtract(Duration(seconds: 1))) &&
+          sale.date.isBefore(endDate.add(Duration(seconds: 1)));
+    }).toList();
+  }
+
+  Map<String, Map<String, dynamic>> _getBrandAnalysis() {
+    List<Sale> filteredSales = _getFilteredSales();
+    Map<String, Map<String, dynamic>> brandData = {};
+
+    for (var sale in filteredSales) {
+      String? brand = sale.brand;
+      if (brand == null || brand.isEmpty) continue;
+
+      if (!brandData.containsKey(brand)) {
+        brandData[brand] = {
+          'totalSales': 0.0,
+          'count': 0,
+          'categories': <String, double>{},
+          'models': <String, int>{},
+          'shops': <String, double>{},
+        };
+      }
+
+      brandData[brand]!['totalSales'] += sale.amount;
+      brandData[brand]!['count'] += 1;
+
+      // Track categories
+      String category = sale.category;
+      brandData[brand]!['categories'][category] =
+          (brandData[brand]!['categories'][category] ?? 0.0) + sale.amount;
+
+      // Track models
+      String? model = sale.model;
+      if (model != null && model.isNotEmpty) {
+        brandData[brand]!['models'][model] =
+            (brandData[brand]!['models'][model] ?? 0) + 1;
+      }
+
+      // Track shops
+      brandData[brand]!['shops'][sale.shopName] =
+          (brandData[brand]!['shops'][sale.shopName] ?? 0.0) + sale.amount;
+    }
+
+    return brandData;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final brandAnalysis = _getBrandAnalysis();
+    final sortedBrands = brandAnalysis.entries.toList()
+      ..sort((a, b) => b.value['totalSales'].compareTo(a.value['totalSales']));
+
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.branding_watermark,
+                        color: Color(0xFF0A4D2E), size: 22),
+                    SizedBox(width: 8),
+                    Text(
+                      'Brand Performance',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF0A4D2E),
+                      ),
+                    ),
+                  ],
+                ),
+                PopupMenuButton<String>(
+                  onSelected: (value) {
+                    setState(() {
+                      _selectedTimePeriod = value;
+                    });
+                  },
+                  itemBuilder: (context) => _timePeriods.map((period) {
+                    return PopupMenuItem(
+                      value: period,
+                      child: Text(period.toUpperCase()),
+                    );
+                  }).toList(),
+                  child: Container(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Color(0xFF0A4D2E).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Text(
+                          _selectedTimePeriod.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF0A4D2E),
+                          ),
+                        ),
+                        SizedBox(width: 4),
+                        Icon(Icons.arrow_drop_down,
+                            size: 16, color: Color(0xFF0A4D2E)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 16),
+
+            // Time Period Summary
+            Container(
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Color(0xFFE8F5E9),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _getTimePeriodLabel(),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        '${sortedBrands.length} Brands',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0A4D2E),
+                        ),
+                      ),
+                    ],
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: widget.onViewDetails,
+                    icon: Icon(Icons.analytics, size: 16),
+                    label: Text('View Details'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Color(0xFF1A7D4A),
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            SizedBox(height: 20),
+
+            // Top Brands
+            ...sortedBrands.take(3).map((entry) {
+              String brand = entry.key;
+              var data = entry.value;
+              double totalSales = data['totalSales'];
+              int count = data['count'];
+
+              return GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => BrandDetailsScreen(
+                        brand: brand,
+                        sales: widget.allSales.where((s) => s.brand == brand).toList(),
+                        formatNumber: widget.formatNumber,
+                      ),
+                    ),
+                  );
+                },
+                child: Container(
+                  margin: EdgeInsets.only(bottom: 16),
+                  child: Row(
+                    children: [
+                      // Brand Icon/Initial
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: _getBrandColor(brand).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Center(
+                          child: Text(
+                            brand.substring(0, 1).toUpperCase(),
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: _getBrandColor(brand),
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  brand,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                Container(
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Color(0xFF1A7D4A).withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    '$count sales',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Color(0xFF1A7D4A),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: 6),
+                            Text(
+                              '₹${widget.formatNumber(totalSales)}',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF0A4D2E),
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            LinearProgressIndicator(
+                              value: sortedBrands.isNotEmpty
+                                  ? totalSales / sortedBrands.first.value['totalSales']
+                                  : 0,
+                              backgroundColor: Colors.grey[200],
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                _getBrandColor(brand),
+                              ),
+                              minHeight: 4,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+
+            if (sortedBrands.length > 3)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.more_horiz, color: Colors.grey[400]),
+                    SizedBox(width: 4),
+                    Text(
+                      '+${sortedBrands.length - 3} more brands',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _getTimePeriodLabel() {
+    switch (_selectedTimePeriod) {
+      case 'daily':
+        return 'Today';
+      case 'monthly':
+        return 'This Month';
+      case 'yearly':
+        return 'This Year';
+      default:
+        return 'This Month';
+    }
+  }
+
+  Color _getBrandColor(String brand) {
+    // Generate consistent color based on brand name
+    int hash = brand.hashCode;
+    return Color((hash & 0xFFFFFF) | 0xFF000000).withOpacity(0.8);
+  }
+}
+
+// Brand Details Screen
+class BrandDetailsScreen extends StatelessWidget {
+  final String brand;
+  final List<Sale> sales;
+  final String Function(double) formatNumber;
+
+  BrandDetailsScreen({
+    required this.brand,
+    required this.sales,
+    required this.formatNumber,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    double totalSales = sales.fold(0.0, (sum, sale) => sum + sale.amount);
+    
+    // Group by category
+    Map<String, List<Sale>> categoryGroups = {};
+    for (var sale in sales) {
+      if (!categoryGroups.containsKey(sale.category)) {
+        categoryGroups[sale.category] = [];
+      }
+      categoryGroups[sale.category]!.add(sale);
+    }
+    
+    // Group by shop
+    Map<String, List<Sale>> shopGroups = {};
+    for (var sale in sales) {
+      if (!shopGroups.containsKey(sale.shopName)) {
+        shopGroups[sale.shopName] = [];
+      }
+      shopGroups[sale.shopName]!.add(sale);
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          '$brand Details',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+            color: Colors.white,
+          ),
+        ),
+        backgroundColor: Color(0xFF0A4D2E),
+        foregroundColor: Colors.white,
+        elevation: 3,
+        centerTitle: true,
+      ),
+      body: DefaultTabController(
+        length: 3,
+        child: Column(
+          children: [
+            // Brand Header
+            Container(
+              padding: EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF0A4D2E), Color(0xFF1A7D4A)],
+                ),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Text(
+                        brand.substring(0, 1).toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0A4D2E),
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    brand,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildBrandStat('Total Sales', '₹${formatNumber(totalSales)}'),
+                      SizedBox(width: 20),
+                      _buildBrandStat('Transactions', '${sales.length}'),
+                      SizedBox(width: 20),
+                      _buildBrandStat('Avg Sale', '₹${formatNumber(sales.isNotEmpty ? totalSales / sales.length : 0)}'),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            
+            Container(
+              color: Color(0xFF0A4D2E),
+              child: TabBar(
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.white.withOpacity(0.7),
+                indicatorColor: Colors.white,
+                tabs: [
+                  Tab(text: 'Overview'),
+                  Tab(text: 'Categories'),
+                  Tab(text: 'Shops'),
+                ],
+              ),
+            ),
+            
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _buildOverviewTab(sales),
+                  _buildCategoriesTab(categoryGroups),
+                  _buildShopsTab(shopGroups),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBrandStat(String label, String value) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.white.withOpacity(0.8),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOverviewTab(List<Sale> sales) {
+    // Group by month for trend analysis
+    Map<String, List<Sale>> monthGroups = {};
+    for (var sale in sales) {
+      String month = DateFormat('MMM yyyy').format(sale.date);
+      if (!monthGroups.containsKey(month)) {
+        monthGroups[month] = [];
+      }
+      monthGroups[month]!.add(sale);
+    }
+    
+    List<Map<String, dynamic>> monthData = [];
+    monthGroups.forEach((month, sales) {
+      double total = sales.fold(0.0, (sum, sale) => sum + sale.amount);
+      monthData.add({
+        'month': month,
+        'total': total,
+        'count': sales.length,
+      });
+    });
+    
+    // Sort by month
+    monthData.sort((a, b) {
+      DateTime dateA = DateFormat('MMM yyyy').parse(a['month']);
+      DateTime dateB = DateFormat('MMM yyyy').parse(b['month']);
+      return dateB.compareTo(dateA);
+    });
+
+    return ListView(
+      padding: EdgeInsets.all(16),
+      children: [
+        Card(
+          elevation: 3,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Monthly Performance',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0A4D2E),
+                  ),
+                ),
+                SizedBox(height: 12),
+                ...monthData.take(6).map((data) {
+                  return Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            data['month'],
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              '₹${formatNumber(data['total'])}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF0A4D2E),
+                              ),
+                            ),
+                            Text(
+                              '${data['count']} sales',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ],
+            ),
+          ),
+        ),
+        SizedBox(height: 16),
+        Card(
+          elevation: 3,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Recent Sales',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0A4D2E),
+                  ),
+                ),
+                SizedBox(height: 12),
+                ...sales.take(5).map((sale) {
+                  return ListTile(
+                    dense: true,
+                    leading: Icon(Icons.shopping_cart, size: 20),
+                    title: Text(sale.customerName),
+                    subtitle: Text(
+                      '${sale.category} • ${DateFormat('dd MMM yyyy').format(sale.date)}',
+                    ),
+                    trailing: Text(
+                      '₹${formatNumber(sale.amount)}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF0A4D2E),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCategoriesTab(Map<String, List<Sale>> categoryGroups) {
+    List<Map<String, dynamic>> categoryData = [];
+    categoryGroups.forEach((category, sales) {
+      double total = sales.fold(0.0, (sum, sale) => sum + sale.amount);
+      categoryData.add({
+        'category': category,
+        'total': total,
+        'count': sales.length,
+        'sales': sales,
+      });
+    });
+    
+    // Sort by total
+    categoryData.sort((a, b) => b['total'].compareTo(a['total']));
+
+    return ListView.builder(
+      itemCount: categoryData.length,
+      itemBuilder: (context, index) {
+        var data = categoryData[index];
+        Color categoryColor = _getCategoryColor(data['category']);
+        
+        return Card(
+          margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: ExpansionTile(
+            leading: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: categoryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Center(
+                child: Icon(
+                  _getCategoryIcon(data['category']),
+                  color: categoryColor,
+                  size: 20,
+                ),
+              ),
+            ),
+            title: Text(
+              data['category'],
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Text('${data['count']} sales'),
+            trailing: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '₹${formatNumber(data['total'])}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0A4D2E),
+                  ),
+                ),
+                Text(
+                  'Avg: ₹${formatNumber(data['total'] / data['count'])}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+            children: [
+              Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    ...(data['sales'] as List<Sale>).map((sale) {
+                      return ListTile(
+                        dense: true,
+                        leading: Icon(Icons.person, size: 20),
+                        title: Text(sale.customerName),
+                        subtitle: Text(
+                          '${sale.shopName} • ${DateFormat('dd MMM yyyy').format(sale.date)}',
+                        ),
+                        trailing: Text(
+                          '₹${formatNumber(sale.amount)}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0A4D2E),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildShopsTab(Map<String, List<Sale>> shopGroups) {
+    List<Map<String, dynamic>> shopData = [];
+    shopGroups.forEach((shopName, sales) {
+      double total = sales.fold(0.0, (sum, sale) => sum + sale.amount);
+      shopData.add({
+        'shopName': shopName,
+        'total': total,
+        'count': sales.length,
+        'sales': sales,
+      });
+    });
+    
+    // Sort by total
+    shopData.sort((a, b) => b['total'].compareTo(a['total']));
+
+    return ListView.builder(
+      itemCount: shopData.length,
+      itemBuilder: (context, index) {
+        var data = shopData[index];
+        
+        return Card(
+          margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: ExpansionTile(
+            leading: Icon(Icons.store, color: Color(0xFF1A7D4A)),
+            title: Text(
+              data['shopName'],
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Text('${data['count']} sales'),
+            trailing: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '₹${formatNumber(data['total'])}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0A4D2E),
+                  ),
+                ),
+                Text(
+                  'Avg: ₹${formatNumber(data['total'] / data['count'])}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+            children: [
+              Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    ...(data['sales'] as List<Sale>).map((sale) {
+                      return ListTile(
+                        dense: true,
+                        leading: Icon(Icons.shopping_cart, size: 20),
+                        title: Text(sale.customerName),
+                        subtitle: Text(
+                          '${sale.category} • ${DateFormat('dd MMM yyyy').format(sale.date)}',
+                        ),
+                        trailing: Text(
+                          '₹${formatNumber(sale.amount)}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0A4D2E),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Color _getCategoryColor(String category) {
+    switch (category) {
+      case 'New Phone':
+        return Color(0xFF4CAF50);
+      case 'Base Model':
+        return Color(0xFF2196F3);
+      case 'Second Phone':
+        return Color(0xFF9C27B0);
+      case 'Service':
+        return Color(0xFFFF9800);
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getCategoryIcon(String category) {
+    switch (category) {
+      case 'New Phone':
+        return Icons.phone_android;
+      case 'Base Model':
+        return Icons.phone_iphone;
+      case 'Second Phone':
+        return Icons.phone_iphone_outlined;
+      case 'Service':
+        return Icons.build;
+      default:
+        return Icons.category;
+    }
+  }
+}
+
+// Continue with the rest of the screens from the previous code...
+
+// Search Screen for IMEI and Product Name
+class SearchInventoryScreen extends StatefulWidget {
+  final List<Sale> allSales;
+  final List<Map<String, dynamic>> shops;
+  final String Function(double) formatNumber;
+
+  SearchInventoryScreen({
+    required this.allSales,
+    required this.shops,
+    required this.formatNumber,
+  });
+
+  @override
+  _SearchInventoryScreenState createState() => _SearchInventoryScreenState();
+}
+
+class _SearchInventoryScreenState extends State<SearchInventoryScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  List<Map<String, dynamic>> _searchResults = [];
+  bool _isSearching = false;
+  String _searchType = 'imei'; // 'imei' or 'productName'
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(_performSearch);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  void _performSearch() {
+    final query = _searchController.text.trim().toLowerCase();
+    
+    if (query.isEmpty) {
+      setState(() {
+        _searchResults.clear();
+        _isSearching = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _isSearching = true;
+      _searchResults.clear();
+    });
+
+    // Filter sales based on search type
+    List<Sale> filteredSales = [];
+
+    if (_searchType == 'imei') {
+      filteredSales = widget.allSales.where((sale) {
+        return sale.imei != null && 
+               sale.imei!.toLowerCase().contains(query);
+      }).toList();
+    } else {
+      filteredSales = widget.allSales.where((sale) {
+        return (sale.itemName?.toLowerCase().contains(query) ?? false) ||
+               (sale.model?.toLowerCase().contains(query) ?? false) ||
+               (sale.brand?.toLowerCase().contains(query) ?? false);
+      }).toList();
+    }
+
+    // Convert to result format
+    List<Map<String, dynamic>> results = [];
+    for (var sale in filteredSales) {
+      results.add({
+        'sale': sale,
+        'type': 'sale',
+        'relevance': _calculateRelevance(sale, query),
+      });
+    }
+
+    // Sort by relevance
+    results.sort((a, b) => b['relevance'].compareTo(a['relevance']));
+
+    setState(() {
+      _searchResults = results;
+    });
+  }
+
+  int _calculateRelevance(Sale sale, String query) {
+    int relevance = 0;
+    
+    // Exact match gets highest score
+    if (_searchType == 'imei' && sale.imei?.toLowerCase() == query) {
+      relevance += 100;
+    }
+    
+    // Starts with query
+    if (sale.imei?.toLowerCase().startsWith(query) ?? false) {
+      relevance += 50;
+    }
+    
+    // Contains query
+    if (sale.imei?.toLowerCase().contains(query) ?? false) {
+      relevance += 30;
+    }
+    
+    // For product name search
+    if (_searchType == 'productName') {
+      if (sale.itemName?.toLowerCase() == query) {
+        relevance += 100;
+      }
+      if (sale.model?.toLowerCase() == query) {
+        relevance += 90;
+      }
+      if (sale.brand?.toLowerCase() == query) {
+        relevance += 80;
+      }
+      if (sale.itemName?.toLowerCase().contains(query) ?? false) {
+        relevance += 40;
+      }
+    }
+    
+    // Recent sales get slight boost
+    if (sale.date.isAfter(DateTime.now().subtract(Duration(days: 30)))) {
+      relevance += 5;
+    }
+    
+    return relevance;
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() {
+      _searchResults.clear();
+      _isSearching = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          'Search Inventory',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+            color: Colors.white,
+          ),
+        ),
+        backgroundColor: Color(0xFF0A4D2E),
+        foregroundColor: Colors.white,
+        elevation: 3,
+        centerTitle: true,
+      ),
+      body: Column(
+        children: [
+          // Search Bar
+          Container(
+            padding: EdgeInsets.all(16),
+            color: Color(0xFFE8F5E9),
+            child: Card(
+              elevation: 3,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _searchController,
+                            focusNode: _searchFocusNode,
+                            decoration: InputDecoration(
+                              hintText: _searchType == 'imei'
+                                  ? 'Search by IMEI number...'
+                                  : 'Search by product name, model, or brand...',
+                              border: InputBorder.none,
+                              prefixIcon: Icon(Icons.search),
+                              suffixIcon: _searchController.text.isNotEmpty
+                                  ? IconButton(
+                                      icon: Icon(Icons.clear),
+                                      onPressed: _clearSearch,
+                                    )
+                                  : null,
+                            ),
+                            onSubmitted: (_) => _performSearch(),
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        PopupMenuButton<String>(
+                          onSelected: (value) {
+                            setState(() {
+                              _searchType = value;
+                            });
+                            _performSearch();
+                          },
+                          itemBuilder: (context) => [
+                            PopupMenuItem(
+                              value: 'imei',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.confirmation_number, size: 18),
+                                  SizedBox(width: 8),
+                                  Text('Search by IMEI'),
+                                ],
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: 'productName',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.phone_iphone, size: 18),
+                                  SizedBox(width: 8),
+                                  Text('Search by Product'),
+                                ],
+                              ),
+                            ),
+                          ],
+                          child: Container(
+                            padding: EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Color(0xFF0A4D2E).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              _searchType == 'imei'
+                                  ? Icons.confirmation_number
+                                  : Icons.phone_iphone,
+                              color: Color(0xFF0A4D2E),
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      _searchType == 'imei'
+                          ? 'Enter full or partial IMEI number'
+                          : 'Search by product name, model, or brand name',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // Search Results
+          Expanded(
+            child: _buildSearchResults(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchResults() {
+    if (_searchController.text.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.search, size: 64, color: Colors.grey[400]),
+            SizedBox(height: 16),
+            Text(
+              'Search Inventory',
+              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+            ),
+            SizedBox(height: 8),
+            Text(
+              _searchType == 'imei'
+                  ? 'Enter IMEI number to search'
+                  : 'Enter product name, model, or brand',
+              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_isSearching && _searchResults.isEmpty) {
+      return Center(
+        child: CircularProgressIndicator(color: Color(0xFF0A4D2E)),
+      );
+    }
+
+    if (_searchResults.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.search_off, size: 64, color: Colors.grey[400]),
+            SizedBox(height: 16),
+            Text(
+              'No results found',
+              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Try different search terms',
+              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: _searchResults.length,
+      itemBuilder: (context, index) {
+        final result = _searchResults[index];
+        final sale = result['sale'] as Sale;
+        
+        return _buildSaleCard(sale);
+      },
+    );
+  }
+
+  Widget _buildSaleCard(Sale sale) {
+    return GestureDetector(
+      onTap: () {
+        _showSaleDetails(context, sale);
+      },
+      child: Card(
+        margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      sale.customerName,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF0A4D2E),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _getCategoryColor(sale.category).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      sale.category,
+                      style: TextStyle(
+                        color: _getCategoryColor(sale.category),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              
+              SizedBox(height: 8),
+              
+              // Product Info
+              if (sale.brand != null || sale.model != null)
+                Row(
+                  children: [
+                    Icon(Icons.phone_iphone, size: 14, color: Colors.grey[600]),
+                    SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        '${sale.brand ?? ''} ${sale.model ?? sale.itemName}',
+                        style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              
+              SizedBox(height: 4),
+              
+              // IMEI
+              if (sale.imei != null && sale.imei!.isNotEmpty)
+                Row(
+                  children: [
+                    Icon(Icons.confirmation_number, size: 14, color: Colors.grey[600]),
+                    SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'IMEI: ${sale.imei}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                          fontFamily: 'Monospace',
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              
+              SizedBox(height: 12),
+              Divider(height: 1),
+              SizedBox(height: 12),
+              
+              // Sale Details
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Sale Amount',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        '₹${widget.formatNumber(sale.amount)}',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0A4D2E),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        'Date & Shop',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        DateFormat('dd MMM yy').format(sale.date),
+                        style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                      ),
+                      Text(
+                        sale.shopName,
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              
+              SizedBox(height: 8),
+              
+              // Additional Info
+              if (sale.customerPhone != null)
+                Row(
+                  children: [
+                    Icon(Icons.phone, size: 12, color: Colors.grey[600]),
+                    SizedBox(width: 4),
+                    Text(
+                      sale.customerPhone!,
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+              
+              if (sale.salesPersonEmail != null || sale.salesPersonName != null)
+                Text(
+                  'Sales Person: ${sale.salesPersonEmail ?? sale.salesPersonName}',
+                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showSaleDetails(BuildContext context, Sale sale) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Sale Details'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildDetailRow('Customer', sale.customerName),
+              _buildDetailRow('Category', sale.category),
+              _buildDetailRow('Shop', sale.shopName),
+              _buildDetailRow('Date', DateFormat('dd MMM yyyy, hh:mm a').format(sale.date)),
+              _buildDetailRow('Amount', '₹${widget.formatNumber(sale.amount)}'),
+              if (sale.customerPhone != null) 
+                _buildDetailRow('Phone', sale.customerPhone!),
+              if (sale.brand != null) 
+                _buildDetailRow('Brand', sale.brand!),
+              if (sale.model != null) 
+                _buildDetailRow('Model', sale.model!),
+              if (sale.imei != null) 
+                _buildDetailRow('IMEI', sale.imei!),
+              if (sale.salesPersonName != null) 
+                _buildDetailRow('Sales Person', sale.salesPersonName!),
+              if (sale.cashAmount != null && sale.cashAmount! > 0)
+                _buildDetailRow('Cash', '₹${widget.formatNumber(sale.cashAmount!)}'),
+              if (sale.cardAmount != null && sale.cardAmount! > 0)
+                _buildDetailRow('Card', '₹${widget.formatNumber(sale.cardAmount!)}'),
+              if (sale.gpayAmount != null && sale.gpayAmount! > 0)
+                _buildDetailRow('GPay', '₹${widget.formatNumber(sale.gpayAmount!)}'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 100,
+            child: Text(
+              '$label:',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
+          ),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(color: Colors.grey[800]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getCategoryColor(String category) {
+    switch (category) {
+      case 'New Phone':
+        return Color(0xFF4CAF50);
+      case 'Base Model':
+        return Color(0xFF2196F3);
+      case 'Second Phone':
+        return Color(0xFF9C27B0);
+      case 'Service':
+        return Color(0xFFFF9800);
+      default:
+        return Colors.grey;
+    }
+  }
+}
+
+// Detailed Brand Analysis Screen
+class BrandAnalysisDetailsScreen extends StatefulWidget {
+  final List<Sale> allSales;
+  final String Function(double) formatNumber;
+  final List<Map<String, dynamic>> shops;
+
+  BrandAnalysisDetailsScreen({
+    required this.allSales,
+    required this.formatNumber,
+    required this.shops,
+  });
+
+  @override
+  _BrandAnalysisDetailsScreenState createState() =>
+      _BrandAnalysisDetailsScreenState();
+}
+
+class _BrandAnalysisDetailsScreenState extends State<BrandAnalysisDetailsScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  String _selectedTimePeriod = 'monthly';
+  final List<String> _timePeriods = ['daily', 'monthly', 'yearly'];
+  String? _selectedBrand;
+  List<String> _allBrands = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+    _extractBrands();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  void _extractBrands() {
+    Set<String> brands = {};
+    for (var sale in widget.allSales) {
+      if (sale.brand != null && sale.brand!.isNotEmpty) {
+        brands.add(sale.brand!);
+      }
+    }
+    _allBrands = brands.toList()..sort();
+  }
+
+  List<Sale> _getFilteredSales() {
+    DateTime startDate;
+    DateTime endDate;
+    DateTime now = DateTime.now();
+
+    switch (_selectedTimePeriod) {
+      case 'daily':
+        startDate = DateTime(now.year, now.month, now.day);
+        endDate = startDate.add(Duration(days: 1, seconds: -1));
+        break;
+      case 'monthly':
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = DateTime(
+          now.year,
+          now.month + 1,
+          1,
+        ).add(Duration(seconds: -1));
+        break;
+      case 'yearly':
+        startDate = DateTime(now.year, 1, 1);
+        endDate = DateTime(now.year + 1, 1, 1).add(Duration(seconds: -1));
+        break;
+      default:
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = DateTime(
+          now.year,
+          now.month + 1,
+          1,
+        ).add(Duration(seconds: -1));
+    }
+
+    return widget.allSales.where((sale) {
+      if (_selectedBrand != null && sale.brand != _selectedBrand) return false;
+      return sale.date.isAfter(startDate.subtract(Duration(seconds: 1))) &&
+          sale.date.isBefore(endDate.add(Duration(seconds: 1)));
+    }).toList();
+  }
+
+  Map<String, dynamic> _getBrandStatistics() {
+    List<Sale> filteredSales = _getFilteredSales();
+    Map<String, Map<String, dynamic>> brandData = {};
+
+    for (var sale in filteredSales) {
+      String? brand = sale.brand;
+      if (brand == null || brand.isEmpty) brand = 'Unknown';
+
+      if (!brandData.containsKey(brand)) {
+        brandData[brand] = {
+          'totalSales': 0.0,
+          'count': 0,
+          'categories': <String, double>{},
+          'models': <String, int>{},
+          'shops': <String, double>{},
+          'paymentMethods': {
+            'cash': 0.0,
+            'card': 0.0,
+            'gpay': 0.0,
+          },
+        };
+      }
+
+      brandData[brand]!['totalSales'] += sale.amount;
+      brandData[brand]!['count'] += 1;
+
+      // Categories
+      String category = sale.category;
+      brandData[brand]!['categories'][category] =
+          (brandData[brand]!['categories'][category] ?? 0.0) + sale.amount;
+
+      // Models
+      String? model = sale.model ?? sale.itemName;
+      if (model.isNotEmpty) {
+        brandData[brand]!['models'][model] =
+            (brandData[brand]!['models'][model] ?? 0) + 1;
+      }
+
+      // Shops
+      brandData[brand]!['shops'][sale.shopName] =
+          (brandData[brand]!['shops'][sale.shopName] ?? 0.0) + sale.amount;
+
+      // Payment Methods
+      if (sale.cashAmount != null) brandData[brand]!['paymentMethods']['cash'] += sale.cashAmount!;
+      if (sale.cardAmount != null) brandData[brand]!['paymentMethods']['card'] += sale.cardAmount!;
+      if (sale.gpayAmount != null) brandData[brand]!['paymentMethods']['gpay'] += sale.gpayAmount!;
+    }
+
+    // Calculate totals
+    double totalAllSales = 0;
+    int totalTransactions = 0;
+    brandData.forEach((brand, data) {
+      totalAllSales += data['totalSales'];
+      totalTransactions += data['count'];
+    });
+
+    return {
+      'brandData': brandData,
+      'totalAllSales': totalAllSales,
+      'totalTransactions': totalTransactions,
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final stats = _getBrandStatistics();
+    final brandData = stats['brandData'] as Map<String, Map<String, dynamic>>;
+    final sortedBrands = brandData.entries.toList()
+      ..sort((a, b) => b.value['totalSales'].compareTo(a.value['totalSales']));
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          'Brand Performance Analysis',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+            color: Colors.white,
+          ),
+        ),
+        backgroundColor: Color(0xFF0A4D2E),
+        foregroundColor: Colors.white,
+        elevation: 3,
+        centerTitle: true,
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white.withOpacity(0.7),
+          indicatorColor: Colors.white,
+          tabs: [
+            Tab(text: 'Overview'),
+            Tab(text: 'Brand Details'),
+            Tab(text: 'Trends'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildOverviewTab(stats, sortedBrands),
+          _buildBrandDetailsTab(sortedBrands),
+          _buildTrendsTab(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOverviewTab(
+      Map<String, dynamic> stats, List<MapEntry<String, Map<String, dynamic>>> sortedBrands) {
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          // Filters
+          Container(
+            padding: EdgeInsets.all(16),
+            child: Card(
+              elevation: 3,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Filters',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF0A4D2E),
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    // Time Period
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _timePeriods.map((period) {
+                        bool isSelected = _selectedTimePeriod == period;
+                        return FilterChip(
+                          label: Text(
+                            period.toUpperCase(),
+                            style: TextStyle(
+                              color:
+                                  isSelected ? Colors.white : Colors.grey[700],
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          selected: isSelected,
+                          onSelected: (selected) {
+                            setState(() {
+                              _selectedTimePeriod = period;
+                            });
+                          },
+                          backgroundColor: Colors.grey.shade100,
+                          selectedColor: Color(0xFF1A7D4A),
+                        );
+                      }).toList(),
+                    ),
+                    SizedBox(height: 12),
+                    // Brand Filter
+                    Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey[300]!),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _selectedBrand,
+                          isExpanded: true,
+                          hint: Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 12),
+                            child: Text('All Brands'),
+                          ),
+                          items: [
+                            DropdownMenuItem<String>(
+                              value: null,
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 12),
+                                child: Text('All Brands'),
+                              ),
+                            ),
+                            ..._allBrands.map<DropdownMenuItem<String>>((brand) {
+                              return DropdownMenuItem<String>(
+                                value: brand,
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 12),
+                                  child: Text(brand),
+                                ),
+                              );
+                            }).toList(),
+                          ],
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedBrand = value;
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // Summary Cards
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: GridView.count(
+              shrinkWrap: true,
+              physics: NeverScrollableScrollPhysics(),
+              crossAxisCount: 2,
+              childAspectRatio: 1.2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              children: [
+                _buildStatCard(
+                  'Total Brands',
+                  '${sortedBrands.length}',
+                  Icons.branding_watermark,
+                  Color(0xFF2196F3),
+                  'Active brands',
+                ),
+                _buildStatCard(
+                  'Total Sales',
+                  '₹${widget.formatNumber(stats['totalAllSales'])}',
+                  Icons.currency_rupee,
+                  Color(0xFF0A4D2E),
+                  'All brands combined',
+                ),
+                _buildStatCard(
+                  'Transactions',
+                  '${stats['totalTransactions']}',
+                  Icons.receipt,
+                  Color(0xFF4CAF50),
+                  'Total sales count',
+                ),
+                _buildStatCard(
+                  'Avg/Brand',
+                  sortedBrands.isNotEmpty
+                      ? '₹${widget.formatNumber(stats['totalAllSales'] / sortedBrands.length)}'
+                      : '₹0',
+                  Icons.trending_up,
+                  Color(0xFF9C27B0),
+                  'Average per brand',
+                ),
+              ],
+            ),
+          ),
+
+          // Top 5 Brands Chart
+          Container(
+            padding: EdgeInsets.all(16),
+            child: Card(
+              elevation: 3,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Top 5 Brands by Sales',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF0A4D2E),
+                      ),
+                    ),
+                    SizedBox(height: 16),
+                    ...sortedBrands.take(5).asMap().entries.map((entry) {
+                      int index = entry.key;
+                      var brandEntry = entry.value;
+                      String brand = brandEntry.key;
+                      var data = brandEntry.value;
+                      double totalSales = data['totalSales'];
+                      double percentage = stats['totalAllSales'] > 0
+                          ? (totalSales / stats['totalAllSales']) * 100
+                          : 0;
+
+                      return GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => BrandDetailsScreen(
+                                brand: brand,
+                                sales: widget.allSales.where((s) => s.brand == brand).toList(),
+                                formatNumber: widget.formatNumber,
+                              ),
+                            ),
+                          );
+                        },
+                        child: Padding(
+                          padding: EdgeInsets.only(bottom: 12),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 30,
+                                height: 30,
+                                decoration: BoxDecoration(
+                                  color: _getBrandColor(brand),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    (index + 1).toString(),
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          brand,
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        Text(
+                                          '₹${widget.formatNumber(totalSales)}',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF0A4D2E),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    SizedBox(height: 4),
+                                    LinearProgressIndicator(
+                                      value: percentage / 100,
+                                      backgroundColor: Colors.grey[200],
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        _getBrandColor(brand),
+                                      ),
+                                      minHeight: 6,
+                                    ),
+                                    SizedBox(height: 4),
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          '${data['count']} sales',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                        Text(
+                                          '${percentage.toStringAsFixed(1)}%',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBrandDetailsTab(
+      List<MapEntry<String, Map<String, dynamic>>> sortedBrands) {
+    return sortedBrands.isEmpty
+        ? Center(
+            child: Text('No brand data available'),
+          )
+        : ListView.builder(
+            itemCount: sortedBrands.length,
+            itemBuilder: (context, index) {
+              var brandEntry = sortedBrands[index];
+              String brand = brandEntry.key;
+              var data = brandEntry.value;
+
+              return Card(
+                margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: ExpansionTile(
+                  leading: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: _getBrandColor(brand).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Center(
+                      child: Text(
+                        brand.substring(0, 1).toUpperCase(),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: _getBrandColor(brand),
+                        ),
+                      ),
+                    ),
+                  ),
+                  title: Text(
+                    brand,
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Text('${data['count']} sales'),
+                  trailing: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '₹${widget.formatNumber(data['totalSales'])}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0A4D2E),
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Container(
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Color(0xFF4CAF50).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          'Avg: ₹${widget.formatNumber(data['count'] > 0 ? data['totalSales'] / data['count'] : 0)}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Color(0xFF4CAF50),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          // Categories
+                          if ((data['categories'] as Map<String, double>)
+                              .isNotEmpty)
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Sales by Category',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF0A4D2E),
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                ...(data['categories'] as Map<String, double>)
+                                    .entries
+                                    .map((entry) {
+                                  Color categoryColor = _getCategoryColor(entry.key);
+                                  return Padding(
+                                    padding: EdgeInsets.only(bottom: 6),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 8,
+                                          height: 8,
+                                          decoration: BoxDecoration(
+                                            color: categoryColor,
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                        SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(entry.key),
+                                        ),
+                                        Text(
+                                          '₹${widget.formatNumber(entry.value)}',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                              ],
+                            ),
+
+                          SizedBox(height: 16),
+
+                          // Top Models
+                          if ((data['models'] as Map<String, int>).isNotEmpty)
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Top Models',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF0A4D2E),
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                ...(data['models'] as Map<String, int>)
+                                    .entries
+                                    .take(3)
+                                    .map((entry) {
+                                  return Padding(
+                                    padding: EdgeInsets.only(bottom: 6),
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.phone_iphone,
+                                            size: 14, color: Colors.grey[600]),
+                                        SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            entry.key,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        Container(
+                                          padding: EdgeInsets.symmetric(
+                                              horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Color(0xFF2196F3)
+                                                .withOpacity(0.1),
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                          ),
+                                          child: Text(
+                                            '${entry.value} sales',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: Color(0xFF2196F3),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                              ],
+                            ),
+
+                          SizedBox(height: 16),
+
+                          // Top Shops
+                          if ((data['shops'] as Map<String, double>).isNotEmpty)
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Top Performing Shops',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF0A4D2E),
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                ...(data['shops'] as Map<String, double>)
+                                    .entries
+                                    .toList()
+                                  ..sort((a, b) => b.value.compareTo(a.value))
+                                  ..take(3)
+                                  .map((entry) {
+                                    return Padding(
+                                      padding: EdgeInsets.only(bottom: 6),
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.store,
+                                              size: 14, color: Colors.grey[600]),
+                                          SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(entry.key),
+                                          ),
+                                          Text(
+                                            '₹${widget.formatNumber(entry.value)}',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }).toList(),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+  }
+
+  Widget _buildTrendsTab() {
+    // This would require historical data for trend analysis
+    // For now, show a placeholder with explanation
+    return Center(
+      child: Padding(
+        padding: EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.trending_up, size: 64, color: Colors.grey[400]),
+            SizedBox(height: 16),
+            Text(
+              'Trend Analysis',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF0A4D2E),
+              ),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'Brand performance trends over time will be displayed here.',
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Features coming soon:',
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+            ),
+            SizedBox(height: 8),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 32),
+              child: Column(
+                children: [
+                  _buildFeatureItem('Monthly sales trends'),
+                  _buildFeatureItem('Year-over-year comparison'),
+                  _buildFeatureItem('Market share analysis'),
+                  _buildFeatureItem('Seasonal patterns'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFeatureItem(String text) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(Icons.check_circle, size: 16, color: Color(0xFF4CAF50)),
+          SizedBox(width: 8),
+          Text(text, style: TextStyle(color: Colors.grey[600])),
+        ],
+      );
+    }
+  }
+
+  Widget _buildStatCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+    String subtitle,
+  ) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: EdgeInsets.all(12),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: color, size: 18),
+            ),
+            SizedBox(height: 8),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              title,
+              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+            ),
+            SizedBox(height: 2),
+            Text(
+              subtitle,
+              style: TextStyle(fontSize: 9, color: Colors.grey[500]),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _getBrandColor(String brand) {
+    int hash = brand.hashCode;
+    List<Color> brandColors = [
+      Color(0xFF2196F3), // Blue
+      Color(0xFF4CAF50), // Green
+      Color(0xFF9C27B0), // Purple
+      Color(0xFFFF9800), // Orange
+      Color(0xFFF44336), // Red
+      Color(0xFF00BCD4), // Cyan
+      Color(0xFF673AB7), // Deep Purple
+      Color(0xFFFF5722), // Deep Orange
+    ];
+    return brandColors[hash.abs() % brandColors.length];
+  }
+
+  Color _getCategoryColor(String category) {
+    switch (category) {
+      case 'New Phone':
+        return Color(0xFF4CAF50);
+      case 'Base Model':
+        return Color(0xFF2196F3);
+      case 'Second Phone':
+        return Color(0xFF9C27B0);
+      case 'Service':
+        return Color(0xFFFF9800);
+      default:
+        return Colors.grey;
+    }
+  }
+}
+
+// Continue with the rest of the existing screens...
+
+// Inventory Details Screen
+class InventoryDetailsScreen extends StatefulWidget {
+  final List<Map<String, dynamic>> shops;
+  final String Function(double) formatNumber;
+
+  InventoryDetailsScreen({required this.shops, required this.formatNumber});
+
+  @override
+  _InventoryDetailsScreenState createState() => _InventoryDetailsScreenState();
+}
+
+class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  String? _selectedShopId;
+  String? _selectedStatus = 'available';
+  bool _isLoading = true;
+  List<Map<String, dynamic>> _allInventory = [];
+  List<Map<String, dynamic>> _filteredInventory = [];
+  Map<String, dynamic> _inventoryStats = {};
+  final Color primaryGreen = Color(0xFF0A4D2E);
+  final Color secondaryGreen = Color(0xFF1A7D4A);
+  final Color lightGreen = Color(0xFFE8F5E9);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAllInventory();
+  }
+
+  Future<void> _loadAllInventory() async {
+    setState(() => _isLoading = true);
+
+    try {
+      // Load phone stock
+      final phoneStockSnapshot = await _firestore
+          .collection('phoneStock')
+          .get();
+
+      _allInventory.clear();
+
+      // Convert phone stock data
+      for (var doc in phoneStockSnapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        _allInventory.add({
+          'id': doc.id,
+          'type': 'phone_stock',
+          'shopId': data['shopId'] ?? '',
+          'shopName': data['shopName'] ?? 'Unknown Shop',
+          'productName': data['productName'] ?? 'Unknown',
+          'productBrand': data['productBrand'] ?? 'Unknown',
+          'productPrice': (data['productPrice'] ?? 0).toDouble(),
+          'imei': data['imei'] ?? 'N/A',
+          'status': data['status'] ?? 'available',
+          'uploadedAt': data['uploadedAt'] is Timestamp
+              ? (data['uploadedAt'] as Timestamp).toDate()
+              : DateTime.now(),
+          'uploadedBy': data['uploadedBy'] ?? 'Unknown',
+        });
+      }
+
+      // Load returned phones
+      final returnedSnapshot = await _firestore
+          .collection('phoneReturns')
+          .get();
+
+      for (var doc in returnedSnapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        _allInventory.add({
+          'id': doc.id,
+          'type': 'phone_return',
+          'shopId': data['originalShopId'] ?? '',
+          'shopName': data['originalShopName'] ?? 'Unknown Shop',
+          'productName': data['productName'] ?? 'Unknown',
+          'productBrand': data['productBrand'] ?? 'Unknown',
+          'productPrice': (data['productPrice'] ?? 0).toDouble(),
+          'imei': data['imei'] ?? 'N/A',
+          'status': 'returned',
+          'returnedAt': data['returnedAt'] is Timestamp
+              ? (data['returnedAt'] as Timestamp).toDate()
+              : DateTime.now(),
+          'returnedBy': data['returnedBy'] ?? 'Unknown',
+          'reason': data['reason'] ?? '',
+        });
+      }
+
+      _calculateStats();
+      _applyFilters();
+
+      setState(() => _isLoading = false);
+    } catch (e) {
+      print('Error loading inventory: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _calculateStats() {
+    _inventoryStats = {
+      'totalItems': _allInventory.length,
+      'available': _allInventory
+          .where((item) => item['status'] == 'available')
+          .length,
+      'sold': _allInventory.where((item) => item['status'] == 'sold').length,
+      'returned': _allInventory
+          .where((item) => item['status'] == 'returned')
+          .length,
+      'totalValue': _allInventory.fold(
+        0.0,
+        (sum, item) => sum + (item['productPrice'] ?? 0),
+      ),
+      'availableValue': _allInventory
+          .where((item) => item['status'] == 'available')
+          .fold(0.0, (sum, item) => sum + (item['productPrice'] ?? 0)),
+      'soldValue': _allInventory
+          .where((item) => item['status'] == 'sold')
+          .fold(0.0, (sum, item) => sum + (item['productPrice'] ?? 0)),
+    };
+  }
+
+  void _applyFilters() {
+    setState(() {
+      _filteredInventory = _allInventory.where((item) {
+        if (_selectedShopId != null && item['shopId'] != _selectedShopId) {
+          return false;
+        }
+        if (_selectedStatus != null && item['status'] != _selectedStatus) {
+          return false;
+        }
+        return true;
+      }).toList();
+
+      // Sort by date (newest first)
+      _filteredInventory.sort((a, b) {
+        final dateA = a['uploadedAt'] ?? a['returnedAt'] ?? DateTime.now();
+        final dateB = b['uploadedAt'] ?? b['returnedAt'] ?? DateTime.now();
+        return dateB.compareTo(dateA);
+      });
+    });
+  }
+
+  Widget _buildFilterSection() {
+    return Container(
+      padding: EdgeInsets.all(16),
+      child: Card(
+        elevation: 3,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Filters',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: primaryGreen,
+                ),
+              ),
+              SizedBox(height: 12),
+
+              // Shop Filter
+              Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey[300]!),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedShopId,
+                    isExpanded: true,
+                    hint: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Text('All Shops'),
+                    ),
+                    items: [
+                      DropdownMenuItem<String>(
+                        value: null,
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text('All Shops'),
+                        ),
+                      ),
+                      ...widget.shops.map<DropdownMenuItem<String>>((shop) {
+                        return DropdownMenuItem<String>(
+                          value: shop['id'] as String?,
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 12),
+                            child: Text(shop['name'] as String),
+                          ),
+                        );
+                      }).toList(),
+                    ],
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedShopId = value;
+                      });
+                      _applyFilters();
+                    },
+                  ),
+                ),
+              ),
+
+              SizedBox(height: 12),
+
+              // Status Filter
+              Row(
+                children: [
+                  _buildStatusChip('All', null),
+                  SizedBox(width: 8),
+                  _buildStatusChip('Available', 'available'),
+                  SizedBox(width: 8),
+                  _buildStatusChip('Sold', 'sold'),
+                  SizedBox(width: 8),
+                  _buildStatusChip('Returned', 'returned'),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusChip(String label, String? value) {
+    final isSelected = _selectedStatus == value;
+    Color chipColor;
+
+    switch (value) {
+      case 'available':
+        chipColor = Color(0xFF4CAF50);
+        break;
+      case 'sold':
+        chipColor = Color(0xFF2196F3);
+        break;
+      case 'returned':
+        chipColor = Color(0xFFFF9800);
+        break;
+      default:
+        chipColor = primaryGreen;
+    }
+
+    return FilterChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          color: isSelected ? Colors.white : chipColor,
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      selected: isSelected,
+      onSelected: (selected) {
+        setState(() {
+          _selectedStatus = value;
+        });
+        _applyFilters();
+      },
+      backgroundColor: chipColor.withOpacity(0.1),
+      selectedColor: chipColor,
+    );
+  }
+
+  Widget _buildStatsCards() {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 16),
+      child: GridView.count(
+        shrinkWrap: true,
+        physics: NeverScrollableScrollPhysics(),
+        crossAxisCount: 2,
+        childAspectRatio: 1.2,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        children: [
+          _buildStatCard(
+            'Total Items',
+            '${_inventoryStats['totalItems']}',
+            Icons.inventory,
+            primaryGreen,
+            'Value: ₹${widget.formatNumber(_inventoryStats['totalValue'] ?? 0)}',
+          ),
+          _buildStatCard(
+            'Available',
+            '${_inventoryStats['available']}',
+            Icons.check_circle,
+            Color(0xFF4CAF50),
+            'Value: ₹${widget.formatNumber(_inventoryStats['availableValue'] ?? 0)}',
+          ),
+          _buildStatCard(
+            'Sold',
+            '${_inventoryStats['sold']}',
+            Icons.shopping_cart,
+            Color(0xFF2196F3),
+            'Value: ₹${widget.formatNumber(_inventoryStats['soldValue'] ?? 0)}',
+          ),
+          _buildStatCard(
+            'Returned',
+            '${_inventoryStats['returned']}',
+            Icons.assignment_return,
+            Color(0xFFFF9800),
+            'Phones returned',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+    String subtitle,
+  ) {
+    return Card(
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Container(
+        padding: EdgeInsets.all(12),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, color: color, size: 18),
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 8),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInventoryList() {
+    if (_filteredInventory.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.inventory_2, size: 64, color: Colors.grey[400]),
+            SizedBox(height: 16),
+            Text(
+              'No inventory items found',
+              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Try changing your filters',
+              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: NeverScrollableScrollPhysics(),
+      itemCount: _filteredInventory.length,
+      itemBuilder: (context, index) {
+        final item = _filteredInventory[index];
+        return _buildInventoryCard(item);
+      },
+    );
+  }
+
+  Widget _buildInventoryCard(Map<String, dynamic> item) {
+    String status = item['status'];
+    String type = item['type'];
+    DateTime date = item['uploadedAt'] ?? item['returnedAt'] ?? DateTime.now();
+
+    Color statusColor;
+    IconData statusIcon;
+    String statusText;
+
+    switch (status) {
+      case 'available':
+        statusColor = Color(0xFF4CAF50);
+        statusIcon = Icons.check_circle;
+        statusText = 'Available';
+        break;
+      case 'sold':
+        statusColor = Color(0xFF2196F3);
+        statusIcon = Icons.shopping_cart;
+        statusText = 'Sold';
+        break;
+      case 'returned':
+        statusColor = Color(0xFFFF9800);
+        statusIcon = Icons.assignment_return;
+        statusText = 'Returned';
+        break;
+      default:
+        statusColor = Colors.grey;
+        statusIcon = Icons.help;
+        statusText = status;
+    }
+
+    return GestureDetector(
+      onTap: () {
+        _showItemDetails(context, item);
+      },
+      child: Card(
+        margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      item['productName'],
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: primaryGreen,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(statusIcon, size: 12, color: statusColor),
+                        SizedBox(width: 4),
+                        Text(
+                          statusText,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: statusColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              SizedBox(height: 8),
+
+              Row(
+                children: [
+                  Icon(
+                    Icons.branding_watermark,
+                    size: 14,
+                    color: Colors.grey[600],
+                  ),
+                  SizedBox(width: 6),
+                  Text(
+                    item['productBrand'],
+                    style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                  ),
+                  Spacer(),
+                  Icon(Icons.currency_rupee, size: 14, color: Colors.grey[600]),
+                  SizedBox(width: 6),
+                  Text(
+                    '₹${widget.formatNumber(item['productPrice'])}',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: primaryGreen,
+                    ),
+                  ),
+                ],
+              ),
+
+              SizedBox(height: 6),
+
+              Row(
+                children: [
+                  Icon(Icons.store, size: 14, color: Colors.grey[600]),
+                  SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      item['shopName'],
+                      style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+
+              SizedBox(height: 6),
+
+              Row(
+                children: [
+                  Icon(
+                    Icons.confirmation_number,
+                    size: 14,
+                    color: Colors.grey[600],
+                  ),
+                  SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'IMEI: ${item['imei']}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                        fontFamily: 'Monospace',
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+
+              SizedBox(height: 8),
+
+              Divider(height: 1, color: Colors.grey[300]),
+
+              SizedBox(height: 8),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        type == 'phone_return' ? 'Returned' : 'Added',
+                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                      ),
+                      Text(
+                        DateFormat('dd MMM yyyy').format(date),
+                        style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                      ),
+                    ],
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        type == 'phone_return' ? 'Returned By' : 'Uploaded By',
+                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                      ),
+                      Text(
+                        item['returnedBy'] ?? item['uploadedBy'],
+                        style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+
+              if (type == 'phone_return' && item['reason'] != null)
+                Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Reason: ${item['reason']}',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showItemDetails(BuildContext context, Map<String, dynamic> item) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Inventory Item Details'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildDetailRow('Product Name', item['productName']),
+              _buildDetailRow('Brand', item['productBrand']),
+              _buildDetailRow('Price', '₹${widget.formatNumber(item['productPrice'])}'),
+              _buildDetailRow('Shop', item['shopName']),
+              _buildDetailRow('Status', item['status'].toString().toUpperCase()),
+              _buildDetailRow('IMEI', item['imei']),
+              _buildDetailRow('Type', item['type'] == 'phone_stock' ? 'Phone Stock' : 'Phone Return'),
+              _buildDetailRow(
+                'Date',
+                DateFormat('dd MMM yyyy').format(
+                  item['uploadedAt'] ?? item['returnedAt'] ?? DateTime.now(),
+                ),
+              ),
+              _buildDetailRow(
+                item['type'] == 'phone_return' ? 'Returned By' : 'Uploaded By',
+                item['returnedBy'] ?? item['uploadedBy'],
+              ),
+              if (item['reason'] != null) _buildDetailRow('Return Reason', item['reason']),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 100,
+            child: Text(
+              '$label:',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
+          ),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(color: Colors.grey[800]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          'Inventory Management',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+            color: Colors.white,
+          ),
+        ),
+        backgroundColor: primaryGreen,
+        foregroundColor: Colors.white,
+        elevation: 3,
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.refresh),
+            onPressed: _loadAllInventory,
+            tooltip: 'Refresh',
+          ),
+          IconButton(
+            icon: Icon(Icons.bar_chart),
+            onPressed: _showInventoryAnalytics,
+            tooltip: 'Analytics',
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? Center(child: CircularProgressIndicator(color: secondaryGreen))
+          : SingleChildScrollView(
+              child: Column(
+                children: [
+                  _buildFilterSection(),
+                  _buildStatsCards(),
+                  SizedBox(height: 16),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Inventory Items (${_filteredInventory.length})',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: primaryGreen,
+                          ),
+                        ),
+                        Text(
+                          _selectedShopId != null
+                              ? widget.shops.firstWhere(
+                                  (shop) => shop['id'] == _selectedShopId,
+                                  orElse: () => {'name': 'Selected Shop'},
+                                )['name']
+                              : 'All Shops',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(height: 12),
+                  _buildInventoryList(),
+                  SizedBox(height: 20),
+                ],
+              ),
+            ),
+    );
+  }
+
+  void _showInventoryAnalytics() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        // Calculate shop distribution
+        final shopDistribution = <String, int>{};
+        for (final item in _allInventory) {
+          final shopName = item['shopName'] as String;
+          shopDistribution[shopName] = (shopDistribution[shopName] ?? 0) + 1;
+        }
+
+        // Calculate brand distribution
+        final brandDistribution = <String, int>{};
+        final brandValue = <String, double>{};
+
+        for (final item in _allInventory) {
+          final brand = item['productBrand'] as String;
+          final price = item['productPrice'] as double;
+
+          brandDistribution[brand] = (brandDistribution[brand] ?? 0) + 1;
+          brandValue[brand] = (brandValue[brand] ?? 0) + price;
+        }
+
+        // Sort brands by count (highest first)
+        final sortedBrands = brandDistribution.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+
+        return Container(
+          padding: EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Inventory Analytics',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: primaryGreen,
+                ),
+              ),
+              SizedBox(height: 16),
+
+              // Shop-wise distribution
+              Text(
+                'Shop Distribution',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+              SizedBox(height: 8),
+
+              ...shopDistribution.entries.map((entry) {
+                final shopName = entry.key;
+                final count = entry.value;
+                final percentage = (count / _allInventory.length) * 100;
+
+                return Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          shopName,
+                          style: TextStyle(fontSize: 14),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        '$count items',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: primaryGreen,
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        '(${percentage.toStringAsFixed(1)}%)',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+
+              SizedBox(height: 16),
+
+              // Brand distribution
+              Text(
+                'Brand Distribution',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+              SizedBox(height: 8),
+
+              ...sortedBrands.take(5).map((entry) {
+                final brand = entry.key;
+                final count = entry.value;
+                final value = brandValue[brand] ?? 0;
+
+                return Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          brand,
+                          style: TextStyle(fontSize: 14),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        '$count',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF2196F3),
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        '₹${widget.formatNumber(value)}',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+
+              SizedBox(height: 20),
+
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryGreen,
+                  minimumSize: Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Text('Close', style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// Continue with all the other existing screens (SpecificReportScreen, ShopWiseReportScreen, 
+// CategoryDetailsScreen, PhoneSalesDetailsScreen, PhoneSalesReportsScreen, 
+// AccessoriesServiceReportScreen) exactly as they were in your original code...
 
 // Specific Report Screen
 class SpecificReportScreen extends StatelessWidget {
@@ -3300,856 +7325,6 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
           ],
         ),
       ],
-    );
-  }
-}
-
-// Inventory Details Screen
-class InventoryDetailsScreen extends StatefulWidget {
-  final List<Map<String, dynamic>> shops;
-  final String Function(double) formatNumber;
-
-  InventoryDetailsScreen({required this.shops, required this.formatNumber});
-
-  @override
-  _InventoryDetailsScreenState createState() => _InventoryDetailsScreenState();
-}
-
-class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  String? _selectedShopId;
-  String? _selectedStatus = 'available';
-  bool _isLoading = true;
-  List<Map<String, dynamic>> _allInventory = [];
-  List<Map<String, dynamic>> _filteredInventory = [];
-  Map<String, dynamic> _inventoryStats = {};
-  final Color primaryGreen = Color(0xFF0A4D2E);
-  final Color secondaryGreen = Color(0xFF1A7D4A);
-  final Color lightGreen = Color(0xFFE8F5E9);
-
-  @override
-  void initState() {
-    super.initState();
-    _loadAllInventory();
-  }
-
-  Future<void> _loadAllInventory() async {
-    setState(() => _isLoading = true);
-
-    try {
-      // Load phone stock
-      final phoneStockSnapshot = await _firestore
-          .collection('phoneStock')
-          .get();
-
-      _allInventory.clear();
-
-      // Convert phone stock data
-      for (var doc in phoneStockSnapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-        _allInventory.add({
-          'id': doc.id,
-          'type': 'phone_stock',
-          'shopId': data['shopId'] ?? '',
-          'shopName': data['shopName'] ?? 'Unknown Shop',
-          'productName': data['productName'] ?? 'Unknown',
-          'productBrand': data['productBrand'] ?? 'Unknown',
-          'productPrice': (data['productPrice'] ?? 0).toDouble(),
-          'imei': data['imei'] ?? 'N/A',
-          'status': data['status'] ?? 'available',
-          'uploadedAt': data['uploadedAt'] is Timestamp
-              ? (data['uploadedAt'] as Timestamp).toDate()
-              : DateTime.now(),
-          'uploadedBy': data['uploadedBy'] ?? 'Unknown',
-        });
-      }
-
-      // Load returned phones
-      final returnedSnapshot = await _firestore
-          .collection('phoneReturns')
-          .get();
-
-      for (var doc in returnedSnapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-        _allInventory.add({
-          'id': doc.id,
-          'type': 'phone_return',
-          'shopId': data['originalShopId'] ?? '',
-          'shopName': data['originalShopName'] ?? 'Unknown Shop',
-          'productName': data['productName'] ?? 'Unknown',
-          'productBrand': data['productBrand'] ?? 'Unknown',
-          'productPrice': (data['productPrice'] ?? 0).toDouble(),
-          'imei': data['imei'] ?? 'N/A',
-          'status': 'returned',
-          'returnedAt': data['returnedAt'] is Timestamp
-              ? (data['returnedAt'] as Timestamp).toDate()
-              : DateTime.now(),
-          'returnedBy': data['returnedBy'] ?? 'Unknown',
-          'reason': data['reason'] ?? '',
-        });
-      }
-
-      _calculateStats();
-      _applyFilters();
-
-      setState(() => _isLoading = false);
-    } catch (e) {
-      print('Error loading inventory: $e');
-      setState(() => _isLoading = false);
-    }
-  }
-
-  void _calculateStats() {
-    _inventoryStats = {
-      'totalItems': _allInventory.length,
-      'available': _allInventory
-          .where((item) => item['status'] == 'available')
-          .length,
-      'sold': _allInventory.where((item) => item['status'] == 'sold').length,
-      'returned': _allInventory
-          .where((item) => item['status'] == 'returned')
-          .length,
-      'totalValue': _allInventory.fold(
-        0.0,
-        (sum, item) => sum + (item['productPrice'] ?? 0),
-      ),
-      'availableValue': _allInventory
-          .where((item) => item['status'] == 'available')
-          .fold(0.0, (sum, item) => sum + (item['productPrice'] ?? 0)),
-      'soldValue': _allInventory
-          .where((item) => item['status'] == 'sold')
-          .fold(0.0, (sum, item) => sum + (item['productPrice'] ?? 0)),
-    };
-  }
-
-  void _applyFilters() {
-    setState(() {
-      _filteredInventory = _allInventory.where((item) {
-        if (_selectedShopId != null && item['shopId'] != _selectedShopId) {
-          return false;
-        }
-        if (_selectedStatus != null && item['status'] != _selectedStatus) {
-          return false;
-        }
-        return true;
-      }).toList();
-
-      // Sort by date (newest first)
-      _filteredInventory.sort((a, b) {
-        final dateA = a['uploadedAt'] ?? a['returnedAt'] ?? DateTime.now();
-        final dateB = b['uploadedAt'] ?? b['returnedAt'] ?? DateTime.now();
-        return dateB.compareTo(dateA);
-      });
-    });
-  }
-
-  Widget _buildFilterSection() {
-    return Container(
-      padding: EdgeInsets.all(16),
-      child: Card(
-        elevation: 3,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Filters',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: primaryGreen,
-                ),
-              ),
-              SizedBox(height: 12),
-
-              // Shop Filter
-              Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey[300]!),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _selectedShopId,
-                    isExpanded: true,
-                    hint: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      child: Text('All Shops'),
-                    ),
-                    items: [
-                      DropdownMenuItem<String>(
-                        value: null,
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 12),
-                          child: Text('All Shops'),
-                        ),
-                      ),
-                      ...widget.shops.map<DropdownMenuItem<String>>((shop) {
-                        return DropdownMenuItem<String>(
-                          value: shop['id'] as String?,
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 12),
-                            child: Text(shop['name'] as String),
-                          ),
-                        );
-                      }).toList(),
-                    ],
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedShopId = value;
-                      });
-                      _applyFilters();
-                    },
-                  ),
-                ),
-              ),
-
-              SizedBox(height: 12),
-
-              // Status Filter
-              Row(
-                children: [
-                  _buildStatusChip('All', null),
-                  SizedBox(width: 8),
-                  _buildStatusChip('Available', 'available'),
-                  SizedBox(width: 8),
-                  _buildStatusChip('Sold', 'sold'),
-                  SizedBox(width: 8),
-                  _buildStatusChip('Returned', 'returned'),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatusChip(String label, String? value) {
-    final isSelected = _selectedStatus == value;
-    Color chipColor;
-
-    switch (value) {
-      case 'available':
-        chipColor = Color(0xFF4CAF50);
-        break;
-      case 'sold':
-        chipColor = Color(0xFF2196F3);
-        break;
-      case 'returned':
-        chipColor = Color(0xFFFF9800);
-        break;
-      default:
-        chipColor = primaryGreen;
-    }
-
-    return FilterChip(
-      label: Text(
-        label,
-        style: TextStyle(
-          color: isSelected ? Colors.white : chipColor,
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-      selected: isSelected,
-      onSelected: (selected) {
-        setState(() {
-          _selectedStatus = value;
-        });
-        _applyFilters();
-      },
-      backgroundColor: chipColor.withOpacity(0.1),
-      selectedColor: chipColor,
-    );
-  }
-
-  Widget _buildStatsCards() {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 16),
-      child: GridView.count(
-        shrinkWrap: true,
-        physics: NeverScrollableScrollPhysics(),
-        crossAxisCount: 2,
-        childAspectRatio: 1.2,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        children: [
-          _buildStatCard(
-            'Total Items',
-            '${_inventoryStats['totalItems']}',
-            Icons.inventory,
-            primaryGreen,
-            'Value: ₹${widget.formatNumber(_inventoryStats['totalValue'] ?? 0)}',
-          ),
-          _buildStatCard(
-            'Available',
-            '${_inventoryStats['available']}',
-            Icons.check_circle,
-            Color(0xFF4CAF50),
-            'Value: ₹${widget.formatNumber(_inventoryStats['availableValue'] ?? 0)}',
-          ),
-          _buildStatCard(
-            'Sold',
-            '${_inventoryStats['sold']}',
-            Icons.shopping_cart,
-            Color(0xFF2196F3),
-            'Value: ₹${widget.formatNumber(_inventoryStats['soldValue'] ?? 0)}',
-          ),
-          _buildStatCard(
-            'Returned',
-            '${_inventoryStats['returned']}',
-            Icons.assignment_return,
-            Color(0xFFFF9800),
-            'Phones returned',
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatCard(
-    String title,
-    String value,
-    IconData icon,
-    Color color,
-    String subtitle,
-  ) {
-    return Card(
-      elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Container(
-        padding: EdgeInsets.all(12),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(icon, color: color, size: 18),
-                ),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: 8),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-            SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInventoryList() {
-    if (_filteredInventory.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.inventory_2, size: 64, color: Colors.grey[400]),
-            SizedBox(height: 16),
-            Text(
-              'No inventory items found',
-              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Try changing your filters',
-              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: NeverScrollableScrollPhysics(),
-      itemCount: _filteredInventory.length,
-      itemBuilder: (context, index) {
-        final item = _filteredInventory[index];
-        return _buildInventoryCard(item);
-      },
-    );
-  }
-
-  Widget _buildInventoryCard(Map<String, dynamic> item) {
-    String status = item['status'];
-    String type = item['type'];
-    DateTime date = item['uploadedAt'] ?? item['returnedAt'] ?? DateTime.now();
-
-    Color statusColor;
-    IconData statusIcon;
-    String statusText;
-
-    switch (status) {
-      case 'available':
-        statusColor = Color(0xFF4CAF50);
-        statusIcon = Icons.check_circle;
-        statusText = 'Available';
-        break;
-      case 'sold':
-        statusColor = Color(0xFF2196F3);
-        statusIcon = Icons.shopping_cart;
-        statusText = 'Sold';
-        break;
-      case 'returned':
-        statusColor = Color(0xFFFF9800);
-        statusIcon = Icons.assignment_return;
-        statusText = 'Returned';
-        break;
-      default:
-        statusColor = Colors.grey;
-        statusIcon = Icons.help;
-        statusText = status;
-    }
-
-    return Card(
-      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    item['productName'],
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: primaryGreen,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(statusIcon, size: 12, color: statusColor),
-                      SizedBox(width: 4),
-                      Text(
-                        statusText,
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: statusColor,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-
-            SizedBox(height: 8),
-
-            Row(
-              children: [
-                Icon(
-                  Icons.branding_watermark,
-                  size: 14,
-                  color: Colors.grey[600],
-                ),
-                SizedBox(width: 6),
-                Text(
-                  item['productBrand'],
-                  style: TextStyle(fontSize: 13, color: Colors.grey[700]),
-                ),
-                Spacer(),
-                Icon(Icons.currency_rupee, size: 14, color: Colors.grey[600]),
-                SizedBox(width: 6),
-                Text(
-                  '₹${widget.formatNumber(item['productPrice'])}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: primaryGreen,
-                  ),
-                ),
-              ],
-            ),
-
-            SizedBox(height: 6),
-
-            Row(
-              children: [
-                Icon(Icons.store, size: 14, color: Colors.grey[600]),
-                SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    item['shopName'],
-                    style: TextStyle(fontSize: 13, color: Colors.grey[700]),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-
-            SizedBox(height: 6),
-
-            Row(
-              children: [
-                Icon(
-                  Icons.confirmation_number,
-                  size: 14,
-                  color: Colors.grey[600],
-                ),
-                SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'IMEI: ${item['imei']}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                      fontFamily: 'Monospace',
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-
-            SizedBox(height: 8),
-
-            Divider(height: 1, color: Colors.grey[300]),
-
-            SizedBox(height: 8),
-
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      type == 'phone_return' ? 'Returned' : 'Added',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                    Text(
-                      DateFormat('dd MMM yyyy').format(date),
-                      style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-                    ),
-                  ],
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      type == 'phone_return' ? 'Returned By' : 'Uploaded By',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                    Text(
-                      item['returnedBy'] ?? item['uploadedBy'],
-                      style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-
-            if (type == 'phone_return' && item['reason'] != null)
-              Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text(
-                  'Reason: ${item['reason']}',
-                  style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Inventory Management',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 20,
-            color: Colors.white,
-          ),
-        ),
-        backgroundColor: primaryGreen,
-        foregroundColor: Colors.white,
-        elevation: 3,
-        centerTitle: true,
-        actions: [
-          IconButton(
-            icon: Icon(Icons.refresh),
-            onPressed: _loadAllInventory,
-            tooltip: 'Refresh',
-          ),
-          IconButton(
-            icon: Icon(Icons.bar_chart),
-            onPressed: _showInventoryAnalytics,
-            tooltip: 'Analytics',
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? Center(child: CircularProgressIndicator(color: secondaryGreen))
-          : SingleChildScrollView(
-              child: Column(
-                children: [
-                  _buildFilterSection(),
-                  _buildStatsCards(),
-                  SizedBox(height: 16),
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Inventory Items (${_filteredInventory.length})',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: primaryGreen,
-                          ),
-                        ),
-                        Text(
-                          _selectedShopId != null
-                              ? widget.shops.firstWhere(
-                                  (shop) => shop['id'] == _selectedShopId,
-                                  orElse: () => {'name': 'Selected Shop'},
-                                )['name']
-                              : 'All Shops',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: 12),
-                  _buildInventoryList(),
-                  SizedBox(height: 20),
-                ],
-              ),
-            ),
-    );
-  }
-
-  void _showInventoryAnalytics() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        // Calculate shop distribution
-        final shopDistribution = <String, int>{};
-        for (final item in _allInventory) {
-          final shopName = item['shopName'] as String;
-          shopDistribution[shopName] = (shopDistribution[shopName] ?? 0) + 1;
-        }
-
-        // Calculate brand distribution
-        final brandDistribution = <String, int>{};
-        final brandValue = <String, double>{};
-
-        for (final item in _allInventory) {
-          final brand = item['productBrand'] as String;
-          final price = item['productPrice'] as double;
-
-          brandDistribution[brand] = (brandDistribution[brand] ?? 0) + 1;
-          brandValue[brand] = (brandValue[brand] ?? 0) + price;
-        }
-
-        // Sort brands by count (highest first)
-        final sortedBrands = brandDistribution.entries.toList()
-          ..sort((a, b) => b.value.compareTo(a.value));
-
-        return Container(
-          padding: EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              SizedBox(height: 16),
-              Text(
-                'Inventory Analytics',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: primaryGreen,
-                ),
-              ),
-              SizedBox(height: 16),
-
-              // Shop-wise distribution
-              Text(
-                'Shop Distribution',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
-                ),
-              ),
-              SizedBox(height: 8),
-
-              ...shopDistribution.entries.map((entry) {
-                final shopName = entry.key;
-                final count = entry.value;
-                final percentage = (count / _allInventory.length) * 100;
-
-                return Padding(
-                  padding: EdgeInsets.only(bottom: 12),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          shopName,
-                          style: TextStyle(fontSize: 14),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      SizedBox(width: 8),
-                      Text(
-                        '$count items',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: primaryGreen,
-                        ),
-                      ),
-                      SizedBox(width: 8),
-                      Text(
-                        '(${percentage.toStringAsFixed(1)}%)',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
-
-              SizedBox(height: 16),
-
-              // Brand distribution
-              Text(
-                'Brand Distribution',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
-                ),
-              ),
-              SizedBox(height: 8),
-
-              ...sortedBrands.take(5).map((entry) {
-                final brand = entry.key;
-                final count = entry.value;
-                final value = brandValue[brand] ?? 0;
-
-                return Padding(
-                  padding: EdgeInsets.only(bottom: 12),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          brand,
-                          style: TextStyle(fontSize: 14),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      SizedBox(width: 8),
-                      Text(
-                        '$count',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF2196F3),
-                        ),
-                      ),
-                      SizedBox(width: 8),
-                      Text(
-                        '₹${widget.formatNumber(value)}',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
-
-              SizedBox(height: 20),
-
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryGreen,
-                  minimumSize: Size(double.infinity, 50),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: Text('Close', style: TextStyle(color: Colors.white)),
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 }
