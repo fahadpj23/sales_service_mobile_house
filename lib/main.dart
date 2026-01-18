@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
 import 'screens/finance_dashboard.dart';
 import 'screens/login_screen.dart';
-import 'screens/admin_dashboard.dart';
+import 'screens/admin_dashboard_screen.dart';
 import 'screens/user_dashboard.dart';
 
 // TODO: Add your Firebase configuration here
