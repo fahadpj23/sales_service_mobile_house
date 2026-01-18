@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../providers/auth_provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'dart:async';
 
 class PhoneStockScreen extends StatefulWidget {
   const PhoneStockScreen({super.key});
@@ -81,6 +82,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   MobileScannerController? _scannerController;
   String? _lastScannedImei;
   int? _currentImeiFieldIndex;
+  bool _isScanning = false;
+  Timer? _scanDebounceTimer;
 
   @override
   void initState() {
@@ -104,6 +107,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   void dispose() {
     _tabController.dispose();
     _searchFocusNode.dispose();
+    _scanDebounceTimer?.cancel();
     _scannerController?.dispose();
 
     // Dispose all controllers
@@ -669,7 +673,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         'returnedById': user?.uid ?? '',
         'returnedAt': FieldValue.serverTimestamp(),
         'reason': 'returned_to_inventory',
-        'status': 'returned', // Add status field for filtering
+        'status': 'returned',
         'createdAt': FieldValue.serverTimestamp(),
       };
 
@@ -695,45 +699,118 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     setState(() {
       _currentImeiFieldIndex = index;
       _showScanner = true;
-      _scannerController = MobileScannerController();
+      _isScanning = true;
+      _scannerController = MobileScannerController(
+        detectionSpeed: DetectionSpeed.normal,
+        facing: CameraFacing.back,
+        torchEnabled: false,
+      );
+      _lastScannedImei = null;
+    });
+  }
+
+  void _showScannerForStockSearch() {
+    setState(() {
+      _currentImeiFieldIndex = null; // For search mode
+      _showScanner = true;
+      _isScanning = true;
+      _scannerController = MobileScannerController(
+        detectionSpeed: DetectionSpeed.normal,
+        facing: CameraFacing.back,
+        torchEnabled: false,
+      );
       _lastScannedImei = null;
     });
   }
 
   void _closeScanner() {
+    if (_scanDebounceTimer != null) {
+      _scanDebounceTimer!.cancel();
+    }
+
     setState(() {
       _showScanner = false;
       _currentImeiFieldIndex = null;
+      _isScanning = false;
+      _lastScannedImei = null;
+    });
+
+    Future.delayed(const Duration(milliseconds: 300), () {
       _scannerController?.dispose();
       _scannerController = null;
     });
   }
 
   void _handleBarcodeScan(BarcodeCapture capture) {
+    if (!_isScanning) return;
+
     final List<Barcode> barcodes = capture.barcodes;
-    if (barcodes.isNotEmpty) {
-      final String scannedData = barcodes.first.rawValue ?? '';
 
-      if (RegExp(r'^\d{15,16}$').hasMatch(scannedData)) {
-        if (_currentImeiFieldIndex != null &&
-            _currentImeiFieldIndex! < _imeiNumbers.length) {
-          setState(() {
-            _imeiNumbers[_currentImeiFieldIndex!] = scannedData;
-            _imeiControllers[_currentImeiFieldIndex!].text = scannedData;
-            _lastScannedImei = scannedData;
-          });
+    if (barcodes.isEmpty) return;
 
-          Future.delayed(const Duration(milliseconds: 500), () {
-            if (mounted) {
-              _closeScanner();
-            }
-          });
-        }
-      } else {
+    final String scannedData = barcodes.first.rawValue ?? '';
+
+    // Prevent multiple scans in quick succession
+    if (_scanDebounceTimer != null && _scanDebounceTimer!.isActive) {
+      return;
+    }
+
+    // Set debounce timer
+    _scanDebounceTimer = Timer(const Duration(milliseconds: 1000), () {
+      if (mounted) {
         setState(() {
-          _lastScannedImei = 'Invalid IMEI format: $scannedData';
+          _isScanning = true;
         });
       }
+    });
+
+    setState(() {
+      _isScanning = false;
+    });
+
+    // Clean the scanned data - remove any non-numeric characters
+    String cleanImei = scannedData.replaceAll(RegExp(r'[^0-9]'), '');
+
+    // Validate IMEI length (typically 15 or 16 digits)
+    if (RegExp(r'^\d{15,16}$').hasMatch(cleanImei)) {
+      // If scanning for a specific IMEI field
+      if (_currentImeiFieldIndex != null &&
+          _currentImeiFieldIndex! < _imeiNumbers.length) {
+        setState(() {
+          _imeiNumbers[_currentImeiFieldIndex!] = cleanImei;
+          if (_currentImeiFieldIndex! < _imeiControllers.length) {
+            _imeiControllers[_currentImeiFieldIndex!].text = cleanImei;
+          }
+          _lastScannedImei = 'Scanned: $cleanImei';
+        });
+
+        // Auto-close after successful scan for field entry
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted) {
+            _closeScanner();
+          }
+        });
+      }
+      // If scanning for search
+      else if (_currentImeiFieldIndex == null) {
+        setState(() {
+          _searchController.text = cleanImei;
+          _searchQuery = cleanImei.toLowerCase();
+          _lastScannedImei = 'Searching for: $cleanImei';
+        });
+
+        // Close scanner after 1.5 seconds when used for search
+        Future.delayed(const Duration(milliseconds: 1500), () {
+          if (mounted) {
+            _closeScanner();
+          }
+        });
+      }
+    } else {
+      setState(() {
+        _lastScannedImei =
+            'Invalid IMEI format: $cleanImei (${cleanImei.length} digits)';
+      });
     }
   }
 
@@ -1943,19 +2020,36 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   Widget _buildImeiScannerModal() {
     return Dialog(
       backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.all(16),
       child: Container(
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.7,
+          maxHeight: MediaQuery.of(context).size.height * 0.8,
+          maxWidth: 500,
         ),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 20,
+              spreadRadius: 2,
+            ),
+          ],
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Padding(
+            // Header
+            Container(
               padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.blue,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
+                ),
+              ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -1964,63 +2058,149 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: Colors.blue,
+                      color: Colors.white,
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close, size: 20),
+                    icon: const Icon(
+                      Icons.close,
+                      size: 22,
+                      color: Colors.white,
+                    ),
                     onPressed: _closeScanner,
                   ),
                 ],
               ),
             ),
-            const Divider(),
 
+            // Scanner Area
             Expanded(
               child: Stack(
+                alignment: Alignment.center,
                 children: [
+                  // Camera Preview
                   if (_scannerController != null)
                     MobileScanner(
                       controller: _scannerController!,
                       onDetect: _handleBarcodeScan,
                     ),
 
+                  // Scanner Frame
                   Container(
+                    width: MediaQuery.of(context).size.width * 0.7,
+                    height: MediaQuery.of(context).size.width * 0.7,
                     decoration: BoxDecoration(
-                      border: Border.all(color: Colors.white, width: 2),
                       borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white, width: 3),
                     ),
-                    margin: const EdgeInsets.all(40),
-                    child: Container(),
+                    child: CustomPaint(painter: ScannerBorderPainter()),
                   ),
 
+                  // Scanning Animation
+                  if (_isScanning)
+                    Positioned(
+                      top: (MediaQuery.of(context).size.height * 0.4) - 100,
+                      child: Container(
+                        width: MediaQuery.of(context).size.width * 0.7,
+                        height: 2,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.transparent,
+                              Colors.green,
+                              Colors.transparent,
+                            ],
+                            stops: const [0.0, 0.5, 1.0],
+                          ),
+                        ),
+                        child: TweenAnimationBuilder<Alignment>(
+                          tween: Tween<Alignment>(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          duration: const Duration(seconds: 2),
+                          builder: (context, value, child) {
+                            return Align(alignment: value, child: child);
+                          },
+                          child: Container(
+                            width: MediaQuery.of(context).size.width * 0.7,
+                            height: 2,
+                            color: Colors.green.withOpacity(0.7),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  // Instructions
                   Positioned(
                     bottom: 20,
                     left: 0,
                     right: 0,
                     child: Container(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(16),
                       color: Colors.black.withOpacity(0.7),
                       child: Column(
                         children: [
-                          const Text(
-                            'Point camera at IMEI barcode',
-                            style: TextStyle(fontSize: 14, color: Colors.white),
+                          Text(
+                            _currentImeiFieldIndex != null
+                                ? 'Scan IMEI ${_currentImeiFieldIndex! + 1} barcode'
+                                : 'Scan IMEI to search stock',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 8),
+                          const Text(
+                            'Align the barcode within the frame',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.white70,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 12),
+
                           if (_lastScannedImei != null)
-                            Text(
-                              'Scanned: $_lastScannedImei',
-                              style: TextStyle(
-                                fontSize: 12,
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
                                 color: _lastScannedImei!.startsWith('Invalid')
-                                    ? Colors.red
-                                    : Colors.green,
+                                    ? Colors.red.withOpacity(0.8)
+                                    : Colors.green.withOpacity(0.8),
+                                borderRadius: BorderRadius.circular(8),
                               ),
-                              textAlign: TextAlign.center,
+                              child: Text(
+                                _lastScannedImei!,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
                             ),
                         ],
+                      ),
+                    ),
+                  ),
+
+                  // Torch Toggle
+                  Positioned(
+                    top: 20,
+                    right: 20,
+                    child: IconButton(
+                      icon: const Icon(Icons.flash_on, color: Colors.white),
+                      onPressed: () {
+                        if (_scannerController != null) {
+                          _scannerController!.toggleTorch();
+                        }
+                      },
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.black.withOpacity(0.5),
+                        padding: const EdgeInsets.all(12),
                       ),
                     ),
                   ),
@@ -2028,23 +2208,64 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               ),
             ),
 
+            // Manual Entry Button
             Padding(
               padding: const EdgeInsets.all(16),
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  _closeScanner();
-                },
-                icon: const Icon(Icons.keyboard, size: 16),
-                label: const Text(
-                  'Enter IMEI Manually',
-                  style: TextStyle(fontSize: 12),
-                ),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 10,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        _closeScanner();
+                        // Focus on appropriate field
+                        if (_currentImeiFieldIndex != null &&
+                            _currentImeiFieldIndex! < _imeiControllers.length) {
+                          FocusScope.of(
+                            context,
+                          ).requestFocus(FocusNode()); // Close keyboard first
+                          Future.delayed(const Duration(milliseconds: 100), () {
+                            // The text field will already have focus when we return
+                          });
+                        } else {
+                          // Focus on search field
+                          _searchFocusNode.requestFocus();
+                        }
+                      },
+                      icon: const Icon(Icons.keyboard, size: 18),
+                      label: const Text(
+                        'Enter Manually',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        side: BorderSide(color: Colors.blue.shade400),
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        if (!_isScanning) {
+                          setState(() {
+                            _isScanning = true;
+                            _lastScannedImei = 'Ready to scan...';
+                          });
+                        }
+                      },
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text(
+                        'Rescan',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -2092,12 +2313,10 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     final currentShopId = user?.shopId;
 
     if (type == 'returned') {
-      // FIXED: Show all returned phones without status filter
       return StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('phoneReturns')
             .where('originalShopId', isEqualTo: currentShopId)
-            // REMOVED: .where('status', isEqualTo: 'returned')
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
@@ -2385,7 +2604,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         },
       );
     } else {
-      // Show available or sold phones from phoneStock collection
       return StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('phoneStock')
@@ -2742,12 +2960,455 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     }
   }
 
-  void _showScannerForStockSearch() {
-    setState(() {
-      _showScanner = true;
-      _scannerController = MobileScannerController();
-      _lastScannedImei = null;
-    });
+  Widget _buildStatCard(
+    String title,
+    String value,
+    String subtitle,
+    Color color,
+    IconData icon,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      padding: const EdgeInsets.all(10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: color,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          Text(
+            subtitle,
+            style: TextStyle(fontSize: 9, color: color.withOpacity(0.7)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhoneCard({
+    required String productName,
+    required String productBrand,
+    required String imei,
+    required dynamic price,
+    required dynamic uploadedAt,
+    dynamic soldAt,
+    required String status,
+    VoidCallback? onSell,
+    VoidCallback? onTransfer,
+    VoidCallback? onReturn,
+  }) {
+    String displayImei = imei;
+    if (imei.length > 15) {
+      if (imei.length == 15) {
+        displayImei =
+            '${imei.substring(0, 6)}-${imei.substring(6, 12)}-${imei.substring(12)}';
+      } else if (imei.length == 16) {
+        displayImei = '${imei.substring(0, 8)}-${imei.substring(8)}';
+      }
+    }
+
+    Color borderColor;
+    Color bgColor;
+
+    switch (status) {
+      case 'available':
+        borderColor = Colors.green.shade200;
+        bgColor = Colors.white;
+        break;
+      case 'sold':
+        borderColor = Colors.blue.shade200;
+        bgColor = Colors.blue.shade50;
+        break;
+      default:
+        borderColor = Colors.grey.shade300;
+        bgColor = Colors.white;
+    }
+
+    return Container(
+      constraints: const BoxConstraints(minHeight: 180),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: status == 'available'
+                    ? Colors.green.shade100
+                    : status == 'sold'
+                    ? Colors.blue.shade100
+                    : Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                status.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                  color: status == 'available'
+                      ? Colors.green
+                      : status == 'sold'
+                      ? Colors.blue
+                      : Colors.grey,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 4),
+
+            SizedBox(
+              height: 32,
+              child: Text(
+                productName,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+
+            const SizedBox(height: 2),
+
+            Text(
+              _formatPrice(price),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Colors.green,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+
+            const SizedBox(height: 2),
+
+            Text(
+              productBrand,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.blue.shade700,
+                fontWeight: FontWeight.w500,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+
+            const SizedBox(height: 2),
+
+            SizedBox(
+              height: 24,
+              child: Text(
+                'IMEI: $displayImei',
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: Colors.black,
+                  fontFamily: 'Monospace',
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+
+            Text(
+              'Added: ${_formatDate(uploadedAt)}',
+              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (status == 'sold' && soldAt != null)
+              Text(
+                'Sold: ${_formatDate(soldAt)}',
+                style: TextStyle(fontSize: 9, color: Colors.grey[600]),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+
+            if (status == 'available' &&
+                (onSell != null || onTransfer != null || onReturn != null))
+              Column(
+                children: [
+                  const SizedBox(height: 8),
+                  const Divider(height: 1, color: Colors.grey),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      if (onSell != null)
+                        Expanded(
+                          child: SizedBox(
+                            height: 28,
+                            child: ElevatedButton(
+                              onPressed: onSell,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                textStyle: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              child: const Text('Sell'),
+                            ),
+                          ),
+                        ),
+                      if (onSell != null && onTransfer != null)
+                        const SizedBox(width: 4),
+                      if (onTransfer != null)
+                        Expanded(
+                          child: SizedBox(
+                            height: 28,
+                            child: ElevatedButton(
+                              onPressed: onTransfer,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                textStyle: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              child: const Text('Transfer'),
+                            ),
+                          ),
+                        ),
+                      if ((onSell != null || onTransfer != null) &&
+                          onReturn != null)
+                        const SizedBox(width: 4),
+                      if (onReturn != null)
+                        Expanded(
+                          child: SizedBox(
+                            height: 28,
+                            child: ElevatedButton(
+                              onPressed: onReturn,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.orange,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                textStyle: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              child: const Text('Return'),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReturnedPhoneCard({
+    required String productName,
+    required String productBrand,
+    required String imei,
+    required dynamic price,
+    required dynamic returnedAt,
+    required String returnedBy,
+    required String reason,
+    required String originalShopName,
+  }) {
+    String displayImei = imei;
+    if (imei.length > 15) {
+      if (imei.length == 15) {
+        displayImei =
+            '${imei.substring(0, 6)}-${imei.substring(6, 12)}-${imei.substring(12)}';
+      } else if (imei.length == 16) {
+        displayImei = '${imei.substring(0, 8)}-${imei.substring(8)}';
+      }
+    }
+
+    return Container(
+      constraints: const BoxConstraints(minHeight: 180),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.orange.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade100,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Text(
+                'RETURNED',
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.orange,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 4),
+
+            SizedBox(
+              height: 32,
+              child: Text(
+                productName,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+
+            const SizedBox(height: 2),
+
+            Text(
+              _formatPrice(price),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Colors.green,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+
+            const SizedBox(height: 2),
+
+            Text(
+              productBrand,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.orange.shade700,
+                fontWeight: FontWeight.w500,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+
+            const SizedBox(height: 2),
+
+            SizedBox(
+              height: 24,
+              child: Text(
+                'IMEI: $displayImei',
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: Colors.black,
+                  fontFamily: 'Monospace',
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+
+            Text(
+              'Returned: ${_formatDate(returnedAt)}',
+              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              'By: $returnedBy',
+              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              'Shop: $originalShopName',
+              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              'Reason: ${reason.replaceAll('_', ' ').toLowerCase()}',
+              style: TextStyle(fontSize: 9, color: Colors.orange.shade600),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  double _parsePrice(dynamic price) {
+    try {
+      if (price == null) return 0;
+      if (price is int) return price.toDouble();
+      if (price is double) return price;
+      if (price is String) {
+        final parsed = double.tryParse(price);
+        return parsed ?? 0;
+      }
+      return 0;
+    } catch (e) {
+      return 0;
+    }
   }
 
   @override
@@ -3011,455 +3672,60 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       ),
     );
   }
+}
 
-  Widget _buildStatCard(
-    String title,
-    String value,
-    String subtitle,
-    Color color,
-    IconData icon,
-  ) {
-    return Container(
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.2)),
-      ),
-      padding: const EdgeInsets.all(10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 16, color: color),
-              const SizedBox(width: 6),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 10,
-                  color: color,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-          Text(
-            subtitle,
-            style: TextStyle(fontSize: 9, color: color.withOpacity(0.7)),
-          ),
-        ],
-      ),
+// Separate class for Scanner Border Painter (not nested)
+class ScannerBorderPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
+
+    final cornerLength = 20.0;
+
+    // Top-left corner
+    canvas.drawLine(Offset.zero, Offset(cornerLength, 0), paint);
+    canvas.drawLine(Offset.zero, Offset(0, cornerLength), paint);
+
+    // Top-right corner
+    canvas.drawLine(
+      Offset(size.width, 0),
+      Offset(size.width - cornerLength, 0),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(size.width, 0),
+      Offset(size.width, cornerLength),
+      paint,
+    );
+
+    // Bottom-left corner
+    canvas.drawLine(
+      Offset(0, size.height),
+      Offset(0, size.height - cornerLength),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(0, size.height),
+      Offset(cornerLength, size.height),
+      paint,
+    );
+
+    // Bottom-right corner
+    canvas.drawLine(
+      Offset(size.width, size.height),
+      Offset(size.width, size.height - cornerLength),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(size.width, size.height),
+      Offset(size.width - cornerLength, size.height),
+      paint,
     );
   }
 
-  Widget _buildPhoneCard({
-    required String productName,
-    required String productBrand,
-    required String imei,
-    required dynamic price,
-    required dynamic uploadedAt,
-    dynamic soldAt,
-    required String status,
-    VoidCallback? onSell,
-    VoidCallback? onTransfer,
-    VoidCallback? onReturn,
-  }) {
-    String displayImei = imei;
-    if (imei.length > 15) {
-      if (imei.length == 15) {
-        displayImei =
-            '${imei.substring(0, 6)}-${imei.substring(6, 12)}-${imei.substring(12)}';
-      } else if (imei.length == 16) {
-        displayImei = '${imei.substring(0, 8)}-${imei.substring(8)}';
-      }
-    }
-
-    Color borderColor;
-    Color bgColor;
-
-    switch (status) {
-      case 'available':
-        borderColor = Colors.green.shade200;
-        bgColor = Colors.white;
-        break;
-      case 'sold':
-        borderColor = Colors.blue.shade200;
-        bgColor = Colors.blue.shade50;
-        break;
-      default:
-        borderColor = Colors.grey.shade300;
-        bgColor = Colors.white;
-    }
-
-    return Container(
-      constraints: BoxConstraints(minHeight: 180),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: borderColor),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: status == 'available'
-                    ? Colors.green.shade100
-                    : status == 'sold'
-                    ? Colors.blue.shade100
-                    : Colors.grey.shade200,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                status.toUpperCase(),
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
-                  color: status == 'available'
-                      ? Colors.green
-                      : status == 'sold'
-                      ? Colors.blue
-                      : Colors.grey,
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 4),
-
-            SizedBox(
-              height: 32,
-              child: Text(
-                productName,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-
-            const SizedBox(height: 2),
-
-            Text(
-              _formatPrice(price),
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: Colors.green,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-
-            const SizedBox(height: 2),
-
-            Text(
-              productBrand,
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.blue.shade700,
-                fontWeight: FontWeight.w500,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-
-            const SizedBox(height: 2),
-
-            SizedBox(
-              height: 24,
-              child: Text(
-                'IMEI: $displayImei',
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: Colors.black,
-                  fontFamily: 'Monospace',
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-
-            Text(
-              'Added: ${_formatDate(uploadedAt)}',
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            if (status == 'sold' && soldAt != null)
-              Text(
-                'Sold: ${_formatDate(soldAt)}',
-                style: TextStyle(fontSize: 9, color: Colors.grey[600]),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-
-            if (status == 'available' &&
-                (onSell != null || onTransfer != null || onReturn != null))
-              Column(
-                children: [
-                  const SizedBox(height: 8),
-                  const Divider(height: 1, color: Colors.grey),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      if (onSell != null)
-                        Expanded(
-                          child: SizedBox(
-                            height: 28,
-                            child: ElevatedButton(
-                              onPressed: onSell,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                ),
-                                textStyle: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              child: const Text('Sell'),
-                            ),
-                          ),
-                        ),
-                      if (onSell != null && onTransfer != null)
-                        const SizedBox(width: 4),
-                      if (onTransfer != null)
-                        Expanded(
-                          child: SizedBox(
-                            height: 28,
-                            child: ElevatedButton(
-                              onPressed: onTransfer,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blue,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                ),
-                                textStyle: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              child: const Text('Transfer'),
-                            ),
-                          ),
-                        ),
-                      if ((onSell != null || onTransfer != null) &&
-                          onReturn != null)
-                        const SizedBox(width: 4),
-                      if (onReturn != null)
-                        Expanded(
-                          child: SizedBox(
-                            height: 28,
-                            child: ElevatedButton(
-                              onPressed: onReturn,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.orange,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                ),
-                                textStyle: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              child: const Text('Return'),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildReturnedPhoneCard({
-    required String productName,
-    required String productBrand,
-    required String imei,
-    required dynamic price,
-    required dynamic returnedAt,
-    required String returnedBy,
-    required String reason,
-    required String originalShopName,
-  }) {
-    String displayImei = imei;
-    if (imei.length > 15) {
-      if (imei.length == 15) {
-        displayImei =
-            '${imei.substring(0, 6)}-${imei.substring(6, 12)}-${imei.substring(12)}';
-      } else if (imei.length == 16) {
-        displayImei = '${imei.substring(0, 8)}-${imei.substring(8)}';
-      }
-    }
-
-    return Container(
-      constraints: BoxConstraints(minHeight: 180),
-      decoration: BoxDecoration(
-        color: Colors.orange.shade50,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.orange.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.orange.shade100,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: const Text(
-                'RETURNED',
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.orange,
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 4),
-
-            SizedBox(
-              height: 32,
-              child: Text(
-                productName,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-
-            const SizedBox(height: 2),
-
-            Text(
-              _formatPrice(price),
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: Colors.green,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-
-            const SizedBox(height: 2),
-
-            Text(
-              productBrand,
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.orange.shade700,
-                fontWeight: FontWeight.w500,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-
-            const SizedBox(height: 2),
-
-            SizedBox(
-              height: 24,
-              child: Text(
-                'IMEI: $displayImei',
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: Colors.black,
-                  fontFamily: 'Monospace',
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-
-            Text(
-              'Returned: ${_formatDate(returnedAt)}',
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            Text(
-              'By: $returnedBy',
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            Text(
-              'Shop: $originalShopName',
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            Text(
-              'Reason: ${reason.replaceAll('_', ' ').toLowerCase()}',
-              style: TextStyle(fontSize: 9, color: Colors.orange.shade600),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  double _parsePrice(dynamic price) {
-    try {
-      if (price == null) return 0;
-      if (price is int) return price.toDouble();
-      if (price is double) return price;
-      if (price is String) {
-        final parsed = double.tryParse(price);
-        return parsed ?? 0;
-      }
-      return 0;
-    } catch (e) {
-      return 0;
-    }
-  }
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
