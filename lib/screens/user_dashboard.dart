@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:sales_stock/screens/inventory/search_inventory_screen.dart';
+import 'package:sales_stock/screens/inventory/stock_check_screen.dart';
 import 'package:sales_stock/screens/phone_stock_screen.dart';
 import '../providers/auth_provider.dart';
 import '../services/auth_service.dart';
@@ -108,7 +110,7 @@ class UserDashboard extends StatelessWidget {
                       crossAxisSpacing: spacing,
                       childAspectRatio: childAspectRatio,
                     ),
-                    itemCount: 5,
+                    itemCount: 6,
                     itemBuilder: (context, index) {
                       return _buildResponsiveSalesOptionCard(
                         context: context,
@@ -214,6 +216,13 @@ class UserDashboard extends StatelessWidget {
         'subtitle': 'Manage phone inventory',
         'color': Colors.red,
         'screen': const PhoneStockScreen(),
+      },
+      {
+        'icon': Icons.search,
+        'title': 'Stock Check',
+        'subtitle': 'Check available inventory',
+        'color': Colors.teal,
+        'screen': const StockCheckScreen(), // You'll need to create this screen
       },
     ];
 

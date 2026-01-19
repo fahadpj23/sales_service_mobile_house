@@ -615,7 +615,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                 Expanded(
                   child: Text(
                     title,
-                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    style: TextStyle(fontSize: 11, color: Colors.grey[800]),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -633,7 +633,11 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
             SizedBox(height: 2),
             Text(
               subtitle,
-              style: TextStyle(fontSize: 9, color: Colors.grey[600]),
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.black,
+                fontWeight: FontWeight.bold,
+              ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -777,7 +781,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                     style: TextStyle(fontSize: 12, color: Colors.grey[700]),
                   ),
                   Spacer(),
-                  Icon(Icons.currency_rupee, size: 13, color: Colors.grey[600]),
+                  // Icon(Icons.currency_rupee, size: 13, color: Colors.grey[600]),
                   SizedBox(width: 5),
                   Text(
                     '₹${widget.formatNumber(item['productPrice'])}',

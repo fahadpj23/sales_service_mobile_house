@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 import '../providers/auth_provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'dart:async';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter/services.dart';
 
 class PhoneStockScreen extends StatefulWidget {
   const PhoneStockScreen({super.key});
@@ -77,14 +79,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   // For search focus
   final FocusNode _searchFocusNode = FocusNode();
 
-  // For IMEI Scanner
-  bool _showScanner = false;
-  MobileScannerController? _scannerController;
-  String? _lastScannedImei;
-  int? _currentImeiFieldIndex;
-  bool _isScanning = false;
-  Timer? _scanDebounceTimer;
-
   @override
   void initState() {
     super.initState();
@@ -107,10 +101,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   void dispose() {
     _tabController.dispose();
     _searchFocusNode.dispose();
-    _scanDebounceTimer?.cancel();
-    _scannerController?.dispose();
-
-    // Dispose all controllers
     _disposeAllControllers();
     super.dispose();
   }
@@ -455,18 +445,30 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         return;
       }
 
+      // Enhanced IMEI validation
       for (int i = 0; i < _imeiNumbers.length; i++) {
         final imei = _imeiNumbers[i];
         if (imei.isEmpty) {
           _showModalError('Please enter IMEI number for item ${i + 1}');
           return;
         }
-        if (imei.length < 15) {
-          _showModalError('IMEI ${i + 1} must be at least 15 digits');
+
+        // Basic validation
+        if (imei.length < 15 || imei.length > 16) {
+          _showModalError(
+            'IMEI ${i + 1} must be 15-16 digits (${imei.length} entered)',
+          );
+          return;
+        }
+
+        // Check if all characters are digits
+        if (!RegExp(r'^[0-9]+$').hasMatch(imei)) {
+          _showModalError('IMEI ${i + 1} contains non-numeric characters');
           return;
         }
       }
 
+      // Check for duplicates in this batch
       final uniqueImeis = _imeiNumbers.toSet();
       if (uniqueImeis.length != _imeiNumbers.length) {
         _showModalError('Duplicate IMEI numbers found in this batch');
@@ -488,6 +490,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           user.email?.trim() ?? user.name?.trim() ?? 'Unknown User';
       final uploadedById = user.uid;
 
+      // Check for duplicates in database
       try {
         for (String imei in _imeiNumbers) {
           final existingQuery = await _firestore
@@ -497,7 +500,9 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               .get();
 
           if (existingQuery.docs.isNotEmpty) {
-            _showModalError('IMEI $imei already exists in stock database');
+            _showModalError(
+              'IMEI ${_formatImeiForDisplay(imei)} already exists in stock database',
+            );
             return;
           }
         }
@@ -695,123 +700,65 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     }
   }
 
-  void _openScannerForImei(int index) {
-    setState(() {
-      _currentImeiFieldIndex = index;
-      _showScanner = true;
-      _isScanning = true;
-      _scannerController = MobileScannerController(
-        detectionSpeed: DetectionSpeed.normal,
-        facing: CameraFacing.back,
-        torchEnabled: false,
-      );
-      _lastScannedImei = null;
-    });
-  }
-
-  void _showScannerForStockSearch() {
-    setState(() {
-      _currentImeiFieldIndex = null; // For search mode
-      _showScanner = true;
-      _isScanning = true;
-      _scannerController = MobileScannerController(
-        detectionSpeed: DetectionSpeed.normal,
-        facing: CameraFacing.back,
-        torchEnabled: false,
-      );
-      _lastScannedImei = null;
-    });
-  }
-
-  void _closeScanner() {
-    if (_scanDebounceTimer != null) {
-      _scanDebounceTimer!.cancel();
+  // IMEI Scanner Methods
+  Future<bool> _checkCameraPermission() async {
+    try {
+      final status = await Permission.camera.status;
+      if (status.isDenied) {
+        final result = await Permission.camera.request();
+        return result.isGranted;
+      }
+      return status.isGranted;
+    } catch (e) {
+      print('Permission error: $e');
+      return false;
     }
-
-    setState(() {
-      _showScanner = false;
-      _currentImeiFieldIndex = null;
-      _isScanning = false;
-      _lastScannedImei = null;
-    });
-
-    Future.delayed(const Duration(milliseconds: 300), () {
-      _scannerController?.dispose();
-      _scannerController = null;
-    });
   }
 
-  void _handleBarcodeScan(BarcodeCapture capture) {
-    if (!_isScanning) return;
-
-    final List<Barcode> barcodes = capture.barcodes;
-
-    if (barcodes.isEmpty) return;
-
-    final String scannedData = barcodes.first.rawValue ?? '';
-
-    // Prevent multiple scans in quick succession
-    if (_scanDebounceTimer != null && _scanDebounceTimer!.isActive) {
+  Future<void> _openScannerForImeiField(int index) async {
+    if (!await _checkCameraPermission()) {
+      _showError('Camera permission required for scanning');
       return;
     }
 
-    // Set debounce timer
-    _scanDebounceTimer = Timer(const Duration(milliseconds: 1000), () {
-      if (mounted) {
-        setState(() {
-          _isScanning = true;
-        });
-      }
-    });
-
-    setState(() {
-      _isScanning = false;
-    });
-
-    // Clean the scanned data - remove any non-numeric characters
-    String cleanImei = scannedData.replaceAll(RegExp(r'[^0-9]'), '');
-
-    // Validate IMEI length (typically 15 or 16 digits)
-    if (RegExp(r'^\d{15,16}$').hasMatch(cleanImei)) {
-      // If scanning for a specific IMEI field
-      if (_currentImeiFieldIndex != null &&
-          _currentImeiFieldIndex! < _imeiNumbers.length) {
-        setState(() {
-          _imeiNumbers[_currentImeiFieldIndex!] = cleanImei;
-          if (_currentImeiFieldIndex! < _imeiControllers.length) {
-            _imeiControllers[_currentImeiFieldIndex!].text = cleanImei;
+    showDialog(
+      context: context,
+      builder: (context) => OptimizedImeiScanner(
+        title: 'Scan IMEI ${index + 1}',
+        description: 'Scan barcode for IMEI ${index + 1}',
+        onScanComplete: (imei) {
+          if (index < _imeiNumbers.length) {
+            setState(() {
+              _imeiNumbers[index] = imei;
+              if (index < _imeiControllers.length) {
+                _imeiControllers[index].text = imei;
+              }
+            });
           }
-          _lastScannedImei = 'Scanned: $cleanImei';
-        });
+        },
+      ),
+    );
+  }
 
-        // Auto-close after successful scan for field entry
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (mounted) {
-            _closeScanner();
-          }
-        });
-      }
-      // If scanning for search
-      else if (_currentImeiFieldIndex == null) {
-        setState(() {
-          _searchController.text = cleanImei;
-          _searchQuery = cleanImei.toLowerCase();
-          _lastScannedImei = 'Searching for: $cleanImei';
-        });
-
-        // Close scanner after 1.5 seconds when used for search
-        Future.delayed(const Duration(milliseconds: 1500), () {
-          if (mounted) {
-            _closeScanner();
-          }
-        });
-      }
-    } else {
-      setState(() {
-        _lastScannedImei =
-            'Invalid IMEI format: $cleanImei (${cleanImei.length} digits)';
-      });
+  Future<void> _openScannerForSearch() async {
+    if (!await _checkCameraPermission()) {
+      _showError('Camera permission required for scanning');
+      return;
     }
+
+    showDialog(
+      context: context,
+      builder: (context) => OptimizedImeiScanner(
+        title: 'Search IMEI',
+        description: 'Scan IMEI to search in stock',
+        onScanComplete: (imei) {
+          setState(() {
+            _searchController.text = imei;
+            _searchQuery = imei.toLowerCase();
+          });
+        },
+      ),
+    );
   }
 
   void _clearModalMessages() {
@@ -872,6 +819,24 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
+  }
+
+  // IMEI Helper Methods
+  String _formatImeiForDisplay(String imei) {
+    if (imei.isEmpty) return '';
+    if (imei.length == 15) {
+      return '${imei.substring(0, 6)} ${imei.substring(6, 12)} ${imei.substring(12)}';
+    } else if (imei.length == 16) {
+      return '${imei.substring(0, 8)} ${imei.substring(8)}';
+    }
+    return imei;
+  }
+
+  bool _isValidImei(String imei) {
+    if (imei.isEmpty) return false;
+    if (imei.length != 15 && imei.length != 16) return false;
+    if (!RegExp(r'^[0-9]+$').hasMatch(imei)) return false;
+    return true;
   }
 
   Widget _buildProductList() {
@@ -1071,6 +1036,111 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           child: _buildProductList(),
         ),
       ],
+    );
+  }
+
+  Widget _buildImeiInputField(int index) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextFormField(
+              controller: index < _imeiControllers.length
+                  ? _imeiControllers[index]
+                  : null,
+              decoration: InputDecoration(
+                labelText: 'IMEI ${index + 1} *',
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.confirmation_number, size: 18),
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (index < _imeiNumbers.length &&
+                        _imeiNumbers[index].isNotEmpty)
+                      Icon(
+                        _imeiNumbers[index].length >= 15
+                            ? Icons.check_circle
+                            : Icons.warning,
+                        color: _imeiNumbers[index].length >= 15
+                            ? Colors.green
+                            : Colors.orange,
+                        size: 16,
+                      ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.qr_code_scanner, size: 20),
+                      onPressed: () => _openScannerForImeiField(index),
+                      tooltip: 'Scan IMEI',
+                      color: Colors.blue,
+                    ),
+                  ],
+                ),
+                labelStyle: const TextStyle(fontSize: 12),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+              ),
+              style: const TextStyle(fontSize: 12, color: Colors.black),
+              onChanged: (value) {
+                if (index < _imeiNumbers.length) {
+                  setState(() {
+                    _imeiNumbers[index] = value;
+                    _clearModalMessages();
+                  });
+                }
+              },
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Please enter IMEI';
+                }
+                final trimmedValue = value.trim();
+                if (trimmedValue.length < 15) {
+                  return 'IMEI must be at least 15 digits';
+                }
+                return null;
+              },
+            ),
+          ),
+          const SizedBox(width: 8),
+          Column(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.content_copy, size: 18),
+                onPressed: () {
+                  if (index < _imeiNumbers.length &&
+                      _imeiNumbers[index].isNotEmpty) {
+                    Clipboard.setData(ClipboardData(text: _imeiNumbers[index]));
+                    _showSuccess('IMEI copied to clipboard');
+                  }
+                },
+                tooltip: 'Copy IMEI',
+                color: Colors.grey,
+              ),
+              if (index > 0)
+                IconButton(
+                  icon: const Icon(Icons.arrow_upward, size: 18),
+                  onPressed: () {
+                    if (index > 0) {
+                      final temp = _imeiNumbers[index];
+                      _imeiNumbers[index] = _imeiNumbers[index - 1];
+                      _imeiNumbers[index - 1] = temp;
+
+                      final tempCtrl = _imeiControllers[index];
+                      _imeiControllers[index] = _imeiControllers[index - 1];
+                      _imeiControllers[index - 1] = tempCtrl;
+
+                      setState(() {});
+                    }
+                  },
+                  tooltip: 'Move up',
+                  color: Colors.blue,
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -1432,130 +1502,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                               physics: const AlwaysScrollableScrollPhysics(),
                               itemCount: _quantity!,
                               itemBuilder: (context, index) {
-                                if (index >= _imeiControllers.length) {
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: TextFormField(
-                                      decoration: InputDecoration(
-                                        labelText: 'IMEI ${index + 1} *',
-                                        border: const OutlineInputBorder(),
-                                        prefixIcon: const Icon(
-                                          Icons.confirmation_number,
-                                          size: 18,
-                                        ),
-                                        labelStyle: const TextStyle(
-                                          fontSize: 12,
-                                        ),
-                                        contentPadding:
-                                            const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                              vertical: 12,
-                                            ),
-                                      ),
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.black,
-                                      ),
-                                      onChanged: (value) {
-                                        if (index < _imeiNumbers.length) {
-                                          setState(() {
-                                            _imeiNumbers[index] = value;
-                                            _clearModalMessages();
-                                          });
-                                        }
-                                      },
-                                      validator: (value) {
-                                        if (value == null ||
-                                            value.trim().isEmpty) {
-                                          return 'Please enter IMEI';
-                                        }
-                                        final trimmedValue = value.trim();
-                                        if (trimmedValue.length < 15) {
-                                          return 'IMEI must be at least 15 digits';
-                                        }
-                                        return null;
-                                      },
-                                    ),
-                                  );
-                                }
-
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: TextFormField(
-                                          controller: _imeiControllers[index],
-                                          decoration: InputDecoration(
-                                            labelText: 'IMEI ${index + 1} *',
-                                            border: const OutlineInputBorder(),
-                                            prefixIcon: const Icon(
-                                              Icons.confirmation_number,
-                                              size: 18,
-                                            ),
-                                            suffixIcon:
-                                                index < _imeiNumbers.length &&
-                                                    _imeiNumbers[index]
-                                                        .isNotEmpty
-                                                ? Icon(
-                                                    Icons.check_circle,
-                                                    color:
-                                                        _imeiNumbers[index]
-                                                                .length >=
-                                                            15
-                                                        ? Colors.green
-                                                        : Colors.orange,
-                                                    size: 16,
-                                                  )
-                                                : null,
-                                            labelStyle: const TextStyle(
-                                              fontSize: 12,
-                                            ),
-                                            contentPadding:
-                                                const EdgeInsets.symmetric(
-                                                  horizontal: 12,
-                                                  vertical: 12,
-                                                ),
-                                          ),
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.black,
-                                          ),
-                                          onChanged: (value) {
-                                            if (index < _imeiNumbers.length) {
-                                              setState(() {
-                                                _imeiNumbers[index] = value;
-                                                _clearModalMessages();
-                                              });
-                                            }
-                                          },
-                                          validator: (value) {
-                                            if (value == null ||
-                                                value.trim().isEmpty) {
-                                              return 'Please enter IMEI';
-                                            }
-                                            final trimmedValue = value.trim();
-                                            if (trimmedValue.length < 15) {
-                                              return 'IMEI must be at least 15 digits';
-                                            }
-                                            return null;
-                                          },
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.qr_code_scanner,
-                                          size: 20,
-                                        ),
-                                        onPressed: () =>
-                                            _openScannerForImei(index),
-                                        tooltip: 'Scan IMEI',
-                                        color: Colors.blue,
-                                      ),
-                                    ],
-                                  ),
-                                );
+                                return _buildImeiInputField(index);
                               },
                             ),
                           ),
@@ -2017,260 +1964,67 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     );
   }
 
-  Widget _buildImeiScannerModal() {
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.all(16),
-      child: Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.8,
-          maxWidth: 500,
-        ),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.3),
-              blurRadius: 20,
-              spreadRadius: 2,
-            ),
-          ],
-        ),
-        child: Column(
+  Widget _buildSearchField() {
+    return TextField(
+      controller: _searchController,
+      focusNode: _searchFocusNode,
+      decoration: InputDecoration(
+        labelText: 'Search IMEI, Product, Brand',
+        labelStyle: const TextStyle(fontSize: 13),
+        prefixIcon: const Icon(Icons.search, size: 20),
+        suffixIcon: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Header
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.blue,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(16),
-                  topRight: Radius.circular(16),
-                ),
+            if (_searchQuery.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.clear, size: 20),
+                onPressed: () {
+                  _searchController.clear();
+                  setState(() => _searchQuery = '');
+                  _searchFocusNode.unfocus();
+                },
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Scan IMEI Barcode',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(
-                      Icons.close,
-                      size: 22,
-                      color: Colors.white,
-                    ),
-                    onPressed: _closeScanner,
-                  ),
-                ],
-              ),
-            ),
-
-            // Scanner Area
-            Expanded(
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  // Camera Preview
-                  if (_scannerController != null)
-                    MobileScanner(
-                      controller: _scannerController!,
-                      onDetect: _handleBarcodeScan,
-                    ),
-
-                  // Scanner Frame
-                  Container(
-                    width: MediaQuery.of(context).size.width * 0.7,
-                    height: MediaQuery.of(context).size.width * 0.7,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.white, width: 3),
-                    ),
-                    child: CustomPaint(painter: ScannerBorderPainter()),
-                  ),
-
-                  // Scanning Animation
-                  if (_isScanning)
-                    Positioned(
-                      top: (MediaQuery.of(context).size.height * 0.4) - 100,
-                      child: Container(
-                        width: MediaQuery.of(context).size.width * 0.7,
-                        height: 2,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              Colors.transparent,
-                              Colors.green,
-                              Colors.transparent,
-                            ],
-                            stops: const [0.0, 0.5, 1.0],
-                          ),
-                        ),
-                        child: TweenAnimationBuilder<Alignment>(
-                          tween: Tween<Alignment>(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          duration: const Duration(seconds: 2),
-                          builder: (context, value, child) {
-                            return Align(alignment: value, child: child);
-                          },
-                          child: Container(
-                            width: MediaQuery.of(context).size.width * 0.7,
-                            height: 2,
-                            color: Colors.green.withOpacity(0.7),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                  // Instructions
-                  Positioned(
-                    bottom: 20,
-                    left: 0,
-                    right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      color: Colors.black.withOpacity(0.7),
-                      child: Column(
-                        children: [
-                          Text(
-                            _currentImeiFieldIndex != null
-                                ? 'Scan IMEI ${_currentImeiFieldIndex! + 1} barcode'
-                                : 'Scan IMEI to search stock',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Align the barcode within the frame',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.white70,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 12),
-
-                          if (_lastScannedImei != null)
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: _lastScannedImei!.startsWith('Invalid')
-                                    ? Colors.red.withOpacity(0.8)
-                                    : Colors.green.withOpacity(0.8),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                _lastScannedImei!,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  // Torch Toggle
-                  Positioned(
-                    top: 20,
-                    right: 20,
-                    child: IconButton(
-                      icon: const Icon(Icons.flash_on, color: Colors.white),
-                      onPressed: () {
-                        if (_scannerController != null) {
-                          _scannerController!.toggleTorch();
-                        }
-                      },
-                      style: IconButton.styleFrom(
-                        backgroundColor: Colors.black.withOpacity(0.5),
-                        padding: const EdgeInsets.all(12),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Manual Entry Button
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        _closeScanner();
-                        // Focus on appropriate field
-                        if (_currentImeiFieldIndex != null &&
-                            _currentImeiFieldIndex! < _imeiControllers.length) {
-                          FocusScope.of(
-                            context,
-                          ).requestFocus(FocusNode()); // Close keyboard first
-                          Future.delayed(const Duration(milliseconds: 100), () {
-                            // The text field will already have focus when we return
-                          });
-                        } else {
-                          // Focus on search field
-                          _searchFocusNode.requestFocus();
-                        }
-                      },
-                      icon: const Icon(Icons.keyboard, size: 18),
-                      label: const Text(
-                        'Enter Manually',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        side: BorderSide(color: Colors.blue.shade400),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        if (!_isScanning) {
-                          setState(() {
-                            _isScanning = true;
-                            _lastScannedImei = 'Ready to scan...';
-                          });
-                        }
-                      },
-                      icon: const Icon(Icons.refresh, size: 18),
-                      label: const Text(
-                        'Rescan',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+            Container(width: 1, height: 20, color: Colors.grey.shade300),
+            IconButton(
+              icon: const Icon(Icons.qr_code_scanner, size: 22),
+              onPressed: _openScannerForSearch,
+              tooltip: 'Scan IMEI to search',
+              color: Colors.blue,
             ),
           ],
         ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Colors.blue),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Colors.blue, width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 12,
+        ),
       ),
+      style: const TextStyle(fontSize: 13, color: Colors.black),
+      onChanged: (value) {
+        setState(() => _searchQuery = value.toLowerCase());
+      },
+      onSubmitted: (value) {
+        _searchFocusNode.unfocus();
+      },
+    );
+  }
+
+  Widget _buildQuickScanButton() {
+    return FloatingActionButton.extended(
+      onPressed: _openScannerForSearch,
+      icon: const Icon(Icons.qr_code_scanner),
+      label: const Text('Scan'),
+      backgroundColor: Colors.blue,
+      foregroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+      elevation: 4,
     );
   }
 
@@ -2873,9 +2627,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                     if (type == 'available')
                       IconButton(
                         icon: const Icon(Icons.qr_code_scanner, size: 20),
-                        onPressed: () {
-                          _showScannerForStockSearch();
-                        },
+                        onPressed: _openScannerForSearch,
                         tooltip: 'Scan IMEI to search',
                       ),
                   ],
@@ -3022,15 +2774,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     VoidCallback? onTransfer,
     VoidCallback? onReturn,
   }) {
-    String displayImei = imei;
-    if (imei.length > 15) {
-      if (imei.length == 15) {
-        displayImei =
-            '${imei.substring(0, 6)}-${imei.substring(6, 12)}-${imei.substring(12)}';
-      } else if (imei.length == 16) {
-        displayImei = '${imei.substring(0, 8)}-${imei.substring(8)}';
-      }
-    }
+    String displayImei = _formatImeiForDisplay(imei);
 
     Color borderColor;
     Color bgColor;
@@ -3262,15 +3006,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     required String reason,
     required String originalShopName,
   }) {
-    String displayImei = imei;
-    if (imei.length > 15) {
-      if (imei.length == 15) {
-        displayImei =
-            '${imei.substring(0, 6)}-${imei.substring(6, 12)}-${imei.substring(12)}';
-      } else if (imei.length == 16) {
-        displayImei = '${imei.substring(0, 8)}-${imei.substring(8)}';
-      }
-    }
+    String displayImei = _formatImeiForDisplay(imei);
 
     return Container(
       constraints: const BoxConstraints(minHeight: 180),
@@ -3565,78 +3301,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                       Container(
                         padding: const EdgeInsets.all(12),
                         color: Colors.white,
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _searchController,
-                                focusNode: _searchFocusNode,
-                                decoration: InputDecoration(
-                                  labelText: 'Search IMEI, Product, Brand',
-                                  labelStyle: const TextStyle(fontSize: 13),
-                                  prefixIcon: const Icon(
-                                    Icons.search,
-                                    size: 20,
-                                  ),
-                                  suffixIcon: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (_searchQuery.isNotEmpty)
-                                        IconButton(
-                                          icon: const Icon(
-                                            Icons.clear,
-                                            size: 20,
-                                          ),
-                                          onPressed: () {
-                                            _searchController.clear();
-                                            setState(() => _searchQuery = '');
-                                            _searchFocusNode.unfocus();
-                                          },
-                                        ),
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.qr_code_scanner,
-                                          size: 22,
-                                        ),
-                                        onPressed: () {
-                                          _showScannerForStockSearch();
-                                        },
-                                        tooltip: 'Scan IMEI',
-                                      ),
-                                    ],
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 10,
-                                  ),
-                                ),
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.black,
-                                ),
-                                onChanged: (value) {
-                                  setState(
-                                    () => _searchQuery = value.toLowerCase(),
-                                  );
-                                },
-                                onSubmitted: (value) {
-                                  _searchFocusNode.unfocus();
-                                },
-                              ),
-                            ),
-                            if (_searchQuery.isNotEmpty)
-                              IconButton(
-                                icon: const Icon(Icons.keyboard_hide, size: 22),
-                                onPressed: () {
-                                  _searchFocusNode.unfocus();
-                                },
-                                tooltip: 'Hide keyboard',
-                              ),
-                          ],
-                        ),
+                        child: _buildSearchField(),
                       ),
                       const SizedBox(height: 8),
 
@@ -3652,11 +3317,10 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                       ),
                     ],
                   ),
+            floatingActionButton: _buildQuickScanButton(),
           ),
 
-          if (_showAddStockModal ||
-              _selectedPhoneForAction != null ||
-              _showScanner)
+          if (_showAddStockModal || _selectedPhoneForAction != null)
             Container(
               color: Colors.black.withOpacity(0.5),
               width: double.infinity,
@@ -3666,16 +3330,493 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           if (_showAddStockModal) _buildAddStockModal(),
 
           if (_selectedPhoneForAction != null) _buildActionModal(),
-
-          if (_showScanner) _buildImeiScannerModal(),
         ],
       ),
     );
   }
 }
 
-// Separate class for Scanner Border Painter (not nested)
-class ScannerBorderPainter extends CustomPainter {
+// Optimized IMEI Scanner Widget
+class OptimizedImeiScanner extends StatefulWidget {
+  final Function(String) onScanComplete;
+  final String? initialImei;
+  final String title;
+  final String description;
+  final bool autoCloseAfterScan;
+
+  const OptimizedImeiScanner({
+    super.key,
+    required this.onScanComplete,
+    this.initialImei,
+    this.title = 'Scan IMEI',
+    this.description = 'Align the barcode within the frame',
+    this.autoCloseAfterScan = true,
+  });
+
+  @override
+  State<OptimizedImeiScanner> createState() => _OptimizedImeiScannerState();
+}
+
+class _OptimizedImeiScannerState extends State<OptimizedImeiScanner>
+    with SingleTickerProviderStateMixin {
+  MobileScannerController? _scannerController;
+  bool _isScanning = true;
+  bool _isTorchOn = false;
+  bool _isScannerReady = false;
+  Timer? _scanDebounceTimer;
+  String? _lastScannedData;
+  AnimationController? _animationController;
+  Animation<double>? _scanAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _initScanner();
+    _initAnimation();
+  }
+
+  void _initScanner() async {
+    try {
+      _scannerController = MobileScannerController(
+        detectionSpeed: DetectionSpeed.noDuplicates,
+        facing: CameraFacing.back,
+        torchEnabled: false,
+        detectionTimeoutMs: 1000,
+      );
+
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (mounted) {
+        setState(() => _isScannerReady = true);
+      }
+    } catch (e) {
+      print('Scanner init error: $e');
+    }
+  }
+
+  void _initAnimation() {
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+
+    _scanAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController!, curve: Curves.easeInOut),
+    );
+  }
+
+  void _handleBarcodeScan(BarcodeCapture capture) {
+    if (!_isScanning || !_isScannerReady) return;
+
+    final barcodes = capture.barcodes;
+    if (barcodes.isEmpty) return;
+
+    final scannedData = barcodes.first.rawValue ?? '';
+
+    // Prevent multiple scans in quick succession
+    if (_scanDebounceTimer != null && _scanDebounceTimer!.isActive) {
+      return;
+    }
+
+    // Set debounce timer
+    _scanDebounceTimer = Timer(const Duration(milliseconds: 500), () {
+      if (mounted) {
+        setState(() => _isScanning = true);
+      }
+    });
+
+    setState(() {
+      _isScanning = false;
+    });
+
+    // Clean and validate IMEI
+    final cleanImei = _cleanImei(scannedData);
+
+    if (_isValidImei(cleanImei)) {
+      _processValidImei(cleanImei);
+    } else {
+      _showError('Invalid IMEI: ${cleanImei.length} digits');
+    }
+  }
+
+  String _cleanImei(String rawImei) {
+    // Remove all non-numeric characters
+    return rawImei.replaceAll(RegExp(r'[^0-9]'), '');
+  }
+
+  bool _isValidImei(String imei) {
+    // Standard IMEI length is 15 digits, some devices have 16
+    if (imei.length < 15 || imei.length > 16) return false;
+
+    // Check if all characters are digits
+    if (!RegExp(r'^[0-9]+$').hasMatch(imei)) return false;
+
+    // Optional: IMEI validation using Luhn algorithm
+    return true;
+  }
+
+  void _processValidImei(String imei) {
+    setState(() {
+      _lastScannedData = '✓ Scanned: ${_formatImeiForDisplay(imei)}';
+    });
+
+    // Wait a moment to show success feedback
+    Future.delayed(const Duration(milliseconds: 800), () {
+      widget.onScanComplete(imei);
+
+      if (widget.autoCloseAfterScan && mounted) {
+        Navigator.of(context).pop();
+      }
+    });
+  }
+
+  String _formatImeiForDisplay(String imei) {
+    if (imei.length == 15) {
+      return '${imei.substring(0, 6)} ${imei.substring(6, 12)} ${imei.substring(12)}';
+    } else if (imei.length == 16) {
+      return '${imei.substring(0, 8)} ${imei.substring(8)}';
+    }
+    return imei;
+  }
+
+  void _showError(String message) {
+    setState(() {
+      _lastScannedData = '✗ $message';
+    });
+
+    // Reset after showing error
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (mounted) {
+        setState(() {
+          _lastScannedData = null;
+          _isScanning = true;
+        });
+      }
+    });
+  }
+
+  void _showManualEntryDialog() {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Enter IMEI Manually'),
+          content: TextField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            maxLength: 16,
+            decoration: const InputDecoration(
+              hintText: 'Enter 15-16 digit IMEI',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final imei = controller.text.trim();
+                if (_isValidImei(imei)) {
+                  widget.onScanComplete(imei);
+                  Navigator.of(context).pop();
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please enter a valid IMEI (15-16 digits)'),
+                    ),
+                  );
+                }
+              },
+              child: const Text('Confirm'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _animationController?.dispose();
+    _scanDebounceTimer?.cancel();
+    _scannerController?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.all(20),
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.8,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 25,
+              spreadRadius: 5,
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade700,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(20),
+                  topRight: Radius.circular(20),
+                ),
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.title,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        if (widget.description.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              widget.description,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.white.withOpacity(0.8),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Scanner Area
+            Expanded(
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Scanner Preview
+                  if (_isScannerReady && _scannerController != null)
+                    MobileScanner(
+                      controller: _scannerController!,
+                      onDetect: _handleBarcodeScan,
+                      fit: BoxFit.cover,
+                    )
+                  else
+                    Container(
+                      color: Colors.black,
+                      child: const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircularProgressIndicator(color: Colors.white),
+                            SizedBox(height: 16),
+                            Text(
+                              'Initializing Scanner...',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                  // Scanner Frame with overlay
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.white, width: 2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    width: MediaQuery.of(context).size.width * 0.8,
+                    height: MediaQuery.of(context).size.width * 0.8,
+                    child: CustomPaint(
+                      painter: _ScannerOverlayPainter(
+                        _scanAnimation?.value ?? 0,
+                      ),
+                    ),
+                  ),
+
+                  // Status Message
+                  if (_lastScannedData != null)
+                    Positioned(
+                      bottom: 20,
+                      left: 20,
+                      right: 20,
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: _lastScannedData!.startsWith('✓')
+                              ? Colors.green.withOpacity(0.9)
+                              : Colors.red.withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: 10,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _lastScannedData!.startsWith('✓')
+                                  ? Icons.check_circle
+                                  : Icons.error,
+                              color: Colors.white,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                _lastScannedData!,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                  // Torch Toggle
+                  Positioned(
+                    top: 20,
+                    right: 20,
+                    child: FloatingActionButton.small(
+                      onPressed: () {
+                        if (_scannerController != null) {
+                          _scannerController!.toggleTorch();
+                          setState(() => _isTorchOn = !_isTorchOn);
+                        }
+                      },
+                      backgroundColor: Colors.black.withOpacity(0.5),
+                      child: Icon(
+                        _isTorchOn ? Icons.flash_off : Icons.flash_on,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+
+                  // Instructions
+                  Positioned(
+                    bottom: _lastScannedData != null ? 80 : 20,
+                    left: 0,
+                    right: 0,
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.7),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Text(
+                            'Point camera at IMEI barcode',
+                            style: TextStyle(color: Colors.white, fontSize: 12),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        if (!_isScanning)
+                          const Text(
+                            'Processing...',
+                            style: TextStyle(color: Colors.white, fontSize: 12),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Action Buttons
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        // Show manual entry dialog
+                        _showManualEntryDialog();
+                      },
+                      icon: const Icon(Icons.keyboard),
+                      label: const Text('Manual Entry'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _isScanning
+                          ? null
+                          : () {
+                              setState(() {
+                                _isScanning = true;
+                                _lastScannedData = null;
+                              });
+                            },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Rescan'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ScannerOverlayPainter extends CustomPainter {
+  final double scanPosition;
+
+  _ScannerOverlayPainter(this.scanPosition);
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
@@ -3683,13 +3824,14 @@ class ScannerBorderPainter extends CustomPainter {
       ..strokeWidth = 2
       ..style = PaintingStyle.stroke;
 
+    // Draw corners
     final cornerLength = 20.0;
 
-    // Top-left corner
+    // Top-left
     canvas.drawLine(Offset.zero, Offset(cornerLength, 0), paint);
     canvas.drawLine(Offset.zero, Offset(0, cornerLength), paint);
 
-    // Top-right corner
+    // Top-right
     canvas.drawLine(
       Offset(size.width, 0),
       Offset(size.width - cornerLength, 0),
@@ -3701,7 +3843,7 @@ class ScannerBorderPainter extends CustomPainter {
       paint,
     );
 
-    // Bottom-left corner
+    // Bottom-left
     canvas.drawLine(
       Offset(0, size.height),
       Offset(0, size.height - cornerLength),
@@ -3713,7 +3855,7 @@ class ScannerBorderPainter extends CustomPainter {
       paint,
     );
 
-    // Bottom-right corner
+    // Bottom-right
     canvas.drawLine(
       Offset(size.width, size.height),
       Offset(size.width, size.height - cornerLength),
@@ -3724,8 +3866,17 @@ class ScannerBorderPainter extends CustomPainter {
       Offset(size.width - cornerLength, size.height),
       paint,
     );
+
+    // Scanning line
+    final scanPaint = Paint()
+      ..color = Colors.green.withOpacity(0.7)
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke;
+
+    final scanY = size.height * scanPosition;
+    canvas.drawLine(Offset(0, scanY), Offset(size.width, scanY), scanPaint);
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
