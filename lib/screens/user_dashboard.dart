@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:sales_stock/screens/inventory/search_inventory_screen.dart';
-import 'package:sales_stock/screens/inventory/stock_check_screen.dart';
+
 import 'package:sales_stock/screens/phone_stock_screen.dart';
+import 'package:sales_stock/screens/stock_check_screen.dart';
 import '../providers/auth_provider.dart';
 import '../services/auth_service.dart';
 import 'accessories_sale_upload.dart';
@@ -222,7 +223,7 @@ class UserDashboard extends StatelessWidget {
         'title': 'Stock Check',
         'subtitle': 'Check available inventory',
         'color': Colors.teal,
-        'screen': const StockCheckScreen(), // You'll need to create this screen
+        'screen': const StockCheckScreen(),
       },
     ];
 
