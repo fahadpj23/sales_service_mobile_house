@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:sales_stock/screens/admin/inventory/search_inventory_screen.dart';
+import 'package:sales_stock/screens/search_inventory_screen.dart';
 
 import 'package:sales_stock/screens/phone_stock_screen.dart';
 import 'package:sales_stock/screens/stock_check_screen.dart';

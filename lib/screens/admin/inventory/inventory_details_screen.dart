@@ -15,12 +15,10 @@ class InventoryDetailsScreen extends StatefulWidget {
 class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   String? _selectedShopId;
-  String _selectedStatus =
-      'available'; // Changed to non-nullable with default value
+  String _selectedStatus = 'available';
   bool _isLoading = true;
   List<Map<String, dynamic>> _allInventory = [];
   List<Map<String, dynamic>> _filteredInventory = [];
-  Map<String, dynamic> _inventoryStats = {};
   final TextEditingController _searchController = TextEditingController();
   final Color primaryGreen = Color(0xFF0A4D2E);
   final Color secondaryGreen = Color(0xFF1A7D4A);
@@ -94,32 +92,45 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     }
   }
 
-  void _calculateStats() {
-    // Calculate stats based on filtered inventory (respects shop selection)
-    _inventoryStats = {
-      'totalItems': _filteredInventory.length,
-      'available': _filteredInventory
-          .where((item) => item['status'] == 'available')
-          .length,
-      'sold': _filteredInventory
-          .where((item) => item['status'] == 'sold')
-          .length,
-      'returned': _filteredInventory
-          .where((item) => item['status'] == 'returned')
-          .length,
-      'totalValue': _filteredInventory.fold(
-        0.0,
-        (sum, item) => sum + (item['productPrice'] ?? 0),
-      ),
-      'availableValue': _filteredInventory
-          .where((item) => item['status'] == 'available')
-          .fold(0.0, (sum, item) => sum + (item['productPrice'] ?? 0)),
-      'soldValue': _filteredInventory
-          .where((item) => item['status'] == 'sold')
-          .fold(0.0, (sum, item) => sum + (item['productPrice'] ?? 0)),
-      'returnedValue': _filteredInventory
-          .where((item) => item['status'] == 'returned')
-          .fold(0.0, (sum, item) => sum + (item['productPrice'] ?? 0)),
+  Map<String, dynamic> _getCurrentTabStats() {
+    int count = _filteredInventory.length;
+    double value = _filteredInventory.fold(
+      0.0,
+      (sum, item) => sum + (item['productPrice'] ?? 0),
+    );
+
+    String title;
+    IconData icon;
+    Color color;
+
+    switch (_selectedStatus) {
+      case 'available':
+        title = 'Available';
+        icon = Icons.check_circle;
+        color = Color(0xFF4CAF50);
+        break;
+      case 'sold':
+        title = 'Sold';
+        icon = Icons.shopping_cart;
+        color = Color(0xFF2196F3);
+        break;
+      case 'returned':
+        title = 'Returned';
+        icon = Icons.assignment_return;
+        color = Color(0xFFFF9800);
+        break;
+      default:
+        title = 'Items';
+        icon = Icons.inventory;
+        color = primaryGreen;
+    }
+
+    return {
+      'title': title,
+      'count': count,
+      'value': value,
+      'icon': icon,
+      'color': color,
     };
   }
 
@@ -160,16 +171,13 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         final dateB = b['uploadedAt'] ?? b['returnedAt'] ?? DateTime.now();
         return dateB.compareTo(dateA);
       });
-
-      // Recalculate stats based on filtered inventory
-      _calculateStats();
     });
   }
 
   void _clearAllFilters() {
     setState(() {
       _selectedShopId = null;
-      _selectedStatus = 'available'; // Reset to default
+      _selectedStatus = 'available';
       _searchController.clear();
     });
     _applyFilters();
@@ -193,29 +201,28 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Inventory Management',
+          'Inventory',
           style: TextStyle(
             fontWeight: FontWeight.bold,
-            fontSize: 18,
+            fontSize: 16,
             color: Colors.white,
           ),
         ),
         backgroundColor: primaryGreen,
         foregroundColor: Colors.white,
-        elevation: 3,
+        elevation: 2,
         centerTitle: true,
         actions: [
           if (_selectedShopId != null ||
-              _selectedStatus !=
-                  'available' || // Changed from _selectedStatus != null
+              _selectedStatus != 'available' ||
               _searchController.text.isNotEmpty)
             IconButton(
-              icon: Icon(Icons.clear_all),
+              icon: Icon(Icons.clear_all, size: 20),
               onPressed: _clearAllFilters,
               tooltip: 'Clear all filters',
             ),
           IconButton(
-            icon: Icon(Icons.refresh),
+            icon: Icon(Icons.refresh, size: 20),
             onPressed: _loadAllInventory,
             tooltip: 'Refresh',
           ),
@@ -223,158 +230,132 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: secondaryGreen))
-          : SingleChildScrollView(
-              child: Column(
-                children: [
-                  _buildFilterSection(),
+          : Column(
+              children: [
+                _buildFilterSection(),
 
-                  // Shop selection indicator
-                  if (_selectedShopId != null)
-                    Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 6,
-                      ),
-                      child: Card(
-                        color: primaryGreen.withOpacity(0.1),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          side: BorderSide(
-                            color: primaryGreen.withOpacity(0.3),
-                            width: 1,
-                          ),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(10),
-                          child: Row(
-                            children: [
-                              Icon(Icons.store, size: 18, color: primaryGreen),
-                              SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Viewing inventory for:',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey[600],
-                                      ),
-                                    ),
-                                    Text(
-                                      _getSelectedShopName(),
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
-                                        color: primaryGreen,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              IconButton(
-                                icon: Icon(Icons.clear, size: 18),
-                                onPressed: () {
-                                  setState(() => _selectedShopId = null);
-                                  _applyFilters();
-                                },
-                                tooltip: 'Clear shop filter',
-                              ),
-                            ],
-                          ),
+                // Shop selection indicator
+                if (_selectedShopId != null)
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    child: Card(
+                      color: primaryGreen.withOpacity(0.1),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        side: BorderSide(
+                          color: primaryGreen.withOpacity(0.3),
+                          width: 1,
                         ),
                       ),
-                    ),
-
-                  _buildStatsCards(),
-
-                  SizedBox(height: 12),
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Inventory Items (${_filteredInventory.length})',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: primaryGreen,
-                          ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Row(
+                          children: [
+                            Icon(Icons.store, size: 16, color: primaryGreen),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Viewing:',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                  Text(
+                                    _getSelectedShopName(),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: primaryGreen,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              icon: Icon(Icons.clear, size: 16),
+                              onPressed: () {
+                                setState(() => _selectedShopId = null);
+                                _applyFilters();
+                              },
+                              tooltip: 'Clear shop filter',
+                              padding: EdgeInsets.zero,
+                              constraints: BoxConstraints(minWidth: 30),
+                            ),
+                          ],
                         ),
-                        Text(
-                          _selectedShopId != null
-                              ? _getSelectedShopName()
-                              : 'All Shops',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
-                  SizedBox(height: 10),
-                  _buildInventoryList(),
-                  SizedBox(height: 16),
-                ],
-              ),
+
+                _buildCurrentTabStats(),
+
+                SizedBox(height: 6),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Items (${_filteredInventory.length})',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: primaryGreen,
+                        ),
+                      ),
+                      Text(
+                        _selectedShopId != null
+                            ? _getSelectedShopName()
+                            : 'All Shops',
+                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: 6),
+                Expanded(child: _buildInventoryList()),
+              ],
             ),
     );
   }
 
   Widget _buildFilterSection() {
     return Container(
-      padding: EdgeInsets.all(14),
+      padding: EdgeInsets.all(10),
       child: Card(
-        elevation: 3,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  if (_selectedShopId != null ||
-                      _selectedStatus != 'available' ||
-                      _searchController.text.isNotEmpty)
-                    TextButton.icon(
-                      onPressed: _clearAllFilters,
-                      icon: Icon(Icons.clear, size: 14),
-                      label: Text('Clear All', style: TextStyle(fontSize: 12)),
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.red,
-                        padding: EdgeInsets.zero,
-                      ),
-                    ),
-                ],
-              ),
-              SizedBox(height: 5),
-
               // Search Bar
               Container(
                 decoration: BoxDecoration(
                   color: Colors.grey[50],
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(6),
                   border: Border.all(color: Colors.grey[300]!),
                 ),
                 child: TextField(
                   controller: _searchController,
                   decoration: InputDecoration(
-                    hintText: 'Search by product, brand, IMEI, or shop...',
-                    hintStyle: TextStyle(fontSize: 13),
+                    hintText: 'Search product, brand, IMEI, shop...',
+                    hintStyle: TextStyle(fontSize: 11),
                     border: InputBorder.none,
                     prefixIcon: Icon(
                       Icons.search,
-                      size: 18,
+                      size: 16,
                       color: Colors.grey[600],
                     ),
                     suffixIcon: _searchController.text.isNotEmpty
                         ? IconButton(
-                            icon: Icon(Icons.clear, size: 18),
+                            icon: Icon(Icons.clear, size: 16),
                             onPressed: () {
                               _searchController.clear();
                               _applyFilters();
@@ -382,84 +363,126 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                           )
                         : null,
                     contentPadding: EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 12,
+                      horizontal: 10,
+                      vertical: 8,
                     ),
+                    isDense: true,
                   ),
-                  style: TextStyle(fontSize: 13),
+                  style: TextStyle(fontSize: 12),
                   onChanged: (value) => _applyFilters(),
                 ),
               ),
 
-              SizedBox(height: 10),
+              SizedBox(height: 8),
 
               // Shop Dropdown
               Container(
                 decoration: BoxDecoration(
                   border: Border.all(color: Colors.grey[300]!),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(6),
                 ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _selectedShopId,
-                    isExpanded: true,
-                    hint: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      child: Text(
-                        'Select Shop (All by default)',
-                        style: TextStyle(fontSize: 13),
+                child: Row(
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.only(left: 10),
+                      child: Icon(
+                        Icons.store,
+                        size: 14,
+                        color: Colors.grey[600],
                       ),
                     ),
-                    items: [
-                      DropdownMenuItem<String>(
-                        value: null,
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 12),
-                          child: Text(
-                            'All Shops',
-                            style: TextStyle(fontSize: 13),
-                          ),
-                        ),
-                      ),
-                      ...widget.shops.map<DropdownMenuItem<String>>((shop) {
-                        return DropdownMenuItem<String>(
-                          value: shop['id'] as String?,
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 12),
+                    SizedBox(width: 6),
+                    Expanded(
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _selectedShopId,
+                          isExpanded: true,
+                          hint: Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4),
                             child: Text(
-                              shop['name'] as String,
-                              style: TextStyle(fontSize: 13),
+                              'All Shops',
+                              style: TextStyle(fontSize: 12),
                             ),
                           ),
-                        );
-                      }).toList(),
-                    ],
-                    style: TextStyle(fontSize: 13, color: Colors.black87),
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedShopId = value;
-                      });
-                      _applyFilters();
-                    },
-                  ),
+                          items: [
+                            DropdownMenuItem<String>(
+                              value: null,
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 10),
+                                child: Text(
+                                  'All Shops',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ),
+                            ),
+                            ...widget.shops.map<DropdownMenuItem<String>>((
+                              shop,
+                            ) {
+                              return DropdownMenuItem<String>(
+                                value: shop['id'] as String?,
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 10),
+                                  child: Text(
+                                    shop['name'] as String,
+                                    style: TextStyle(fontSize: 12),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ],
+                          style: TextStyle(fontSize: 12, color: Colors.black87),
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedShopId = value;
+                            });
+                            _applyFilters();
+                          },
+                        ),
+                      ),
+                    ),
+                    if (_selectedShopId != null)
+                      IconButton(
+                        icon: Icon(Icons.clear, size: 14),
+                        onPressed: () {
+                          setState(() => _selectedShopId = null);
+                          _applyFilters();
+                        },
+                        padding: EdgeInsets.zero,
+                        constraints: BoxConstraints(minWidth: 30),
+                      ),
+                  ],
                 ),
               ),
 
-              SizedBox(height: 10),
+              SizedBox(height: 8),
 
-              // Status Chips - REMOVED "All" option
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    // Only show available, sold, and returned chips
-                    _buildStatusChip('Available', 'available'),
-                    SizedBox(width: 6),
-                    _buildStatusChip('Sold', 'sold'),
-                    SizedBox(width: 6),
-                    _buildStatusChip('Returned', 'returned'),
-                  ],
-                ),
+              // Status Chips
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Status:',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey[700],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildStatusChip('Available', 'available'),
+                        SizedBox(width: 4),
+                        _buildStatusChip('Sold', 'sold'),
+                        SizedBox(width: 4),
+                        _buildStatusChip('Returned', 'returned'),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -486,12 +509,12 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         chipColor = primaryGreen;
     }
 
-    return FilterChip(
+    return ChoiceChip(
       label: Text(
         label,
         style: TextStyle(
           color: isSelected ? Colors.white : chipColor,
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: FontWeight.w500,
         ),
       ),
@@ -504,144 +527,88 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
       },
       backgroundColor: chipColor.withOpacity(0.1),
       selectedColor: chipColor,
+      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      labelPadding: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
     );
   }
 
-  Widget _buildStatsCards() {
-    String statsTitle = _selectedShopId != null
-        ? 'Shop Statistics'
-        : 'Overall Statistics';
+  Widget _buildCurrentTabStats() {
+    final stats = _getCurrentTabStats();
 
-    return Column(
-      children: [
-        Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Card(
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        child: Padding(
+          padding: EdgeInsets.all(8),
           child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              Text(
-                statsTitle,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: primaryGreen,
-                ),
-              ),
-              SizedBox(width: 6),
-              if (_selectedShopId != null)
-                Chip(
-                  label: Text(
-                    _getSelectedShopName(),
-                    style: TextStyle(fontSize: 9, color: Colors.white),
+              // Title with icon
+              Row(
+                children: [
+                  Icon(stats['icon'], size: 16, color: stats['color']),
+                  SizedBox(width: 6),
+                  Text(
+                    stats['title'],
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: stats['color'],
+                    ),
                   ),
-                  backgroundColor: primaryGreen,
-                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 0),
-                ),
-            ],
-          ),
-        ),
-        SizedBox(height: 6),
-        Container(
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          child: GridView.count(
-            shrinkWrap: true,
-            physics: NeverScrollableScrollPhysics(),
-            crossAxisCount: 2,
-            childAspectRatio: 1.8,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            children: [
-              _buildStatCard(
-                'Total Items',
-                '${_inventoryStats['totalItems']}',
-                Icons.inventory,
-                primaryGreen,
-                'Value: ₹${widget.formatNumber(_inventoryStats['totalValue'] ?? 0)}',
+                ],
               ),
-              _buildStatCard(
-                'Available',
-                '${_inventoryStats['available']}',
-                Icons.check_circle,
-                Color(0xFF4CAF50),
-                'Value: ₹${widget.formatNumber(_inventoryStats['availableValue'] ?? 0)}',
-              ),
-              _buildStatCard(
-                'Sold',
-                '${_inventoryStats['sold']}',
-                Icons.shopping_cart,
-                Color(0xFF2196F3),
-                'Value: ₹${widget.formatNumber(_inventoryStats['soldValue'] ?? 0)}',
-              ),
-              _buildStatCard(
-                'Returned',
-                '${_inventoryStats['returned']}',
-                Icons.assignment_return,
-                Color(0xFFFF9800),
-                'Value: ₹${widget.formatNumber(_inventoryStats['returnedValue'] ?? 0)}',
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
 
-  Widget _buildStatCard(
-    String title,
-    String value,
-    IconData icon,
-    Color color,
-    String subtitle,
-  ) {
-    return Card(
-      elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      child: Container(
-        padding: EdgeInsets.all(10),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: EdgeInsets.all(5),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(6),
+              // Vertical divider
+              Container(width: 1, height: 20, color: Colors.grey[300]),
+
+              // Count
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Count',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
                   ),
-                  child: Icon(icon, color: color, size: 16),
-                ),
-                SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: TextStyle(fontSize: 11, color: Colors.grey[800]),
-                    overflow: TextOverflow.ellipsis,
+                  SizedBox(height: 2),
+                  Text(
+                    '${stats['count']}',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: stats['color'],
+                    ),
                   ),
-                ),
-              ],
-            ),
-            SizedBox(height: 6),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: color,
+                ],
               ),
-            ),
-            SizedBox(height: 2),
-            Text(
-              subtitle,
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.black,
-                fontWeight: FontWeight.bold,
+
+              // Vertical divider
+              Container(width: 1, height: 20, color: Colors.grey[300]),
+
+              // Value
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Value',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    '₹${widget.formatNumber(stats['value'])}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: primaryGreen,
+                    ),
+                  ),
+                ],
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -649,34 +616,30 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
 
   Widget _buildInventoryList() {
     if (_filteredInventory.isEmpty) {
-      return Container(
-        height: 250,
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.inventory_2, size: 56, color: Colors.grey[400]),
-              SizedBox(height: 12),
-              Text(
-                'No inventory items found',
-                style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-              ),
-              SizedBox(height: 6),
-              Text(
-                _selectedShopId != null
-                    ? 'No items found for this shop with current filters'
-                    : 'Try changing your filters or search',
-                style: TextStyle(fontSize: 13, color: Colors.grey[500]),
-              ),
-            ],
-          ),
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.inventory_2, size: 48, color: Colors.grey[400]),
+            SizedBox(height: 10),
+            Text(
+              'No items found',
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+            ),
+            SizedBox(height: 4),
+            Text(
+              _selectedShopId != null
+                  ? 'No ${_selectedStatus} items found for this shop'
+                  : 'Try changing your filters or search',
+              style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+            ),
+          ],
         ),
       );
     }
 
     return ListView.builder(
-      shrinkWrap: true,
-      physics: NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       itemCount: _filteredInventory.length,
       itemBuilder: (context, index) {
         final item = _filteredInventory[index];
@@ -715,16 +678,15 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         statusText = status;
     }
 
-    return GestureDetector(
-      onTap: () {
-        _showItemDetails(context, item);
-      },
-      child: Card(
-        margin: EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        elevation: 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    return Card(
+      margin: EdgeInsets.only(bottom: 8),
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: InkWell(
+        onTap: () => _showItemDetails(context, item),
+        borderRadius: BorderRadius.circular(8),
         child: Padding(
-          padding: EdgeInsets.all(12),
+          padding: EdgeInsets.all(10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -735,7 +697,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                     child: Text(
                       item['productName'],
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: 13,
                         fontWeight: FontWeight.bold,
                         color: primaryGreen,
                       ),
@@ -744,20 +706,20 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                     ),
                   ),
                   Container(
-                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: statusColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(statusIcon, size: 11, color: statusColor),
-                        SizedBox(width: 3),
+                        Icon(statusIcon, size: 10, color: statusColor),
+                        SizedBox(width: 2),
                         Text(
                           statusText,
                           style: TextStyle(
-                            fontSize: 9,
+                            fontSize: 8,
                             color: statusColor,
                             fontWeight: FontWeight.w600,
                           ),
@@ -767,61 +729,59 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                   ),
                 ],
               ),
-              SizedBox(height: 6),
+              SizedBox(height: 4),
               Row(
                 children: [
                   Icon(
                     Icons.branding_watermark,
-                    size: 13,
+                    size: 12,
                     color: Colors.grey[600],
                   ),
-                  SizedBox(width: 5),
+                  SizedBox(width: 4),
                   Text(
                     item['productBrand'],
-                    style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                    style: TextStyle(fontSize: 11, color: Colors.grey[700]),
                   ),
                   Spacer(),
-                  // Icon(Icons.currency_rupee, size: 13, color: Colors.grey[600]),
-                  SizedBox(width: 5),
                   Text(
                     '₹${widget.formatNumber(item['productPrice'])}',
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 12,
                       fontWeight: FontWeight.w600,
                       color: primaryGreen,
                     ),
                   ),
                 ],
               ),
-              SizedBox(height: 5),
+              SizedBox(height: 4),
               Row(
                 children: [
-                  Icon(Icons.store, size: 13, color: Colors.grey[600]),
-                  SizedBox(width: 5),
+                  Icon(Icons.store, size: 12, color: Colors.grey[600]),
+                  SizedBox(width: 4),
                   Expanded(
                     child: Text(
                       item['shopName'],
-                      style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                      style: TextStyle(fontSize: 11, color: Colors.grey[700]),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
               ),
-              SizedBox(height: 5),
+              SizedBox(height: 4),
               Row(
                 children: [
                   Icon(
                     Icons.confirmation_number,
-                    size: 13,
+                    size: 12,
                     color: Colors.grey[600],
                   ),
-                  SizedBox(width: 5),
+                  SizedBox(width: 4),
                   Expanded(
                     child: Text(
                       'IMEI: ${item['imei']}',
                       style: TextStyle(
-                        fontSize: 11,
+                        fontSize: 10,
                         color: Colors.grey[600],
                         fontFamily: 'Monospace',
                       ),
@@ -831,9 +791,9 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                   ),
                 ],
               ),
-              SizedBox(height: 6),
+              SizedBox(height: 4),
               Divider(height: 1, color: Colors.grey[300]),
-              SizedBox(height: 6),
+              SizedBox(height: 4),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -842,11 +802,11 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                     children: [
                       Text(
                         item['type'] == 'phone_return' ? 'Returned' : 'Added',
-                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                        style: TextStyle(fontSize: 9, color: Colors.grey[600]),
                       ),
                       Text(
                         DateFormat('dd MMM yyyy').format(date),
-                        style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                        style: TextStyle(fontSize: 10, color: Colors.grey[700]),
                       ),
                     ],
                   ),
@@ -857,11 +817,11 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                         item['type'] == 'phone_return'
                             ? 'Returned By'
                             : 'Uploaded By',
-                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                        style: TextStyle(fontSize: 9, color: Colors.grey[600]),
                       ),
                       Text(
                         item['returnedBy'] ?? item['uploadedBy'],
-                        style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                        style: TextStyle(fontSize: 10, color: Colors.grey[700]),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -871,10 +831,10 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
               ),
               if (item['type'] == 'phone_return' && item['reason'] != null)
                 Padding(
-                  padding: EdgeInsets.only(top: 6),
+                  padding: EdgeInsets.only(top: 4),
                   child: Text(
                     'Reason: ${item['reason']}',
-                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                    style: TextStyle(fontSize: 9, color: Colors.grey[600]),
                   ),
                 ),
             ],
@@ -888,22 +848,22 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     showDialog(
       context: context,
       builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         child: Container(
-          padding: EdgeInsets.all(16),
+          padding: EdgeInsets.all(14),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Inventory Item Details',
+                'Item Details',
                 style: TextStyle(
-                  fontSize: 16,
+                  fontSize: 14,
                   fontWeight: FontWeight.bold,
                   color: primaryGreen,
                 ),
               ),
-              SizedBox(height: 12),
+              SizedBox(height: 10),
               SingleChildScrollView(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -946,12 +906,12 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                   ],
                 ),
               ),
-              SizedBox(height: 16),
+              SizedBox(height: 14),
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: Text('Close', style: TextStyle(fontSize: 14)),
+                  child: Text('Close', style: TextStyle(fontSize: 13)),
                 ),
               ),
             ],
@@ -963,26 +923,26 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
 
   Widget _buildDetailRow(String label, String value) {
     return Padding(
-      padding: EdgeInsets.only(bottom: 6),
+      padding: EdgeInsets.only(bottom: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 90,
+            width: 80,
             child: Text(
               '$label:',
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 11,
                 fontWeight: FontWeight.w600,
                 color: Colors.grey[700],
               ),
             ),
           ),
-          SizedBox(width: 6),
+          SizedBox(width: 4),
           Expanded(
             child: Text(
               value,
-              style: TextStyle(fontSize: 12, color: Colors.grey[800]),
+              style: TextStyle(fontSize: 11, color: Colors.grey[800]),
             ),
           ),
         ],
