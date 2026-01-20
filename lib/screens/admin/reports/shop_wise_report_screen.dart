@@ -23,51 +23,699 @@ class ShopWiseReportScreen extends StatefulWidget {
 
 class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
   String? _selectedShopId;
+  String _selectedTimePeriod = 'monthly';
+  final List<String> _timePeriods = [
+    'today',
+    'yesterday',
+    'weekly',
+    'monthly',
+    'yearly',
+    'custom',
+  ];
+  DateTime? _customStartDate;
+  DateTime? _customEndDate;
+
+  List<Sale> _getFilteredSales() {
+    DateTime startDate;
+    DateTime endDate;
+    DateTime now = DateTime.now();
+
+    switch (_selectedTimePeriod) {
+      case 'today':
+        startDate = DateTime(now.year, now.month, now.day);
+        endDate = startDate.add(Duration(days: 1, seconds: -1));
+        break;
+      case 'yesterday':
+        startDate = DateTime(now.year, now.month, now.day - 1);
+        endDate = startDate.add(Duration(days: 1, seconds: -1));
+        break;
+      case 'weekly':
+        int weekDay = now.weekday;
+        startDate = DateTime(now.year, now.month, now.day - weekDay + 1);
+        endDate = startDate.add(Duration(days: 7, seconds: -1));
+        break;
+      case 'monthly':
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = DateTime(
+          now.year,
+          now.month + 1,
+          1,
+        ).add(Duration(seconds: -1));
+        break;
+      case 'yearly':
+        startDate = DateTime(now.year, 1, 1);
+        endDate = DateTime(now.year + 1, 1, 1).add(Duration(seconds: -1));
+        break;
+      case 'custom':
+        if (_customStartDate == null || _customEndDate == null) {
+          startDate = DateTime(now.year, now.month, 1);
+          endDate = DateTime(
+            now.year,
+            now.month + 1,
+            1,
+          ).add(Duration(seconds: -1));
+        } else {
+          startDate = DateTime(
+            _customStartDate!.year,
+            _customStartDate!.month,
+            _customStartDate!.day,
+          );
+          endDate = DateTime(
+            _customEndDate!.year,
+            _customEndDate!.month,
+            _customEndDate!.day,
+            23,
+            59,
+            59,
+          );
+        }
+        break;
+      default:
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = DateTime(
+          now.year,
+          now.month + 1,
+          1,
+        ).add(Duration(seconds: -1));
+    }
+
+    List<Sale> timeFilteredSales = widget.allSales.where((sale) {
+      return sale.date.isAfter(startDate.subtract(Duration(seconds: 1))) &&
+          sale.date.isBefore(endDate.add(Duration(seconds: 1)));
+    }).toList();
+
+    // Apply shop filter if selected
+    if (_selectedShopId != null) {
+      return timeFilteredSales
+          .where((sale) => sale.shopId == _selectedShopId)
+          .toList();
+    }
+
+    return timeFilteredSales;
+  }
+
+  String _getSelectedDateRangeText() {
+    final DateFormat dateFormat = DateFormat('dd MMM yyyy');
+    DateTime now = DateTime.now();
+
+    switch (_selectedTimePeriod) {
+      case 'today':
+        return 'Today (${dateFormat.format(now)})';
+      case 'yesterday':
+        return 'Yesterday (${dateFormat.format(now.subtract(Duration(days: 1)))})';
+      case 'weekly':
+        int weekDay = now.weekday;
+        DateTime weekStart = DateTime(
+          now.year,
+          now.month,
+          now.day - weekDay + 1,
+        );
+        DateTime weekEnd = weekStart.add(Duration(days: 6));
+        return 'This Week (${dateFormat.format(weekStart)} - ${dateFormat.format(weekEnd)})';
+      case 'monthly':
+        return 'This Month (${DateFormat('MMM yyyy').format(now)})';
+      case 'yearly':
+        return 'This Year (${now.year})';
+      case 'custom':
+        if (_customStartDate != null && _customEndDate != null) {
+          return 'Custom (${dateFormat.format(_customStartDate!)} - ${dateFormat.format(_customEndDate!)})';
+        }
+        return 'Custom Date Range';
+      default:
+        return 'This Month (${DateFormat('MMM yyyy').format(now)})';
+    }
+  }
+
+  Future<void> _selectCustomDate(BuildContext context, bool isStartDate) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+
+    if (picked != null) {
+      setState(() {
+        if (isStartDate) {
+          _customStartDate = picked;
+          if (_customEndDate != null && _customEndDate!.isBefore(picked)) {
+            _customEndDate = picked;
+          }
+        } else {
+          _customEndDate = picked;
+          if (_customStartDate != null && _customStartDate!.isAfter(picked)) {
+            _customStartDate = picked;
+          }
+        }
+        if (_customStartDate != null && _customEndDate != null) {
+          _selectedTimePeriod = 'custom';
+        }
+      });
+    }
+  }
+
+  void _showCustomDatePicker(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          'Select Custom Date Range',
+          style: TextStyle(fontSize: 16), // Reduced from default
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Start Date',
+                  style: TextStyle(
+                    fontSize: 11, // Reduced from 12
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey[700],
+                  ),
+                ),
+                SizedBox(height: 3), // Reduced from 4
+                GestureDetector(
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await _selectCustomDate(context, true);
+                    _showCustomDatePicker(context);
+                  },
+                  child: Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ), // Reduced padding
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey[300]!),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _customStartDate != null
+                              ? DateFormat(
+                                  'dd MMM yyyy',
+                                ).format(_customStartDate!)
+                              : 'Select start date',
+                          style: TextStyle(
+                            fontSize: 12, // Reduced
+                            color: _customStartDate != null
+                                ? Colors.black
+                                : Colors.grey,
+                          ),
+                        ),
+                        Icon(
+                          Icons.calendar_today,
+                          size: 16, // Reduced from 18
+                          color: Colors.grey[600],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 12), // Reduced from 16
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'End Date',
+                  style: TextStyle(
+                    fontSize: 11, // Reduced from 12
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey[700],
+                  ),
+                ),
+                SizedBox(height: 3), // Reduced from 4
+                GestureDetector(
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await _selectCustomDate(context, false);
+                    _showCustomDatePicker(context);
+                  },
+                  child: Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ), // Reduced padding
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey[300]!),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _customEndDate != null
+                              ? DateFormat(
+                                  'dd MMM yyyy',
+                                ).format(_customEndDate!)
+                              : 'Select end date',
+                          style: TextStyle(
+                            fontSize: 12, // Reduced
+                            color: _customEndDate != null
+                                ? Colors.black
+                                : Colors.grey,
+                          ),
+                        ),
+                        Icon(
+                          Icons.calendar_today,
+                          size: 16, // Reduced from 18
+                          color: Colors.grey[600],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 12), // Reduced from 16
+            if (_customStartDate != null && _customEndDate != null)
+              Container(
+                padding: EdgeInsets.all(10), // Reduced from 12
+                decoration: BoxDecoration(
+                  color: Color(0xFF0A4D2E).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Selected Range:',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey[600],
+                      ), // Reduced
+                    ),
+                    Text(
+                      '${_customEndDate!.difference(_customStartDate!).inDays + 1} days',
+                      style: TextStyle(
+                        fontSize: 11, // Reduced from 12
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF0A4D2E),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancel',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+              ), // Reduced
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                _selectedTimePeriod = 'custom';
+              });
+              Navigator.pop(context);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Color(0xFF0A4D2E),
+              padding: EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 8,
+              ), // Smaller button
+            ),
+            child: Text(
+              'Apply',
+              style: TextStyle(fontSize: 12), // Reduced
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Shop-wise Report'),
+        title: Text(
+          'Shop-wise Report',
+          style: TextStyle(fontSize: 18), // Reduced from default
+        ),
         backgroundColor: Color(0xFF0A4D2E),
         foregroundColor: Colors.white,
       ),
       body: Column(
         children: [
-          // Shop Filter Dropdown
+          // Filter Section
           Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.all(12.0), // Reduced from 16
             child: Card(
-              elevation: 4,
+              elevation: 3, // Reduced from 4
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10), // Reduced from 12
               ),
               child: Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: DropdownButtonFormField<String>(
-                  value: _selectedShopId,
-                  decoration: InputDecoration(
-                    labelText: 'Select Shop',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.store),
-                  ),
-                  items: [
-                    DropdownMenuItem<String>(
-                      value: null,
-                      child: Text('All Shops'),
+                padding: const EdgeInsets.all(12.0), // Reduced from 16
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Filters',
+                          style: TextStyle(
+                            fontSize: 14, // Reduced from 16
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF0A4D2E),
+                          ),
+                        ),
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 6, // Reduced from 8
+                            vertical: 3, // Reduced from 4
+                          ),
+                          decoration: BoxDecoration(
+                            color: Color(0xFF0A4D2E).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(
+                              6,
+                            ), // Reduced from 8
+                          ),
+                          child: Text(
+                            _getSelectedDateRangeText(),
+                            style: TextStyle(
+                              fontSize: 10, // Reduced from 12
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF0A4D2E),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    ...widget.shops.map((shop) {
-                      return DropdownMenuItem<String>(
-                        value: shop['id'] as String?,
-                        child: Text(shop['name'] as String),
-                      );
-                    }).toList(),
+                    SizedBox(height: 10), // Reduced from 12
+                    Wrap(
+                      spacing: 6, // Reduced from 8
+                      runSpacing: 6, // Reduced from 8
+                      children: _timePeriods.map((period) {
+                        bool isSelected = _selectedTimePeriod == period;
+                        String label = period;
+                        Color chipColor = Color(0xFF1A7D4A);
+
+                        switch (period) {
+                          case 'today':
+                            label = 'Today';
+                            break;
+                          case 'yesterday':
+                            label = 'Yesterday';
+                            break;
+                          case 'weekly':
+                            label = 'Weekly';
+                            break;
+                          case 'monthly':
+                            label = 'Monthly';
+                            chipColor = Color(0xFF0A4D2E);
+                            break;
+                          case 'yearly':
+                            label = 'Yearly';
+                            break;
+                          case 'custom':
+                            label = 'Custom';
+                            break;
+                        }
+                        return FilterChip(
+                          label: Text(
+                            label,
+                            style: TextStyle(
+                              color: isSelected
+                                  ? Colors.white
+                                  : Colors.grey[700],
+                              fontSize: 11, // Reduced from 12
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          selected: isSelected,
+                          onSelected: (selected) {
+                            if (period == 'custom') {
+                              _showCustomDatePicker(context);
+                            } else {
+                              setState(() {
+                                _selectedTimePeriod = period;
+                              });
+                            }
+                          },
+                          backgroundColor: Colors.grey.shade100,
+                          selectedColor: chipColor,
+                          checkmarkColor: Colors.white,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ), // Reduced padding
+                        );
+                      }).toList(),
+                    ),
+                    if (_selectedTimePeriod == 'custom')
+                      Padding(
+                        padding: EdgeInsets.only(top: 12), // Reduced from 16
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Start Date',
+                                        style: TextStyle(
+                                          fontSize: 11, // Reduced from 12
+                                          fontWeight: FontWeight.w500,
+                                          color: Colors.grey[700],
+                                        ),
+                                      ),
+                                      SizedBox(height: 3), // Reduced from 4
+                                      GestureDetector(
+                                        onTap: () =>
+                                            _selectCustomDate(context, true),
+                                        child: Container(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 10, // Reduced from 12
+                                            vertical: 8, // Reduced from 10
+                                          ),
+                                          decoration: BoxDecoration(
+                                            border: Border.all(
+                                              color: Colors.grey[300]!,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              6, // Reduced from 8
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Text(
+                                                _customStartDate != null
+                                                    ? DateFormat(
+                                                        'dd MMM yyyy',
+                                                      ).format(
+                                                        _customStartDate!,
+                                                      )
+                                                    : 'Select start date',
+                                                style: TextStyle(
+                                                  fontSize: 12, // Reduced
+                                                  color:
+                                                      _customStartDate != null
+                                                      ? Colors.black
+                                                      : Colors.grey,
+                                                ),
+                                              ),
+                                              Icon(
+                                                Icons.calendar_today,
+                                                size: 16, // Reduced from 18
+                                                color: Colors.grey[600],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                SizedBox(width: 10), // Reduced from 12
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'End Date',
+                                        style: TextStyle(
+                                          fontSize: 11, // Reduced from 12
+                                          fontWeight: FontWeight.w500,
+                                          color: Colors.grey[700],
+                                        ),
+                                      ),
+                                      SizedBox(height: 3), // Reduced from 4
+                                      GestureDetector(
+                                        onTap: () =>
+                                            _selectCustomDate(context, false),
+                                        child: Container(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 10, // Reduced from 12
+                                            vertical: 8, // Reduced from 10
+                                          ),
+                                          decoration: BoxDecoration(
+                                            border: Border.all(
+                                              color: Colors.grey[300]!,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              6, // Reduced from 8
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Text(
+                                                _customEndDate != null
+                                                    ? DateFormat(
+                                                        'dd MMM yyyy',
+                                                      ).format(_customEndDate!)
+                                                    : 'Select end date',
+                                                style: TextStyle(
+                                                  fontSize: 12, // Reduced
+                                                  color: _customEndDate != null
+                                                      ? Colors.black
+                                                      : Colors.grey,
+                                                ),
+                                              ),
+                                              Icon(
+                                                Icons.calendar_today,
+                                                size: 16, // Reduced from 18
+                                                color: Colors.grey[600],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (_customStartDate != null &&
+                                _customEndDate != null)
+                              Padding(
+                                padding: EdgeInsets.only(
+                                  top: 6,
+                                ), // Reduced from 8
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      'Selected Range:',
+                                      style: TextStyle(
+                                        fontSize: 11, // Reduced from 12
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                    Text(
+                                      '${_customEndDate!.difference(_customStartDate!).inDays + 1} days',
+                                      style: TextStyle(
+                                        fontSize: 11, // Reduced from 12
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF0A4D2E),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    SizedBox(height: 8), // Reduced from 10
+                    Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey[300]!),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      height: 36, // Reduced height
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.store,
+                            size: 16,
+                            color: Colors.grey[600],
+                          ), // Smaller icon
+                          SizedBox(width: 6),
+                          Expanded(
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: _selectedShopId,
+                                isExpanded: true,
+                                isDense: true,
+                                iconSize: 16,
+                                hint: Text(
+                                  'All Shops',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                items: [
+                                  DropdownMenuItem<String>(
+                                    value: null,
+                                    child: Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                      ),
+                                      child: Text(
+                                        'All Shops',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                        ), // Reduced
+                                      ),
+                                    ),
+                                  ),
+                                  ...widget.shops.map((shop) {
+                                    return DropdownMenuItem<String>(
+                                      value: shop['id'] as String?,
+                                      child: Padding(
+                                        padding: EdgeInsets.symmetric(
+                                          horizontal: 4,
+                                        ),
+                                        child: Text(
+                                          shop['name'] as String,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                          ), // Reduced
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
+                                ],
+                                onChanged: (value) {
+                                  setState(() {
+                                    _selectedShopId = value;
+                                  });
+                                },
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedShopId = value;
-                    });
-                  },
                 ),
               ),
             ),
@@ -79,12 +727,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
   }
 
   Widget _buildShopReport() {
-    // Filter sales by selected shop
-    List<Sale> filteredSales = _selectedShopId == null
-        ? widget.allSales
-        : widget.allSales
-              .where((sale) => sale.shopId == _selectedShopId)
-              .toList();
+    List<Sale> filteredSales = _getFilteredSales();
 
     // Calculate shop-wise totals
     Map<String, Map<String, dynamic>> shopData = {};
@@ -134,9 +777,23 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
 
     if (shopList.isEmpty) {
       return Center(
-        child: Text(
-          'No sales data available',
-          style: TextStyle(fontSize: 16, color: Colors.grey),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.store,
+              size: 48,
+              color: Colors.grey[300],
+            ), // Reduced from 64
+            SizedBox(height: 12), // Reduced from 16
+            Text(
+              'No sales data available',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ), // Reduced
+            ),
+          ],
         ),
       );
     }
@@ -150,11 +807,31 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
         var categories =
             data['categories'] as Map<String, Map<String, dynamic>>;
 
+        // Sort categories in specific order
+        List<MapEntry<String, Map<String, dynamic>>> sortedCategories =
+            categories.entries.toList()..sort((a, b) {
+              // Define custom order for categories
+              Map<String, int> categoryOrder = {
+                'New Phone': 1,
+                'Accessories': 2,
+                'Service': 3,
+                'Base Model': 4,
+                'Second Phone': 5,
+              };
+
+              int orderA = categoryOrder[a.key] ?? 999;
+              int orderB = categoryOrder[b.key] ?? 999;
+              return orderA.compareTo(orderB);
+            });
+
         return Card(
-          margin: EdgeInsets.all(8),
-          elevation: 2,
+          margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6), // Reduced
+          elevation: 1, // Reduced from 2
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10), // Reduced from 12
+          ),
           child: Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.all(12.0), // Reduced from 16
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -165,7 +842,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                       child: Text(
                         data['name'] as String,
                         style: TextStyle(
-                          fontSize: 18,
+                          fontSize: 16, // Reduced from 18
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF0A4D2E),
                         ),
@@ -174,53 +851,96 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                     Chip(
                       label: Text(
                         '${data['transactionCount']} sales',
-                        style: TextStyle(color: Colors.white),
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 10, // Reduced from 12
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                       backgroundColor: Color(0xFF1A7D4A),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ), // Reduced
                     ),
                   ],
                 ),
-                SizedBox(height: 8),
+                SizedBox(height: 6), // Reduced from 8
                 Text(
                   'Total: ₹${widget.formatNumber(data['total'] as double)}',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    fontSize: 18, // Reduced from 22
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0A4D2E),
+                  ),
                 ),
-                SizedBox(height: 16),
-                if (categories.isNotEmpty) ...[
+                SizedBox(height: 12), // Reduced from 16
+                if (sortedCategories.isNotEmpty) ...[
                   Text(
                     'Category Breakdown:',
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
+                      fontSize: 12, // Reduced from 14
                       color: Colors.grey[700],
                     ),
                   ),
-                  SizedBox(height: 8),
-                  ...categories.entries.map((categoryEntry) {
+                  SizedBox(height: 6), // Reduced from 8
+                  ...sortedCategories.map((categoryEntry) {
                     var categoryName = categoryEntry.key;
                     var categoryData = categoryEntry.value;
 
                     return Padding(
-                      padding: const EdgeInsets.only(bottom: 8.0),
+                      padding: const EdgeInsets.only(
+                        bottom: 6.0,
+                      ), // Reduced from 8
                       child: Row(
                         children: [
                           Container(
-                            width: 12,
-                            height: 12,
+                            width: 10, // Reduced from 12
+                            height: 10, // Reduced from 12
                             decoration: BoxDecoration(
                               color: widget.getCategoryColor(categoryName),
                               shape: BoxShape.circle,
                             ),
                           ),
-                          SizedBox(width: 8),
-                          Expanded(child: Text(categoryName)),
-                          Text(
-                            '${categoryData['count']} sales',
-                            style: TextStyle(color: Colors.grey[600]),
+                          SizedBox(width: 6), // Reduced from 8
+                          Expanded(
+                            child: Text(
+                              categoryName,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w500,
+                                fontSize: 12, // Reduced
+                              ),
+                            ),
                           ),
-                          SizedBox(width: 16),
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 6, // Reduced from 8
+                              vertical: 2, // Reduced from 4
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[100],
+                              borderRadius: BorderRadius.circular(
+                                4,
+                              ), // Reduced from 6
+                            ),
+                            child: Text(
+                              '${categoryData['count']}',
+                              style: TextStyle(
+                                fontSize: 10, // Reduced from 12
+                                color: Colors.grey[700],
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 8), // Reduced from 12
                           Text(
                             '₹${widget.formatNumber(categoryData['total'] as double)}',
-                            style: TextStyle(fontWeight: FontWeight.w600),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12, // Reduced from 14
+                              color: Color(0xFF0A4D2E),
+                            ),
                           ),
                         ],
                       ),
@@ -233,5 +953,23 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
         );
       },
     );
+  }
+
+  // Helper method to get category colors
+  Color _getCategoryColor(String category) {
+    switch (category.toLowerCase()) {
+      case 'new phone':
+        return Color(0xFF4CAF50); // Green
+      case 'accessories':
+        return Color(0xFF2196F3); // Blue
+      case 'service':
+        return Color(0xFFFF9800); // Orange
+      case 'base model':
+        return Color(0xFF9C27B0); // Purple
+      case 'second phone':
+        return Color(0xFFF44336); // Red
+      default:
+        return Colors.grey;
+    }
   }
 }

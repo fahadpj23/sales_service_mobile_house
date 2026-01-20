@@ -1100,7 +1100,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => BrandAnalysisDetailsScreen(
-                    allSales: allSales,
+                    allSales: allSales
+                        .where((s) => s.type == 'phone_sale')
+                        .toList(),
                     formatNumber: _formatNumber,
                     shops: shops,
                   ),
