@@ -3,25 +3,24 @@ import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import 'package:sales_stock/screens/login_screen.dart';
-import '../providers/auth_provider.dart';
-import '../services/auth_service.dart';
-import '../models/sale.dart';
+import '../../../providers/auth_provider.dart';
+import '../../../services/auth_service.dart';
+import '../../../models/sale.dart';
 
 // Import all screen files
-import '../screens/sales/sales_details_screen.dart.dart';
-import '../screens/sales/transactions_details_screen.dart';
-import '../screens/sales/brand_analysis_card.dart';
-import '../screens/sales/phone_sales_details_screen.dart';
-import '../screens/sales/phone_sales_reports_screen.dart';
-import '../screens/sales/accessories_service_report_screen.dart';
-import '../screens/inventory/inventory_details_screen.dart';
-import '../screens/inventory/search_inventory_screen.dart';
-import '../screens/analysis/brand_analysis_details_screen.dart';
-import '../screens/analysis/brand_details_screen.dart';
-import '../screens/reports/specific_report_screen.dart';
-import '../screens/reports/shop_wise_report_screen.dart';
-import '../screens/reports/category_details_screen.dart';
-import '../models/sale.dart';
+import 'admin/sales/sales_details_screen.dart.dart';
+import 'admin/sales/transactions_details_screen.dart';
+import 'admin/sales/brand_analysis_card.dart';
+import 'admin/sales/phone_sales_details_screen.dart';
+import 'admin/sales/phone_sales_reports_screen.dart';
+import 'admin/sales/accessories_service_report_screen.dart';
+import 'admin/inventory/inventory_details_screen.dart';
+import 'admin/analysis/brand_analysis_details_screen.dart';
+import 'admin/analysis/brand_details_screen.dart';
+import 'admin/reports/specific_report_screen.dart';
+import 'admin/reports/shop_wise_report_screen.dart';
+import 'admin/reports/category_details_screen.dart';
+import '../../models/sale.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   @override
@@ -1072,36 +1071,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => InventoryDetailsScreen(
-                    shops: shops,
-                    formatNumber: _formatNumber,
-                  ),
-                ),
-              );
-            },
-          ),
-
-          // SEARCH SECTION
-          Padding(
-            padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
-            child: Text(
-              'SEARCH',
-              style: TextStyle(
-                fontSize: 10,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          _buildDrawerItem(
-            Icons.search,
-            'Search Inventory',
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => SearchInventoryScreen(
-                    allSales: allSales,
                     shops: shops,
                     formatNumber: _formatNumber,
                   ),

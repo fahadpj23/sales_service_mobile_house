@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
+import 'package:sales_stock/screens/finance_dashboard.dart';
 import 'providers/auth_provider.dart';
-import 'screens/finance_dashboard.dart';
 import 'screens/login_screen.dart';
 import 'screens/admin_dashboard_screen.dart';
 import 'screens/user_dashboard.dart';
@@ -65,7 +65,7 @@ class AuthWrapper extends StatelessWidget {
     } else if (authProvider.user!.role == 'user') {
       return const UserDashboard();
     } else {
-      return FinanceDashboardApp();
+      return FinanceDashboard();
     }
   }
 }

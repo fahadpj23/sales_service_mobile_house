@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../models/sale.dart';
+import '../../../models/sale.dart';
 
 class AccessoriesServiceReportScreen extends StatefulWidget {
   final List<Sale> allSales;

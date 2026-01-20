@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../models/sale.dart';
+import '../../../models/sale.dart';
 
 class SpecificReportScreen extends StatelessWidget {
   final String title;

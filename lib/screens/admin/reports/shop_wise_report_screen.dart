@@ -1,7 +1,7 @@
 // lib/screens/reports/shop_wise_report_screen.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../models/sale.dart';
+import '../../../models/sale.dart';
 
 class ShopWiseReportScreen extends StatefulWidget {
   final List<Sale> allSales;

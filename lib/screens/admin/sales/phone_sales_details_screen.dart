@@ -1,7 +1,7 @@
 // lib/screens/sales/phone_sales_details_screen.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../models/sale.dart';
+import '../../../models/sale.dart';
 import 'phone_sales_reports_screen.dart'; // Import the reports screen
 
 class PhoneSalesDetailsScreen extends StatefulWidget {

@@ -1,6 +1,6 @@
 // lib/screens/sales/brand_analysis_card.dart
 import 'package:flutter/material.dart';
-import '../../models/sale.dart';
+import '../../../models/sale.dart';
 import '../analysis/brand_details_screen.dart'; // Added this import
 
 class BrandAnalysisCard extends StatefulWidget {
