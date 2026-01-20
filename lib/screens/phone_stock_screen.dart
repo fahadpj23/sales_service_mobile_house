@@ -223,7 +223,10 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       setState(() {
         _selectedProduct = value;
         _showAddProductForm = false;
-        _productSearchController.clear();
+
+        // Set the product name in search controller
+        _productSearchController.text = value ?? '';
+
         _clearModalMessages();
 
         if (_selectedBrand != null && value != null) {
@@ -967,6 +970,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       );
     }
 
+    // Filter products based on search text or selected product
     final products = _productsByBrand[_selectedBrand!] ?? [];
     final searchText = _productSearchController.text.toLowerCase();
 
@@ -987,17 +991,53 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             labelText: 'Search Product',
             labelStyle: const TextStyle(fontSize: 12),
             prefixIcon: const Icon(Icons.search, size: 18),
+            suffixIcon: _selectedProduct != null && _selectedProduct!.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear, size: 16),
+                    onPressed: () {
+                      setState(() {
+                        _selectedProduct = null;
+                        _productSearchController.clear();
+                        _showPriceChangeOption = false;
+                        _originalProductPrice = null;
+                        _priceChangeController.clear();
+                        _clearModalMessages();
+                      });
+                    },
+                  )
+                : null,
             border: const OutlineInputBorder(),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
               vertical: 12,
             ),
+            // Show selected product hint in the field
+            hintText: _selectedProduct != null
+                ? _selectedProduct
+                : 'Search or select product',
           ),
           style: const TextStyle(fontSize: 12, color: Colors.black),
           onChanged: (value) {
             setState(() {
+              // If user starts typing, clear the selected product
+              if (_selectedProduct != null && value != _selectedProduct) {
+                _selectedProduct = null;
+                _showPriceChangeOption = false;
+                _originalProductPrice = null;
+                _priceChangeController.clear();
+              }
               _clearModalMessages();
             });
+          },
+          onTap: () {
+            // When user taps to search, show all products
+            if (_selectedProduct != null &&
+                _productSearchController.text == _selectedProduct) {
+              _productSearchController.clear();
+              setState(() {
+                _clearModalMessages();
+              });
+            }
           },
         ),
         const SizedBox(height: 8),
@@ -1027,14 +1067,83 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             ),
           ),
 
-        Container(
-          constraints: const BoxConstraints(maxHeight: 120),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.shade300),
-            borderRadius: BorderRadius.circular(8),
+        // Show product dropdown only if no product is selected or user is searching
+        if (_selectedProduct == null ||
+            _productSearchController.text.isNotEmpty)
+          Container(
+            constraints: const BoxConstraints(maxHeight: 120),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: _buildProductList(),
           ),
-          child: _buildProductList(),
-        ),
+
+        // Show selected product info if a product is selected
+        if (_selectedProduct != null && _productSearchController.text.isEmpty)
+          Container(
+            margin: const EdgeInsets.only(top: 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.green.shade200),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.green, size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Selected Product:',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.green.shade700,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _selectedProduct!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      if (_originalProductPrice != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Price: ${_formatPrice(_originalProductPrice)}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.green.shade700,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.edit, size: 16),
+                  onPressed: () {
+                    setState(() {
+                      _selectedProduct = null;
+                      _showPriceChangeOption = false;
+                      _originalProductPrice = null;
+                      _priceChangeController.clear();
+                      _productSearchController.clear();
+                    });
+                  },
+                  tooltip: 'Change product',
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }

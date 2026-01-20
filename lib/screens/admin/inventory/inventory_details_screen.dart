@@ -344,6 +344,10 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                 ),
                 child: TextField(
                   controller: _searchController,
+                  textAlignVertical:
+                      TextAlignVertical.center, // Vertical center
+                  textAlign: TextAlign
+                      .start, // Horizontal alignment (start/center/end)
                   decoration: InputDecoration(
                     hintText: 'Search product, brand, IMEI, shop...',
                     hintStyle: TextStyle(fontSize: 11),
@@ -362,11 +366,14 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                             },
                           )
                         : null,
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
+                    contentPadding: EdgeInsets.only(
+                      left: 10,
+                      right: 10,
+                      top: 8, // Adjust top padding if needed
+                      bottom: 8, // Adjust bottom padding if needed
                     ),
                     isDense: true,
+                    alignLabelWithHint: true,
                   ),
                   style: TextStyle(fontSize: 12),
                   onChanged: (value) => _applyFilters(),
