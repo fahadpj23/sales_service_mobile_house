@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../models/sale.dart';
-import 'phone_sales_reports_screen.dart'; // Import the reports screen
+import 'phone_sales_reports_screen.dart';
 
 class PhoneSalesDetailsScreen extends StatefulWidget {
   final List<Sale> allSales;
@@ -25,10 +25,89 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
   bool _sortAscending = false;
   String _sortColumn = 'date';
 
+  // Date range options
+  final List<String> _dateRangeOptions = [
+    'Today',
+    'Yesterday',
+    'Monthly',
+    'Yearly',
+    'Custom Range',
+  ];
+  String _selectedDateRange = 'Monthly'; // Default selection
+
+  // Monthly stats
+  double _monthlyTotal = 0.0;
+  int _monthlyTransactions = 0;
+  String _currentMonth = '';
+  double _previousMonthTotal = 0.0;
+  double _percentageChange = 0.0;
+
   @override
   void initState() {
     super.initState();
-    _filterPhoneSales();
+    _initializeCurrentMonth();
+    _applyDateRange('Monthly'); // Apply monthly range by default
+  }
+
+  void _initializeCurrentMonth() {
+    final now = DateTime.now();
+    _currentMonth = DateFormat('MMMM yyyy').format(now);
+
+    // Calculate previous month for comparison
+    final previousMonth = DateTime(now.year, now.month - 1);
+    final previousMonthStart = DateTime(
+      previousMonth.year,
+      previousMonth.month,
+      1,
+    );
+    final previousMonthEnd = DateTime(
+      previousMonth.year,
+      previousMonth.month + 1,
+      0,
+    );
+
+    // Calculate previous month total
+    _previousMonthTotal = widget.allSales
+        .where((sale) => sale.type == 'phone_sale')
+        .where(
+          (sale) =>
+              sale.date.isAfter(previousMonthStart) &&
+              sale.date.isBefore(previousMonthEnd.add(Duration(days: 1))),
+        )
+        .fold(0.0, (sum, sale) => sum + sale.amount);
+  }
+
+  void _applyDateRange(String range) {
+    setState(() {
+      _selectedDateRange = range;
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+
+      switch (range) {
+        case 'Today':
+          _startDate = today;
+          _endDate = today.add(Duration(days: 1));
+          break;
+        case 'Yesterday':
+          _startDate = today.subtract(Duration(days: 1));
+          _endDate = today;
+          break;
+        case 'Monthly':
+          _startDate = DateTime(now.year, now.month, 1);
+          _endDate = DateTime(now.year, now.month + 1, 0);
+          break;
+        case 'Yearly':
+          _startDate = DateTime(now.year, 1, 1);
+          _endDate = DateTime(now.year, 12, 31);
+          break;
+        case 'Custom Range':
+          _startDate = null;
+          _endDate = null;
+          break;
+      }
+
+      _filterPhoneSales();
+    });
   }
 
   void _filterPhoneSales() {
@@ -55,6 +134,7 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
           })
           .toList();
 
+      // Sort the list
       _phoneSales.sort((a, b) {
         int result;
         switch (_sortColumn) {
@@ -75,7 +155,38 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
         }
         return _sortAscending ? result : -result;
       });
+
+      // Calculate monthly stats
+      _calculateMonthlyStats();
     });
+  }
+
+  void _calculateMonthlyStats() {
+    final now = DateTime.now();
+    final currentMonthStart = DateTime(now.year, now.month, 1);
+    final currentMonthEnd = DateTime(now.year, now.month + 1, 0);
+
+    final monthSales = widget.allSales
+        .where((sale) => sale.type == 'phone_sale')
+        .where(
+          (sale) =>
+              sale.date.isAfter(currentMonthStart) &&
+              sale.date.isBefore(currentMonthEnd.add(Duration(days: 1))),
+        )
+        .toList();
+
+    _monthlyTotal = monthSales.fold(0.0, (sum, sale) => sum + sale.amount);
+    _monthlyTransactions = monthSales.length;
+
+    // Calculate percentage change
+    if (_previousMonthTotal > 0) {
+      _percentageChange =
+          ((_monthlyTotal - _previousMonthTotal) / _previousMonthTotal * 100);
+    } else if (_monthlyTotal > 0) {
+      _percentageChange = 100.0; // First month with sales
+    } else {
+      _percentageChange = 0.0;
+    }
   }
 
   List<String> _getUniqueBrands() {
@@ -167,69 +278,221 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
       ),
       body: Column(
         children: [
+          // Date Range Selection
           Container(
-            padding: EdgeInsets.all(16),
-            color: Color(0xFFE8F5E9),
-            child: Card(
-              elevation: 3,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    Column(
-                      children: [
-                        Text(
-                          'Total Sales',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          '₹${widget.formatNumber(_calculateTotalAmount())}',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF0A4D2E),
-                          ),
-                        ),
-                      ],
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            color: Color(0xFFF5F5F5),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _dateRangeOptions.map((option) {
+                  final isSelected = _selectedDateRange == option;
+                  return Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4),
+                    child: ChoiceChip(
+                      label: Text(option),
+                      selected: isSelected,
+                      onSelected: (selected) {
+                        if (selected) {
+                          _applyDateRange(option);
+                        }
+                      },
+                      selectedColor: Color(0xFF0A4D2E),
+                      labelStyle: TextStyle(
+                        color: isSelected ? Colors.white : Colors.black,
+                      ),
                     ),
-                    Column(
-                      children: [
-                        Text(
-                          'Transactions',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          '${_phoneSales.length}',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF2196F3),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                  );
+                }).toList(),
               ),
             ),
           ),
 
+          // Monthly Information Card
+          Container(
+            padding: EdgeInsets.all(16),
+            color: Color(0xFFE8F5E9),
+            child: Column(
+              children: [
+                // Monthly Stats Card
+                Card(
+                  elevation: 3,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Monthly Overview',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF0A4D2E),
+                              ),
+                            ),
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _percentageChange >= 0
+                                    ? Color(0xFF4CAF50)
+                                    : Color(0xFFF44336),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '${_percentageChange >= 0 ? '+' : ''}${_percentageChange.toStringAsFixed(1)}%',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Column(
+                              children: [
+                                Text(
+                                  'Current Month',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  _currentMonth,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF0A4D2E),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Column(
+                              children: [
+                                Text(
+                                  'Total Sales',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  '₹${widget.formatNumber(_monthlyTotal)}',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF0A4D2E),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Column(
+                              children: [
+                                Text(
+                                  'Transactions',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  '$_monthlyTransactions',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF2196F3),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                SizedBox(height: 12),
+
+                // Current Filter Stats Card
+                Card(
+                  elevation: 3,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        Column(
+                          children: [
+                            Text(
+                              'Filtered Sales',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              '₹${widget.formatNumber(_calculateTotalAmount())}',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF0A4D2E),
+                              ),
+                            ),
+                          ],
+                        ),
+                        Column(
+                          children: [
+                            Text(
+                              'Transactions',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              '${_phoneSales.length}',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF2196F3),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Active Filters Display
           if (_selectedBrand != null ||
               _selectedShop != null ||
               _selectedFinanceType != null ||
-              _startDate != null)
+              (_startDate != null && _selectedDateRange == 'Custom Range'))
             Container(
               padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Wrap(
@@ -266,10 +529,11 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                         _filterPhoneSales();
                       },
                     ),
-                  if (_startDate != null)
+                  if (_startDate != null &&
+                      _selectedDateRange == 'Custom Range')
                     Chip(
                       label: Text(
-                        'From: ${DateFormat('dd-MMM-yyyy').format(_startDate!)}',
+                        '${DateFormat('dd-MMM-yyyy').format(_startDate!)} to ${_endDate != null ? DateFormat('dd-MMM-yyyy').format(_endDate!) : 'Now'}',
                       ),
                       onDeleted: () {
                         setState(() {
@@ -283,6 +547,7 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
               ),
             ),
 
+          // Sales List
           Expanded(
             child: _phoneSales.isEmpty
                 ? Center(
@@ -531,6 +796,18 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // Date Range Selection in Filter Dialog
+                    _buildFilterDropdown(
+                      'Date Range',
+                      _selectedDateRange,
+                      _dateRangeOptions,
+                      (value) {
+                        if (value != null) {
+                          _applyDateRange(value);
+                        }
+                      },
+                    ),
+                    SizedBox(height: 16),
                     _buildFilterDropdown('Brand', _selectedBrand, brands, (
                       value,
                     ) {
@@ -556,7 +833,8 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                       },
                     ),
                     SizedBox(height: 16),
-                    _buildDateRangeFilter(),
+                    if (_selectedDateRange == 'Custom Range')
+                      _buildDateRangeFilter(),
                   ],
                 ),
               ),
@@ -575,6 +853,7 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                       _selectedFinanceType = null;
                       _startDate = null;
                       _endDate = null;
+                      _applyDateRange('Monthly'); // Reset to default monthly
                     });
                     _filterPhoneSales();
                     Navigator.pop(context);
@@ -626,24 +905,15 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                 padding: EdgeInsets.symmetric(horizontal: 12),
                 child: Text('Select $label'),
               ),
-              items: [
-                DropdownMenuItem<String>(
-                  value: null,
+              items: items.map<DropdownMenuItem<String>>((String item) {
+                return DropdownMenuItem<String>(
+                  value: item,
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: 12),
-                    child: Text('All $label'),
+                    child: Text(item),
                   ),
-                ),
-                ...items.map<DropdownMenuItem<String>>((String item) {
-                  return DropdownMenuItem<String>(
-                    value: item,
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      child: Text(item),
-                    ),
-                  );
-                }).toList(),
-              ],
+                );
+              }).toList(),
               onChanged: onChanged,
             ),
           ),
@@ -657,7 +927,7 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Date Range',
+          'Custom Date Range',
           style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
         ),
         SizedBox(height: 8),
@@ -675,6 +945,9 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                   if (date != null) {
                     setState(() {
                       _startDate = date;
+                      if (_endDate != null && _endDate!.isBefore(date)) {
+                        _endDate = null;
+                      }
                     });
                   }
                 },
@@ -706,10 +979,11 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
             Expanded(
               child: InkWell(
                 onTap: () async {
+                  final firstDate = _startDate ?? DateTime(2020);
                   final date = await showDatePicker(
                     context: context,
                     initialDate: _endDate ?? DateTime.now(),
-                    firstDate: _startDate ?? DateTime(2020),
+                    firstDate: firstDate,
                     lastDate: DateTime.now(),
                   );
                   if (date != null) {

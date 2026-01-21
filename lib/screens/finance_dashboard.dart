@@ -16,6 +16,9 @@ import 'package:sales_stock/screens/login_screen.dart'; // Add this import
 import '../providers/auth_provider.dart';
 import '../services/auth_service.dart';
 
+// Define the primary color constant
+final Color primaryGreen = Color(0xFF0A4D2E);
+
 class FinanceDashboard extends StatefulWidget {
   const FinanceDashboard({Key? key}) : super(key: key);
 
@@ -829,9 +832,17 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Payment Verification'),
+        title: const Text(
+          'Payment Verification',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: primaryGreen, // Use the primaryGreen color
+        foregroundColor: Colors.white, // Make icons white
         leading: IconButton(
-          icon: const Icon(Icons.menu),
+          icon: const Icon(
+            Icons.menu,
+            color: Colors.white, // Explicitly set icon color to white
+          ),
           onPressed: () {
             setState(() {
               _isDrawerOpen = !_isDrawerOpen;
@@ -844,7 +855,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
               IconButton(
                 icon: Icon(
                   Icons.refresh,
-                  color: _isLoading ? Colors.grey : Colors.green[100],
+                  color: _isLoading ? Colors.grey : Colors.white,
                 ),
                 onPressed: _isLoading ? null : _loadAllData,
                 tooltip: 'Refresh Data',
@@ -853,14 +864,10 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 icon: const Icon(Icons.logout),
                 color: _isLoading ? Colors.grey : Colors.white,
                 onPressed: () async {
+                  // Clear data before logout
+
                   await authService.signOut();
-                  // Navigate to login screen
-                  Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(
-                      builder: (context) => const LoginScreen(),
-                    ),
-                    (route) => false,
-                  );
+                  Provider.of<AuthProvider>(context, listen: false).clearUser();
                 },
               ),
             ],
@@ -872,7 +879,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           _isDrawerOpen
               ? Container(
                   width: 250,
-                  color: Colors.green[900],
+                  color: primaryGreen, // Use primaryGreen for sidebar
                   child: FinanceDashboardSidebar(
                     selectedIndex: _selectedIndex,
                     phoneSales: _phoneSales,

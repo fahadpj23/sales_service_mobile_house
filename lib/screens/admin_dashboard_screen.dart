@@ -33,6 +33,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   bool _isLoading = true;
   final authService = AuthService();
 
+  // Custom date range variables
+  DateTime? _customStartDate;
+  DateTime? _customEndDate;
+  bool _isCustomPeriod = false;
+
   // Firebase instances
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -535,6 +540,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ),
                     ),
                     SizedBox(height: 6),
+                    if (_isCustomPeriod &&
+                        _customStartDate != null &&
+                        _customEndDate != null)
+                      Text(
+                        '${DateFormat('dd MMM yyyy').format(_customStartDate!)} - ${DateFormat('dd MMM yyyy').format(_customEndDate!)}',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.8),
+                          fontSize: 12,
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -556,6 +571,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       },
       {'label': 'Monthly', 'icon': Icons.calendar_month, 'value': 'monthly'},
       {'label': 'Yearly', 'icon': Icons.calendar_today, 'value': 'yearly'},
+      {'label': 'Custom Range', 'icon': Icons.date_range, 'value': 'custom'},
     ];
 
     return Container(
@@ -581,7 +597,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 spacing: 8,
                 runSpacing: 8,
                 children: periods.map((period) {
-                  bool isSelected = _timePeriod == period['value'];
+                  bool isSelected = false;
+
+                  if (period['value'] == 'custom') {
+                    isSelected = _isCustomPeriod;
+                  } else {
+                    isSelected =
+                        _timePeriod == period['value'] && !_isCustomPeriod;
+                  }
+
                   return FilterChip(
                     label: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -604,9 +628,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     ),
                     selected: isSelected,
                     onSelected: (selected) {
-                      setState(() {
-                        _timePeriod = period['value'];
-                      });
+                      if (period['value'] == 'custom') {
+                        _showCustomDateRangePicker();
+                      } else {
+                        setState(() {
+                          _timePeriod = period['value'];
+                          _isCustomPeriod = false;
+                          _customStartDate = null;
+                          _customEndDate = null;
+                        });
+                      }
                     },
                     backgroundColor: Colors.grey.shade100,
                     selectedColor: secondaryGreen,
@@ -616,6 +647,39 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   );
                 }).toList(),
               ),
+              SizedBox(height: 8),
+              // Show custom date range if selected
+              if (_isCustomPeriod &&
+                  _customStartDate != null &&
+                  _customEndDate != null)
+                Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: secondaryGreen.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: secondaryGreen.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.date_range, color: secondaryGreen, size: 16),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Custom Range: ${DateFormat('dd MMM yyyy').format(_customStartDate!)} - ${DateFormat('dd MMM yyyy').format(_customEndDate!)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: secondaryGreen,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.edit, size: 16, color: secondaryGreen),
+                        onPressed: _showCustomDateRangePicker,
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
         ),
@@ -730,6 +794,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   Widget _buildPerformanceInsights() {
     List<Sale> filteredSales = _filterSales();
+
+    // Debug: Print filtered sales count
+    print('Filtered Sales Count: ${filteredSales.length}');
+    if (_isCustomPeriod && _customStartDate != null && _customEndDate != null) {
+      print('Custom Range: ${_customStartDate} to ${_customEndDate}');
+    }
+
     if (filteredSales.isEmpty) {
       return Container(
         padding: EdgeInsets.all(16),
@@ -1078,75 +1149,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               );
             },
           ),
-
-          // BRAND ANALYSIS SECTION
-          Padding(
-            padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
-            child: Text(
-              'BRAND ANALYSIS',
-              style: TextStyle(
-                fontSize: 10,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          _buildDrawerItem(
-            Icons.bar_chart,
-            'Brand Performance',
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => BrandAnalysisDetailsScreen(
-                    allSales: allSales
-                        .where((s) => s.type == 'phone_sale')
-                        .toList(),
-                    formatNumber: _formatNumber,
-                    shops: shops,
-                  ),
-                ),
-              );
-            },
-          ),
-
-          Divider(height: 1),
-
-          // Specific Reports
-          Divider(height: 1),
-          // Shop Reports
-          Padding(
-            padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
-            child: Text(
-              'SHOP REPORTS',
-              style: TextStyle(
-                fontSize: 10,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          _buildDrawerItem(
-            Icons.store,
-            'Shop-wise Report',
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => ShopWiseReportScreen(
-                    allSales: allSales,
-                    shops: shops,
-                    formatNumber: _formatNumber,
-                    getCategoryColor: _getCategoryColor,
-                  ),
-                ),
-              );
-            },
-          ),
-
-          // Category Reports
           Padding(
             padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
             child: Text(
@@ -1232,6 +1234,76 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             },
           ),
           Divider(height: 1),
+          // BRAND ANALYSIS SECTION
+          Padding(
+            padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
+            child: Text(
+              'BRAND ANALYSIS',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          _buildDrawerItem(
+            Icons.bar_chart,
+            'Brand Performance',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => BrandAnalysisDetailsScreen(
+                    allSales: allSales
+                        .where((s) => s.type == 'phone_sale')
+                        .toList(),
+                    formatNumber: _formatNumber,
+                    shops: shops,
+                  ),
+                ),
+              );
+            },
+          ),
+
+          Divider(height: 1),
+
+          // REMOVED CUSTOM REPORTS SECTION FROM SIDEBAR
+
+          // Specific Reports
+          Divider(height: 1),
+          // Shop Reports
+          Padding(
+            padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
+            child: Text(
+              'SHOP REPORTS',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          _buildDrawerItem(
+            Icons.store,
+            'Shop-wise Report',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ShopWiseReportScreen(
+                    allSales: allSales,
+                    shops: shops,
+                    formatNumber: _formatNumber,
+                    getCategoryColor: _getCategoryColor,
+                  ),
+                ),
+              );
+            },
+          ),
+
+          // Category Reports
           Padding(
             padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
             child: Text(
@@ -1407,69 +1479,208 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     await _fetchAllData();
   }
 
-  // Data calculation methods
+  // Fixed Custom Date Range Picker - SIMPLIFIED VERSION
+  Future<void> _showCustomDateRangePicker() async {
+    DateTime startDate =
+        _customStartDate ?? DateTime.now().subtract(Duration(days: 7));
+    DateTime endDate = _customEndDate ?? DateTime.now();
+
+    // First, pick start date
+    final DateTime? pickedStartDate = await showDatePicker(
+      context: context,
+      initialDate: startDate,
+      firstDate: DateTime(2020),
+      lastDate: endDate,
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.light().copyWith(
+            primaryColor: secondaryGreen,
+            colorScheme: ColorScheme.light(primary: secondaryGreen),
+            buttonTheme: ButtonThemeData(textTheme: ButtonTextTheme.primary),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (pickedStartDate == null) return; // User cancelled
+
+    // Then, pick end date
+    final DateTime? pickedEndDate = await showDatePicker(
+      context: context,
+      initialDate: endDate,
+      firstDate: pickedStartDate,
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.light().copyWith(
+            primaryColor: secondaryGreen,
+            colorScheme: ColorScheme.light(primary: secondaryGreen),
+            buttonTheme: ButtonThemeData(textTheme: ButtonTextTheme.primary),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (pickedEndDate == null) return; // User cancelled
+
+    // Update the state with selected dates
+    setState(() {
+      _customStartDate = DateTime(
+        pickedStartDate.year,
+        pickedStartDate.month,
+        pickedStartDate.day,
+        0,
+        0,
+        0,
+        0,
+      );
+      _customEndDate = DateTime(
+        pickedEndDate.year,
+        pickedEndDate.month,
+        pickedEndDate.day,
+        23,
+        59,
+        59,
+        999,
+      );
+      _isCustomPeriod = true;
+      _timePeriod = 'custom';
+    });
+
+    print(
+      'Custom range set: ${_customStartDate!.toIso8601String()} to ${_customEndDate!.toIso8601String()}',
+    );
+  }
+
+  // FIXED Date Filtering Method
   List<Sale> _filterSales() {
     DateTime startDate;
     DateTime endDate;
 
-    switch (_timePeriod) {
-      case 'daily':
-        startDate = DateTime(
-          _selectedDate.year,
-          _selectedDate.month,
-          _selectedDate.day,
-        );
-        endDate = startDate.add(Duration(days: 1, seconds: -1));
-        break;
-      case 'yesterday':
-        final yesterday = _selectedDate.subtract(Duration(days: 1));
-        startDate = DateTime(yesterday.year, yesterday.month, yesterday.day);
-        endDate = startDate.add(Duration(days: 1, seconds: -1));
-        break;
-      case 'last_month':
-        final firstDayOfLastMonth = DateTime(
-          _selectedDate.year,
-          _selectedDate.month - 1,
-          1,
-        );
-        startDate = firstDayOfLastMonth;
-        endDate = DateTime(
-          _selectedDate.year,
-          _selectedDate.month,
-          1,
-        ).add(Duration(seconds: -1));
-        break;
-      case 'monthly':
-        startDate = DateTime(_selectedDate.year, _selectedDate.month, 1);
-        endDate = DateTime(
-          _selectedDate.year,
-          _selectedDate.month + 1,
-          1,
-        ).add(Duration(seconds: -1));
-        break;
-      case 'yearly':
-        startDate = DateTime(_selectedDate.year, 1, 1);
-        endDate = DateTime(
-          _selectedDate.year + 1,
-          1,
-          1,
-        ).add(Duration(seconds: -1));
-        break;
-      default:
-        startDate = DateTime(
-          _selectedDate.year,
-          _selectedDate.month,
-          _selectedDate.day,
-        );
-        endDate = startDate.add(Duration(days: 1, seconds: -1));
+    if (_isCustomPeriod && _customStartDate != null && _customEndDate != null) {
+      // For custom range - use the exact dates already set
+      startDate = _customStartDate!;
+      endDate = _customEndDate!;
+
+      print(
+        'Custom range filtering: ${startDate.toIso8601String()} to ${endDate.toIso8601String()}',
+      );
+    } else {
+      // For predefined periods
+      switch (_timePeriod) {
+        case 'daily':
+          startDate = DateTime(
+            _selectedDate.year,
+            _selectedDate.month,
+            _selectedDate.day,
+            0,
+            0,
+            0,
+          );
+          endDate = DateTime(
+            _selectedDate.year,
+            _selectedDate.month,
+            _selectedDate.day,
+            23,
+            59,
+            59,
+          );
+          break;
+        case 'yesterday':
+          final yesterday = _selectedDate.subtract(Duration(days: 1));
+          startDate = DateTime(
+            yesterday.year,
+            yesterday.month,
+            yesterday.day,
+            0,
+            0,
+            0,
+          );
+          endDate = DateTime(
+            yesterday.year,
+            yesterday.month,
+            yesterday.day,
+            23,
+            59,
+            59,
+          );
+          break;
+        case 'last_month':
+          final firstDayOfLastMonth = DateTime(
+            _selectedDate.year,
+            _selectedDate.month - 1,
+            1,
+            0,
+            0,
+            0,
+          );
+          startDate = firstDayOfLastMonth;
+          endDate = DateTime(
+            _selectedDate.year,
+            _selectedDate.month,
+            0,
+            23,
+            59,
+            59,
+          );
+          break;
+        case 'monthly':
+          startDate = DateTime(
+            _selectedDate.year,
+            _selectedDate.month,
+            1,
+            0,
+            0,
+            0,
+          );
+          endDate = DateTime(
+            _selectedDate.year,
+            _selectedDate.month + 1,
+            0,
+            23,
+            59,
+            59,
+          );
+          break;
+        case 'yearly':
+          startDate = DateTime(_selectedDate.year, 1, 1, 0, 0, 0);
+          endDate = DateTime(_selectedDate.year, 12, 31, 23, 59, 59);
+          break;
+        default:
+          startDate = DateTime(
+            _selectedDate.year,
+            _selectedDate.month,
+            _selectedDate.day,
+            0,
+            0,
+            0,
+          );
+          endDate = DateTime(
+            _selectedDate.year,
+            _selectedDate.month,
+            _selectedDate.day,
+            23,
+            59,
+            59,
+          );
+      }
     }
 
-    return allSales.where((sale) {
-      bool dateMatch =
-          sale.date.isAfter(startDate.subtract(Duration(seconds: 1))) &&
-          sale.date.isBefore(endDate.add(Duration(seconds: 1)));
-      return dateMatch;
+    // Filter sales
+    List<Sale> filtered = allSales.where((sale) {
+      // Check if sale date is between startDate and endDate (inclusive)
+      return (sale.date.isAfter(
+                startDate.subtract(Duration(milliseconds: 1)),
+              ) ||
+              sale.date.isAtSameMomentAs(startDate)) &&
+          (sale.date.isBefore(endDate.add(Duration(milliseconds: 1))) ||
+              sale.date.isAtSameMomentAs(endDate));
     }).toList();
+
+    print('Filtered ${filtered.length} sales out of ${allSales.length} total');
+    return filtered;
   }
 
   double _calculateTotalSales() {
@@ -1477,6 +1688,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   String _getPeriodLabel() {
+    if (_isCustomPeriod) {
+      return 'Custom Period Sale';
+    }
+
     switch (_timePeriod) {
       case 'daily':
         return 'Today\'s Sale';

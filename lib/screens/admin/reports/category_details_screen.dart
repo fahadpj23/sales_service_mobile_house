@@ -166,7 +166,7 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
             ),
             SizedBox(height: 8),
 
-            // Shop Cards
+            // Shop Cards - Now entire card is clickable
             ...shopWiseSales.entries.map((entry) {
               String shopName = entry.key;
               List<Sale> shopSales = entry.value;
@@ -175,28 +175,26 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
                 (sum, sale) => sum + sale.amount,
               );
 
-              return Container(
-                margin: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Shop Header
-                        GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _expandedShop = _expandedShop == shopName
-                                  ? null
-                                  : shopName;
-                            });
-                          },
-                          child: Row(
+              return GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _expandedShop = _expandedShop == shopName ? null : shopName;
+                  });
+                },
+                child: Container(
+                  margin: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Shop Header
+                          Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Expanded(
@@ -239,55 +237,58 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
                               ),
                             ],
                           ),
-                        ),
 
-                        // Shop Summary
-                        SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Total: ₹${widget.formatNumber(shopTotal)}',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFF0A4D2E),
-                                  ),
-                                ),
-                                Text(
-                                  'Avg: ₹${widget.formatNumber(shopTotal / shopSales.length)}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-
-                        // Detailed Items (Expanded)
-                        if (_expandedShop == shopName) ...[
-                          SizedBox(height: 16),
-                          Divider(),
+                          // Shop Summary
                           SizedBox(height: 8),
-                          Text(
-                            'Items Details:',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                              color: Color(0xFF0A4D2E),
-                            ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Total: ₹${widget.formatNumber(shopTotal)}',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF0A4D2E),
+                                    ),
+                                  ),
+                                  Text(
+                                    'Avg: ₹${widget.formatNumber(shopTotal / shopSales.length)}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
-                          SizedBox(height: 8),
-                          ...shopSales.map((sale) {
-                            return _buildSaleItemCard(sale);
-                          }).toList(),
+
+                          // Detailed Items (Expanded)
+                          if (_expandedShop == shopName) ...[
+                            SizedBox(height: 16),
+                            Divider(),
+                            SizedBox(height: 8),
+                            Text(
+                              'Items Details:',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                                color: Color(0xFF0A4D2E),
+                              ),
+                            ),
+                            SizedBox(height: 8),
+                            ...shopSales.map((sale) {
+                              return GestureDetector(
+                                onTap: () {}, // Prevent parent tap
+                                child: _buildSaleItemCard(sale),
+                              );
+                            }).toList(),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                   ),
                 ),
@@ -704,7 +705,6 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
     }
   }
 
-  // ... Rest of the code remains the same (_buildSaleItemCard, _buildInfoRow, _buildPaymentInfo, etc.)
   Widget _buildSaleItemCard(Sale sale) {
     return Container(
       margin: EdgeInsets.only(bottom: 8),

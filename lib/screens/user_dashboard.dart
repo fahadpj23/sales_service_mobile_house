@@ -1,16 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:sales_stock/screens/search_inventory_screen.dart';
-
-import 'package:sales_stock/screens/phone_stock_screen.dart';
-import 'package:sales_stock/screens/stock_check_screen.dart';
-import '../providers/auth_provider.dart';
-import '../services/auth_service.dart';
-import 'accessories_sale_upload.dart';
-import 'phone_sale_upload.dart';
-import 'second_phone_sale_upload.dart';
-import 'base_model_sale_upload.dart';
-import 'sales_history.dart';
+import 'package:sales_stock/screens/user/phone_stock_screen.dart';
+import 'package:sales_stock/screens/user/stock_check_screen.dart';
+import '../../providers/auth_provider.dart';
+import '../../services/auth_service.dart';
+import 'user/accessories_sale_upload.dart';
+import 'user/phone_sale_upload.dart';
+import 'user/second_phone_sale_upload.dart';
+import 'user/base_model_sale_upload.dart';
+import 'user/sales_history.dart';
 
 class UserDashboard extends StatelessWidget {
   const UserDashboard({super.key});
