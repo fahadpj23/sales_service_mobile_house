@@ -1,30 +1,17 @@
-// models/purchase_item.dart
 class PurchaseItem {
-  String? id;
   String? productId;
   String? productName;
   String? brand;
   String? model;
   String? color;
+  String? ram;
+  String? storage;
+  String? hsnCode;
   double? quantity;
   double? rate;
   double? discountPercentage;
   String? imei;
-  String? hsnCode; // Add this field
-
-  PurchaseItem({
-    this.id,
-    this.productId,
-    this.productName,
-    this.brand,
-    this.model,
-    this.color,
-    this.quantity,
-    this.rate,
-    this.discountPercentage,
-    this.imei,
-    this.hsnCode,
-  });
+  double? gstAmount; // NEW FIELD
 
   Map<String, dynamic> toMap() {
     return {
@@ -33,28 +20,14 @@ class PurchaseItem {
       'brand': brand,
       'model': model,
       'color': color,
+      'ram': ram,
+      'storage': storage,
+      'hsnCode': hsnCode,
       'quantity': quantity,
       'rate': rate,
       'discountPercentage': discountPercentage,
       'imei': imei,
-      'hsnCode': hsnCode,
-      if (id != null) 'id': id,
+      'gstAmount': gstAmount, // NEW FIELD
     };
-  }
-
-  factory PurchaseItem.fromMap(Map<String, dynamic> map) {
-    return PurchaseItem(
-      id: map['id'],
-      productId: map['productId'],
-      productName: map['productName'],
-      brand: map['brand'],
-      model: map['model'],
-      color: map['color'],
-      quantity: map['quantity']?.toDouble(),
-      rate: map['rate']?.toDouble(),
-      discountPercentage: map['discountPercentage']?.toDouble(),
-      imei: map['imei'],
-      hsnCode: map['hsnCode'],
-    );
   }
 }
