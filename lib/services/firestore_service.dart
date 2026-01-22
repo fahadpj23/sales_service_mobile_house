@@ -454,6 +454,19 @@ class FirestoreService {
     }
   }
 
+  Future<List<QueryDocumentSnapshot>> getPurchases() async {
+    try {
+      final querySnapshot = await _firestore
+          .collection('purchases')
+          .orderBy('createdAt', descending: true)
+          .get();
+      return querySnapshot.docs;
+    } catch (e) {
+      print('Error fetching purchases: $e');
+      rethrow;
+    }
+  }
+
   // Get purchase statistics
   Future<Map<String, dynamic>> getPurchaseStatistics() async {
     try {
