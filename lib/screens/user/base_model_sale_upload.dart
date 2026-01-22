@@ -44,6 +44,7 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
   final List<String> _keypadBrands = [
     'Nokia',
     'Itel',
+    'HMD',
     'Samsung',
     'Micromax',
     'Lava',

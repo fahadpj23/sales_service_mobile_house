@@ -6,6 +6,7 @@ import 'providers/auth_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/admin_dashboard_screen.dart';
 import 'screens/user_dashboard.dart';
+import 'screens/purchase_dashboard.dart'; // Add this import
 
 // TODO: Add your Firebase configuration here
 void main() async {
@@ -60,12 +61,17 @@ class AuthWrapper extends StatelessWidget {
     }
     print(authProvider.user!.role);
     // Check user role and navigate accordingly
-    if (authProvider.user!.role == 'admin') {
-      return AdminDashboardScreen();
-    } else if (authProvider.user!.role == 'user') {
-      return const UserDashboard();
-    } else {
-      return FinanceDashboard();
+    switch (authProvider.user!.role) {
+      case 'admin':
+        return AdminDashboardScreen();
+      case 'user':
+        return const UserDashboard();
+      case 'finance':
+        return FinanceDashboard();
+      case 'purchaser': // Add this case
+        return PurchaseDashboard();
+      default:
+        return const LoginScreen();
     }
   }
 }
