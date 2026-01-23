@@ -164,47 +164,63 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
     );
   }
 
-  // Enhanced Search Logic for Phone Models - ALL WORDS MUST MATCH
+  // FIXED: Smart Search Logic that handles "f17 4/128" searching in "samsung galaxy f17 5g 4/128 violet pop"
   void _applyFilters() {
     List<PhoneStock> result = _allStock;
 
     if (_searchQuery.isNotEmpty) {
       final query = _searchQuery.toLowerCase().trim();
 
-      // Split by spaces, hyphens, slashes, commas
-      final queryWords = query
-          .split(RegExp(r'[-\s/,]'))
-          .where((word) => word.isNotEmpty && word.length > 1)
-          .toList();
+      result = result.where((item) {
+        final productText = item.productName.toLowerCase();
+        final brandText = item.productBrand.toLowerCase();
+        final combinedText = '$productText $brandText';
 
-      // If we have search words, apply "ALL WORDS MUST MATCH" logic
-      if (queryWords.isNotEmpty) {
-        result = result.where((item) {
-          // Combine relevant fields for search
-          final searchableText =
-              '${item.productName} ${item.productBrand} ${item.imei}'
-                  .toLowerCase();
+        // Split search query into words
+        final searchWords = query
+            .split(' ')
+            .where((w) => w.isNotEmpty)
+            .toList();
 
-          // ALL search words must be found in the searchable text
-          bool allWordsMatch = true;
-          for (final word in queryWords) {
-            if (!searchableText.contains(word)) {
-              allWordsMatch = false;
+        // Check if ALL search words are found (case-insensitive)
+        for (final word in searchWords) {
+          // Create variations for the word
+          final variations = <String>[word];
+
+          // Handle slash variations like "4/128"
+          if (word.contains('/')) {
+            variations.add(word.replaceAll('/', ' '));
+            variations.add(word.replaceAll('/', ''));
+            variations.add(word.replaceAll('/', 'gb/'));
+            variations.add(word.replaceAll('/', '/gb'));
+          }
+
+          // Handle "g" variations like "5g"
+          if (word.endsWith('g') && word.length > 1) {
+            variations.add(word.substring(0, word.length - 1));
+          }
+
+          // Handle "gb" variations like "4gb"
+          if (word.toLowerCase().endsWith('gb') && word.length > 2) {
+            variations.add(word.toLowerCase().replaceAll('gb', ''));
+          }
+
+          // Check if any variation is found
+          bool wordFound = false;
+          for (final variation in variations) {
+            if (combinedText.contains(variation)) {
+              wordFound = true;
               break;
             }
           }
 
-          return allWordsMatch;
-        }).toList();
-      } else {
-        // Single word search or special case
-        result = result.where((item) {
-          final searchableText =
-              '${item.productName} ${item.productBrand} ${item.imei}'
-                  .toLowerCase();
-          return searchableText.contains(query);
-        }).toList();
-      }
+          if (!wordFound) {
+            return false;
+          }
+        }
+
+        return true;
+      }).toList();
     }
 
     if (_statusFilter != 'all') {
@@ -274,7 +290,8 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
       controller: _searchController,
       focusNode: _searchFocusNode,
       decoration: InputDecoration(
-        hintText: 'Search by IMEI, model, brand (e.g., "f17 4/128")',
+        hintText:
+            'Search by IMEI, model, specs (e.g., "f17 4/128", "samsung 5g")',
         prefixIcon: const Icon(Icons.search, color: Colors.teal, size: 20),
         suffixIcon: Row(
           mainAxisSize: MainAxisSize.min,
@@ -816,6 +833,20 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                       _buildSearchField(),
 
                       const SizedBox(height: 12),
+                      // Status Filter Row
+                      Row(
+                        children: [
+                          _buildFilterChip('All', 'all', Icons.all_inclusive),
+                          const SizedBox(width: 8),
+                          _buildFilterChip(
+                            'Available',
+                            'available',
+                            Icons.check_circle,
+                          ),
+                          const SizedBox(width: 8),
+                          _buildFilterChip('Sold', 'sold', Icons.shopping_cart),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -928,6 +959,35 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                 ),
               ],
             ),
+    );
+  }
+
+  Widget _buildFilterChip(String label, String value, IconData icon) {
+    final isSelected = _statusFilter == value;
+    return FilterChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (selected) {
+        setState(() {
+          _statusFilter = selected ? value : 'all';
+          _applyFilters();
+        });
+      },
+      avatar: Icon(icon, size: 14),
+      backgroundColor: Colors.grey.shade100,
+      selectedColor: Colors.teal.withOpacity(0.2),
+      checkmarkColor: Colors.teal,
+      labelStyle: TextStyle(
+        color: isSelected ? Colors.teal : Colors.grey.shade700,
+        fontSize: 12,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(
+          color: isSelected ? Colors.teal : Colors.grey.shade300,
+          width: 1,
+        ),
+      ),
     );
   }
 }

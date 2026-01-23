@@ -82,6 +82,112 @@ class _AddStockScreenState extends State<AddStockScreen> {
     _imeiControllers.clear();
   }
 
+  // FIXED: Enhanced Smart Search Logic that handles "vivo y19s 4/64" properly
+  bool _isProductMatch(String productName, String searchQuery) {
+    if (searchQuery.isEmpty) return true;
+    
+    final query = searchQuery.toLowerCase().trim();
+    final productText = productName.toLowerCase();
+
+    // Split search query into words
+    final searchWords = query
+        .split(RegExp(r'[\s/]+'))
+        .where((w) => w.isNotEmpty)
+        .toList();
+
+    // If there's only one word, try to match it in different ways
+    if (searchWords.length == 1) {
+      final word = searchWords.first;
+      
+      // Check if word contains digits (like y19s, 4/64, etc.)
+      if (RegExp(r'\d').hasMatch(word)) {
+        // For model numbers like "y19s"
+        if (productText.contains(word)) return true;
+        
+        // For RAM/storage like "4/64"
+        if (word.contains('/')) {
+          final parts = word.split('/');
+          if (parts.length == 2) {
+            final ram = parts[0];
+            final storage = parts[1];
+            // Check for variations like "4/64", "4 64", "4gb/64gb", etc.
+            final ramVariations = ['$ram', '${ram}gb', '$ram gb', '$ram/gb'];
+            final storageVariations = ['$storage', '${storage}gb', '$storage gb', '$storage/gb'];
+            
+            for (final ramVar in ramVariations) {
+              for (final storageVar in storageVariations) {
+                if (productText.contains(ramVar) && productText.contains(storageVar)) {
+                  return true;
+                }
+              }
+            }
+          }
+        }
+        
+        // For standalone numbers like "4" or "64"
+        if (RegExp(r'^\d+$').hasMatch(word)) {
+          // Check if number appears in the product name
+          if (productText.contains(word)) {
+            // Make sure it's not part of a larger number
+            final regex = RegExp(r'\b' + word + r'\b');
+            if (regex.hasMatch(productText)) {
+              return true;
+            }
+          }
+        }
+      }
+      
+      // For text-only words
+      return productText.contains(word);
+    }
+
+    // For multiple words, all must be found
+    for (final word in searchWords) {
+      bool wordFound = false;
+      
+      // Clean the word (remove special characters)
+      final cleanWord = word.replaceAll(RegExp(r'[^a-z0-9]'), '');
+      
+      if (cleanWord.isEmpty) continue;
+      
+      // Check different variations
+      final variations = <String>[
+        cleanWord,
+        word,
+      ];
+      
+      // Handle RAM/storage numbers
+      if (RegExp(r'^\d+$').hasMatch(cleanWord)) {
+        variations.add('${cleanWord}gb');
+        variations.add('${cleanWord} gb');
+        variations.add('${cleanWord}/');
+      }
+      
+      // Check all variations
+      for (final variation in variations) {
+        if (variation.isNotEmpty && productText.contains(variation)) {
+          wordFound = true;
+          break;
+        }
+      }
+      
+      // Also check for partial matches for model numbers
+      if (!wordFound && cleanWord.length >= 2) {
+        // Check if any part of the product text contains this word
+        final regex = RegExp(cleanWord, caseSensitive: false);
+        if (regex.hasMatch(productText)) {
+          wordFound = true;
+        }
+      }
+      
+      if (!wordFound) {
+        return false;
+      }
+    }
+    
+    return true;
+  }
+
   Future<void> _loadExistingProducts() async {
     try {
       setState(() => _isLoading = true);
@@ -298,150 +404,6 @@ class _AddStockScreenState extends State<AddStockScreen> {
         setState(() => _isLoading = false);
       }
     }
-  }
-
-  // Enhanced product search matching
-  String _normalizeForSearch(String text) {
-    if (text.isEmpty) return '';
-
-    return text
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^\w\s/]'), ' ') // Remove special chars except /
-        .replaceAll(RegExp(r'\s+'), ' ') // Normalize multiple spaces
-        .replaceAll(RegExp(r'\s*/\s*'), '/') // Normalize slashes
-        .replaceAll('gb', '') // Remove 'gb' suffix
-        .replaceAll('g', '') // Remove 'g' suffix
-        .replaceAll('ram', '') // Remove 'ram'
-        .replaceAll('rom', '') // Remove 'rom'
-        .replaceAll('storage', '') // Remove 'storage'
-        .replaceAll('memory', '') // Remove 'memory'
-        .replaceAll(' ', ''); // Remove all spaces
-  }
-
-  bool _isProductMatch(String productName, String searchQuery) {
-    if (searchQuery.isEmpty) return false;
-
-    // First, try exact contains (case-insensitive)
-    if (productName.toLowerCase().contains(searchQuery.toLowerCase())) {
-      return true;
-    }
-
-    // Normalize both strings
-    final normalizedProduct = _normalizeForSearch(productName);
-    final normalizedSearch = _normalizeForSearch(searchQuery);
-
-    // Check if normalized product contains normalized search
-    if (normalizedProduct.contains(normalizedSearch)) {
-      return true;
-    }
-
-    // Split search query into words
-    final searchWords = searchQuery
-        .toLowerCase()
-        .split(' ')
-        .where((word) => word.length > 1)
-        .toList();
-
-    // If we have multiple search words
-    if (searchWords.length > 1) {
-      // Check if all search words are found in product (in any order)
-      final productLower = productName.toLowerCase();
-      bool allWordsFound = true;
-
-      for (final word in searchWords) {
-        // Skip very common words
-        if ([
-          'and',
-          'or',
-          'the',
-          'for',
-          'with',
-          'mobile',
-          'phone',
-          'smartphone',
-        ].contains(word)) {
-          continue;
-        }
-
-        // Check if word is found
-        if (!productLower.contains(word)) {
-          // Try with number variations
-          if (word.contains(RegExp(r'[\d/]'))) {
-            // Handle number patterns like "4/128"
-            final numberMatch = _matchNumberPattern(productLower, word);
-            if (!numberMatch) {
-              allWordsFound = false;
-              break;
-            }
-          } else {
-            allWordsFound = false;
-            break;
-          }
-        }
-      }
-
-      if (allWordsFound) {
-        return true;
-      }
-    }
-
-    // Try token matching (allow partial matches)
-    final productTokens = productName
-        .toLowerCase()
-        .split(RegExp(r'[\s\-/]'))
-        .where((token) => token.length > 1)
-        .toSet();
-
-    for (final searchToken in searchWords) {
-      bool tokenFound = false;
-
-      for (final productToken in productTokens) {
-        if (productToken.contains(searchToken) ||
-            searchToken.contains(productToken)) {
-          tokenFound = true;
-          break;
-        }
-
-        // Handle number variations
-        if (searchToken.contains(RegExp(r'[\d/]'))) {
-          final numberMatch = _matchNumberPattern(productToken, searchToken);
-          if (numberMatch) {
-            tokenFound = true;
-            break;
-          }
-        }
-      }
-
-      if (!tokenFound) {
-        return false;
-      }
-    }
-
-    return searchWords.isNotEmpty;
-  }
-
-  bool _matchNumberPattern(String productText, String numberPattern) {
-    // Clean the number pattern
-    final cleanPattern = numberPattern.replaceAll(RegExp(r'\s+'), '');
-
-    // Generate possible variations
-    final variations = <String>[
-      cleanPattern,
-      cleanPattern.replaceAll('/', ' / '),
-      cleanPattern.replaceAll('/', 'gb/'),
-      cleanPattern.replaceAll('/', '/gb'),
-      cleanPattern.replaceAll('/', 'gb/') + 'gb',
-      cleanPattern + 'gb',
-      cleanPattern.replaceAll('/', ' gb/'),
-    ];
-
-    for (final variation in variations) {
-      if (productText.contains(variation)) {
-        return true;
-      }
-    }
-
-    return false;
   }
 
   Future<void> _saveStock() async {
@@ -873,7 +835,7 @@ class _AddStockScreenState extends State<AddStockScreen> {
           title: Text(
             productName,
             style: const TextStyle(fontSize: 12, color: Colors.black),
-            maxLines: 1,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
           subtitle: Text(
@@ -963,17 +925,19 @@ class _AddStockScreenState extends State<AddStockScreen> {
               style: TextStyle(fontSize: 10, color: Colors.blue),
             ),
           ],
-        ),
+        );
       );
     }
 
-    // Filter products based on search text or selected product
+    // Get products for selected brand
     final products = _productsByBrand[_selectedBrand!] ?? [];
-    final searchText = _productSearchController.text.toLowerCase();
+    final searchText = _productSearchController.text;
 
+    // Apply search filter
     if (searchText.isNotEmpty) {
       _filteredProducts = products.where((product) {
         final productName = product['productName'] as String? ?? '';
+        // Use the enhanced search logic
         return _isProductMatch(productName, searchText);
       }).toList();
     } else {
@@ -985,7 +949,7 @@ class _AddStockScreenState extends State<AddStockScreen> {
         TextField(
           controller: _productSearchController,
           decoration: InputDecoration(
-            labelText: 'Search Product',
+            labelText: 'Search Product (e.g., "y19s", "4/64", "vivo y19s 4/64")',
             labelStyle: const TextStyle(fontSize: 12),
             prefixIcon: const Icon(Icons.search, size: 18),
             suffixIcon: _selectedProduct != null && _selectedProduct!.isNotEmpty
@@ -1010,7 +974,7 @@ class _AddStockScreenState extends State<AddStockScreen> {
             ),
             hintText: _selectedProduct != null
                 ? _selectedProduct
-                : 'Search or select product',
+                : 'Type to search products...',
           ),
           style: const TextStyle(fontSize: 12, color: Colors.black),
           onChanged: (value) {
@@ -1067,10 +1031,11 @@ class _AddStockScreenState extends State<AddStockScreen> {
         if (_selectedProduct == null ||
             _productSearchController.text.isNotEmpty)
           Container(
-            constraints: const BoxConstraints(maxHeight: 120),
+            constraints: const BoxConstraints(maxHeight: 150),
             decoration: BoxDecoration(
               border: Border.all(color: Colors.grey.shade300),
               borderRadius: BorderRadius.circular(8),
+              color: Colors.white,
             ),
             child: _buildProductList(),
           ),
@@ -1101,14 +1066,16 @@ class _AddStockScreenState extends State<AddStockScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 4),
                       Text(
                         _selectedProduct!,
                         style: const TextStyle(
-                          fontSize: 12,
+                          fontSize: 13,
                           color: Colors.black,
                           fontWeight: FontWeight.w500,
                         ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       if (_originalProductPrice != null)
                         Padding(
@@ -1703,7 +1670,6 @@ class _AddStockScreenState extends State<AddStockScreen> {
                                         'Save Stock',
                                         style: TextStyle(fontSize: 12),
                                       ),
-                              ),
                             ),
                           ],
                         ),
