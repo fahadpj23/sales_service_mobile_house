@@ -164,17 +164,47 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
     );
   }
 
+  // Enhanced Search Logic for Phone Models - ALL WORDS MUST MATCH
   void _applyFilters() {
     List<PhoneStock> result = _allStock;
 
     if (_searchQuery.isNotEmpty) {
-      final query = _searchQuery.toLowerCase();
-      result = result.where((item) {
-        return item.productName.toLowerCase().contains(query) ||
-            item.productBrand.toLowerCase().contains(query) ||
-            item.imei.contains(query) ||
-            item.shopName.toLowerCase().contains(query);
-      }).toList();
+      final query = _searchQuery.toLowerCase().trim();
+
+      // Split by spaces, hyphens, slashes, commas
+      final queryWords = query
+          .split(RegExp(r'[-\s/,]'))
+          .where((word) => word.isNotEmpty && word.length > 1)
+          .toList();
+
+      // If we have search words, apply "ALL WORDS MUST MATCH" logic
+      if (queryWords.isNotEmpty) {
+        result = result.where((item) {
+          // Combine relevant fields for search
+          final searchableText =
+              '${item.productName} ${item.productBrand} ${item.imei}'
+                  .toLowerCase();
+
+          // ALL search words must be found in the searchable text
+          bool allWordsMatch = true;
+          for (final word in queryWords) {
+            if (!searchableText.contains(word)) {
+              allWordsMatch = false;
+              break;
+            }
+          }
+
+          return allWordsMatch;
+        }).toList();
+      } else {
+        // Single word search or special case
+        result = result.where((item) {
+          final searchableText =
+              '${item.productName} ${item.productBrand} ${item.imei}'
+                  .toLowerCase();
+          return searchableText.contains(query);
+        }).toList();
+      }
     }
 
     if (_statusFilter != 'all') {
@@ -244,7 +274,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
       controller: _searchController,
       focusNode: _searchFocusNode,
       decoration: InputDecoration(
-        hintText: 'Search by IMEI, model, brand...',
+        hintText: 'Search by IMEI, model, brand (e.g., "f17 4/128")',
         prefixIcon: const Icon(Icons.search, color: Colors.teal, size: 20),
         suffixIcon: Row(
           mainAxisSize: MainAxisSize.min,
@@ -740,6 +770,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
       _statusFilter = 'all';
       _applyFilters();
     });
+    _searchFocusNode.unfocus();
   }
 
   @override

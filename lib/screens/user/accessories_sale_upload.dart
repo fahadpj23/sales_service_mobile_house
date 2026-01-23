@@ -62,8 +62,7 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
             _shopName = userData['shopName'] ?? '';
             _isLoadingShopData = false;
           });
-          // After getting shop data, check for existing data
-          await _checkExistingDataForDate();
+          // DON'T check for existing data on init
         } else {
           setState(() {
             _isLoadingShopData = false;
@@ -117,67 +116,111 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
     });
   }
 
-  Future<void> _checkExistingDataForDate() async {
+  Future<QuerySnapshot> _executeQueryWithRetry(
+    Query query, {
+    int maxRetries = 3,
+    int initialDelay = 1000,
+  }) async {
+    int attempt = 0;
+
+    while (attempt < maxRetries) {
+      try {
+        return await query.get();
+      } on FirebaseException catch (e) {
+        if (e.code == 'failed-precondition' &&
+            e.message?.contains('index') == true) {
+          attempt++;
+          if (attempt == maxRetries) {
+            rethrow;
+          }
+
+          // Exponential backoff
+          int delay = initialDelay * (1 << (attempt - 1)); // 1, 2, 4 seconds
+          await Future.delayed(Duration(milliseconds: delay));
+          continue;
+        } else {
+          rethrow;
+        }
+      }
+    }
+    throw Exception('Max retries exceeded');
+  }
+
+  // Check if data exists only during upload
+  Future<bool> _checkIfDataExistsForUpload() async {
     if (_shopId == null || _shopId!.isEmpty) {
-      return;
+      return false;
     }
 
     setState(() {
       _checkingDate = true;
-      _dateHasDataForThisShop = false;
-      _existingDateData.clear();
     });
 
     try {
-      final user = _auth.currentUser;
-      if (user == null) return;
+      final startOfDay = DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day,
+      );
+      final endOfDay = startOfDay
+          .add(const Duration(days: 1))
+          .subtract(const Duration(milliseconds: 1));
 
-      // Create a date string for querying
-      String dateString = DateFormat('yyyy-MM-dd').format(_selectedDate);
-
-      // Query using composite key with shopId - Check only for current shop
-      final querySnapshot = await _firestore
-          .collection('accessories_service_sales')
-          .where('compositeKey', isEqualTo: '${_shopId}_$dateString')
-          .orderBy('uploadedAt', descending: true)
-          .get();
-
-      if (querySnapshot.docs.isNotEmpty) {
-        setState(() {
-          _dateHasDataForThisShop = true;
-          _existingDateData = querySnapshot.docs
-              .map(
-                (doc) => {
-                  'id': doc.id,
-                  ...doc.data(),
-                  'date': (doc.data()['date'] as Timestamp).toDate(),
-                  'uploadedAt': (doc.data()['uploadedAt'] as Timestamp)
-                      .toDate(),
-                },
+      // Try primary query with retry logic
+      try {
+        final querySnapshot = await _executeQueryWithRetry(
+          _firestore
+              .collection('accessories_service_sales')
+              .where('shopId', isEqualTo: _shopId)
+              .where(
+                'date',
+                isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay),
               )
-              .toList();
-        });
-      } else {
-        setState(() {
-          _dateHasDataForThisShop = false;
-          _existingDateData.clear();
-        });
+              .where('date', isLessThan: Timestamp.fromDate(endOfDay)),
+        );
+
+        if (querySnapshot.docs.isNotEmpty) {
+          return true;
+        }
+      } on FirebaseException catch (firebaseError) {
+        // If index error persists, try alternative query
+        if (firebaseError.code == 'failed-precondition' &&
+            firebaseError.message?.contains('index') == true) {
+          return await _checkWithAlternativeQueryForUpload();
+        } else {
+          rethrow;
+        }
       }
     } catch (error) {
       print('Error checking date data: $error');
-      // ScaffoldMessenger.of(context).showSnackBar(
-      //   SnackBar(
-      //     content: const Text(
-      //       'Error checking existing data. Please try again.',
-      //     ),
-      //     backgroundColor: Colors.orange,
-      //     behavior: SnackBarBehavior.floating,
-      //   ),
-      // );
+      // If we can't check, allow upload anyway (fail-safe)
+      return false;
     } finally {
       setState(() {
         _checkingDate = false;
       });
+    }
+
+    return false;
+  }
+
+  // Alternative query for upload check
+  Future<bool> _checkWithAlternativeQueryForUpload() async {
+    try {
+      final querySnapshot = await _firestore
+          .collection('accessories_service_sales')
+          .where('shopId', isEqualTo: _shopId)
+          .where(
+            'dateString',
+            isEqualTo: DateFormat('yyyy-MM-dd').format(_selectedDate),
+          )
+          .limit(1)
+          .get();
+
+      return querySnapshot.docs.isNotEmpty;
+    } catch (e) {
+      print('Alternative query failed: $e');
+      return false;
     }
   }
 
@@ -213,8 +256,11 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
         _notesController.clear();
         _calculatedTotal = 0;
         _totalPayment = 0;
+
+        // Reset data exists flag when date changes
+        _dateHasDataForThisShop = false;
+        _existingDateData.clear();
       });
-      await _checkExistingDataForDate();
     }
   }
 
@@ -230,20 +276,6 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
           ),
           backgroundColor: Colors.red,
           duration: Duration(seconds: 3),
-        ),
-      );
-      return;
-    }
-
-    if (_dateHasDataForThisShop) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Data already exists for ${DateFormat('dd/MM/yyyy').format(_selectedDate)} for your shop. Cannot upload again.',
-          ),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 3),
         ),
       );
       return;
@@ -265,6 +297,16 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
       return;
     }
 
+    // Check if data exists ONLY during upload
+    setState(() => _checkingDate = true);
+    bool dataExists = await _checkIfDataExistsForUpload();
+
+    if (dataExists) {
+      // Show warning that data already exists
+      _showDataExistsWarning();
+      return;
+    }
+
     setState(() => _isUploading = true);
 
     try {
@@ -280,87 +322,63 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
         return;
       }
 
-      // Create a date string for querying
-      String dateString = DateFormat('yyyy-MM-dd').format(_selectedDate);
+      // Prepare data for Firebase
+      final accessoriesAmount = double.parse(_accessoriesAmountController.text);
+      final serviceAmount = double.parse(_serviceAmountController.text);
+      final cashAmount = double.parse(_cashAmountController.text);
+      final gpayAmount = double.parse(_gpayAmountController.text);
+      final cardAmount = double.parse(_cardAmountController.text);
+      final notes = _notesController.text.trim();
 
-      // Double-check if data already exists for this shop and date
-      final querySnapshot = await _firestore
-          .collection('accessories_service_sales')
-          .where('compositeKey', isEqualTo: '${_shopId}_$dateString')
-          .limit(1)
-          .get();
-
-      if (querySnapshot.docs.isNotEmpty) {
-        // Data already exists for this shop and date
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Data already exists for ${DateFormat('dd/MM/yyyy').format(_selectedDate)} for your shop. Cannot upload again.',
-            ),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-
-        // Refresh the UI to show existing data
-        await _checkExistingDataForDate();
-        setState(() => _isUploading = false);
-        return;
-      }
-
-      // Prepare data for Firebase with shop information
       final saleData = {
         'date': Timestamp.fromDate(_selectedDate),
-        'accessoriesAmount': double.parse(_accessoriesAmountController.text),
-        'serviceAmount': double.parse(_serviceAmountController.text),
+        'accessoriesAmount': accessoriesAmount,
+        'serviceAmount': serviceAmount,
         'totalSaleAmount': _calculatedTotal,
-        'cashAmount': double.parse(_cashAmountController.text),
-        'gpayAmount': double.parse(_gpayAmountController.text),
-        'cardAmount': double.parse(_cardAmountController.text),
-        'notes': _notesController.text.trim(),
-
-        // User information
+        'cashAmount': cashAmount,
+        'gpayAmount': gpayAmount,
+        'cardAmount': cardAmount,
+        'notes': notes,
         'salesPersonId': user.uid,
         'salesPersonEmail': user.email,
         'salesPersonName': user.displayName ?? user.email!.split('@')[0],
-
-        // Shop information
         'shopId': _shopId,
         'shopName': _shopName,
-
-        // Timestamps
         'uploadedAt': FieldValue.serverTimestamp(),
-
-        // Metadata
         'type': 'accessories_service_sale',
         'year': _selectedDate.year,
         'month': _selectedDate.month,
         'day': _selectedDate.day,
-        'dateString': dateString,
-
-        // Composite key for easy querying (shopId + date)
-        // This ensures only one entry per shop per day
-        'compositeKey': '${_shopId}_$dateString',
+        'dateString': DateFormat('yyyy-MM-dd').format(_selectedDate),
+        'shopId_date_composite':
+            '${_shopId}_${DateFormat('yyyy-MM-dd').format(_selectedDate)}',
+        'paymentVerified': false,
+        'paymentBreakdownVerified': {
+          'cash': false,
+          'gpay': false,
+          'card': false,
+        },
       };
 
       // Upload to Firestore
       await _firestore.collection('accessories_service_sales').add(saleData);
 
       // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Sale uploaded successfully!'),
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Sale uploaded successfully!'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            duration: const Duration(seconds: 2),
           ),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+        );
+      }
 
-      // Clear form
+      // Clear form and update state
       _formKey.currentState!.reset();
       setState(() {
         _accessoriesAmountController.clear();
@@ -371,42 +389,150 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
         _notesController.clear();
         _totalPayment = 0;
         _calculatedTotal = 0;
-      });
 
-      // Refresh existing data
-      await _checkExistingDataForDate();
+        // Set that data now exists for this shop and date
+        _dateHasDataForThisShop = true;
+
+        // Add the uploaded data to existing data list
+        _existingDateData = [
+          {
+            'date': _selectedDate,
+            'accessoriesAmount': accessoriesAmount,
+            'serviceAmount': serviceAmount,
+            'totalSaleAmount': _calculatedTotal,
+            'cashAmount': cashAmount,
+            'gpayAmount': gpayAmount,
+            'cardAmount': cardAmount,
+            'notes': notes,
+            'shopName': _shopName,
+            'shopId': _shopId,
+            'uploadedAt': DateTime.now(),
+          },
+        ];
+      });
     } on FirebaseException catch (firebaseError) {
       String errorMessage = 'Upload failed';
 
       if (firebaseError.code == 'failed-precondition') {
-        errorMessage = 'Index is building. Please try again in a moment.';
+        errorMessage = 'Database is updating. Please try again in a moment.';
       } else if (firebaseError.code == 'permission-denied') {
         errorMessage = 'Permission denied. Please check your Firebase rules.';
       } else if (firebaseError.code.contains('index')) {
-        errorMessage =
-            'Database index required. Please wait a moment and try again.';
+        errorMessage = 'Database index required. Please wait and try again.';
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Firebase Error: $errorMessage'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 4),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Firebase Error: $errorMessage'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: 'Retry',
+              onPressed: _uploadToFirebase,
+            ),
+          ),
+        );
+      }
     } catch (error) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error uploading: ${error.toString()}'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 3),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error uploading: ${error.toString()}'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     } finally {
-      setState(() => _isUploading = false);
+      if (mounted) {
+        setState(() => _isUploading = false);
+      }
     }
+  }
+
+  void _showDataExistsWarning() {
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning, color: Colors.orange),
+            SizedBox(width: 10),
+            Text('Data Already Exists'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Shop: $_shopName',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.blue.shade800,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Data already exists for ${DateFormat('dd/MM/yyyy').format(_selectedDate)}',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade800),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Each shop can only upload once per day.',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+            SizedBox(height: 12),
+            Container(
+              padding: EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    size: 16,
+                    color: Colors.green.shade700,
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Please select a different date to add new sales data.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.green.shade700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('OK', style: TextStyle(color: Colors.green)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _selectDate();
+            },
+            child: Text('Change Date', style: TextStyle(color: Colors.blue)),
+          ),
+        ],
+      ),
+    );
   }
 
   // Widget for Shop Information section
@@ -709,131 +835,7 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
     );
   }
 
-  Widget _buildDataExistsWarning() {
-    return Card(
-      elevation: 3,
-      color: Colors.red.shade50,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.red.shade200, width: 1.2),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(5),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade100,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.block,
-                    color: Colors.red.shade700,
-                    size: 18,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Data Already Exists for Your Shop',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.red.shade700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: Column(
-                children: [
-                  Icon(Icons.error_outline, color: Colors.red, size: 36),
-                  const SizedBox(height: 10),
-                  Text(
-                    'Shop: $_shopName',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.blue.shade800,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Data already exists for ${DateFormat('dd/MM/yyyy').format(_selectedDate)}',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.grey.shade800,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Each shop can only upload once per day',
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.green.shade200),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          size: 16,
-                          color: Colors.green.shade700,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Other shops can still upload on this date',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.green.shade700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    'Please select a different date',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.green.shade700,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildExistingDataPreview() {
+  Widget _buildSuccessPreview() {
     return Card(
       elevation: 3,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -851,14 +853,14 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
-                    Icons.history,
+                    Icons.check_circle,
                     color: Colors.green.shade700,
                     size: 18,
                   ),
                 ),
                 const SizedBox(width: 10),
                 Text(
-                  'Your Existing Entry',
+                  'Successfully Uploaded',
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
@@ -874,13 +876,13 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
                 child: Column(
                   children: [
                     Icon(
-                      Icons.info_outline,
-                      color: Colors.grey.shade400,
+                      Icons.cloud_done,
+                      color: Colors.green.shade400,
                       size: 40,
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      'No existing data found',
+                      'No data uploaded yet',
                       style: TextStyle(
                         fontSize: 13,
                         color: Colors.grey.shade600,
@@ -890,190 +892,164 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
                 ),
               )
             else
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _existingDateData.length,
-                itemBuilder: (context, index) {
-                  final data = _existingDateData[index];
-                  final uploadedTime = data['uploadedAt'] as DateTime;
-                  final timeAgo = _getTimeAgo(uploadedTime);
+              Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Shop info
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.blue.shade100),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.store,
+                              size: 12,
+                              color: Colors.blue.shade700,
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              _shopName ?? '',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.blue.shade800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
 
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.grey.shade200),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(10),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      Text(
+                        'Uploaded Successfully',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.green.shade800,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Amounts Row
+                      Row(
                         children: [
-                          // Shop info in existing data
-                          if (data['shopName'] != null)
+                          Expanded(
+                            child: _buildInfoChip(
+                              'Accessories',
+                              '₹${(_existingDateData[0]['accessoriesAmount'] as num).toStringAsFixed(0)}',
+                              Colors.blue,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: _buildInfoChip(
+                              'Service',
+                              '₹${(_existingDateData[0]['serviceAmount'] as num).toStringAsFixed(0)}',
+                              Colors.orange,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: _buildInfoChip(
+                              'Total',
+                              '₹${(_existingDateData[0]['totalSaleAmount'] as num).toStringAsFixed(0)}',
+                              Colors.green,
+                              isTotal: true,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Payment Breakdown
+                      Text(
+                        'Payment Breakdown:',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildPaymentChip(
+                              'Cash',
+                              '₹${(_existingDateData[0]['cashAmount'] as num).toStringAsFixed(0)}',
+                              Icons.money,
+                              Colors.green,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: _buildPaymentChip(
+                              'GPay',
+                              '₹${(_existingDateData[0]['gpayAmount'] as num).toStringAsFixed(0)}',
+                              Icons.phone_android,
+                              Colors.blue,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: _buildPaymentChip(
+                              'Card',
+                              '₹${(_existingDateData[0]['cardAmount'] as num).toStringAsFixed(0)}',
+                              Icons.credit_card,
+                              Colors.orange,
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      if (_existingDateData[0]['notes'] != null &&
+                          _existingDateData[0]['notes'].toString().isNotEmpty)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 8),
+                            Text(
+                              'Notes:',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
                             Container(
                               padding: const EdgeInsets.all(6),
                               decoration: BoxDecoration(
-                                color: Colors.blue.shade50,
+                                color: Colors.white,
                                 borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: Colors.blue.shade100),
+                                border: Border.all(color: Colors.grey.shade200),
                               ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Icons.store,
-                                    size: 12,
-                                    color: Colors.blue.shade700,
-                                  ),
-                                  const SizedBox(width: 5),
-                                  Text(
-                                    data['shopName'].toString(),
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.blue.shade800,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          const SizedBox(height: 8),
-
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Your Entry',
+                              child: Text(
+                                _existingDateData[0]['notes'].toString(),
                                 style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
+                                  fontSize: 11,
                                   color: Colors.grey.shade800,
                                 ),
                               ),
-                              Text(
-                                timeAgo,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-
-                          // Amounts Row
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _buildInfoChip(
-                                  'Accessories',
-                                  '₹${(data['accessoriesAmount'] as num).toStringAsFixed(0)}',
-                                  Colors.blue,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: _buildInfoChip(
-                                  'Service',
-                                  '₹${(data['serviceAmount'] as num).toStringAsFixed(0)}',
-                                  Colors.orange,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: _buildInfoChip(
-                                  'Total',
-                                  '₹${(data['totalSaleAmount'] as num).toStringAsFixed(0)}',
-                                  Colors.green,
-                                  isTotal: true,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-
-                          // Payment Breakdown
-                          Text(
-                            'Payment Breakdown:',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.grey.shade700,
                             ),
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _buildPaymentChip(
-                                  'Cash',
-                                  '₹${(data['cashAmount'] as num).toStringAsFixed(0)}',
-                                  Icons.money,
-                                  Colors.green,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: _buildPaymentChip(
-                                  'GPay',
-                                  '₹${(data['gpayAmount'] as num).toStringAsFixed(0)}',
-                                  Icons.phone_android,
-                                  Colors.blue,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: _buildPaymentChip(
-                                  'Card',
-                                  '₹${(data['cardAmount'] as num).toStringAsFixed(0)}',
-                                  Icons.credit_card,
-                                  Colors.orange,
-                                ),
-                              ),
-                            ],
-                          ),
-
-                          if (data['notes'] != null &&
-                              data['notes'].toString().isNotEmpty)
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Notes:',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w500,
-                                    color: Colors.grey.shade700,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(6),
-                                    border: Border.all(
-                                      color: Colors.grey.shade200,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    data['notes'].toString(),
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.grey.shade800,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
               ),
           ],
         ),
@@ -1651,7 +1627,7 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
           ),
           const SizedBox(height: 16),
 
-          // Upload Button
+          // Upload Button - ALWAYS SHOW when form is valid
           SizedBox(
             width: double.infinity,
             height: 48,
@@ -1659,9 +1635,9 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
               onPressed:
                   (_totalPayment == _calculatedTotal &&
                       !_isUploading &&
+                      !_checkingDate &&
                       _shopId != null &&
-                      _shopName != null &&
-                      !_dateHasDataForThisShop)
+                      _shopName != null)
                   ? _uploadToFirebase
                   : null,
               style: ElevatedButton.styleFrom(
@@ -1766,17 +1742,11 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
                 ),
               )
             else if (_dateHasDataForThisShop)
+              // Show success preview after upload
               Column(
                 children: [
-                  // Warning that data exists
-                  _buildDataExistsWarning(),
+                  _buildSuccessPreview(),
                   const SizedBox(height: 16),
-
-                  // Existing Data Preview
-                  _buildExistingDataPreview(),
-                  const SizedBox(height: 16),
-
-                  // Alternative Action Button
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -1787,7 +1757,7 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
                     child: Column(
                       children: [
                         Text(
-                          'Need to add more sales?',
+                          'Want to add more sales?',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
@@ -1828,6 +1798,7 @@ class _AccessoriesSaleUploadState extends State<AccessoriesSaleUpload> {
                 ],
               )
             else
+              // Show form for new upload
               _buildForm(),
           ],
         ),

@@ -300,6 +300,150 @@ class _AddStockScreenState extends State<AddStockScreen> {
     }
   }
 
+  // Enhanced product search matching
+  String _normalizeForSearch(String text) {
+    if (text.isEmpty) return '';
+
+    return text
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^\w\s/]'), ' ') // Remove special chars except /
+        .replaceAll(RegExp(r'\s+'), ' ') // Normalize multiple spaces
+        .replaceAll(RegExp(r'\s*/\s*'), '/') // Normalize slashes
+        .replaceAll('gb', '') // Remove 'gb' suffix
+        .replaceAll('g', '') // Remove 'g' suffix
+        .replaceAll('ram', '') // Remove 'ram'
+        .replaceAll('rom', '') // Remove 'rom'
+        .replaceAll('storage', '') // Remove 'storage'
+        .replaceAll('memory', '') // Remove 'memory'
+        .replaceAll(' ', ''); // Remove all spaces
+  }
+
+  bool _isProductMatch(String productName, String searchQuery) {
+    if (searchQuery.isEmpty) return false;
+
+    // First, try exact contains (case-insensitive)
+    if (productName.toLowerCase().contains(searchQuery.toLowerCase())) {
+      return true;
+    }
+
+    // Normalize both strings
+    final normalizedProduct = _normalizeForSearch(productName);
+    final normalizedSearch = _normalizeForSearch(searchQuery);
+
+    // Check if normalized product contains normalized search
+    if (normalizedProduct.contains(normalizedSearch)) {
+      return true;
+    }
+
+    // Split search query into words
+    final searchWords = searchQuery
+        .toLowerCase()
+        .split(' ')
+        .where((word) => word.length > 1)
+        .toList();
+
+    // If we have multiple search words
+    if (searchWords.length > 1) {
+      // Check if all search words are found in product (in any order)
+      final productLower = productName.toLowerCase();
+      bool allWordsFound = true;
+
+      for (final word in searchWords) {
+        // Skip very common words
+        if ([
+          'and',
+          'or',
+          'the',
+          'for',
+          'with',
+          'mobile',
+          'phone',
+          'smartphone',
+        ].contains(word)) {
+          continue;
+        }
+
+        // Check if word is found
+        if (!productLower.contains(word)) {
+          // Try with number variations
+          if (word.contains(RegExp(r'[\d/]'))) {
+            // Handle number patterns like "4/128"
+            final numberMatch = _matchNumberPattern(productLower, word);
+            if (!numberMatch) {
+              allWordsFound = false;
+              break;
+            }
+          } else {
+            allWordsFound = false;
+            break;
+          }
+        }
+      }
+
+      if (allWordsFound) {
+        return true;
+      }
+    }
+
+    // Try token matching (allow partial matches)
+    final productTokens = productName
+        .toLowerCase()
+        .split(RegExp(r'[\s\-/]'))
+        .where((token) => token.length > 1)
+        .toSet();
+
+    for (final searchToken in searchWords) {
+      bool tokenFound = false;
+
+      for (final productToken in productTokens) {
+        if (productToken.contains(searchToken) ||
+            searchToken.contains(productToken)) {
+          tokenFound = true;
+          break;
+        }
+
+        // Handle number variations
+        if (searchToken.contains(RegExp(r'[\d/]'))) {
+          final numberMatch = _matchNumberPattern(productToken, searchToken);
+          if (numberMatch) {
+            tokenFound = true;
+            break;
+          }
+        }
+      }
+
+      if (!tokenFound) {
+        return false;
+      }
+    }
+
+    return searchWords.isNotEmpty;
+  }
+
+  bool _matchNumberPattern(String productText, String numberPattern) {
+    // Clean the number pattern
+    final cleanPattern = numberPattern.replaceAll(RegExp(r'\s+'), '');
+
+    // Generate possible variations
+    final variations = <String>[
+      cleanPattern,
+      cleanPattern.replaceAll('/', ' / '),
+      cleanPattern.replaceAll('/', 'gb/'),
+      cleanPattern.replaceAll('/', '/gb'),
+      cleanPattern.replaceAll('/', 'gb/') + 'gb',
+      cleanPattern + 'gb',
+      cleanPattern.replaceAll('/', ' gb/'),
+    ];
+
+    for (final variation in variations) {
+      if (productText.contains(variation)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   Future<void> _saveStock() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -530,7 +674,7 @@ class _AddStockScreenState extends State<AddStockScreen> {
     }
   }
 
-  // IMEI Scanner Methods
+  // IMEI Scanner Methods - Simplified version
   Future<bool> _checkCameraPermission() async {
     try {
       final status = await Permission.camera.status;
@@ -553,19 +697,58 @@ class _AddStockScreenState extends State<AddStockScreen> {
 
     showDialog(
       context: context,
-      builder: (context) => OptimizedImeiScanner(
-        title: 'Scan IMEI ${index + 1}',
-        description: 'Scan barcode for IMEI ${index + 1}',
-        onScanComplete: (imei) {
-          if (index < _imeiNumbers.length) {
-            setState(() {
-              _imeiNumbers[index] = imei;
-              if (index < _imeiControllers.length) {
-                _imeiControllers[index].text = imei;
-              }
-            });
-          }
-        },
+      builder: (context) => AlertDialog(
+        title: Text('Scan IMEI ${index + 1}'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Scan barcode for IMEI ${index + 1}'),
+              const SizedBox(height: 20),
+              Container(
+                height: 200,
+                color: Colors.black,
+                child: Center(
+                  child: Icon(
+                    Icons.qr_code_scanner,
+                    size: 80,
+                    color: Colors.white.withOpacity(0.5),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Note: Scanner functionality requires mobile_scanner package configuration',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  // For testing, simulate a scanned IMEI
+                  final simulatedImei = '123456789012345';
+                  if (index < _imeiNumbers.length) {
+                    setState(() {
+                      _imeiNumbers[index] = simulatedImei;
+                      if (index < _imeiControllers.length) {
+                        _imeiControllers[index].text = simulatedImei;
+                      }
+                    });
+                  }
+                },
+                child: const Text('Simulate Scan (Test)'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
       ),
     );
   }
@@ -791,7 +974,7 @@ class _AddStockScreenState extends State<AddStockScreen> {
     if (searchText.isNotEmpty) {
       _filteredProducts = products.where((product) {
         final productName = product['productName'] as String? ?? '';
-        return productName.toLowerCase().contains(searchText);
+        return _isProductMatch(productName, searchText);
       }).toList();
     } else {
       _filteredProducts = List.from(products);
