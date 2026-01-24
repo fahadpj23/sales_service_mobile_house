@@ -8,7 +8,8 @@ import '../../providers/auth_provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'dart:async';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/services.dart'; // This import is crucial for Clipboard
+import './add_stock_modal.dart';
 
 class PhoneStockScreen extends StatefulWidget {
   const PhoneStockScreen({super.key});
@@ -1330,506 +1331,53 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   }
 
   Widget _buildAddStockModal() {
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.all(16),
-      child: SingleChildScrollView(
-        child: Container(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.9,
-          ),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.2),
-                blurRadius: 20,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'Add Phone Stock',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.green,
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.close, size: 20),
-                              onPressed: _closeAddStockModal,
-                            ),
-                          ],
-                        ),
-                        const Divider(),
-                        const SizedBox(height: 16),
-
-                        DropdownButtonFormField<String>(
-                          value: _selectedBrand,
-                          dropdownColor: Colors.white,
-                          decoration: const InputDecoration(
-                            labelText: 'Select Brand *',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(
-                              Icons.branding_watermark,
-                              size: 18,
-                            ),
-                            labelStyle: TextStyle(fontSize: 12),
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 12,
-                            ),
-                          ),
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.black,
-                          ),
-                          items: _brands.map<DropdownMenuItem<String>>((brand) {
-                            return DropdownMenuItem<String>(
-                              value: brand,
-                              child: Text(
-                                brand,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.black,
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setState(() {
-                              _selectedBrand = value;
-                              _selectedProduct = null;
-                              _showAddProductForm = false;
-                              _showPriceChangeOption = false;
-                              _newProductName = null;
-                              _newProductPrice = null;
-                              _productSearchController.clear();
-                              _priceChangeController.clear();
-                              _clearModalMessages();
-                            });
-                          },
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please select a brand';
-                            }
-                            return null;
-                          },
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        if (_selectedBrand != null) ...[
-                          _buildProductSearchDropdown(),
-                          const SizedBox(height: 12),
-
-                          if (_showAddProductForm) ...[
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade50,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.grey.shade300),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text(
-                                        'New Product Details',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 12,
-                                          color: Colors.green,
-                                        ),
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.arrow_back,
-                                          size: 16,
-                                        ),
-                                        onPressed: _cancelAddNewProduct,
-                                        tooltip: 'Back to product selection',
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 10),
-
-                                  TextFormField(
-                                    decoration: const InputDecoration(
-                                      labelText: 'Product Name *',
-                                      border: OutlineInputBorder(),
-                                      labelStyle: TextStyle(fontSize: 12),
-                                      hintText: 'e.g., iPhone 15 Pro Max 256GB',
-                                      contentPadding: EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 12,
-                                      ),
-                                    ),
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.black,
-                                    ),
-                                    onChanged: (value) {
-                                      setState(() {
-                                        _newProductName = value;
-                                        _clearModalMessages();
-                                      });
-                                    },
-                                    validator: (value) {
-                                      if (value == null ||
-                                          value.trim().isEmpty) {
-                                        return 'Please enter product name';
-                                      }
-                                      return null;
-                                    },
-                                  ),
-
-                                  const SizedBox(height: 10),
-
-                                  TextFormField(
-                                    decoration: const InputDecoration(
-                                      labelText: 'Price *',
-                                      border: OutlineInputBorder(),
-                                      labelStyle: TextStyle(fontSize: 12),
-                                      prefixText: '₹ ',
-                                      hintText: 'e.g., 129999',
-                                      contentPadding: EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 12,
-                                      ),
-                                    ),
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.black,
-                                    ),
-                                    keyboardType: TextInputType.number,
-                                    onChanged: (value) {
-                                      setState(() {
-                                        _newProductPrice = double.tryParse(
-                                          value,
-                                        );
-                                        _clearModalMessages();
-                                      });
-                                    },
-                                    validator: (value) {
-                                      if (value == null || value.isEmpty) {
-                                        return 'Please enter price';
-                                      }
-                                      final price = double.tryParse(value);
-                                      if (price == null || price <= 0) {
-                                        return 'Please enter valid price';
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                          ],
-
-                          if (_showPriceChangeOption &&
-                              _originalProductPrice != null) ...[
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.shade50,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.blue.shade100),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Price Change Option',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 12,
-                                      color: Colors.blue,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Original Price: ${_formatPrice(_originalProductPrice)}',
-                                    style: const TextStyle(fontSize: 11),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  TextFormField(
-                                    controller: _priceChangeController,
-                                    decoration: const InputDecoration(
-                                      labelText: 'New Price (optional)',
-                                      border: OutlineInputBorder(),
-                                      labelStyle: TextStyle(fontSize: 12),
-                                      prefixText: '₹ ',
-                                      hintText: 'Enter new price',
-                                      contentPadding: EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 12,
-                                      ),
-                                    ),
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.black,
-                                    ),
-                                    keyboardType: TextInputType.number,
-                                    onChanged: (value) {
-                                      _clearModalMessages();
-                                    },
-                                    validator: (value) {
-                                      if (value != null && value.isNotEmpty) {
-                                        final price = double.tryParse(value);
-                                        if (price == null || price <= 0) {
-                                          return 'Please enter valid price';
-                                        }
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                  const SizedBox(height: 6),
-                                  const Text(
-                                    'Note: Changing price will update this product\'s price for all future stock entries.',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: Colors.grey,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                          ],
-                        ],
-
-                        if (_selectedProduct != null ||
-                            _showAddProductForm) ...[
-                          TextFormField(
-                            decoration: const InputDecoration(
-                              labelText: 'Quantity *',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.numbers, size: 18),
-                              labelStyle: TextStyle(fontSize: 12),
-                              hintText: 'Enter number of units',
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 12,
-                              ),
-                            ),
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.black,
-                            ),
-                            keyboardType: TextInputType.number,
-                            onChanged: (value) {
-                              _handleQuantityChange(value);
-                              _clearModalMessages();
-                            },
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please enter quantity';
-                              }
-                              final qty = int.tryParse(value);
-                              if (qty == null || qty <= 0) {
-                                return 'Please enter valid quantity (min: 1)';
-                              }
-                              if (qty > 50) {
-                                return 'Maximum 50 units at a time';
-                              }
-                              return null;
-                            },
-                          ),
-
-                          const SizedBox(height: 12),
-                        ],
-
-                        if (_quantity != null && _quantity! > 0) ...[
-                          const Text(
-                            'Enter IMEI Numbers: *',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Each IMEI must be 15-16 digits (${_quantity} required)',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-
-                          SizedBox(
-                            height: _quantity! <= 3 ? _quantity! * 70.0 : 210.0,
-                            child: ListView.builder(
-                              shrinkWrap: true,
-                              physics: const AlwaysScrollableScrollPhysics(),
-                              itemCount: _quantity!,
-                              itemBuilder: (context, index) {
-                                return _buildImeiInputField(index);
-                              },
-                            ),
-                          ),
-
-                          const SizedBox(height: 12),
-                        ],
-
-                        if (_modalError != null)
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(12),
-                            margin: const EdgeInsets.only(bottom: 12),
-                            decoration: BoxDecoration(
-                              color: Colors.red.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.red.shade100),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.error_outline,
-                                  color: Colors.red,
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _modalError!,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.red,
-                                    ),
-                                    maxLines: 3,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.close, size: 16),
-                                  onPressed: _clearModalMessages,
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                ),
-                              ],
-                            ),
-                          ),
-
-                        if (_modalSuccess != null &&
-                            !_modalSuccess!.contains('Product added'))
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(12),
-                            margin: const EdgeInsets.only(bottom: 12),
-                            decoration: BoxDecoration(
-                              color: Colors.green.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.green.shade100),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.check_circle,
-                                  color: Colors.green,
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _modalSuccess!,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.green,
-                                    ),
-                                    maxLines: 3,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.close, size: 16),
-                                  onPressed: _clearModalMessages,
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                ),
-                              ],
-                            ),
-                          ),
-
-                        Container(
-                          padding: const EdgeInsets.only(top: 12),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: _closeAddStockModal,
-                                  style: OutlinedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 10,
-                                    ),
-                                  ),
-                                  child: const Text(
-                                    'Cancel',
-                                    style: TextStyle(fontSize: 12),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: ElevatedButton(
-                                  onPressed: _isLoading ? null : _saveStock,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.green,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 10,
-                                    ),
-                                  ),
-                                  child: _isLoading
-                                      ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white,
-                                          ),
-                                        )
-                                      : const Text(
-                                          'Save Stock',
-                                          style: TextStyle(fontSize: 12),
-                                        ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return AddStockModal(
+      formKey: _formKey,
+      selectedBrand: _selectedBrand,
+      selectedProduct: _selectedProduct,
+      newProductName: _newProductName,
+      newProductPrice: _newProductPrice,
+      quantity: _quantity,
+      imeiNumbers: _imeiNumbers,
+      imeiControllers: _imeiControllers,
+      brands: _brands,
+      productsByBrand: _productsByBrand,
+      isLoading: _isLoading,
+      showAddProductForm: _showAddProductForm,
+      showPriceChangeOption: _showPriceChangeOption,
+      originalProductPrice: _originalProductPrice,
+      productSearchController: _productSearchController,
+      priceChangeController: _priceChangeController,
+      searchController: _searchController,
+      modalError: _modalError,
+      modalSuccess: _modalSuccess,
+      onBrandChanged: (value) {
+        setState(() {
+          _selectedBrand = value;
+          _selectedProduct = null;
+          _showAddProductForm = false;
+          _showPriceChangeOption = false;
+          _newProductName = null;
+          _newProductPrice = null;
+          _productSearchController.clear();
+          _priceChangeController.clear();
+          _clearModalMessages();
+        });
+      },
+      onProductSelected: (value) {
+        _handleProductSelection(value);
+      },
+      onCancelAddNewProduct: _cancelAddNewProduct,
+      onQuantityChanged: (value) {
+        _handleQuantityChange(value);
+      },
+      onOpenScannerForImeiField: (index) {
+        _openScannerForImeiField(index);
+      },
+      onClearModalMessages: _clearModalMessages,
+      onCloseModal: _closeAddStockModal,
+      onSaveStock: _saveStock,
+      onSaveNewProduct: _saveNewProduct,
     );
   }
 
