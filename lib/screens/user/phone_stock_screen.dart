@@ -70,6 +70,10 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   bool _showPriceChangeOption = false;
   late TextEditingController _priceChangeController;
 
+  // For new product form controllers
+  late TextEditingController _newProductNameController;
+  late TextEditingController _newProductPriceController;
+
   // For modal error display
   String? _modalError;
   String? _modalSuccess;
@@ -163,6 +167,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     _searchController = TextEditingController();
     _productSearchController = TextEditingController();
     _priceChangeController = TextEditingController();
+    _newProductNameController = TextEditingController();
+    _newProductPriceController = TextEditingController();
 
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
@@ -186,6 +192,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     _searchController.dispose();
     _productSearchController.dispose();
     _priceChangeController.dispose();
+    _newProductNameController.dispose();
+    _newProductPriceController.dispose();
     _disposeImeiControllers();
   }
 
@@ -295,6 +303,9 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         _priceChangeController.clear();
         _productSearchController.clear();
         _clearModalMessages();
+        // Clear new product form
+        _newProductNameController.clear();
+        _newProductPriceController.clear();
       });
     } else {
       setState(() {
@@ -337,6 +348,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       _newProductName = null;
       _newProductPrice = null;
       _productSearchController.clear();
+      _newProductNameController.clear();
+      _newProductPriceController.clear();
       _clearModalMessages();
     });
   }
@@ -371,12 +384,22 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       return;
     }
 
-    if (_newProductName == null || _newProductName!.trim().isEmpty) {
+    // Get values from controllers
+    final productName = _newProductNameController.text.trim();
+    final priceText = _newProductPriceController.text.trim();
+
+    if (productName.isEmpty) {
       _showModalError('Please enter product name');
       return;
     }
 
-    if (_newProductPrice == null || _newProductPrice! <= 0) {
+    if (priceText.isEmpty) {
+      _showModalError('Please enter product price');
+      return;
+    }
+
+    final price = double.tryParse(priceText);
+    if (price == null || price <= 0) {
       _showModalError('Please enter valid price');
       return;
     }
@@ -386,8 +409,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
       final newProduct = {
         'brand': _selectedBrand!,
-        'productName': _newProductName!.trim(),
-        'price': _newProductPrice!,
+        'productName': productName,
+        'price': price,
         'createdAt': FieldValue.serverTimestamp(),
       };
 
@@ -398,13 +421,13 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       }
 
       final existingProductIndex = _productsByBrand[_selectedBrand!]!
-          .indexWhere((p) => p['productName'] == _newProductName!.trim());
+          .indexWhere((p) => p['productName'] == productName);
 
       if (existingProductIndex == -1) {
         _productsByBrand[_selectedBrand!]!.add({
           'id': 'temp',
-          'productName': _newProductName!.trim(),
-          'price': _newProductPrice!,
+          'productName': productName,
+          'price': price,
         });
 
         _productsByBrand[_selectedBrand!]!.sort(
@@ -418,11 +441,14 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
       setState(() {
         _showAddProductForm = false;
-        _selectedProduct = _newProductName!.trim();
-        _newProductName = null;
-        _newProductPrice = null;
+        _selectedProduct = productName;
+        _originalProductPrice = price;
         _clearModalMessages();
-        _showModalSuccess('Product added successfully!');
+        _showModalSuccess('Product "$productName" added successfully!');
+
+        // Clear controllers
+        _newProductNameController.clear();
+        _newProductPriceController.clear();
       });
     } catch (e) {
       _showModalError('Failed to add product: ${e.toString()}');
@@ -454,19 +480,36 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       String? productId;
 
       if (_showAddProductForm) {
-        if (_newProductName == null || _newProductName!.trim().isEmpty) {
+        // Get values from new product form controllers
+        final newProductName = _newProductNameController.text.trim();
+        final newPriceText = _newProductPriceController.text.trim();
+
+        if (newProductName.isEmpty) {
           _showModalError('Please enter product name');
           return;
         }
-        if (_newProductPrice == null || _newProductPrice! <= 0) {
+
+        if (newPriceText.isEmpty) {
+          _showModalError('Please enter product price');
+          return;
+        }
+
+        final newPrice = double.tryParse(newPriceText);
+        if (newPrice == null || newPrice <= 0) {
           _showModalError('Please enter valid price');
           return;
         }
 
-        productName = _newProductName!.trim();
-        productPrice = _newProductPrice!;
+        productName = newProductName;
+        productPrice = newPrice;
 
+        // Save the new product first
         await _saveNewProduct();
+        // After saving, continue with stock addition
+        if (_selectedProduct == null) {
+          _showModalError('Product not selected after creation');
+          return;
+        }
       } else {
         if (_selectedProduct == null || _selectedProduct!.isEmpty) {
           _showModalError('Please select a product');
@@ -647,6 +690,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
     _productSearchController.clear();
     _priceChangeController.clear();
+    _newProductNameController.clear();
+    _newProductPriceController.clear();
 
     _disposeImeiControllers();
 
@@ -1349,6 +1394,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       productSearchController: _productSearchController,
       priceChangeController: _priceChangeController,
       searchController: _searchController,
+      newProductNameController: _newProductNameController,
+      newProductPriceController: _newProductPriceController,
       modalError: _modalError,
       modalSuccess: _modalSuccess,
       onBrandChanged: (value) {
@@ -1361,6 +1408,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           _newProductPrice = null;
           _productSearchController.clear();
           _priceChangeController.clear();
+          _newProductNameController.clear();
+          _newProductPriceController.clear();
           _clearModalMessages();
         });
       },

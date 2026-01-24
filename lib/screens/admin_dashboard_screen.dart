@@ -1679,7 +1679,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               sale.date.isAtSameMomentAs(endDate));
     }).toList();
 
-    print('Filtered ${filtered.length} sales out of ${allSales.length} total');
     return filtered;
   }
 

@@ -22,6 +22,8 @@ class AddStockModal extends StatefulWidget {
   final TextEditingController productSearchController;
   final TextEditingController priceChangeController;
   final TextEditingController searchController;
+  final TextEditingController newProductNameController;
+  final TextEditingController newProductPriceController;
   final String? modalError;
   final String? modalSuccess;
 
@@ -54,6 +56,8 @@ class AddStockModal extends StatefulWidget {
     required this.productSearchController,
     required this.priceChangeController,
     required this.searchController,
+    required this.newProductNameController,
+    required this.newProductPriceController,
     required this.modalError,
     required this.modalSuccess,
     required this.onBrandChanged,
@@ -73,6 +77,10 @@ class AddStockModal extends StatefulWidget {
 
 class _AddStockModalState extends State<AddStockModal> {
   List<Map<String, dynamic>> _filteredProducts = [];
+  final GlobalKey<FormFieldState> _productNameFieldKey =
+      GlobalKey<FormFieldState>();
+  final GlobalKey<FormFieldState> _productPriceFieldKey =
+      GlobalKey<FormFieldState>();
 
   String _formatPrice(dynamic price) {
     try {
@@ -95,7 +103,6 @@ class _AddStockModalState extends State<AddStockModal> {
     }
   }
 
-  // FIXED: Smart Search Logic that handles "f17 4/128" searching in "samsung galaxy f17 5g 4/128 violet pop"
   List<Map<String, dynamic>> _filterProductsBySearch(
     List<Map<String, dynamic>> products,
     String searchQuery,
@@ -285,6 +292,11 @@ class _AddStockModalState extends State<AddStockModal> {
       visualDensity: VisualDensity.compact,
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       onTap: () {
+        // Clear selected product and search text
+        if (widget.selectedProduct != null) {
+          widget.onProductSelected(null);
+        }
+        widget.productSearchController.clear();
         widget.onProductSelected('add_new');
       },
     );
@@ -781,6 +793,8 @@ class _AddStockModalState extends State<AddStockModal> {
           const SizedBox(height: 10),
 
           TextFormField(
+            key: _productNameFieldKey,
+            controller: widget.newProductNameController,
             decoration: const InputDecoration(
               labelText: 'Product Name *',
               border: OutlineInputBorder(),
@@ -801,6 +815,9 @@ class _AddStockModalState extends State<AddStockModal> {
               if (value == null || value.trim().isEmpty) {
                 return 'Please enter product name';
               }
+              if (value.trim().length < 2) {
+                return 'Product name must be at least 2 characters';
+              }
               return null;
             },
           ),
@@ -808,6 +825,8 @@ class _AddStockModalState extends State<AddStockModal> {
           const SizedBox(height: 10),
 
           TextFormField(
+            key: _productPriceFieldKey,
+            controller: widget.newProductPriceController,
             decoration: const InputDecoration(
               labelText: 'Price *',
               border: OutlineInputBorder(),
@@ -833,6 +852,9 @@ class _AddStockModalState extends State<AddStockModal> {
               final price = double.tryParse(value);
               if (price == null || price <= 0) {
                 return 'Please enter valid price';
+              }
+              if (price > 10000000) {
+                return 'Price cannot exceed ₹1,00,00,000';
               }
               return null;
             },
@@ -941,10 +963,7 @@ class _AddStockModalState extends State<AddStockModal> {
   }
 
   Widget _buildSuccessMessage() {
-    if (widget.modalSuccess == null ||
-        widget.modalSuccess!.contains('Product added')) {
-      return const SizedBox();
-    }
+    if (widget.modalSuccess == null) return const SizedBox();
 
     return Container(
       width: double.infinity,
@@ -1012,6 +1031,20 @@ class _AddStockModalState extends State<AddStockModal> {
     );
   }
 
+  void _validateAndSaveNewProduct() {
+    // Validate new product form fields
+    final nameValid = _productNameFieldKey.currentState?.validate() ?? false;
+    final priceValid = _productPriceFieldKey.currentState?.validate() ?? false;
+
+    if (nameValid && priceValid) {
+      widget.onSaveNewProduct();
+    } else {
+      // Trigger validation messages
+      _productNameFieldKey.currentState?.validate();
+      _productPriceFieldKey.currentState?.validate();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -1051,9 +1084,11 @@ class _AddStockModalState extends State<AddStockModal> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Add Phone Stock',
-                        style: TextStyle(
+                      Text(
+                        widget.showAddProductForm
+                            ? 'Add New Product'
+                            : 'Add Phone Stock',
+                        style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: Colors.white,
@@ -1139,21 +1174,24 @@ class _AddStockModalState extends State<AddStockModal> {
 
                           // Price Change Option
                           if (widget.showPriceChangeOption &&
-                              widget.originalProductPrice != null) ...[
+                              widget.originalProductPrice != null &&
+                              !widget.showAddProductForm) ...[
                             _buildPriceChangeOption(),
                             const SizedBox(height: 12),
                           ],
                         ],
 
-                        // Quantity Field
-                        if (widget.selectedProduct != null ||
-                            widget.showAddProductForm) ...[
+                        // Quantity Field - Only show if NOT in add product mode
+                        if (!widget.showAddProductForm &&
+                            (widget.selectedProduct != null ||
+                                widget.showAddProductForm)) ...[
                           _buildQuantityField(),
                           const SizedBox(height: 12),
                         ],
 
-                        // IMEI Fields
-                        if (widget.quantity != null &&
+                        // IMEI Fields - Only show if NOT in add product mode
+                        if (!widget.showAddProductForm &&
+                            widget.quantity != null &&
                             widget.quantity! > 0) ...[
                           _buildImeiFields(),
                           const SizedBox(height: 12),
@@ -1189,6 +1227,8 @@ class _AddStockModalState extends State<AddStockModal> {
                                 child: ElevatedButton(
                                   onPressed: widget.isLoading
                                       ? null
+                                      : widget.showAddProductForm
+                                      ? _validateAndSaveNewProduct
                                       : widget.onSaveStock,
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: Colors.green,
@@ -1206,9 +1246,11 @@ class _AddStockModalState extends State<AddStockModal> {
                                             color: Colors.white,
                                           ),
                                         )
-                                      : const Text(
-                                          'Save Stock',
-                                          style: TextStyle(fontSize: 12),
+                                      : Text(
+                                          widget.showAddProductForm
+                                              ? 'Save Product'
+                                              : 'Save Stock',
+                                          style: const TextStyle(fontSize: 12),
                                         ),
                                 ),
                               ),
