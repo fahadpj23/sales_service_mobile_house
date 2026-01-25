@@ -48,7 +48,10 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   MobileScannerController? _scannerController;
   bool _isScanning = false;
   int? _currentScanItemIndex;
+  int? _currentScanImeiIndex;
   Map<int, bool> _showEditSections = {};
+  bool _showPreview = false;
+  Map<int, List<String>> _itemImeis = {}; // Track IMEIs per item
 
   @override
   void initState() {
@@ -60,8 +63,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
       _supplierController.text = widget.supplier!['name'] ?? '';
     }
     // Add one empty item initially
-    _purchaseItems.add(PurchaseItem());
-    _showEditSections[0] = true; // Show edit section for first item
+    _addNewItem();
   }
 
   @override
@@ -87,25 +89,18 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
       _filteredProducts = List.from(_products);
     } else {
       final searchQuery = query.toLowerCase().trim();
-
-      // Split search query into individual words
       final searchWords = searchQuery.split(' ');
 
       _filteredProducts = _products.where((product) {
-        // Combine all searchable fields
         final productName = (product['productName'] ?? '')
             .toString()
             .toLowerCase();
         final brand = (product['brand'] ?? '').toString().toLowerCase();
+        final model = (product['model'] ?? '').toString().toLowerCase();
+        final combinedText = '$productName $brand $model';
 
-        // Create a combined search string
-        final combinedText = '$productName $brand';
-
-        // Check if ALL search words are found in the combined text
         return searchWords.every((word) {
           if (word.isEmpty) return true;
-
-          // Regular word search
           return combinedText.contains(word);
         });
       }).toList();
@@ -151,7 +146,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
       if (item.quantity != null && item.rate != null) {
         double itemTotal = item.quantity! * item.rate!;
 
-        // Apply discount if exists
         if (item.discountPercentage != null && item.discountPercentage! > 0) {
           double discountAmount = itemTotal * (item.discountPercentage! / 100);
           itemTotal -= discountAmount;
@@ -159,16 +153,12 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         }
 
         _subtotal += itemTotal;
-
-        // Calculate 18% GST for each item
         item.gstAmount = itemTotal * 0.18;
         _gstAmount += item.gstAmount!;
       }
     }
 
     _totalAmount = _subtotal + _gstAmount;
-
-    // Calculate round off (round to nearest integer)
     _roundOff = _totalAmount.roundToDouble() - _totalAmount;
     _totalAmount = _totalAmount.roundToDouble();
 
@@ -177,9 +167,10 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
 
   void _addNewItem() {
     setState(() {
-      _purchaseItems.add(PurchaseItem());
-      _showEditSections[_purchaseItems.length - 1] =
-          true; // Show details for new item
+      final newIndex = _purchaseItems.length;
+      _purchaseItems.add(PurchaseItem(discountPercentage: 0.0));
+      _itemImeis[newIndex] = [];
+      _showEditSections[newIndex] = false;
     });
   }
 
@@ -187,13 +178,28 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     if (_purchaseItems.length > 1) {
       setState(() {
         _purchaseItems.removeAt(index);
-        _showEditSections.remove(index);
-        // Reindex the showEditSections map
+
+        // Create new maps to reindex everything properly
+        final newPurchaseItems = <PurchaseItem>[];
         final newShowEditSections = <int, bool>{};
+        final newItemImeis = <int, List<String>>{};
+
         for (int i = 0; i < _purchaseItems.length; i++) {
-          newShowEditSections[i] = _showEditSections[i] ?? false;
+          newPurchaseItems.add(_purchaseItems[i]);
+
+          if (i < index) {
+            newShowEditSections[i] = _showEditSections[i] ?? false;
+            newItemImeis[i] = _itemImeis[i] ?? [];
+          } else {
+            newShowEditSections[i] = _showEditSections[i + 1] ?? false;
+            newItemImeis[i] = _itemImeis[i + 1] ?? [];
+          }
         }
+
+        _purchaseItems = newPurchaseItems;
         _showEditSections = newShowEditSections;
+        _itemImeis = newItemImeis;
+
         _calculateTotals();
       });
     }
@@ -205,9 +211,13 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     });
   }
 
-  Future<void> _showScannerDialog(int itemIndex) async {
+  Future<void> _showScannerDialog(int itemIndex, {int? imeiIndex}) async {
     _currentScanItemIndex = itemIndex;
-    _scannerController = MobileScannerController();
+    _currentScanImeiIndex = imeiIndex;
+    _scannerController = MobileScannerController(
+      detectionSpeed: DetectionSpeed.noDuplicates,
+      detectionTimeoutMs: 1000,
+    );
 
     await showDialog(
       context: context,
@@ -219,11 +229,13 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Scan IMEI/Serial Number *',
-                  style: TextStyle(color: _pink),
+                  imeiIndex != null
+                      ? 'Scan IMEI ${imeiIndex + 1}'
+                      : 'Scan IMEI/Serial Number *',
+                  style: TextStyle(color: _pink, fontSize: 14),
                 ),
                 IconButton(
-                  icon: Icon(Icons.close),
+                  icon: const Icon(Icons.close, size: 20),
                   onPressed: () {
                     _scannerController?.dispose();
                     Navigator.pop(context);
@@ -232,29 +244,62 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
               ],
             ),
             content: Container(
-              height: 300,
-              width: 300,
-              child: MobileScanner(
-                controller: _scannerController,
-                onDetect: (capture) {
-                  final List<Barcode> barcodes = capture.barcodes;
-                  if (barcodes.isNotEmpty) {
-                    final barcode = barcodes.first;
-                    if (barcode.rawValue != null) {
-                      Navigator.pop(context);
-                      _onScanComplete(barcode.rawValue!);
-                    }
-                  }
-                },
+              height: 250,
+              width: 250,
+              child: Stack(
+                children: [
+                  MobileScanner(
+                    controller: _scannerController,
+                    onDetect: (capture) {
+                      final List<Barcode> barcodes = capture.barcodes;
+                      if (barcodes.isNotEmpty) {
+                        final barcode = barcodes.first;
+                        if (barcode.rawValue != null) {
+                          Navigator.pop(context);
+                          _onScanComplete(barcode.rawValue!);
+                        }
+                      }
+                    },
+                  ),
+                  Positioned(
+                    top: 12,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.7),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        'Position barcode within the frame',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white, fontSize: 10),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             actions: [
               TextButton(
                 onPressed: () {
                   Navigator.pop(context);
-                  _showManualIMEIEntry(itemIndex);
+                  _showManualIMEIEntry(itemIndex, imeiIndex: imeiIndex);
                 },
-                child: Text('Enter Manually'),
+                child: const Text(
+                  'Enter Manually',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  _scannerController?.toggleTorch();
+                },
+                child: const Text(
+                  'Toggle Flash',
+                  style: TextStyle(fontSize: 12),
+                ),
               ),
             ],
           );
@@ -266,12 +311,12 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   void _onScanComplete(String scannedValue) {
     if (_currentScanItemIndex != null) {
       // Validate IMEI is 15 digits
-      if (scannedValue.length != 15 ||
-          !RegExp(r'^\d+$').hasMatch(scannedValue)) {
+      if (!_isValidIMEI(scannedValue)) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               'Invalid IMEI. Must be 15 digits. Scanned: $scannedValue',
+              style: const TextStyle(fontSize: 12),
             ),
             backgroundColor: _red,
             behavior: SnackBarBehavior.floating,
@@ -281,69 +326,95 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
       }
 
       setState(() {
-        _purchaseItems[_currentScanItemIndex!].imei = scannedValue;
+        if (_currentScanImeiIndex != null) {
+          // Update specific IMEI
+          if ((_itemImeis[_currentScanItemIndex!]?.length ?? 0) >
+              _currentScanImeiIndex!) {
+            _itemImeis[_currentScanItemIndex!]![_currentScanImeiIndex!] =
+                scannedValue;
+          }
+        } else {
+          // Add new IMEI
+          _itemImeis[_currentScanItemIndex!] ??= [];
+          _itemImeis[_currentScanItemIndex!]!.add(scannedValue);
+        }
       });
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('IMEI scanned successfully ✓'),
+          content: const Text(
+            'IMEI scanned successfully ✓',
+            style: TextStyle(fontSize: 12),
+          ),
           backgroundColor: _lightGreen,
           behavior: SnackBarBehavior.floating,
         ),
       );
     }
     _currentScanItemIndex = null;
+    _currentScanImeiIndex = null;
   }
 
-  Future<void> _showManualIMEIEntry(int itemIndex) async {
+  bool _isValidIMEI(String imei) {
+    return imei.length == 15 && RegExp(r'^\d+$').hasMatch(imei);
+  }
+
+  Future<void> _showManualIMEIEntry(int itemIndex, {int? imeiIndex}) async {
     final imeiController = TextEditingController(
-      text: _purchaseItems[itemIndex].imei ?? '',
+      text:
+          imeiIndex != null && (_itemImeis[itemIndex]?.length ?? 0) > imeiIndex
+          ? _itemImeis[itemIndex]![imeiIndex]
+          : '',
     );
 
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Enter IMEI Number *', style: TextStyle(color: _pink)),
+        title: Text(
+          imeiIndex != null
+              ? 'Edit IMEI ${imeiIndex + 1}'
+              : 'Enter IMEI Number *',
+          style: TextStyle(color: _pink, fontSize: 14),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               'IMEI is required for inventory tracking',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             TextField(
               controller: imeiController,
               keyboardType: TextInputType.number,
               maxLength: 15,
+              style: const TextStyle(fontSize: 12),
               decoration: InputDecoration(
                 hintText: 'Enter 15-digit IMEI number...',
-                border: OutlineInputBorder(),
+                hintStyle: const TextStyle(fontSize: 11),
+                border: const OutlineInputBorder(),
                 counterText: '',
-                prefixIcon: Icon(Icons.smartphone, color: _primaryGreen),
+                prefixIcon: Icon(
+                  Icons.smartphone,
+                  color: _primaryGreen,
+                  size: 18,
+                ),
                 suffixIcon: IconButton(
-                  icon: Icon(Icons.clear),
+                  icon: const Icon(Icons.clear, size: 16),
                   onPressed: () => imeiController.clear(),
                 ),
               ),
               autofocus: true,
-              onChanged: (value) {
-                if (value.length == 15 && RegExp(r'^\d+$').hasMatch(value)) {
-                  // Auto-save if valid
-                  setState(() {
-                    _purchaseItems[itemIndex].imei = value;
-                  });
-                }
-              },
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Row(
               children: [
-                Icon(Icons.info_outline, size: 14, color: _primaryGreen),
-                const SizedBox(width: 8),
+                Icon(Icons.info_outline, size: 12, color: _primaryGreen),
+                const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     'IMEI is usually found under battery or in phone settings',
-                    style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                    style: TextStyle(fontSize: 9, color: Colors.grey.shade600),
                   ),
                 ),
               ],
@@ -351,21 +422,56 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
           ],
         ),
         actions: [
+          if (imeiIndex != null)
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  if ((_itemImeis[itemIndex]?.length ?? 0) > imeiIndex) {
+                    _itemImeis[itemIndex]!.removeAt(imeiIndex);
+                  }
+                });
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text(
+                      'IMEI removed',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    backgroundColor: _amber,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              },
+              style: TextButton.styleFrom(foregroundColor: _red),
+              child: const Text('Remove', style: TextStyle(fontSize: 12)),
+            ),
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: const Text('Cancel', style: TextStyle(fontSize: 12)),
           ),
           ElevatedButton(
             onPressed: () {
               final imei = imeiController.text.trim();
-              if (imei.length == 15 && RegExp(r'^\d+$').hasMatch(imei)) {
+              if (_isValidIMEI(imei)) {
                 Navigator.pop(context);
                 setState(() {
-                  _purchaseItems[itemIndex].imei = imei;
+                  if (imeiIndex != null) {
+                    // Edit existing IMEI
+                    if ((_itemImeis[itemIndex]?.length ?? 0) > imeiIndex) {
+                      _itemImeis[itemIndex]![imeiIndex] = imei;
+                    }
+                  } else {
+                    // Add new IMEI
+                    _itemImeis[itemIndex] ??= [];
+                    _itemImeis[itemIndex]!.add(imei);
+                  }
                 });
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('IMEI saved: ${imei.substring(0, 4)}...'),
+                    content: Text(
+                      'IMEI saved: ${imei.substring(0, 4)}...',
+                      style: const TextStyle(fontSize: 12),
+                    ),
                     backgroundColor: _lightGreen,
                     behavior: SnackBarBehavior.floating,
                   ),
@@ -375,6 +481,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                   SnackBar(
                     content: Text(
                       'IMEI must be exactly 15 digits (${imei.length}/15)',
+                      style: const TextStyle(fontSize: 12),
                     ),
                     backgroundColor: _red,
                     behavior: SnackBarBehavior.floating,
@@ -382,8 +489,14 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                 );
               }
             },
-            style: ElevatedButton.styleFrom(backgroundColor: _pink),
-            child: Text('Save IMEI', style: TextStyle(color: Colors.white)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _pink,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            child: Text(
+              imeiIndex != null ? 'Update IMEI' : 'Save IMEI',
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+            ),
           ),
         ],
       ),
@@ -407,24 +520,38 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
               height: MediaQuery.of(context).size.height * 0.8,
               child: Column(
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16),
+                  // Header
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _primaryGreen,
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(16),
+                        topRight: Radius.circular(16),
+                      ),
+                    ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
                           'Select Product',
                           style: TextStyle(
-                            fontSize: 16,
+                            fontSize: 15,
                             fontWeight: FontWeight.w600,
-                            color: _primaryGreen,
+                            color: Colors.white,
                           ),
                         ),
                         IconButton(
-                          icon: Icon(Icons.close, color: Colors.grey.shade600),
+                          icon: const Icon(
+                            Icons.close,
+                            color: Colors.white,
+                            size: 20,
+                          ),
                           onPressed: () {
-                            _productSearchController
-                                .clear(); // Clear search when closing
+                            _productSearchController.clear();
                             _filterProducts('');
                             Navigator.pop(context);
                           },
@@ -435,467 +562,64 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
 
                   // Search Bar
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: TextField(
-                      controller: _productSearchController,
-                      decoration: InputDecoration(
-                        hintText: 'Search by product name or brand...',
-                        prefixIcon: Icon(Icons.search, color: _primaryGreen),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
-                        suffixIcon: _productSearchController.text.isNotEmpty
-                            ? IconButton(
-                                icon: Icon(Icons.clear, color: Colors.grey),
-                                onPressed: () {
-                                  _productSearchController.clear();
-                                  _filterProducts('');
-                                  setSheetState(() {});
-                                },
-                              )
-                            : null,
+                    padding: const EdgeInsets.all(12),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
-                      onChanged: (value) {
-                        _filterProducts(value);
-                        setSheetState(() {});
-                      },
+                      child: TextField(
+                        controller: _productSearchController,
+                        style: const TextStyle(fontSize: 12),
+                        decoration: InputDecoration(
+                          hintText: 'Search by product name or brand...',
+                          hintStyle: const TextStyle(fontSize: 11),
+                          prefixIcon: Icon(
+                            Icons.search,
+                            color: _primaryGreen,
+                            size: 18,
+                          ),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          suffixIcon: _productSearchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(
+                                    Icons.clear,
+                                    color: Colors.grey,
+                                    size: 16,
+                                  ),
+                                  onPressed: () {
+                                    _productSearchController.clear();
+                                    _filterProducts('');
+                                    setSheetState(() {});
+                                  },
+                                )
+                              : null,
+                        ),
+                        onChanged: (value) {
+                          _filterProducts(value);
+                          setSheetState(() {});
+                        },
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 12),
 
-                  if (_filteredProducts.isEmpty &&
-                      _productSearchController.text.isNotEmpty)
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.phone_android_outlined,
-                            size: 64,
-                            color: Colors.grey.shade300,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Product not found',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Add "${_productSearchController.text}" as new product',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade500,
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                          SizedBox(
-                            width: 200,
-                            child: ElevatedButton.icon(
-                              onPressed: () async {
-                                final searchText = _productSearchController
-                                    .text; // Store search text
-                                Navigator.pop(
-                                  context,
-                                ); // Close product selection
-                                await _showAddProductDialog(
-                                  preFilledSearch: searchText,
-                                );
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: _orange,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                              icon: const Icon(Icons.add, size: 16),
-                              label: const Text('Add New Product'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                  if (_filteredProducts.isEmpty &&
-                      _productSearchController.text.isEmpty)
-                    Expanded(
-                      child: Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(32),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.phone_android,
-                                size: 64,
-                                color: Colors.grey.shade300,
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'No products available',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Add your first product to continue',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade500,
-                                ),
-                              ),
-                              const SizedBox(height: 24),
-                              SizedBox(
-                                width: 200,
-                                child: ElevatedButton.icon(
-                                  onPressed: () async {
-                                    Navigator.pop(
-                                      context,
-                                    ); // Close product selection
-                                    await _showAddProductDialog();
-                                  },
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: _lightGreen,
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                  ),
-                                  icon: const Icon(Icons.add, size: 16),
-                                  label: const Text('Add New Product'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-
-                  if (_filteredProducts.isNotEmpty)
-                    Expanded(
-                      child: Column(
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  'Found: ${_filteredProducts.length} product${_filteredProducts.length != 1 ? 's' : ''}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                                TextButton.icon(
-                                  onPressed: () async {
-                                    final searchText = _productSearchController
-                                        .text; // Store search text
-                                    Navigator.pop(
-                                      context,
-                                    ); // Close product selection
-                                    await _showAddProductDialog(
-                                      preFilledSearch: searchText,
-                                    );
-                                  },
-                                  style: TextButton.styleFrom(
-                                    foregroundColor: _blue,
-                                  ),
-                                  icon: const Icon(Icons.add, size: 14),
-                                  label: const Text('Add New'),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Expanded(
-                            child: ListView.builder(
-                              itemCount: _filteredProducts.length,
-                              itemBuilder: (context, index) {
-                                final product = _filteredProducts[index];
-                                final hasPurchaseRate =
-                                    product['purchaseRate'] != null &&
-                                    (product['purchaseRate'] is num) &&
-                                    product['purchaseRate'] > 0;
-                                final productName =
-                                    product['productName'] ?? 'Unnamed Product';
-                                final brand = product['brand'] ?? '';
-                                final hsnCode = product['hsnCode'] ?? '';
-                                final purchaseRate =
-                                    product['purchaseRate'] ?? 0.0;
-                                final price = product['price'] ?? 0.0;
-
-                                return Column(
-                                  children: [
-                                    ListTile(
-                                      leading: Container(
-                                        padding: const EdgeInsets.all(6),
-                                        decoration: BoxDecoration(
-                                          color: hasPurchaseRate
-                                              ? _lightGreen.withOpacity(0.1)
-                                              : _amber.withOpacity(0.1),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: Icon(
-                                          Icons.phone_android,
-                                          size: 18,
-                                          color: hasPurchaseRate
-                                              ? _lightGreen
-                                              : _amber,
-                                        ),
-                                      ),
-                                      title: Text(
-                                        productName,
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          color: Colors.grey.shade800,
-                                        ),
-                                      ),
-                                      subtitle: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          if (brand.isNotEmpty)
-                                            Text(
-                                              'Brand: $brand',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey.shade600,
-                                              ),
-                                            ),
-                                          const SizedBox(height: 2),
-                                          if (hasPurchaseRate)
-                                            Row(
-                                              children: [
-                                                Text(
-                                                  'Purchase Rate: ',
-                                                  style: TextStyle(
-                                                    fontSize: 11,
-                                                    color: Colors.grey.shade600,
-                                                  ),
-                                                ),
-                                                Text(
-                                                  '₹${(purchaseRate as num).toStringAsFixed(2)}',
-                                                  style: TextStyle(
-                                                    fontSize: 11,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: _primaryGreen,
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                if (price > 0)
-                                                  Container(
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          horizontal: 6,
-                                                          vertical: 2,
-                                                        ),
-                                                    decoration: BoxDecoration(
-                                                      color: _blue.withOpacity(
-                                                        0.1,
-                                                      ),
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            4,
-                                                          ),
-                                                    ),
-                                                    child: Text(
-                                                      'Sell: ₹${price.toStringAsFixed(2)}',
-                                                      style: TextStyle(
-                                                        fontSize: 10,
-                                                        color: _blue,
-                                                        fontWeight:
-                                                            FontWeight.w500,
-                                                      ),
-                                                    ),
-                                                  ),
-                                              ],
-                                            )
-                                          else
-                                            Container(
-                                              margin: const EdgeInsets.only(
-                                                top: 2,
-                                              ),
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 6,
-                                                    vertical: 2,
-                                                  ),
-                                              decoration: BoxDecoration(
-                                                color: _amber.withOpacity(0.1),
-                                                borderRadius:
-                                                    BorderRadius.circular(4),
-                                              ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Icon(
-                                                    Icons.warning,
-                                                    size: 10,
-                                                    color: _amber,
-                                                  ),
-                                                  const SizedBox(width: 4),
-                                                  Text(
-                                                    'No purchase rate set',
-                                                    style: TextStyle(
-                                                      fontSize: 10,
-                                                      color: _amber,
-                                                      fontWeight:
-                                                          FontWeight.w500,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          if (hsnCode.isNotEmpty)
-                                            Padding(
-                                              padding: const EdgeInsets.only(
-                                                top: 2,
-                                              ),
-                                              child: Row(
-                                                children: [
-                                                  Text(
-                                                    'HSN: ',
-                                                    style: TextStyle(
-                                                      fontSize: 11,
-                                                      color:
-                                                          Colors.grey.shade600,
-                                                    ),
-                                                  ),
-                                                  Text(
-                                                    hsnCode,
-                                                    style: TextStyle(
-                                                      fontSize: 11,
-                                                      color: _pink,
-                                                      fontWeight:
-                                                          FontWeight.w500,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                      trailing: const Icon(
-                                        Icons.arrow_forward_ios,
-                                        size: 14,
-                                      ),
-                                      onTap: () async {
-                                        if (!hasPurchaseRate) {
-                                          // Show dialog to set purchase rate
-                                          final newRate =
-                                              await _showSetPurchaseRateDialog(
-                                                productName,
-                                              );
-                                          if (newRate != null) {
-                                            // Update product with new rate
-                                            await _firestoreService
-                                                .updateProductPurchaseRate(
-                                                  product['id'] ?? '',
-                                                  newRate,
-                                                );
-                                            // Update local product data
-                                            product['purchaseRate'] = newRate;
-                                            // Refresh products list
-                                            await _fetchProducts();
-                                            // Clear search field before returning
-                                            _productSearchController.clear();
-                                            _filterProducts('');
-                                            // Return the updated product
-                                            Navigator.pop(context, product);
-                                          }
-                                        } else {
-                                          // Clear search field before returning
-                                          _productSearchController.clear();
-                                          _filterProducts('');
-                                          Navigator.pop(context, product);
-                                        }
-                                      },
-                                    ),
-                                    // Add Item button after each product
-                                    Padding(
-                                      padding: const EdgeInsets.only(
-                                        left: 16,
-                                        right: 16,
-                                        bottom: 8,
-                                      ),
-                                      child: SizedBox(
-                                        width: double.infinity,
-                                        child: ElevatedButton.icon(
-                                          onPressed: () async {
-                                            if (!hasPurchaseRate) {
-                                              // Show dialog to set purchase rate
-                                              final newRate =
-                                                  await _showSetPurchaseRateDialog(
-                                                    productName,
-                                                  );
-                                              if (newRate != null) {
-                                                // Update product with new rate
-                                                await _firestoreService
-                                                    .updateProductPurchaseRate(
-                                                      product['id'] ?? '',
-                                                      newRate,
-                                                    );
-                                                // Update local product data
-                                                product['purchaseRate'] =
-                                                    newRate;
-                                                // Refresh products list
-                                                await _fetchProducts();
-                                                // Clear search field before returning
-                                                _productSearchController
-                                                    .clear();
-                                                _filterProducts('');
-                                                // Return the updated product
-                                                Navigator.pop(context, product);
-                                              }
-                                            } else {
-                                              // Clear search field before returning
-                                              _productSearchController.clear();
-                                              _filterProducts('');
-                                              Navigator.pop(context, product);
-                                            }
-                                          },
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: _lightGreen,
-                                            foregroundColor: Colors.white,
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                            ),
-                                            padding: const EdgeInsets.symmetric(
-                                              vertical: 8,
-                                            ),
-                                          ),
-                                          icon: const Icon(Icons.add, size: 14),
-                                          label: const Text(
-                                            'Add Item',
-                                            style: TextStyle(fontSize: 12),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    if (index < _filteredProducts.length - 1)
-                                      Divider(
-                                        height: 1,
-                                        color: Colors.grey.shade200,
-                                      ),
-                                  ],
-                                );
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  // Results or Empty State
+                  Expanded(
+                    child: _filteredProducts.isEmpty
+                        ? _buildEmptyProductState(setSheetState)
+                        : _buildProductList(setSheetState),
+                  ),
                 ],
               ),
             ),
@@ -905,162 +629,429 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     );
 
     if (selectedProduct != null) {
-      // Clear the search controller after product is selected
-      _productSearchController.clear();
-      _filterProducts('');
-
-      // Show a reminder about IMEI
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Don\'t forget to scan/enter IMEI for ${selectedProduct['productName'] ?? 'this product'}',
-            ),
-            backgroundColor: _amber,
-            behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 3),
-          ),
-        );
-      });
-
-      // Update the purchase item with selected product
-      setState(() {
-        _purchaseItems[itemIndex].productId = selectedProduct['id'] ?? '';
-        _purchaseItems[itemIndex].productName =
-            selectedProduct['productName'] ?? 'Unnamed Product';
-        _purchaseItems[itemIndex].brand = selectedProduct['brand'];
-        _purchaseItems[itemIndex].hsnCode = selectedProduct['hsnCode'] ?? '';
-
-        // Use purchaseRate if available - auto-fill purchase rate
-        final purchaseRate = selectedProduct['purchaseRate'];
-        if (purchaseRate != null && purchaseRate is num && purchaseRate > 0) {
-          _purchaseItems[itemIndex].rate = purchaseRate.toDouble();
-          // Calculate 18% GST for this item
-          _purchaseItems[itemIndex].gstAmount = purchaseRate.toDouble() * 0.18;
-        }
-
-        // Show edit section when product is selected
-        _showEditSections[itemIndex] = true;
-        _calculateTotals();
-      });
+      _handleProductSelection(itemIndex, selectedProduct);
     } else {
-      // Clear search if dialog is dismissed without selecting
       _productSearchController.clear();
       _filterProducts('');
     }
   }
 
+  Widget _buildEmptyProductState(StateSetter setSheetState) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          _productSearchController.text.isEmpty
+              ? Icons.inventory_2_outlined
+              : Icons.search_off,
+          size: 60,
+          color: Colors.grey.shade300,
+        ),
+        const SizedBox(height: 16),
+        Text(
+          _productSearchController.text.isEmpty
+              ? 'No products available'
+              : 'Product not found',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey.shade600,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          _productSearchController.text.isEmpty
+              ? 'Add your first product to continue'
+              : 'Add "${_productSearchController.text}" as new product',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 24),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40),
+          child: ElevatedButton.icon(
+            onPressed: () async {
+              final searchText = _productSearchController.text;
+              Navigator.pop(context);
+              await _showAddProductDialog(preFilledSearch: searchText);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _productSearchController.text.isEmpty
+                  ? _lightGreen
+                  : _orange,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 10),
+            ),
+            icon: const Icon(Icons.add, size: 16),
+            label: const Text(
+              'Add New Product',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildProductList(StateSetter setSheetState) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Found ${_filteredProducts.length} product${_filteredProducts.length != 1 ? 's' : ''}',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+              TextButton.icon(
+                onPressed: () async {
+                  final searchText = _productSearchController.text;
+                  Navigator.pop(context);
+                  await _showAddProductDialog(preFilledSearch: searchText);
+                },
+                style: TextButton.styleFrom(foregroundColor: _blue),
+                icon: const Icon(Icons.add, size: 14),
+                label: const Text('Add New', style: TextStyle(fontSize: 11)),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView.separated(
+            itemCount: _filteredProducts.length,
+            separatorBuilder: (context, index) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final product = _filteredProducts[index];
+              return _buildProductListItem(product, setSheetState);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildProductListItem(
+    Map<String, dynamic> product,
+    StateSetter setSheetState,
+  ) {
+    final hasPurchaseRate =
+        product['purchaseRate'] != null &&
+        (product['purchaseRate'] is num) &&
+        product['purchaseRate'] > 0;
+    final productName = product['productName'] ?? 'Unnamed Product';
+    final brand = product['brand'] ?? '';
+    final model = product['model'] ?? '';
+    final hsnCode = product['hsnCode'] ?? '';
+    final purchaseRate = product['purchaseRate'] ?? 0.0;
+    final price = product['price'] ?? 0.0;
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: hasPurchaseRate
+              ? _lightGreen.withOpacity(0.1)
+              : _amber.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(
+          Icons.phone_android,
+          size: 20,
+          color: hasPurchaseRate ? _lightGreen : _amber,
+        ),
+      ),
+      title: Text(
+        productName,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Colors.grey.shade800,
+        ),
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (brand.isNotEmpty)
+            Text(
+              brand,
+              style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+            ),
+          if (model.isNotEmpty)
+            Text(
+              model,
+              style: TextStyle(fontSize: 9, color: Colors.grey.shade500),
+            ),
+          const SizedBox(height: 2),
+          Row(
+            children: [
+              Text(
+                '₹${(purchaseRate as num).toStringAsFixed(2)}',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: _primaryGreen,
+                ),
+              ),
+              const SizedBox(width: 6),
+              if (price > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 1,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  child: Text(
+                    'Sell: ₹${price.toStringAsFixed(2)}',
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: _blue,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+      trailing: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: _lightGreen.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: const Icon(Icons.add, size: 16, color: Colors.green),
+      ),
+      onTap: () async {
+        if (!hasPurchaseRate) {
+          final newRate = await _showSetPurchaseRateDialog(productName);
+          if (newRate != null) {
+            await _firestoreService.updateProductPurchaseRate(
+              product['id'] ?? '',
+              newRate,
+            );
+            product['purchaseRate'] = newRate;
+            await _fetchProducts();
+            _productSearchController.clear();
+            _filterProducts('');
+            Navigator.pop(context, product);
+          }
+        } else {
+          _productSearchController.clear();
+          _filterProducts('');
+          Navigator.pop(context, product);
+        }
+      },
+    );
+  }
+
+  void _handleProductSelection(int itemIndex, Map<String, dynamic> product) {
+    _productSearchController.clear();
+    _filterProducts('');
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Don\'t forget to add IMEIs for ${product['productName'] ?? 'this product'}',
+            style: const TextStyle(fontSize: 12),
+          ),
+          backgroundColor: _amber,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    });
+
+    setState(() {
+      _purchaseItems[itemIndex].productId = product['id'] ?? '';
+      _purchaseItems[itemIndex].productName =
+          product['productName'] ?? 'Unnamed Product';
+      _purchaseItems[itemIndex].brand = product['brand'];
+      _purchaseItems[itemIndex].model = product['model'];
+      _purchaseItems[itemIndex].hsnCode = product['hsnCode'] ?? '';
+
+      final purchaseRate = product['purchaseRate'];
+      if (purchaseRate != null && purchaseRate is num && purchaseRate > 0) {
+        _purchaseItems[itemIndex].rate = purchaseRate.toDouble();
+        _purchaseItems[itemIndex].gstAmount = purchaseRate.toDouble() * 0.18;
+      }
+
+      // Auto-show edit section only if it's a new product selection (not editing existing)
+      if (!_showEditSections.containsKey(itemIndex) ||
+          !_showEditSections[itemIndex]!) {
+        _showEditSections[itemIndex] = true;
+      }
+      _calculateTotals();
+    });
+  }
+
   Future<double?> _showSetPurchaseRateDialog(String productName) async {
     final rateController = TextEditingController();
+    double? purchaseRate;
 
     return await showDialog<double>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          'Set Purchase Rate',
-          style: TextStyle(color: _primaryGreen),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              productName,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade800,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          purchaseRate = double.tryParse(rateController.text);
+
+          return AlertDialog(
+            title: Text(
+              'Set Purchase Rate',
+              style: TextStyle(color: _primaryGreen, fontSize: 14),
             ),
-            const SizedBox(height: 12),
-            Text(
-              'This product doesn\'t have a purchase rate set. Please enter the purchase rate (cost price):',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: rateController,
-              keyboardType: TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(
-                labelText: 'Purchase Rate (Cost Price)',
-                hintText: 'Enter purchase rate...',
-                prefixText: '₹ ',
-                border: OutlineInputBorder(),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-              ),
-              autofocus: true,
-            ),
-            const SizedBox(height: 8),
-            if (rateController.text.isNotEmpty)
-              Column(
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Price Breakdown:',
+                    productName,
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade700,
+                      color: Colors.grey.shade800,
                     ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 12),
                   Text(
-                    'Cost: ₹${double.tryParse(rateController.text)?.toStringAsFixed(2) ?? "0.00"}',
+                    'Enter the purchase rate (cost price):',
                     style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                   ),
-                  Text(
-                    'GST (18%): ₹${((double.tryParse(rateController.text) ?? 0) * 0.18).toStringAsFixed(2)}',
-                    style: TextStyle(fontSize: 11, color: _indigo),
-                  ),
-                  Text(
-                    'Total: ₹${((double.tryParse(rateController.text) ?? 0) * 1.18).toStringAsFixed(2)}',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: _primaryGreen,
-                      fontWeight: FontWeight.w600,
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: rateController,
+                    style: const TextStyle(fontSize: 12),
+                    keyboardType: TextInputType.numberWithOptions(
+                      decimal: true,
                     ),
+                    decoration: InputDecoration(
+                      labelText: 'Purchase Rate',
+                      labelStyle: const TextStyle(fontSize: 11),
+                      hintText: 'Enter purchase rate...',
+                      hintStyle: const TextStyle(fontSize: 11),
+                      prefixText: '₹ ',
+                      border: const OutlineInputBorder(),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 10,
+                      ),
+                    ),
+                    autofocus: true,
+                    onChanged: (value) => setState(() {}),
                   ),
+                  if (purchaseRate != null && purchaseRate! > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade50,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Column(
+                          children: [
+                            _buildPriceCalculationRow(
+                              'Cost Price:',
+                              '₹${purchaseRate!.toStringAsFixed(2)}',
+                            ),
+                            _buildPriceCalculationRow(
+                              'GST (18%):',
+                              '₹${(purchaseRate! * 0.18).toStringAsFixed(2)}',
+                            ),
+                            const Divider(height: 12),
+                            _buildPriceCalculationRow(
+                              'Total Cost:',
+                              '₹${(purchaseRate! * 1.18).toStringAsFixed(2)}',
+                              isBold: true,
+                              color: _primaryGreen,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                 ],
               ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // Clear search field if cancelled
-              _productSearchController.clear();
-              _filterProducts('');
-            },
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final rate = double.tryParse(rateController.text);
-              if (rate != null && rate > 0) {
-                Navigator.pop(context, rate);
-                // Clear search field after setting rate
-                _productSearchController.clear();
-                _filterProducts('');
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text('Please enter a valid purchase rate'),
-                    backgroundColor: _red,
-                    behavior: SnackBarBehavior.floating,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _productSearchController.clear();
+                  _filterProducts('');
+                },
+                child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  if (purchaseRate != null && purchaseRate! > 0) {
+                    Navigator.pop(context, purchaseRate);
+                    _productSearchController.clear();
+                    _filterProducts('');
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Please enter a valid purchase rate',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _lightGreen,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
                   ),
-                );
-              }
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: _lightGreen),
-            child: const Text(
-              'Set Purchase Rate',
-              style: TextStyle(color: Colors.white),
+                ),
+                child: const Text(
+                  'Set Purchase Rate',
+                  style: TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPriceCalculationRow(
+    String label,
+    String value, {
+    bool isBold = false,
+    Color? color,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: isBold ? FontWeight.w600 : FontWeight.normal,
+              color: color ?? Colors.grey.shade800,
             ),
           ),
         ],
@@ -1071,11 +1062,11 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   Future<void> _showAddProductDialog({String preFilledSearch = ''}) async {
     final brandController = TextEditingController();
     final productNameController = TextEditingController();
+    final modelController = TextEditingController();
     final purchaseRateController = TextEditingController();
-    final priceController = TextEditingController(); // NEW: Selling Price
+    final priceController = TextEditingController();
     final hsnController = TextEditingController();
 
-    // Lists for dropdowns
     final List<String> brandList = [
       'Samsung',
       'Apple',
@@ -1087,35 +1078,40 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
       'Nokia',
       'Motorola',
       'Google',
+      'Nothing',
+      'Asus',
+      'LG',
+      'Sony',
+      'Huawei',
     ];
     String selectedBrand = '';
 
-    // Auto-fill from search if available
     if (preFilledSearch.isNotEmpty) {
       productNameController.text = preFilledSearch;
     }
 
-    await showDialog(
+    await showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(16),
+          topRight: Radius.circular(16),
+        ),
+      ),
       builder: (context) => StatefulBuilder(
         builder: (context, setState) {
-          return Dialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
+          return SingleChildScrollView(
             child: Container(
-              constraints: BoxConstraints(
-                maxHeight:
-                    MediaQuery.of(context).size.height *
-                    0.9, // Increased height
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
               ),
-              width: MediaQuery.of(context).size.width * 0.9, // Increased width
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   // Header
                   Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: _primaryGreen,
                       borderRadius: const BorderRadius.only(
@@ -1125,472 +1121,327 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                     ),
                     child: Row(
                       children: [
-                        Icon(
-                          Icons.add_box_rounded,
-                          color: Colors.white,
-                          size: 24,
-                        ),
-                        const SizedBox(width: 12),
+                        Icon(Icons.add_circle, color: Colors.white, size: 20),
+                        const SizedBox(width: 10),
                         Expanded(
                           child: Text(
                             'Add New Product',
                             style: TextStyle(
-                              fontSize: 18,
+                              fontSize: 16,
                               fontWeight: FontWeight.w600,
                               color: Colors.white,
                             ),
                           ),
                         ),
                         IconButton(
-                          icon: Icon(Icons.close, color: Colors.white),
+                          icon: const Icon(
+                            Icons.close,
+                            color: Colors.white,
+                            size: 20,
+                          ),
                           onPressed: () => Navigator.pop(context),
                         ),
                       ],
                     ),
                   ),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Brand Selection Dropdown
-                          _buildFormSection(
-                            label: 'Brand *',
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.grey.shade300),
-                              ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                              ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<String>(
-                                  value: selectedBrand.isNotEmpty
-                                      ? selectedBrand
-                                      : null,
-                                  hint: Text(
+
+                  // Form
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      children: [
+                        // Brand Dropdown
+                        _buildFormSection(
+                          label: 'Brand *',
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.grey.shade300),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: selectedBrand.isNotEmpty
+                                    ? selectedBrand
+                                    : null,
+                                hint: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
+                                  child: Text(
                                     'Select Brand',
                                     style: TextStyle(
-                                      fontSize: 13,
                                       color: Colors.grey.shade500,
+                                      fontSize: 12,
                                     ),
                                   ),
-                                  icon: Icon(
-                                    Icons.arrow_drop_down,
-                                    color: _primaryGreen,
-                                  ),
-                                  isExpanded: true,
-                                  items: [
-                                    ...brandList.map((brand) {
-                                      return DropdownMenuItem(
-                                        value: brand,
+                                ),
+                                icon: Icon(
+                                  Icons.arrow_drop_down,
+                                  color: _primaryGreen,
+                                  size: 18,
+                                ),
+                                isExpanded: true,
+                                items: [
+                                  ...brandList.map((brand) {
+                                    return DropdownMenuItem(
+                                      value: brand,
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                        ),
                                         child: Text(
                                           brand,
-                                          style: TextStyle(fontSize: 13),
+                                          style: const TextStyle(fontSize: 12),
                                         ),
-                                      );
-                                    }).toList(),
-                                    const DropdownMenuItem(
-                                      value: 'other',
+                                      ),
+                                    );
+                                  }).toList(),
+                                  const DropdownMenuItem(
+                                    value: 'other',
+                                    child: Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                      ),
                                       child: Row(
                                         children: [
-                                          Icon(Icons.add, size: 16),
-                                          SizedBox(width: 8),
-                                          Text('Add New Brand'),
+                                          Icon(Icons.add, size: 14),
+                                          SizedBox(width: 6),
+                                          Text(
+                                            'Add New Brand',
+                                            style: TextStyle(fontSize: 12),
+                                          ),
                                         ],
                                       ),
                                     ),
-                                  ],
-                                  onChanged: (String? newValue) {
-                                    if (newValue == 'other') {
-                                      _showAddBrandDialog().then((newBrand) {
-                                        if (newBrand != null &&
-                                            newBrand.isNotEmpty) {
-                                          setState(() {
-                                            brandList.add(newBrand);
-                                            selectedBrand = newBrand;
-                                          });
-                                        }
-                                      });
-                                    } else {
-                                      setState(() {
-                                        selectedBrand = newValue ?? '';
-                                      });
-                                    }
-                                  },
-                                ),
+                                  ),
+                                ],
+                                onChanged: (String? newValue) {
+                                  if (newValue == 'other') {
+                                    _showAddBrandDialog().then((newBrand) {
+                                      if (newBrand != null &&
+                                          newBrand.isNotEmpty) {
+                                        setState(() {
+                                          brandList.add(newBrand);
+                                          selectedBrand = newBrand;
+                                        });
+                                      }
+                                    });
+                                  } else {
+                                    setState(() {
+                                      selectedBrand = newValue ?? '';
+                                    });
+                                  }
+                                },
                               ),
                             ),
                           ),
-                          const SizedBox(height: 16),
+                        ),
+                        const SizedBox(height: 12),
 
-                          // Product Name
-                          _buildFormSection(
-                            label: 'Product Name *',
-                            child: TextField(
-                              controller: productNameController,
-                              decoration: InputDecoration(
-                                hintText: 'e.g., Samsung Galaxy S23 5G',
-                                filled: true,
-                                fillColor: Colors.grey.shade50,
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                  borderSide: BorderSide(
-                                    color: Colors.grey.shade300,
+                        // Product Name
+                        _buildFormSection(
+                          label: 'Product Name *',
+                          child: TextField(
+                            controller: productNameController,
+                            style: const TextStyle(fontSize: 12),
+                            decoration: InputDecoration(
+                              hintText: 'e.g., Galaxy S23 5G',
+                              hintStyle: const TextStyle(fontSize: 11),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              prefixIcon: Icon(
+                                Icons.phone_android,
+                                color: _primaryGreen,
+                                size: 18,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Model (Optional)
+                        _buildFormSection(
+                          label: 'Model (Optional)',
+                          child: TextField(
+                            controller: modelController,
+                            style: const TextStyle(fontSize: 12),
+                            decoration: InputDecoration(
+                              hintText: 'e.g., SM-S911B',
+                              hintStyle: const TextStyle(fontSize: 11),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              prefixIcon: Icon(
+                                Icons.model_training,
+                                color: _primaryGreen,
+                                size: 18,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // HSN Code
+                        _buildFormSection(
+                          label: 'HSN Code *',
+                          child: TextField(
+                            controller: hsnController,
+                            style: const TextStyle(fontSize: 12),
+                            keyboardType: TextInputType.number,
+                            decoration: InputDecoration(
+                              hintText: 'e.g., 85171300',
+                              hintStyle: const TextStyle(fontSize: 11),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              prefixIcon: Icon(
+                                Icons.tag,
+                                color: _primaryGreen,
+                                size: 18,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: _indigo.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.info_outline,
+                                size: 14,
+                                color: _indigo,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  'Common HSN for mobiles: 85171300 (18% GST)',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: _indigo,
                                   ),
                                 ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 10,
-                                ),
-                                prefixIcon: Icon(
-                                  Icons.phone_android,
-                                  size: 18,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Pricing Section
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade50,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: _lightGreen.withOpacity(0.3),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Pricing Information',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
                                   color: _primaryGreen,
                                 ),
                               ),
-                              style: TextStyle(fontSize: 13),
-                              maxLines: 2,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
+                              const SizedBox(height: 12),
 
-                          // HSN Code as INPUT FIELD (Not Dropdown)
-                          _buildFormSection(
-                            label: 'HSN Code *',
-                            child: TextField(
-                              controller: hsnController,
-                              keyboardType: TextInputType.number,
-                              decoration: InputDecoration(
-                                hintText: 'Enter HSN Code (e.g., 85171300)',
-                                filled: true,
-                                fillColor: Colors.grey.shade50,
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                  borderSide: BorderSide(
-                                    color: Colors.grey.shade300,
+                              // Purchase Rate
+                              _buildFormSection(
+                                label: 'Purchase Rate (Cost Price) *',
+                                child: TextField(
+                                  controller: purchaseRateController,
+                                  style: const TextStyle(fontSize: 12),
+                                  keyboardType: TextInputType.numberWithOptions(
+                                    decimal: true,
                                   ),
+                                  decoration: InputDecoration(
+                                    hintText: 'Enter purchase rate',
+                                    hintStyle: const TextStyle(fontSize: 11),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    prefixText: '₹ ',
+                                  ),
+                                  onChanged: (value) => setState(() {}),
                                 ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 10,
-                                ),
-                                prefixIcon: Icon(
-                                  Icons.tag,
-                                  size: 18,
-                                  color: _primaryGreen,
-                                ),
-                                suffixIcon: hsnController.text.isNotEmpty
-                                    ? IconButton(
-                                        icon: Icon(Icons.clear, size: 16),
-                                        onPressed: () => hsnController.clear(),
-                                      )
-                                    : null,
                               ),
-                              style: TextStyle(fontSize: 13),
-                              onChanged: (value) {
-                                setState(() {});
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 8),
+                              const SizedBox(height: 12),
 
-                          // Info about HSN code
-                          Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _indigo.withOpacity(0.05),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                color: _indigo.withOpacity(0.1),
+                              // Selling Price
+                              _buildFormSection(
+                                label: 'Selling Price *',
+                                child: TextField(
+                                  controller: priceController,
+                                  style: const TextStyle(fontSize: 12),
+                                  keyboardType: TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                                  decoration: InputDecoration(
+                                    hintText: 'Enter selling price',
+                                    hintStyle: const TextStyle(fontSize: 11),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    prefixText: '₹ ',
+                                  ),
+                                  onChanged: (value) => setState(() {}),
+                                ),
                               ),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.info_outline,
-                                  size: 14,
-                                  color: _indigo,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'Common HSN for mobiles: 85171300 (18% GST)',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: _indigo,
+
+                              // Price Preview
+                              if (purchaseRateController.text.isNotEmpty &&
+                                  priceController.text.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 12),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        _buildPriceRow(
+                                          'Cost:',
+                                          purchaseRateController.text,
+                                        ),
+                                        _buildPriceRow(
+                                          'Selling:',
+                                          priceController.text,
+                                        ),
+                                        const Divider(height: 10),
+                                        _buildPriceRow(
+                                          'Margin:',
+                                          '₹${(double.tryParse(priceController.text) ?? 0 - (double.tryParse(purchaseRateController.text) ?? 0)).toStringAsFixed(2)} '
+                                              '(${(((double.tryParse(priceController.text) ?? 0) - (double.tryParse(purchaseRateController.text) ?? 0)) / (double.tryParse(purchaseRateController.text) ?? 1) * 100).toStringAsFixed(1)}%)',
+                                          color: _lightGreen,
+                                          isBold: true,
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
-                              ],
-                            ),
+                            ],
                           ),
-                          const SizedBox(height: 16),
-
-                          // Pricing Section with live calculation
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.green.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: _lightGreen.withOpacity(0.3),
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.currency_rupee,
-                                      color: _primaryGreen,
-                                      size: 16,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'Pricing Information',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        color: _primaryGreen,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-
-                                // Purchase Rate
-                                _buildFormSection(
-                                  label: 'Purchase Rate (Cost Price) *',
-                                  child: TextField(
-                                    controller: purchaseRateController,
-                                    keyboardType:
-                                        TextInputType.numberWithOptions(
-                                          decimal: true,
-                                        ),
-                                    decoration: InputDecoration(
-                                      hintText: 'Enter purchase rate',
-                                      filled: true,
-                                      fillColor: Colors.white,
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                        borderSide: BorderSide(
-                                          color: Colors.grey.shade300,
-                                        ),
-                                      ),
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 10,
-                                          ),
-                                      prefixIcon: Padding(
-                                        padding: const EdgeInsets.only(
-                                          left: 12,
-                                          right: 8,
-                                        ),
-                                        child: Text(
-                                          '₹',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: _primaryGreen,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                    onChanged: (value) {
-                                      setState(() {});
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-
-                                // Selling Price Field (NEW)
-                                _buildFormSection(
-                                  label: 'Selling Price *',
-                                  child: TextField(
-                                    controller: priceController,
-                                    keyboardType:
-                                        TextInputType.numberWithOptions(
-                                          decimal: true,
-                                        ),
-                                    decoration: InputDecoration(
-                                      hintText: 'Enter selling price',
-                                      filled: true,
-                                      fillColor: Colors.white,
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                        borderSide: BorderSide(
-                                          color: Colors.grey.shade300,
-                                        ),
-                                      ),
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 10,
-                                          ),
-                                      prefixIcon: Padding(
-                                        padding: const EdgeInsets.only(
-                                          left: 12,
-                                          right: 8,
-                                        ),
-                                        child: Text(
-                                          '₹',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: _primaryGreen,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ),
-                                      suffixIcon:
-                                          purchaseRateController
-                                                  .text
-                                                  .isNotEmpty &&
-                                              priceController.text.isNotEmpty
-                                          ? Container(
-                                              padding: const EdgeInsets.only(
-                                                right: 12,
-                                              ),
-                                              child: Column(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment.center,
-                                                children: [
-                                                  Text(
-                                                    'Margin: ${(((double.tryParse(priceController.text) ?? 0) - (double.tryParse(purchaseRateController.text) ?? 0)) / (double.tryParse(purchaseRateController.text) ?? 1) * 100).toStringAsFixed(1)}%',
-                                                    style: TextStyle(
-                                                      fontSize: 10,
-                                                      color: _lightGreen,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            )
-                                          : null,
-                                    ),
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                    onChanged: (value) {
-                                      setState(() {});
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-
-                                // Live Price Calculation
-                                if (purchaseRateController.text.isNotEmpty)
-                                  Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Price Breakdown:',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.grey.shade700,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Container(
-                                        padding: const EdgeInsets.all(10),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white,
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                          border: Border.all(
-                                            color: Colors.grey.shade200,
-                                          ),
-                                        ),
-                                        child: Column(
-                                          children: [
-                                            _buildPriceRow(
-                                              'Purchase Rate:',
-                                              '₹ ${double.tryParse(purchaseRateController.text)?.toStringAsFixed(2) ?? "0.00"}',
-                                              Colors.grey.shade700,
-                                            ),
-                                            const SizedBox(height: 6),
-                                            _buildPriceRow(
-                                              'Selling Price:',
-                                              '₹ ${double.tryParse(priceController.text)?.toStringAsFixed(2) ?? "0.00"}',
-                                              _primaryGreen,
-                                            ),
-                                            const SizedBox(height: 6),
-                                            if (priceController
-                                                    .text
-                                                    .isNotEmpty &&
-                                                purchaseRateController
-                                                    .text
-                                                    .isNotEmpty)
-                                              Column(
-                                                children: [
-                                                  _buildPriceRow(
-                                                    'Margin:',
-                                                    '₹ ${((double.tryParse(priceController.text) ?? 0) - (double.tryParse(purchaseRateController.text) ?? 0)).toStringAsFixed(2)}',
-                                                    _lightGreen,
-                                                  ),
-                                                  const SizedBox(height: 6),
-                                                  _buildPriceRow(
-                                                    'Margin %:',
-                                                    '${(((double.tryParse(priceController.text) ?? 0) - (double.tryParse(purchaseRateController.text) ?? 0)) / (double.tryParse(purchaseRateController.text) ?? 1) * 100).toStringAsFixed(1)}%',
-                                                    _lightGreen,
-                                                  ),
-                                                ],
-                                              ),
-                                            const SizedBox(height: 6),
-                                            _buildPriceRow(
-                                              'GST (18%):',
-                                              '₹ ${((double.tryParse(purchaseRateController.text) ?? 0) * 0.18).toStringAsFixed(2)}',
-                                              _indigo,
-                                            ),
-                                            const SizedBox(height: 6),
-                                            Divider(
-                                              height: 1,
-                                              color: Colors.grey.shade300,
-                                            ),
-                                            const SizedBox(height: 6),
-                                            _buildPriceRow(
-                                              'Total Cost:',
-                                              '₹ ${((double.tryParse(purchaseRateController.text) ?? 0) * 1.18).toStringAsFixed(2)}',
-                                              _primaryGreen,
-                                              isBold: true,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
-                  // Footer with buttons
+
+                  // Footer Buttons
                   Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
                       border: Border(
                         top: BorderSide(color: Colors.grey.shade200),
                       ),
@@ -1602,177 +1453,54 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                             onPressed: () => Navigator.pop(context),
                             style: OutlinedButton.styleFrom(
                               foregroundColor: Colors.grey.shade600,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              side: BorderSide(color: Colors.grey.shade400),
                             ),
-                            child: const Text('Cancel'),
+                            child: const Text(
+                              'Cancel',
+                              style: TextStyle(fontSize: 12),
+                            ),
                           ),
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 10),
                         Expanded(
                           child: ElevatedButton(
                             onPressed: () async {
-                              // Validation
-                              if (selectedBrand.isEmpty) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: const Text(
-                                      'Please select a brand',
-                                    ),
-                                    backgroundColor: _red,
-                                  ),
-                                );
-                                return;
-                              }
-
-                              if (productNameController.text.isEmpty) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: const Text(
-                                      'Please enter product name',
-                                    ),
-                                    backgroundColor: _red,
-                                  ),
-                                );
-                                return;
-                              }
-
-                              if (hsnController.text.isEmpty) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: const Text(
-                                      'Please enter HSN code',
-                                    ),
-                                    backgroundColor: _red,
-                                  ),
-                                );
-                                return;
-                              }
-
-                              if (purchaseRateController.text.isEmpty) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: const Text(
-                                      'Please enter purchase rate',
-                                    ),
-                                    backgroundColor: _red,
-                                  ),
-                                );
-                                return;
-                              }
-
-                              if (priceController.text.isEmpty) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: const Text(
-                                      'Please enter selling price',
-                                    ),
-                                    backgroundColor: _red,
-                                  ),
-                                );
-                                return;
-                              }
-
-                              final purchaseRate = double.tryParse(
-                                purchaseRateController.text,
-                              );
-                              final price = double.tryParse(
-                                priceController.text,
-                              );
-
-                              if (purchaseRate == null || purchaseRate <= 0) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: const Text(
-                                      'Please enter a valid purchase rate',
-                                    ),
-                                    backgroundColor: _red,
-                                  ),
-                                );
-                                return;
-                              }
-
-                              if (price == null || price <= 0) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: const Text(
-                                      'Please enter a valid selling price',
-                                    ),
-                                    backgroundColor: _red,
-                                  ),
-                                );
-                                return;
-                              }
-
-                              if (price <= purchaseRate) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: const Text(
-                                      'Selling price must be greater than purchase rate',
-                                    ),
-                                    backgroundColor: _red,
-                                  ),
-                                );
-                                return;
-                              }
-
-                              try {
-                                final productData = {
-                                  'brand': selectedBrand,
-                                  'productName': productNameController.text
-                                      .trim(),
-                                  'hsnCode': hsnController.text.trim(),
-                                  'purchaseRate': purchaseRate,
-                                  'price': price, // NEW: Save selling price
-                                  'stockQuantity': 0,
-                                  'createdAt': DateTime.now(),
-                                };
-
-                                await _firestoreService.addProduct(productData);
-                                await _fetchProducts();
-
-                                Navigator.pop(context);
-
-                                // Clear the search field after adding product
-                                _productSearchController.clear();
-                                _filterProducts('');
-
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: const Text(
-                                      'Product added successfully',
-                                    ),
-                                    backgroundColor: _lightGreen,
-                                    behavior: SnackBarBehavior.floating,
-                                  ),
-                                );
-                              } catch (e) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Error adding product: $e'),
-                                    backgroundColor: _red,
-                                  ),
-                                );
+                              if (_validateProductForm(
+                                selectedBrand,
+                                productNameController,
+                                hsnController,
+                                purchaseRateController,
+                                priceController,
+                              )) {
+                                try {
+                                  await _saveProduct(
+                                    selectedBrand,
+                                    productNameController,
+                                    modelController,
+                                    hsnController,
+                                    purchaseRateController,
+                                    priceController,
+                                  );
+                                  Navigator.pop(context);
+                                } catch (e) {
+                                  // Error handled in _saveProduct
+                                }
                               }
                             },
                             style: ElevatedButton.styleFrom(
                               backgroundColor: _primaryGreen,
                               foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
                             ),
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.check, size: 16),
-                                SizedBox(width: 6),
-                                Text('Add Product'),
-                              ],
+                            child: const Text(
+                              'Save Product',
+                              style: TextStyle(fontSize: 12),
                             ),
                           ),
                         ),
@@ -1788,6 +1516,103 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     );
   }
 
+  bool _validateProductForm(
+    String selectedBrand,
+    TextEditingController productNameController,
+    TextEditingController hsnController,
+    TextEditingController purchaseRateController,
+    TextEditingController priceController,
+  ) {
+    if (selectedBrand.isEmpty) {
+      _showErrorSnackbar('Please select a brand');
+      return false;
+    }
+    if (productNameController.text.isEmpty) {
+      _showErrorSnackbar('Please enter product name');
+      return false;
+    }
+    if (hsnController.text.isEmpty) {
+      _showErrorSnackbar('Please enter HSN code');
+      return false;
+    }
+    if (purchaseRateController.text.isEmpty) {
+      _showErrorSnackbar('Please enter purchase rate');
+      return false;
+    }
+    if (priceController.text.isEmpty) {
+      _showErrorSnackbar('Please enter selling price');
+      return false;
+    }
+
+    final purchaseRate = double.tryParse(purchaseRateController.text);
+    final price = double.tryParse(priceController.text);
+
+    if (purchaseRate == null || purchaseRate <= 0) {
+      _showErrorSnackbar('Please enter a valid purchase rate');
+      return false;
+    }
+    if (price == null || price <= 0) {
+      _showErrorSnackbar('Please enter a valid selling price');
+      return false;
+    }
+    if (price <= purchaseRate) {
+      _showErrorSnackbar('Selling price must be greater than purchase rate');
+      return false;
+    }
+
+    return true;
+  }
+
+  Future<void> _saveProduct(
+    String selectedBrand,
+    TextEditingController productNameController,
+    TextEditingController modelController,
+    TextEditingController hsnController,
+    TextEditingController purchaseRateController,
+    TextEditingController priceController,
+  ) async {
+    try {
+      final productData = {
+        'brand': selectedBrand,
+        'productName': productNameController.text.trim(),
+        'model': modelController.text.trim(),
+        'hsnCode': hsnController.text.trim(),
+        'purchaseRate': double.parse(purchaseRateController.text),
+        'price': double.parse(priceController.text),
+        'stockQuantity': 0,
+        'createdAt': DateTime.now(),
+      };
+
+      await _firestoreService.addProduct(productData);
+      await _fetchProducts();
+
+      _productSearchController.clear();
+      _filterProducts('');
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Product added successfully',
+            style: TextStyle(fontSize: 12),
+          ),
+          backgroundColor: _lightGreen,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      _showErrorSnackbar('Error adding product: $e');
+    }
+  }
+
+  void _showErrorSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontSize: 12)),
+        backgroundColor: _red,
+      ),
+    );
+  }
+
   Widget _buildFormSection({required String label, required Widget child}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1795,12 +1620,12 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         Text(
           label,
           style: TextStyle(
-            fontSize: 12,
+            fontSize: 11,
             fontWeight: FontWeight.w500,
             color: Colors.grey.shade700,
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         child,
       ],
     );
@@ -1808,26 +1633,29 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
 
   Widget _buildPriceRow(
     String label,
-    String value,
-    Color color, {
+    String value, {
+    Color? color,
     bool isBold = false,
   }) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 12,
-            color: color,
-            fontWeight: isBold ? FontWeight.w600 : FontWeight.normal,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
           ),
-        ),
-      ],
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 11,
+              color: color ?? Colors.grey.shade800,
+              fontWeight: isBold ? FontWeight.w600 : FontWeight.normal,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1837,10 +1665,14 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     return await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Add New Brand', style: TextStyle(color: _primaryGreen)),
+        title: Text(
+          'Add New Brand',
+          style: TextStyle(color: _primaryGreen, fontSize: 14),
+        ),
         content: TextField(
           controller: brandController,
-          decoration: InputDecoration(
+          style: const TextStyle(fontSize: 12),
+          decoration: const InputDecoration(
             hintText: 'Enter brand name',
             border: OutlineInputBorder(),
           ),
@@ -1849,7 +1681,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: const Text('Cancel', style: TextStyle(fontSize: 12)),
           ),
           ElevatedButton(
             onPressed: () {
@@ -1858,979 +1690,819 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                 Navigator.pop(context, brand);
               }
             },
-            style: ElevatedButton.styleFrom(backgroundColor: _primaryGreen),
-            child: const Text('Add', style: TextStyle(color: Colors.white)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _primaryGreen,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            child: const Text(
+              'Add',
+              style: TextStyle(color: Colors.white, fontSize: 12),
+            ),
           ),
         ],
-      ),
-    );
-  }
-
-  Future<void> _savePurchase() async {
-    if (_formKey.currentState!.validate() &&
-        _selectedSupplier != null &&
-        _purchaseItems.isNotEmpty) {
-      // Validate all items have required data including IMEI
-      for (var i = 0; i < _purchaseItems.length; i++) {
-        final item = _purchaseItems[i];
-
-        // Check basic required fields
-        if (item.productId == null ||
-            item.quantity == null ||
-            item.rate == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Please fill all required fields for item ${i + 1}',
-              ),
-              backgroundColor: _red,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-          );
-          return;
-        }
-
-        // IMEI IS NOW REQUIRED - Check if IMEI exists
-        if (item.imei == null || item.imei!.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Item ${i + 1}: IMEI is required. Please scan or enter IMEI.',
-              ),
-              backgroundColor: _red,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-          return;
-        }
-
-        // Validate IMEI format (15 digits)
-        if (item.imei!.length != 15 || !RegExp(r'^\d+$').hasMatch(item.imei!)) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Item ${i + 1}: IMEI must be exactly 15 digits. Current: ${item.imei!.length} digits',
-              ),
-              backgroundColor: _red,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-          return;
-        }
-      }
-
-      try {
-        // Prepare purchase data
-        final purchaseData = {
-          'supplierId': _selectedSupplier!['id'],
-          'supplierName': _selectedSupplier!['name'],
-          'invoiceNumber': _invoiceController.text.trim(),
-          'purchaseDate': _selectedDate,
-          'subtotal': _subtotal,
-          'gstAmount': _gstAmount,
-          'totalDiscount': _totalDiscount,
-          'roundOff': _roundOff,
-          'totalAmount': _totalAmount,
-          'notes': _notesController.text.trim(),
-          'items': _purchaseItems.map((item) => item.toMap()).toList(),
-        };
-
-        // Save purchase to Firestore
-        await _firestoreService.createPurchase(purchaseData);
-
-        // Update purchase rate and HSN code in products collection
-        for (var item in _purchaseItems) {
-          if (item.productId != null) {
-            if (item.rate != null) {
-              await _firestoreService.updateProductPurchaseRate(
-                item.productId!,
-                item.rate!,
-              );
-            }
-            if (item.hsnCode != null && item.hsnCode!.isNotEmpty) {
-              await _firestoreService.updateProductHsnCode(
-                item.productId!,
-                item.hsnCode!,
-              );
-            }
-          }
-        }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Purchase saved successfully'),
-            backgroundColor: _lightGreen,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-        );
-        Navigator.pop(context, true); // Return success
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error saving purchase: $e'),
-            backgroundColor: _red,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-        );
-      }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Please fill all required fields'),
-          backgroundColor: _red,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        ),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _backgroundColor,
-      appBar: AppBar(
-        title: const Text(
-          'New Purchase',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-        ),
-        backgroundColor: _primaryGreen,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.calendar_today),
-            tooltip: 'Change Date',
-            onPressed: _selectDate,
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              // Date Display and Change Button
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: _lightGreen.withOpacity(0.3)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Purchase Date',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: _primaryGreen,
-                          ),
-                        ),
-                      ],
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: _selectDate,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _lightGreen.withOpacity(0.1),
-                        foregroundColor: _primaryGreen,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                      ),
-                      icon: const Icon(Icons.calendar_today, size: 16),
-                      label: const Text('Change'),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // Supplier Selection - Make entire field clickable
-              GestureDetector(
-                onTap: _showSupplierSelection,
-                child: AbsorbPointer(
-                  absorbing: true,
-                  child: _buildFormField(
-                    label: 'Supplier *',
-                    controller: _supplierController,
-                    readOnly: true,
-                    suffixIcon: Icon(
-                      Icons.arrow_drop_down,
-                      size: 20,
-                      color: _primaryGreen,
-                    ),
-                    validator: (value) {
-                      if (_selectedSupplier == null) {
-                        return 'Please select a supplier';
-                      }
-                      return null;
-                    },
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Invoice Number
-              _buildFormField(
-                label: 'Invoice Number *',
-                controller: _invoiceController,
-                keyboardType: TextInputType.text,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter invoice number';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 20),
-
-              // Items Section Header
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Purchase Items',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: _primaryGreen,
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: _addNewItem,
-                    style: TextButton.styleFrom(foregroundColor: _lightGreen),
-                    icon: const Icon(Icons.add, size: 16),
-                    label: const Text('Add Item'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-
-              // Purchase Items List
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _purchaseItems.length,
-                itemBuilder: (context, index) {
-                  return _buildPurchaseItemCard(index);
-                },
-              ),
-              const SizedBox(height: 20),
-
-              // ADD ITEM BUTTON before subtotal
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _addNewItem,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _lightGreen,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  icon: const Icon(Icons.add, size: 16),
-                  label: const Text(
-                    'Add New Item',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // Summary Section with Round Off
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade200),
-                ),
-                child: Column(
-                  children: [
-                    _buildSummaryRow(
-                      'Subtotal:',
-                      '₹${_subtotal.toStringAsFixed(2)}',
-                    ),
-                    const SizedBox(height: 8),
-                    if (_totalDiscount > 0)
-                      Column(
-                        children: [
-                          _buildSummaryRow(
-                            'Total Discount:',
-                            '-₹${_totalDiscount.toStringAsFixed(2)}',
-                          ),
-                          const SizedBox(height: 8),
-                        ],
-                      ),
-                    _buildSummaryRow(
-                      'GST (18%):',
-                      '₹${_gstAmount.toStringAsFixed(2)}',
-                    ),
-                    const SizedBox(height: 8),
-                    if (_roundOff != 0)
-                      Column(
-                        children: [
-                          _buildSummaryRow(
-                            'Round Off:',
-                            _roundOff > 0
-                                ? '+₹${_roundOff.abs().toStringAsFixed(2)}'
-                                : '-₹${_roundOff.abs().toStringAsFixed(2)}',
-                          ),
-                          const SizedBox(height: 8),
-                        ],
-                      ),
-                    Divider(color: Colors.grey.shade300),
-                    const SizedBox(height: 8),
-                    _buildSummaryRow(
-                      'Total Amount:',
-                      '₹${_totalAmount.toStringAsFixed(2)}',
-                      isTotal: true,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Notes
-              _buildFormField(
-                label: 'Notes',
-                controller: _notesController,
-                maxLines: 3,
-              ),
-              const SizedBox(height: 24),
-
-              // Save Button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _savePurchase,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _lightGreen,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  child: const Text(
-                    'Save Purchase',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
 
   Widget _buildPurchaseItemCard(int index) {
     final item = _purchaseItems[index];
-    // Show edit section for new items or when explicitly toggled
-    final showEditSection =
-        _showEditSections[index] ?? (item.productId == null);
+    final showEditSection = _showEditSections[index] ?? false;
+    final requiredImeiCount = item.quantity?.toInt() ?? 1;
+    final currentImeiCount = _itemImeis[index]?.length ?? 0;
+    final hasAllImeis = currentImeiCount >= requiredImeiCount;
+    final itemImeis = _itemImeis[index] ?? [];
+
+    // Calculate item total
+    double itemTotal = 0.0;
+    double itemDiscount = 0.0;
+    double itemGst = 0.0;
+    if (item.quantity != null && item.rate != null) {
+      itemTotal = item.quantity! * item.rate!;
+      if (item.discountPercentage != null && item.discountPercentage! > 0) {
+        itemDiscount = itemTotal * (item.discountPercentage! / 100);
+        itemTotal -= itemDiscount;
+      }
+      itemGst = itemTotal * 0.18;
+    }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    Text(
-                      'Item ${index + 1}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: _primaryGreen,
+          // Header
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _lightGreen.withOpacity(0.1),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(10),
+                topRight: Radius.circular(10),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: _lightGreen,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '${index + 1}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 10,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.productName ?? 'No Product Selected',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: item.productName != null
+                              ? Colors.grey.shade800
+                              : Colors.grey.shade400,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (item.brand != null)
+                        Text(
+                          item.brand!,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (item.productId != null)
+                  IconButton(
+                    onPressed: () => _toggleEditSection(index),
+                    icon: Icon(
+                      showEditSection ? Icons.expand_less : Icons.expand_more,
+                      color: _primaryGreen,
+                      size: 18,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                if (_purchaseItems.length > 1)
+                  IconButton(
+                    onPressed: () => _removeItem(index),
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.red,
+                      size: 18,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+              ],
+            ),
+          ),
+
+          // Content
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              children: [
+                // Product Selection
+                GestureDetector(
+                  onTap: () => _showProductSelection(index),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: item.productId != null
+                            ? _lightGreen
+                            : Colors.grey.shade300,
+                        width: 1.5,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    if (item.productId != null &&
-                        (item.imei == null || item.imei!.isEmpty))
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.phone_android,
+                          color: item.productId != null
+                              ? _lightGreen
+                              : Colors.grey.shade400,
+                          size: 16,
                         ),
-                        decoration: BoxDecoration(
-                          color: _amber.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(4),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.productName ?? 'Tap to select product *',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: item.productId != null
+                                      ? Colors.grey.shade800
+                                      : Colors.grey.shade500,
+                                ),
+                              ),
+                              if (item.model != null)
+                                Text(
+                                  item.model!,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
+                        const Icon(
+                          Icons.arrow_forward_ios,
+                          size: 14,
+                          color: Colors.grey,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // Item Summary (Only shown when product is selected and edit section is collapsed)
+                if (item.productId != null && !showEditSection) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Icon(Icons.warning, size: 10, color: _amber),
-                            const SizedBox(width: 4),
                             Text(
-                              'IMEI Required',
+                              'Quantity:',
                               style: TextStyle(
-                                fontSize: 9,
-                                color: _amber,
-                                fontWeight: FontWeight.w500,
+                                fontSize: 10,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                            Text(
+                              '${item.quantity ?? 0}',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: _primaryGreen,
                               ),
                             ),
                           ],
                         ),
-                      ),
-                  ],
-                ),
-              ),
-              Row(
-                children: [
-                  if (item.productId != null)
-                    IconButton(
-                      onPressed: () => _toggleEditSection(index),
-                      icon: Icon(
-                        showEditSection
-                            ? Icons.visibility_off
-                            : Icons.visibility,
-                        size: 18,
-                        color: _primaryGreen,
-                      ),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      tooltip: showEditSection
-                          ? 'Hide Details'
-                          : 'Show Details',
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Rate:',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                            Text(
+                              '₹${item.rate?.toStringAsFixed(2) ?? "0.00"}',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: _primaryGreen,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        if (item.discountPercentage != null &&
+                            item.discountPercentage! > 0)
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Discount:',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                              Text(
+                                '${item.discountPercentage!.toStringAsFixed(1)}%',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: _orange,
+                                ),
+                              ),
+                            ],
+                          ),
+                        const SizedBox(height: 6),
+                        Divider(height: 1, color: Colors.grey.shade300),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Item Total:',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade800,
+                              ),
+                            ),
+                            Text(
+                              '₹${itemTotal.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: _primaryGreen,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'IMEIs:',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: hasAllImeis
+                                    ? _lightGreen.withOpacity(0.1)
+                                    : _amber.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                '$currentImeiCount/$requiredImeiCount',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w600,
+                                  color: hasAllImeis ? _lightGreen : _amber,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-
-          // Product Selection - Always shown
-          GestureDetector(
-            onTap: () => _showProductSelection(index),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: item.productId != null
-                      ? _lightGreen
-                      : Colors.grey.shade300,
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.phone_android,
-                    size: 16,
-                    color: item.productId != null
-                        ? _lightGreen
-                        : Colors.grey.shade400,
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
+                ],
+
+                // Edit Section (Only shown when toggled)
+                if (showEditSection && item.productId != null) ...[
+                  const SizedBox(height: 12),
+
+                  // Basic Info Grid
+                  GridView.count(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                    childAspectRatio: 2.2,
+                    children: [
+                      // Quantity
+                      _buildInputField(
+                        label: 'Quantity *',
+                        value: item.quantity?.toString(),
+                        onChanged: (value) {
+                          final qty = double.tryParse(value);
+                          setState(() {
+                            _purchaseItems[index].quantity = qty;
+                            final requiredCount = qty?.toInt() ?? 1;
+                            _itemImeis[index] ??= [];
+
+                            if (_itemImeis[index]!.length < requiredCount) {
+                              _itemImeis[index]!.addAll(
+                                List.filled(
+                                  requiredCount - _itemImeis[index]!.length,
+                                  '',
+                                ),
+                              );
+                            } else if (_itemImeis[index]!.length >
+                                requiredCount) {
+                              _itemImeis[index] = _itemImeis[index]!.sublist(
+                                0,
+                                requiredCount,
+                              );
+                            }
+                          });
+                          _calculateTotals();
+                        },
+                        keyboardType: TextInputType.number,
+                      ),
+
+                      // Rate
+                      _buildInputField(
+                        label: 'Rate *',
+                        value: item.rate?.toStringAsFixed(2),
+                        onChanged: (value) {
+                          final rate = double.tryParse(value);
+                          setState(() {
+                            _purchaseItems[index].rate = rate;
+                            if (rate != null) {
+                              _purchaseItems[index].gstAmount = rate * 0.18;
+                            }
+                          });
+                          _calculateTotals();
+                        },
+                        keyboardType: TextInputType.number,
+                        prefix: '₹',
+                      ),
+
+                      // Discount
+                      _buildInputField(
+                        label: 'Discount %',
+                        value: item.discountPercentage?.toStringAsFixed(1),
+                        onChanged: (value) {
+                          final discount = double.tryParse(value);
+                          setState(() {
+                            _purchaseItems[index].discountPercentage =
+                                discount ?? 0.0;
+                          });
+                          _calculateTotals();
+                        },
+                        keyboardType: TextInputType.number,
+                        suffix: '%',
+                      ),
+
+                      // HSN Code
+                      _buildInputField(
+                        label: 'HSN Code',
+                        value: item.hsnCode,
+                        onChanged: (value) {
+                          setState(() {
+                            _purchaseItems[index].hsnCode = value;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+
+                  // IMEI Section
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.pink.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.pink.withOpacity(0.2)),
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          item.productName ?? 'Select Product *',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: item.productId != null
-                                ? Colors.grey.shade800
-                                : Colors.grey.shade500,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        Row(
+                          children: [
+                            Icon(Icons.smartphone, color: _pink, size: 16),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'IMEI Numbers *',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: _pink,
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: hasAllImeis ? _lightGreen : _amber,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '$currentImeiCount/$requiredImeiCount',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        if (item.productId != null && item.brand != null)
-                          Text(
-                            'Brand: ${item.brand}',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.grey.shade600,
+                        const SizedBox(height: 6),
+                        Text(
+                          'Required: $requiredImeiCount IMEI${requiredImeiCount > 1 ? 's' : ''} (1 per unit)',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+
+                        // IMEI List
+                        if (itemImeis.isNotEmpty)
+                          ...List.generate(itemImeis.length, (imeiIndex) {
+                            final imei = itemImeis[imeiIndex];
+                            final isValid =
+                                imei.isNotEmpty && _isValidIMEI(imei);
+
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 20,
+                                    height: 20,
+                                    decoration: BoxDecoration(
+                                      color: isValid
+                                          ? _lightGreen.withOpacity(0.1)
+                                          : Colors.grey.shade200,
+                                      borderRadius: BorderRadius.circular(5),
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        '${imeiIndex + 1}',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w600,
+                                          color: isValid
+                                              ? _lightGreen
+                                              : Colors.grey.shade500,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: InkWell(
+                                      onTap: () => _showManualIMEIEntry(
+                                        index,
+                                        imeiIndex: imeiIndex,
+                                      ),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: isValid
+                                              ? _lightGreen.withOpacity(0.05)
+                                              : Colors.white,
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
+                                          border: Border.all(
+                                            color: isValid
+                                                ? _lightGreen
+                                                : Colors.grey.shade300,
+                                            width: 1.5,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                imei.isEmpty
+                                                    ? 'Tap to enter IMEI'
+                                                    : imei,
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  color: imei.isEmpty
+                                                      ? Colors.grey.shade500
+                                                      : Colors.grey.shade800,
+                                                  fontWeight: isValid
+                                                      ? FontWeight.w500
+                                                      : FontWeight.normal,
+                                                ),
+                                              ),
+                                            ),
+                                            Icon(
+                                              isValid
+                                                  ? Icons.check_circle
+                                                  : Icons.edit,
+                                              size: 14,
+                                              color: isValid
+                                                  ? _lightGreen
+                                                  : _primaryGreen,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  IconButton(
+                                    onPressed: () => _showScannerDialog(
+                                      index,
+                                      imeiIndex: imeiIndex,
+                                    ),
+                                    icon: Icon(
+                                      Icons.qr_code_scanner,
+                                      size: 16,
+                                      color: _primaryGreen,
+                                    ),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+
+                        // Add IMEI Button
+                        if (currentImeiCount < requiredImeiCount)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: () => _showScannerDialog(index),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _pink.withOpacity(0.1),
+                                  foregroundColor: _pink,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 6,
+                                  ),
+                                ),
+                                icon: const Icon(Icons.add, size: 14),
+                                label: const Text(
+                                  'Add IMEI',
+                                  style: TextStyle(fontSize: 11),
+                                ),
+                              ),
                             ),
                           ),
-                      ],
-                    ),
-                  ),
-                  Icon(Icons.arrow_drop_down, size: 18, color: _primaryGreen),
-                ],
-              ),
-            ),
-          ),
 
-          // Product Details Section - Show when product is selected
-          if (item.productName != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: _lightGreen.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: _lightGreen.withOpacity(0.2)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.info_outline, size: 14, color: _lightGreen),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Product Details',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: _primaryGreen,
-                        ),
-                      ),
-                      const Spacer(),
-                      if (item.gstAmount != null && item.gstAmount! > 0)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _indigo.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
+                        // IMEI Status Message
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
                           child: Text(
-                            'GST: ₹${item.gstAmount!.toStringAsFixed(2)}',
+                            hasAllImeis &&
+                                    itemImeis.every(
+                                      (imei) => _isValidIMEI(imei),
+                                    )
+                                ? '✅ All IMEIs are valid'
+                                : '⚠️ ${requiredImeiCount - currentImeiCount} IMEI${requiredImeiCount - currentImeiCount > 1 ? 's' : ''} remaining',
                             style: TextStyle(
-                              fontSize: 10,
-                              color: _indigo,
-                              fontWeight: FontWeight.w600,
+                              fontSize: 9,
+                              color: hasAllImeis ? _lightGreen : _amber,
+                              fontWeight: FontWeight.w500,
                             ),
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  // Product Name
-                  Text(
-                    item.productName ?? '',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey.shade800,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  // Only show brand and HSN code
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 4,
-                    children: [
-                      if (item.brand != null && item.brand!.isNotEmpty)
-                        _buildDetailChip('Brand: ${item.brand}', _lightGreen),
-                      if (item.hsnCode != null && item.hsnCode!.isNotEmpty)
-                        _buildDetailChip('HSN: ${item.hsnCode}', _pink),
-                      if (item.rate != null)
-                        _buildDetailChip(
-                          'Rate: ₹${item.rate!.toStringAsFixed(2)}',
-                          _primaryGreen,
-                          fontWeight: FontWeight.w600,
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-
-          // Edit Section (Collapsible) - Show automatically for new items
-          if (item.productId != null && showEditSection) ...[
-            const SizedBox(height: 12),
-
-            // IMEI Scanner Button - Required
-            Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        'IMEI Number *',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: _pink,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '(15 digits)',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => _showScannerDialog(index),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: item.imei != null
-                                ? _lightGreen.withOpacity(0.1)
-                                : _pink.withOpacity(0.1),
-                            foregroundColor: item.imei != null
-                                ? _lightGreen
-                                : _pink,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                          ),
-                          icon: const Icon(Icons.qr_code_scanner, size: 16),
-                          label: Text(
-                            item.imei != null
-                                ? 'IMEI: ${item.imei} ✓'
-                                : 'Click to Scan IMEI *',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: item.imei != null
-                                  ? FontWeight.w500
-                                  : FontWeight.normal,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        onPressed: () => _showManualIMEIEntry(index),
-                        icon: Icon(
-                          Icons.keyboard,
-                          size: 16,
-                          color: _primaryGreen,
-                        ),
-                        tooltip: 'Enter IMEI manually',
-                      ),
-                    ],
-                  ),
-                  // Show error message if IMEI is not entered when trying to save
-                  if (item.imei == null || item.imei!.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        'IMEI is required for each item',
-                        style: TextStyle(fontSize: 10, color: _red),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-
-            // HSN Code Text Field
-            Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'HSN Code',
-                    style: TextStyle(fontSize: 11, color: _pink),
-                  ),
-                  const SizedBox(height: 4),
-                  TextFormField(
-                    initialValue: item.hsnCode,
-                    keyboardType: TextInputType.number,
-                    style: TextStyle(fontSize: 12),
-                    decoration: InputDecoration(
-                      hintText: 'Enter HSN Code',
-                      hintStyle: TextStyle(fontSize: 11),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(6),
-                        borderSide: BorderSide(color: Colors.grey.shade300),
-                      ),
-                    ),
-                    onChanged: (value) {
-                      setState(() {
-                        _purchaseItems[index].hsnCode = value.trim();
-                      });
-                    },
-                  ),
-                ],
-              ),
-            ),
-
-            // Quantity, Rate, and Discount Row
-            Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Quantity *',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: _primaryGreen,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          TextFormField(
-                            initialValue: item.quantity?.toString(),
-                            keyboardType: TextInputType.number,
-                            style: TextStyle(fontSize: 12),
-                            decoration: InputDecoration(
-                              hintText: 'Enter quantity',
-                              hintStyle: TextStyle(fontSize: 11),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(6),
-                                borderSide: BorderSide(
-                                  color: Colors.grey.shade300,
-                                ),
-                              ),
-                            ),
-                            onChanged: (value) {
-                              final qty = double.tryParse(value);
-                              setState(() {
-                                _purchaseItems[index].quantity = qty;
-                              });
-                              _calculateTotals();
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Purchase Rate *',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: _primaryGreen,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          TextFormField(
-                            controller: TextEditingController(
-                              text: item.rate?.toStringAsFixed(2) ?? '',
-                            ),
-                            keyboardType: TextInputType.number,
-                            style: TextStyle(fontSize: 12),
-                            decoration: InputDecoration(
-                              hintText: 'Enter purchase rate',
-                              hintStyle: TextStyle(fontSize: 11),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(6),
-                                borderSide: BorderSide(
-                                  color: Colors.grey.shade300,
-                                ),
-                              ),
-                              prefixText: '₹ ',
-                            ),
-                            onChanged: (value) {
-                              final rate = double.tryParse(value);
-                              setState(() {
-                                _purchaseItems[index].rate = rate;
-                                if (rate != null) {
-                                  _purchaseItems[index].gstAmount = rate * 0.18;
-                                }
-                              });
-                              _calculateTotals();
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Discount %',
-                            style: TextStyle(fontSize: 11, color: _orange),
-                          ),
-                          const SizedBox(height: 4),
-                          TextFormField(
-                            initialValue: item.discountPercentage
-                                ?.toStringAsFixed(1),
-                            keyboardType: TextInputType.number,
-                            style: TextStyle(fontSize: 12),
-                            decoration: InputDecoration(
-                              hintText: 'Discount percentage',
-                              hintStyle: TextStyle(fontSize: 11),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(6),
-                                borderSide: BorderSide(
-                                  color: Colors.grey.shade300,
-                                ),
-                              ),
-                              suffixText: '%',
-                              suffixStyle: TextStyle(color: _orange),
-                            ),
-                            onChanged: (value) {
-                              final discount = double.tryParse(value);
-                              setState(() {
-                                _purchaseItems[index].discountPercentage =
-                                    discount;
-                              });
-                              _calculateTotals();
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                // Show GST calculation for this item
-                if (item.rate != null && item.quantity != null)
-                  Container(
-                    margin: const EdgeInsets.only(top: 12),
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: _indigo.withOpacity(0.05),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: _indigo.withOpacity(0.2)),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Item GST (18%):',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey.shade700,
-                          ),
-                        ),
-                        Text(
-                          '₹${((item.rate! * item.quantity!) * 0.18).toStringAsFixed(2)}',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: _indigo,
-                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
                     ),
                   ),
+
+                  // Item Total Details
+                  if (item.rate != null && item.quantity != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: _indigo.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: _indigo.withOpacity(0.2)),
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Item Total:',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                ),
+                                Text(
+                                  '₹${(item.quantity! * item.rate!).toStringAsFixed(2)}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: _primaryGreen,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            if (item.discountPercentage != null &&
+                                item.discountPercentage! > 0)
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Discount:',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                  Text(
+                                    '-₹${((item.quantity! * item.rate!) * (item.discountPercentage! / 100)).toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: _orange,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'GST (18%):',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                                Text(
+                                  '₹${itemGst.toStringAsFixed(2)}',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: _indigo,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Divider(height: 1, color: Colors.grey.shade300),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Total with GST:',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey.shade800,
+                                  ),
+                                ),
+                                Text(
+                                  '₹${(itemTotal + itemGst).toStringAsFixed(2)}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: _primaryGreen,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
               ],
             ),
-          ],
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildDetailChip(
-    String text,
-    Color color, {
-    FontWeight fontWeight = FontWeight.normal,
+  Widget _buildInputField({
+    required String label,
+    String? value,
+    required ValueChanged<String> onChanged,
+    TextInputType keyboardType = TextInputType.text,
+    String? prefix,
+    String? suffix,
   }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(fontSize: 10, color: color, fontWeight: fontWeight),
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: TextStyle(fontSize: 9, color: Colors.grey.shade700)),
+        const SizedBox(height: 2),
+        TextFormField(
+          initialValue: value,
+          keyboardType: keyboardType,
+          style: const TextStyle(fontSize: 11),
+          decoration: InputDecoration(
+            hintText: label,
+            hintStyle: const TextStyle(fontSize: 10),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 8,
+              vertical: 6,
+            ),
+            prefixText: prefix,
+            suffixText: suffix,
+            prefixStyle: const TextStyle(fontSize: 11),
+            suffixStyle: const TextStyle(fontSize: 11),
+          ),
+          onChanged: onChanged,
+        ),
+      ],
     );
   }
 
   Widget _buildSummaryRow(String label, String value, {bool isTotal = false}) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey.shade700,
-            fontWeight: isTotal ? FontWeight.w600 : FontWeight.normal,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: isTotal ? _primaryGreen : Colors.grey.shade700,
+              fontWeight: isTotal ? FontWeight.w600 : FontWeight.normal,
+            ),
           ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 12,
-            color: isTotal ? _primaryGreen : Colors.grey.shade800,
-            fontWeight: isTotal ? FontWeight.w600 : FontWeight.normal,
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 11,
+              color: isTotal ? _primaryGreen : Colors.grey.shade800,
+              fontWeight: isTotal ? FontWeight.w600 : FontWeight.normal,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -2850,18 +2522,18 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         Text(
           label,
           style: TextStyle(
-            fontSize: 12,
+            fontSize: 11,
             fontWeight: FontWeight.w500,
             color: _primaryGreen,
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         TextFormField(
           controller: controller,
           readOnly: readOnly,
           keyboardType: keyboardType,
           maxLines: maxLines,
-          style: TextStyle(fontSize: 13, color: Colors.grey.shade800),
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
           decoration: InputDecoration(
             filled: true,
             fillColor: Colors.white,
@@ -2878,7 +2550,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
               borderSide: BorderSide(color: _lightGreen, width: 1.5),
             ),
             contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
+              horizontal: 10,
               vertical: 10,
             ),
             suffixIcon: suffixIcon,
@@ -2903,58 +2575,125 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                'Select Supplier',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: _primaryGreen,
+            // Header
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _primaryGreen,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
                 ),
               ),
-            ),
-            Expanded(
-              child: ListView.builder(
-                itemCount: _suppliers.length,
-                itemBuilder: (context, index) {
-                  final supplier = _suppliers[index];
-                  return ListTile(
-                    leading: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: _lightGreen.withOpacity(0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.business, size: 18, color: _lightGreen),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Select Supplier',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
                     ),
-                    title: Text(
-                      supplier['name'] ?? 'Unnamed',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey.shade800,
-                      ),
+                  ),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.close,
+                      color: Colors.white,
+                      size: 20,
                     ),
-                    subtitle: supplier['phone'] != null
-                        ? Text(
-                            supplier['phone']!,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey.shade600,
-                            ),
-                          )
-                        : null,
-                    onTap: () {
-                      setState(() {
-                        _selectedSupplier = supplier;
-                        _supplierController.text = supplier['name'] ?? '';
-                      });
-                      Navigator.pop(context);
-                    },
-                  );
-                },
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
               ),
             ),
+
+            // Supplier List
+            Expanded(
+              child: _suppliers.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.business,
+                            size: 50,
+                            color: Colors.grey.shade300,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'No suppliers found',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Add suppliers in the suppliers section',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: _suppliers.length,
+                      itemBuilder: (context, index) {
+                        final supplier = _suppliers[index];
+                        return ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          leading: CircleAvatar(
+                            backgroundColor: _lightGreen.withOpacity(0.1),
+                            radius: 16,
+                            child: Icon(
+                              Icons.business,
+                              color: _lightGreen,
+                              size: 16,
+                            ),
+                          ),
+                          title: Text(
+                            supplier['name'] ?? 'Unnamed',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey.shade800,
+                            ),
+                          ),
+                          subtitle: supplier['phone'] != null
+                              ? Text(
+                                  supplier['phone']!,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                )
+                              : null,
+                          trailing: _selectedSupplier?['id'] == supplier['id']
+                              ? Icon(
+                                  Icons.check_circle,
+                                  color: _lightGreen,
+                                  size: 18,
+                                )
+                              : null,
+                          onTap: () {
+                            setState(() {
+                              _selectedSupplier = supplier;
+                              _supplierController.text = supplier['name'] ?? '';
+                            });
+                            Navigator.pop(context);
+                          },
+                        );
+                      },
+                    ),
+            ),
+
+            // Cancel Button
             Padding(
               padding: const EdgeInsets.all(12),
               child: SizedBox(
@@ -2962,8 +2701,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                 child: OutlinedButton(
                   onPressed: () => Navigator.pop(context),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: _primaryGreen,
-                    side: BorderSide(color: _primaryGreen),
+                    foregroundColor: Colors.grey.shade600,
                     padding: const EdgeInsets.symmetric(vertical: 10),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
@@ -2977,5 +2715,773 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         ),
       ),
     );
+  }
+
+  void _togglePreview() {
+    setState(() {
+      _showPreview = !_showPreview;
+    });
+  }
+
+  Widget _buildPreviewDialog() {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: _primaryGreen,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.remove_red_eye,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Purchase Preview',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.close,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                    onPressed: () => _togglePreview(),
+                  ),
+                ],
+              ),
+            ),
+
+            // Content
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Basic Info
+                  _buildPreviewSection(
+                    icon: Icons.calendar_today,
+                    title: 'Purchase Date',
+                    content:
+                        '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}',
+                  ),
+                  _buildPreviewSection(
+                    icon: Icons.business,
+                    title: 'Supplier',
+                    content: _selectedSupplier?['name'] ?? 'Not selected',
+                  ),
+                  _buildPreviewSection(
+                    icon: Icons.receipt,
+                    title: 'Invoice Number',
+                    content: _invoiceController.text.isNotEmpty
+                        ? _invoiceController.text
+                        : 'Not entered',
+                  ),
+
+                  const Divider(height: 20),
+
+                  // Items
+                  Text(
+                    'Items (${_purchaseItems.where((item) => item.productId != null).length})',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: _primaryGreen,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  ..._purchaseItems.where((item) => item.productId != null).map((
+                    item,
+                  ) {
+                    final index = _purchaseItems.indexOf(item);
+                    final itemImeis = _itemImeis[index] ?? [];
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.productName ?? '',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey.shade800,
+                            ),
+                          ),
+                          if (item.brand != null)
+                            Text(
+                              item.brand!,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '${item.quantity} × ₹${item.rate?.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                              Text(
+                                '₹${(item.quantity! * item.rate!).toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: _primaryGreen,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (itemImeis.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'IMEIs:',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                  ...itemImeis.take(3).map((imei) {
+                                    return Text(
+                                      '• ${imei.substring(0, 4)}...${imei.substring(imei.length - 4)}',
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        color: Colors.grey.shade500,
+                                      ),
+                                    );
+                                  }),
+                                  if (itemImeis.length > 3)
+                                    Text(
+                                      '+ ${itemImeis.length - 3} more',
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        color: Colors.grey.shade500,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+
+                  const Divider(height: 20),
+
+                  // Summary
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: _lightGreen.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Column(
+                      children: [
+                        _buildPreviewSummaryRow(
+                          'Subtotal:',
+                          '₹${_subtotal.toStringAsFixed(2)}',
+                        ),
+                        if (_totalDiscount > 0)
+                          _buildPreviewSummaryRow(
+                            'Discount:',
+                            '-₹${_totalDiscount.toStringAsFixed(2)}',
+                          ),
+                        _buildPreviewSummaryRow(
+                          'GST (18%):',
+                          '₹${_gstAmount.toStringAsFixed(2)}',
+                        ),
+                        if (_roundOff != 0)
+                          _buildPreviewSummaryRow(
+                            'Round Off:',
+                            _roundOff > 0
+                                ? '+₹${_roundOff.abs().toStringAsFixed(2)}'
+                                : '-₹${_roundOff.abs().toStringAsFixed(2)}',
+                          ),
+                        const Divider(height: 10),
+                        _buildPreviewSummaryRow(
+                          'Total Amount:',
+                          '₹${_totalAmount.toStringAsFixed(2)}',
+                          isTotal: true,
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Actions
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _togglePreview,
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Text(
+                            'Continue Editing',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _confirmAndSavePurchase,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _lightGreen,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Text(
+                            'Confirm & Save',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPreviewSection({
+    required IconData icon,
+    required String title,
+    required String content,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: _primaryGreen),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  content,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey.shade800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreviewSummaryRow(
+    String label,
+    String value, {
+    bool isTotal = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: isTotal ? _primaryGreen : Colors.grey.shade700,
+              fontWeight: isTotal ? FontWeight.w600 : FontWeight.normal,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 12,
+              color: isTotal ? _primaryGreen : Colors.grey.shade800,
+              fontWeight: isTotal ? FontWeight.w600 : FontWeight.normal,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _backgroundColor,
+      appBar: AppBar(
+        title: const Text(
+          'New Purchase',
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+        ),
+        backgroundColor: _primaryGreen,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_today, size: 20),
+            tooltip: 'Change Date',
+            onPressed: _selectDate,
+          ),
+          IconButton(
+            icon: Icon(
+              _showPreview ? Icons.edit : Icons.remove_red_eye,
+              size: 20,
+            ),
+            tooltip: _showPreview ? 'Edit Purchase' : 'Preview Purchase',
+            onPressed: _togglePreview,
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            padding: const EdgeInsets.all(12),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                children: [
+                  // Date Card
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Purchase Date',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: _primaryGreen,
+                              ),
+                            ),
+                          ],
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: _selectDate,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _lightGreen.withOpacity(0.1),
+                            foregroundColor: _primaryGreen,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                          ),
+                          icon: const Icon(Icons.calendar_today, size: 14),
+                          label: const Text(
+                            'Change',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Supplier Selection
+                  GestureDetector(
+                    onTap: _showSupplierSelection,
+                    child: AbsorbPointer(
+                      absorbing: true,
+                      child: _buildFormField(
+                        label: 'Supplier *',
+                        controller: _supplierController,
+                        readOnly: true,
+                        suffixIcon: Icon(
+                          Icons.arrow_drop_down,
+                          size: 18,
+                          color: _primaryGreen,
+                        ),
+                        validator: (value) {
+                          if (_selectedSupplier == null) {
+                            return 'Please select a supplier';
+                          }
+                          return null;
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Invoice Number
+                  _buildFormField(
+                    label: 'Invoice Number *',
+                    controller: _invoiceController,
+                    keyboardType: TextInputType.text,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter invoice number';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Items Header
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Purchase Items',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: _primaryGreen,
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: _addNewItem,
+                        style: TextButton.styleFrom(
+                          foregroundColor: _lightGreen,
+                        ),
+                        icon: const Icon(Icons.add, size: 14),
+                        label: const Text(
+                          'Add Item',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+
+                  // Purchase Items List
+                  ..._purchaseItems.asMap().entries.map((entry) {
+                    return _buildPurchaseItemCard(entry.key);
+                  }),
+
+                  // Add Item Button
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _addNewItem,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _lightGreen,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        icon: const Icon(Icons.add, size: 16),
+                        label: const Text(
+                          'Add New Item',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Summary Section
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          'Order Summary',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: _primaryGreen,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildSummaryRow(
+                          'Subtotal:',
+                          '₹${_subtotal.toStringAsFixed(2)}',
+                        ),
+                        if (_totalDiscount > 0)
+                          _buildSummaryRow(
+                            'Total Discount:',
+                            '-₹${_totalDiscount.toStringAsFixed(2)}',
+                          ),
+                        _buildSummaryRow(
+                          'GST (18%):',
+                          '₹${_gstAmount.toStringAsFixed(2)}',
+                        ),
+                        if (_roundOff != 0)
+                          _buildSummaryRow(
+                            'Round Off:',
+                            _roundOff > 0
+                                ? '+₹${_roundOff.abs().toStringAsFixed(2)}'
+                                : '-₹${_roundOff.abs().toStringAsFixed(2)}',
+                          ),
+                        const Divider(height: 12),
+                        _buildSummaryRow(
+                          'Total Amount:',
+                          '₹${_totalAmount.toStringAsFixed(2)}',
+                          isTotal: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Notes
+                  _buildFormField(
+                    label: 'Notes',
+                    controller: _notesController,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Action Buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _togglePreview,
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Text(
+                            'Preview',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _savePurchase,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _lightGreen,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Text(
+                            'Save Purchase',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                ],
+              ),
+            ),
+          ),
+
+          // Preview Overlay
+          if (_showPreview)
+            Container(
+              color: Colors.black.withOpacity(0.5),
+              child: _buildPreviewDialog(),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _savePurchase() async {
+    // Instead of directly saving, show preview first
+    _togglePreview();
+  }
+
+  Future<void> _confirmAndSavePurchase() async {
+    if (_formKey.currentState!.validate() &&
+        _selectedSupplier != null &&
+        _purchaseItems.isNotEmpty) {
+      // Validate all items
+      for (var i = 0; i < _purchaseItems.length; i++) {
+        final item = _purchaseItems[i];
+
+        // Basic validation
+        if (item.productId == null ||
+            item.quantity == null ||
+            item.rate == null) {
+          _showErrorSnackbar(
+            'Please fill all required fields for item ${i + 1}',
+          );
+          return;
+        }
+
+        // IMEI validation
+        final requiredImeiCount = item.quantity!.toInt();
+        final itemImeis = _itemImeis[i] ?? [];
+        if (itemImeis.length < requiredImeiCount) {
+          _showErrorSnackbar(
+            'Item ${i + 1}: Need $requiredImeiCount IMEIs, got ${itemImeis.length}',
+          );
+          return;
+        }
+
+        // Validate each IMEI
+        for (var j = 0; j < requiredImeiCount; j++) {
+          final imei = itemImeis[j];
+          if (imei.isEmpty || !_isValidIMEI(imei)) {
+            _showErrorSnackbar('Item ${i + 1}, IMEI ${j + 1}: Invalid IMEI');
+            return;
+          }
+        }
+      }
+
+      try {
+        final purchaseData = {
+          'supplierId': _selectedSupplier!['id'],
+          'supplierName': _selectedSupplier!['name'],
+          'invoiceNumber': _invoiceController.text.trim(),
+          'purchaseDate': _selectedDate,
+          'subtotal': _subtotal,
+          'gstAmount': _gstAmount,
+          'totalDiscount': _totalDiscount,
+          'roundOff': _roundOff,
+          'totalAmount': _totalAmount,
+          'notes': _notesController.text.trim(),
+          'items': _purchaseItems.asMap().entries.map((entry) {
+            final index = entry.key;
+            final item = entry.value;
+            final itemMap = item.toMap();
+            itemMap['imeis'] = _itemImeis[index] ?? [];
+            return itemMap;
+          }).toList(),
+        };
+
+        await _firestoreService.createPurchase(purchaseData);
+
+        // Update product information
+        for (var i = 0; i < _purchaseItems.length; i++) {
+          final item = _purchaseItems[i];
+          if (item.productId != null) {
+            if (item.rate != null) {
+              await _firestoreService.updateProductPurchaseRate(
+                item.productId!,
+                item.rate!,
+              );
+            }
+            if (item.hsnCode != null && item.hsnCode!.isNotEmpty) {
+              await _firestoreService.updateProductHsnCode(
+                item.productId!,
+                item.hsnCode!,
+              );
+            }
+            // Update stock
+            await _firestoreService.updateProductStock(
+              item.productId!,
+              item.quantity!.toInt(),
+            );
+          }
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Purchase saved successfully',
+              style: TextStyle(fontSize: 12),
+            ),
+            backgroundColor: _lightGreen,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(6),
+            ),
+          ),
+        );
+
+        // Close preview and go back
+        _togglePreview();
+        Navigator.pop(context, true);
+      } catch (e) {
+        _showErrorSnackbar('Error saving purchase: $e');
+      }
+    } else {
+      _showErrorSnackbar('Please fill all required fields');
+    }
   }
 }

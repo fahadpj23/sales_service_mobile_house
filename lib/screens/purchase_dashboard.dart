@@ -16,14 +16,15 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
   final FirestoreService _firestoreService = FirestoreService();
   List<Map<String, dynamic>> _suppliers = [];
   bool _isLoading = true;
-  int _currentDrawerIndex = 0; // 0: Dashboard, 1: Suppliers, 2: Purchases
+  int _currentDrawerIndex = 0;
+  String _searchQuery = '';
 
-  // Define green color palette
+  // Define compact green color palette
   final Color _primaryGreen = const Color(0xFF2E7D32);
   final Color _lightGreen = const Color(0xFF4CAF50);
   final Color _accentGreen = const Color(0xFF81C784);
   final Color _darkGreen = const Color(0xFF1B5E20);
-  final Color _backgroundColor = const Color(0xFFF5F9F5);
+  final Color _backgroundColor = const Color(0xFFF8FBF8);
 
   @override
   void initState() {
@@ -37,6 +38,19 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
     setState(() => _isLoading = false);
   }
 
+  List<Map<String, dynamic>> get _filteredSuppliers {
+    if (_searchQuery.isEmpty) return _suppliers;
+    return _suppliers.where((supplier) {
+      final name = supplier['name']?.toString().toLowerCase() ?? '';
+      final phone = supplier['phone']?.toString().toLowerCase() ?? '';
+      final email = supplier['email']?.toString().toLowerCase() ?? '';
+      final query = _searchQuery.toLowerCase();
+      return name.contains(query) ||
+          phone.contains(query) ||
+          email.contains(query);
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -44,10 +58,11 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
       appBar: AppBar(
         title: Text(
           _getAppBarTitle(),
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
         ),
         backgroundColor: _primaryGreen,
         foregroundColor: Colors.white,
+        elevation: 1,
         actions: _buildAppBarActions(),
       ),
       drawer: _buildDrawer(),
@@ -65,7 +80,7 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
       case 2:
         return 'Purchases';
       default:
-        return 'Purchase Management';
+        return 'Purchase';
     }
   }
 
@@ -75,17 +90,19 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
       case 1:
         return [
           IconButton(
-            icon: const Icon(Icons.refresh, size: 20),
+            icon: const Icon(Icons.refresh, size: 18),
             onPressed: _fetchSuppliers,
             tooltip: 'Refresh',
+            padding: EdgeInsets.zero,
           ),
         ];
       case 2:
         return [
           IconButton(
-            icon: const Icon(Icons.add_shopping_cart, size: 20),
+            icon: const Icon(Icons.add_shopping_cart, size: 18),
             onPressed: _navigateToCreatePurchase,
             tooltip: 'New Purchase',
+            padding: EdgeInsets.zero,
           ),
         ];
       default:
@@ -101,9 +118,11 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
           backgroundColor: _lightGreen,
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
           ),
-          child: const Icon(Icons.add_business, size: 20),
+          elevation: 2,
+          mini: true,
+          child: const Icon(Icons.add, size: 18),
         );
       case 2:
         return FloatingActionButton(
@@ -111,9 +130,11 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
           backgroundColor: _lightGreen,
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
           ),
-          child: const Icon(Icons.add_shopping_cart, size: 20),
+          elevation: 2,
+          mini: true,
+          child: const Icon(Icons.add_shopping_cart, size: 18),
         );
       default:
         return null;
@@ -122,162 +143,142 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
 
   Widget _buildDrawer() {
     return Drawer(
+      width: MediaQuery.of(context).size.width * 0.7,
       child: Column(
         children: [
+          // Compact Header
           Container(
-            height: 120,
+            height: 100,
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(color: _primaryGreen),
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.shopping_cart, size: 32, color: Colors.white),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Purchase Management',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.shopping_cart, size: 28, color: Colors.white),
+                const SizedBox(height: 6),
+                Text(
+                  'Purchase',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
+
+          // Navigation Items
           Expanded(
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                // Dashboard Option
-                ListTile(
-                  leading: Icon(
-                    Icons.dashboard,
-                    size: 20,
-                    color: _currentDrawerIndex == 0
-                        ? _lightGreen
-                        : Colors.grey.shade700,
-                  ),
-                  title: Text(
-                    'Dashboard',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: _currentDrawerIndex == 0
-                          ? _darkGreen
-                          : Colors.grey.shade700,
-                    ),
-                  ),
-                  tileColor: _currentDrawerIndex == 0
-                      ? _lightGreen.withOpacity(0.1)
-                      : null,
-                  onTap: () {
-                    setState(() => _currentDrawerIndex = 0);
-                    Navigator.pop(context);
-                  },
+                _buildDrawerItem(
+                  index: 0,
+                  icon: Icons.dashboard_rounded,
+                  label: 'Dashboard',
                 ),
-                // Suppliers Option
-                ListTile(
-                  leading: Icon(
-                    Icons.business,
-                    size: 20,
-                    color: _currentDrawerIndex == 1
-                        ? _lightGreen
-                        : Colors.grey.shade700,
-                  ),
-                  title: Text(
-                    'Suppliers',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: _currentDrawerIndex == 1
-                          ? _darkGreen
-                          : Colors.grey.shade700,
-                    ),
-                  ),
-                  tileColor: _currentDrawerIndex == 1
-                      ? _lightGreen.withOpacity(0.1)
-                      : null,
-                  onTap: () {
-                    setState(() => _currentDrawerIndex = 1);
-                    Navigator.pop(context);
-                  },
+                _buildDrawerItem(
+                  index: 1,
+                  icon: Icons.business,
+                  label: 'Suppliers',
                 ),
-                // Purchases Option
-                ListTile(
-                  leading: Icon(
-                    Icons.shopping_cart,
-                    size: 20,
-                    color: _currentDrawerIndex == 2
-                        ? _lightGreen
-                        : Colors.grey.shade700,
-                  ),
-                  title: Text(
-                    'Purchases',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: _currentDrawerIndex == 2
-                          ? _darkGreen
-                          : Colors.grey.shade700,
-                    ),
-                  ),
-                  tileColor: _currentDrawerIndex == 2
-                      ? _lightGreen.withOpacity(0.1)
-                      : null,
-                  onTap: () {
-                    setState(() => _currentDrawerIndex = 2);
-                    Navigator.pop(context);
-                  },
+                _buildDrawerItem(
+                  index: 2,
+                  icon: Icons.shopping_cart,
+                  label: 'Purchases',
                 ),
-                const Divider(height: 20),
+                const Divider(height: 20, thickness: 0.5),
+
                 // Quick Actions
                 Padding(
                   padding: const EdgeInsets.only(left: 16, top: 8, bottom: 4),
                   child: Text(
-                    'Quick Actions',
+                    'QUICK ACTIONS',
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 10,
                       color: Colors.grey.shade600,
-                      fontWeight: FontWeight.w500,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.5,
                     ),
                   ),
                 ),
                 ListTile(
+                  dense: true,
                   leading: Icon(
                     Icons.add_business,
-                    size: 18,
+                    size: 16,
                     color: _darkGreen,
                   ),
                   title: Text(
                     'Add Supplier',
-                    style: TextStyle(fontSize: 13, color: _darkGreen),
+                    style: TextStyle(fontSize: 12, color: _darkGreen),
                   ),
                   onTap: () {
                     Navigator.pop(context);
                     _navigateToSupplierForm();
                   },
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                 ),
                 ListTile(
+                  dense: true,
                   leading: Icon(
                     Icons.add_shopping_cart,
-                    size: 18,
+                    size: 16,
                     color: _darkGreen,
                   ),
                   title: Text(
                     'New Purchase',
-                    style: TextStyle(fontSize: 13, color: _darkGreen),
+                    style: TextStyle(fontSize: 12, color: _darkGreen),
                   ),
                   onTap: () {
                     Navigator.pop(context);
                     _navigateToCreatePurchase();
                   },
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                 ),
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildDrawerItem({
+    required int index,
+    required IconData icon,
+    required String label,
+  }) {
+    return ListTile(
+      dense: true,
+      leading: Icon(
+        icon,
+        size: 18,
+        color: _currentDrawerIndex == index
+            ? _lightGreen
+            : Colors.grey.shade700,
+      ),
+      title: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: _currentDrawerIndex == index
+              ? FontWeight.w600
+              : FontWeight.w500,
+          color: _currentDrawerIndex == index
+              ? _darkGreen
+              : Colors.grey.shade700,
+        ),
+      ),
+      tileColor: _currentDrawerIndex == index
+          ? _lightGreen.withOpacity(0.08)
+          : null,
+      onTap: () {
+        setState(() => _currentDrawerIndex = index);
+        Navigator.pop(context);
+      },
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
     );
   }
 
@@ -300,11 +301,18 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CircularProgressIndicator(color: _primaryGreen, strokeWidth: 2),
-            const SizedBox(height: 12),
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                color: _primaryGreen,
+                strokeWidth: 1.5,
+              ),
+            ),
+            const SizedBox(height: 8),
             Text(
               'Loading...',
-              style: TextStyle(color: _primaryGreen, fontSize: 13),
+              style: TextStyle(color: _primaryGreen, fontSize: 11),
             ),
           ],
         ),
@@ -312,80 +320,28 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
     }
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Welcome Card
-          Container(
-            padding: const EdgeInsets.all(16),
-            margin: const EdgeInsets.only(bottom: 16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.grey.withOpacity(0.05),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: _lightGreen.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(Icons.analytics, size: 24, color: _primaryGreen),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Purchase Overview',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: _darkGreen,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Manage your suppliers and purchases',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Stats Grid
+          // Compact Stats Grid
           GridView.count(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             crossAxisCount: 2,
-            childAspectRatio: 1.2,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
+            childAspectRatio: 1.4,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+            padding: EdgeInsets.zero,
             children: [
-              _buildDashboardStatCard(
+              _buildStatCard(
                 title: 'Total Suppliers',
                 value: _suppliers.length.toString(),
                 icon: Icons.business,
                 color: Colors.blue.shade700,
               ),
-              _buildDashboardStatCard(
-                title: 'Active Suppliers',
+              _buildStatCard(
+                title: 'Active',
                 value: _suppliers
                     .where((s) => s['status'] != 'inactive')
                     .length
@@ -393,14 +349,14 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
                 icon: Icons.check_circle,
                 color: _lightGreen,
               ),
-              _buildDashboardStatCard(
-                title: 'This Month Purchases',
+              _buildStatCard(
+                title: 'This Month',
                 value: '₹${_getMonthlyPurchaseAmount()}',
                 icon: Icons.shopping_cart,
                 color: Colors.orange.shade700,
               ),
-              _buildDashboardStatCard(
-                title: 'Pending Payments',
+              _buildStatCard(
+                title: 'Pending',
                 value: '₹0',
                 icon: Icons.payment,
                 color: Colors.red.shade700,
@@ -408,46 +364,50 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
             ],
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
           // Quick Actions
-          Text(
-            'Quick Actions',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: _darkGreen,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              'Quick Actions',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: _darkGreen,
+              ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           GridView.count(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             crossAxisCount: 2,
-            childAspectRatio: 1.5,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
+            childAspectRatio: 2.2,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+            padding: EdgeInsets.zero,
             children: [
-              _buildDashboardActionCard(
+              _buildActionCard(
                 title: 'Add Supplier',
                 icon: Icons.add_business,
                 color: _lightGreen,
                 onTap: _navigateToSupplierForm,
               ),
-              _buildDashboardActionCard(
+              _buildActionCard(
                 title: 'New Purchase',
                 icon: Icons.add_shopping_cart,
                 color: Colors.blue.shade700,
                 onTap: _navigateToCreatePurchase,
               ),
-              _buildDashboardActionCard(
-                title: 'View Suppliers',
+              _buildActionCard(
+                title: 'Suppliers',
                 icon: Icons.business,
                 color: Colors.purple.shade700,
                 onTap: () => setState(() => _currentDrawerIndex = 1),
               ),
-              _buildDashboardActionCard(
-                title: 'Purchase History',
+              _buildActionCard(
+                title: 'History',
                 icon: Icons.history,
                 color: Colors.teal.shade700,
                 onTap: () => setState(() => _currentDrawerIndex = 2),
@@ -455,26 +415,33 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
             ],
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
           // Recent Suppliers
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Recent Suppliers',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: _darkGreen,
+              Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Text(
+                  'Recent Suppliers',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: _darkGreen,
+                  ),
                 ),
               ),
               TextButton(
                 onPressed: () => setState(() => _currentDrawerIndex = 1),
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(50, 30),
+                ),
                 child: Text(
                   'View All',
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 11,
                     color: _lightGreen,
                     fontWeight: FontWeight.w500,
                   ),
@@ -482,7 +449,7 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           ..._suppliers
               .take(3)
               .map((supplier) => _buildSupplierListItem(supplier)),
@@ -497,90 +464,103 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CircularProgressIndicator(color: _primaryGreen, strokeWidth: 2),
-            const SizedBox(height: 12),
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                color: _primaryGreen,
+                strokeWidth: 1.5,
+              ),
+            ),
+            const SizedBox(height: 8),
             Text(
               'Loading...',
-              style: TextStyle(color: _primaryGreen, fontSize: 13),
+              style: TextStyle(color: _primaryGreen, fontSize: 11),
             ),
           ],
         ),
       );
     }
 
-    if (_suppliers.isEmpty) {
-      return _buildEmptyState();
-    }
-
     return Column(
       children: [
-        // Search Bar
+        // Compact Search Bar
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             color: Colors.white,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.grey.withOpacity(0.05),
-                blurRadius: 4,
-                offset: const Offset(0, 1),
-              ),
-            ],
+            border: Border(
+              bottom: BorderSide(color: Colors.grey.shade200, width: 1),
+            ),
           ),
           child: Row(
             children: [
               Expanded(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  height: 36,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                   decoration: BoxDecoration(
                     color: _backgroundColor,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.grey.shade300, width: 0.5),
                   ),
                   child: TextField(
+                    onChanged: (value) => setState(() => _searchQuery = value),
                     decoration: InputDecoration(
                       hintText: 'Search suppliers...',
                       border: InputBorder.none,
-                      icon: Icon(Icons.search, size: 18, color: _primaryGreen),
-                      hintStyle: TextStyle(fontSize: 13),
+                      icon: Icon(Icons.search, size: 16, color: _primaryGreen),
+                      hintStyle: TextStyle(fontSize: 12),
+                      isDense: true,
                     ),
-                    style: TextStyle(fontSize: 13),
+                    style: TextStyle(fontSize: 12),
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.all(8),
+                height: 36,
+                width: 36,
                 decoration: BoxDecoration(
                   color: _accentGreen.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(6),
                 ),
-                child: Icon(Icons.filter_list, size: 18, color: _primaryGreen),
+                child: IconButton(
+                  icon: Icon(Icons.filter_list, size: 16, color: _primaryGreen),
+                  onPressed: () {},
+                  padding: EdgeInsets.zero,
+                ),
               ),
             ],
           ),
         ),
 
-        // Suppliers List
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: _fetchSuppliers,
-            color: _primaryGreen,
-            child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: _suppliers.length,
-              itemBuilder: (context, index) {
-                final supplier = _suppliers[index];
-                return _buildSupplierCard(supplier);
-              },
+        if (_filteredSuppliers.isEmpty && !_isLoading)
+          Expanded(child: _buildEmptyState())
+        else
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _fetchSuppliers,
+              color: _primaryGreen,
+              displacement: 40,
+              child: ListView.builder(
+                padding: const EdgeInsets.all(8),
+                itemCount: _filteredSuppliers.length,
+                itemBuilder: (context, index) {
+                  final supplier = _filteredSuppliers[index];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: _buildSupplierCard(supplier),
+                  );
+                },
+              ),
             ),
           ),
-        ),
       ],
     );
   }
 
-  Widget _buildDashboardStatCard({
+  Widget _buildStatCard({
     required String title,
     required String value,
     required IconData icon,
@@ -589,43 +569,56 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.05),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade200, width: 0.5),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(10),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 20, color: color),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, size: 14, color: color),
+                ),
+                const Spacer(),
+                if (title == 'This Month')
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      'Purchase',
+                      style: TextStyle(fontSize: 8, color: color),
+                    ),
+                  ),
+              ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Text(
               value,
               style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
                 color: color,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Text(
               title,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 10,
                 color: Colors.grey.shade700,
                 fontWeight: FontWeight.w500,
               ),
@@ -636,7 +629,7 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
     );
   }
 
-  Widget _buildDashboardActionCard({
+  Widget _buildActionCard({
     required String title,
     required IconData icon,
     required Color color,
@@ -647,38 +640,38 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.05),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
-            ),
-          ],
-          border: Border.all(color: color.withOpacity(0.2)),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey.shade200, width: 0.5),
         ),
         child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.1),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(icon, size: 24, color: color),
+                child: Icon(icon, size: 14, color: color),
               ),
-              const SizedBox(height: 12),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: color,
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                textAlign: TextAlign.center,
+              ),
+              Icon(
+                Icons.chevron_right,
+                size: 14,
+                color: color.withOpacity(0.5),
               ),
             ],
           ),
@@ -689,44 +682,39 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
 
   Widget _buildSupplierListItem(Map<String, dynamic> supplier) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 6),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.05),
-            blurRadius: 2,
-            offset: const Offset(0, 1),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.grey.shade200, width: 0.5),
       ),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        dense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         leading: Container(
-          width: 40,
-          height: 40,
+          width: 32,
+          height: 32,
           decoration: BoxDecoration(
             color: _lightGreen.withOpacity(0.1),
             shape: BoxShape.circle,
           ),
-          child: Icon(Icons.business, size: 18, color: _lightGreen),
+          child: Icon(Icons.business, size: 14, color: _lightGreen),
         ),
         title: Text(
           supplier['name'] ?? 'Unnamed',
           style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
             color: _darkGreen,
           ),
         ),
         subtitle: supplier['phone'] != null
             ? Text(
                 supplier['phone']!,
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
               )
             : null,
-        trailing: Icon(Icons.chevron_right, size: 18, color: _primaryGreen),
+        trailing: Icon(Icons.chevron_right, size: 14, color: _primaryGreen),
         onTap: () => _showSupplierDetails(supplier),
       ),
     );
@@ -734,36 +722,34 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
 
   Widget _buildSupplierCard(Map<String, dynamic> supplier) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade200, width: 0.5),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.05),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 2,
+            offset: const Offset(0, 1),
           ),
         ],
       ),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 12,
-        ),
+        dense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         leading: Container(
-          width: 48,
-          height: 48,
+          width: 36,
+          height: 36,
           decoration: BoxDecoration(
             color: _lightGreen.withOpacity(0.1),
             shape: BoxShape.circle,
           ),
-          child: Icon(Icons.business, size: 22, color: _lightGreen),
+          child: Icon(Icons.business, size: 16, color: _lightGreen),
         ),
         title: Text(
           supplier['name'] ?? 'Unnamed Supplier',
           style: TextStyle(
-            fontSize: 15,
+            fontSize: 13,
             fontWeight: FontWeight.w600,
             color: _darkGreen,
           ),
@@ -773,15 +759,15 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
           children: [
             if (supplier['phone'] != null)
               Padding(
-                padding: const EdgeInsets.only(top: 4),
+                padding: const EdgeInsets.only(top: 2),
                 child: Row(
                   children: [
-                    Icon(Icons.phone, size: 14, color: Colors.grey.shade600),
-                    const SizedBox(width: 6),
+                    Icon(Icons.phone, size: 12, color: Colors.grey.shade600),
+                    const SizedBox(width: 4),
                     Text(
                       supplier['phone']!,
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: 11,
                         color: Colors.grey.shade700,
                       ),
                     ),
@@ -790,16 +776,16 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
               ),
             if (supplier['email'] != null)
               Padding(
-                padding: const EdgeInsets.only(top: 2),
+                padding: const EdgeInsets.only(top: 1),
                 child: Row(
                   children: [
-                    Icon(Icons.email, size: 14, color: Colors.grey.shade600),
-                    const SizedBox(width: 6),
+                    Icon(Icons.email, size: 12, color: Colors.grey.shade600),
+                    const SizedBox(width: 4),
                     Expanded(
                       child: Text(
                         supplier['email']!,
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: 11,
                           color: Colors.grey.shade700,
                         ),
                         overflow: TextOverflow.ellipsis,
@@ -811,15 +797,15 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
           ],
         ),
         trailing: PopupMenuButton<String>(
-          icon: Icon(Icons.more_vert, size: 20, color: _primaryGreen),
+          icon: Icon(Icons.more_vert, size: 16, color: _primaryGreen),
           itemBuilder: (context) => [
             PopupMenuItem<String>(
               value: 'view',
               child: Row(
                 children: [
-                  Icon(Icons.visibility, size: 18, color: _primaryGreen),
-                  const SizedBox(width: 8),
-                  Text('View Details'),
+                  Icon(Icons.visibility, size: 14, color: _primaryGreen),
+                  const SizedBox(width: 6),
+                  Text('View', style: TextStyle(fontSize: 12)),
                 ],
               ),
             ),
@@ -827,9 +813,9 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
               value: 'edit',
               child: Row(
                 children: [
-                  Icon(Icons.edit, size: 18, color: _primaryGreen),
-                  const SizedBox(width: 8),
-                  Text('Edit'),
+                  Icon(Icons.edit, size: 14, color: _primaryGreen),
+                  const SizedBox(width: 6),
+                  Text('Edit', style: TextStyle(fontSize: 12)),
                 ],
               ),
             ),
@@ -837,9 +823,9 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
               value: 'purchase',
               child: Row(
                 children: [
-                  Icon(Icons.add_shopping_cart, size: 18, color: _lightGreen),
-                  const SizedBox(width: 8),
-                  Text('New Purchase'),
+                  Icon(Icons.add_shopping_cart, size: 14, color: _lightGreen),
+                  const SizedBox(width: 6),
+                  Text('Purchase', style: TextStyle(fontSize: 12)),
                 ],
               ),
             ),
@@ -848,9 +834,9 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
               value: 'delete',
               child: Row(
                 children: [
-                  Icon(Icons.delete, size: 18, color: Colors.red),
-                  const SizedBox(width: 8),
-                  Text('Delete'),
+                  Icon(Icons.delete, size: 14, color: Colors.red),
+                  const SizedBox(width: 6),
+                  Text('Delete', style: TextStyle(fontSize: 12)),
                 ],
               ),
             ),
@@ -875,51 +861,51 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
   Widget _buildEmptyState() {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: _lightGreen.withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 Icons.business_outlined,
-                size: 60,
+                size: 40,
                 color: _primaryGreen,
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             Text(
               'No Suppliers Found',
               style: TextStyle(
-                fontSize: 18,
+                fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: _darkGreen,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text(
               'Add your first supplier to get started',
-              style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
             ElevatedButton.icon(
-              icon: Icon(Icons.add_business, size: 18),
-              label: Text('Add Supplier', style: TextStyle(fontSize: 14)),
+              icon: Icon(Icons.add, size: 14),
+              label: Text('Add Supplier', style: TextStyle(fontSize: 12)),
               onPressed: _navigateToSupplierForm,
               style: ElevatedButton.styleFrom(
                 backgroundColor: _lightGreen,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 14,
+                  horizontal: 16,
+                  vertical: 8,
                 ),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(6),
                 ),
               ),
             ),
@@ -930,7 +916,6 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
   }
 
   String _getMonthlyPurchaseAmount() {
-    // Mock data - replace with actual calculation
     return '12,450';
   }
 
@@ -957,9 +942,7 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (context) => SupplierDetailsModal(supplier: supplier),
     );
   }
@@ -970,17 +953,36 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Delete Supplier', style: TextStyle(color: _darkGreen)),
-        content: Text('Are you sure you want to delete this supplier?'),
+        title: Text(
+          'Delete Supplier',
+          style: TextStyle(
+            fontSize: 14,
+            color: _darkGreen,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        content: Text(
+          'Are you sure you want to delete this supplier?',
+          style: TextStyle(fontSize: 12),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text('Cancel', style: TextStyle(color: _primaryGreen)),
+            child: Text(
+              'Cancel',
+              style: TextStyle(fontSize: 12, color: _primaryGreen),
+            ),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: Text('Delete'),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.red,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+            child: Text('Delete', style: TextStyle(fontSize: 12)),
           ),
         ],
       ),
@@ -992,8 +994,9 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Supplier deleted'),
+              content: Text('Supplier deleted', style: TextStyle(fontSize: 12)),
               backgroundColor: _lightGreen,
+              duration: const Duration(seconds: 2),
             ),
           );
         }
@@ -1001,7 +1004,10 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+            SnackBar(
+              content: Text('Error: $e', style: TextStyle(fontSize: 12)),
+              backgroundColor: Colors.red,
+            ),
           );
         }
       }
@@ -1009,7 +1015,6 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
   }
 }
 
-// Supplier Details Modal
 class SupplierDetailsModal extends StatelessWidget {
   final Map<String, dynamic> supplier;
 
@@ -1022,165 +1027,217 @@ class SupplierDetailsModal extends StatelessWidget {
     final Color lightGreen = const Color(0xFF4CAF50);
 
     return Container(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Supplier Details',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: primaryGreen,
-                ),
-              ),
-              IconButton(
-                icon: Icon(Icons.close, size: 20),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ],
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
           ),
-          const SizedBox(height: 16),
-
-          // Supplier Info
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(12),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Drag Handle
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: lightGreen.withOpacity(0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.business, size: 20, color: lightGreen),
+
+            // Header
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Supplier Details',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: primaryGreen,
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        supplier['name'] ?? 'Unnamed Supplier',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade800,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.close, size: 18),
+                    onPressed: () => Navigator.pop(context),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+            ),
 
-                // Details Grid
-                GridView.count(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 2,
-                  childAspectRatio: 3,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  children: [
-                    _buildDetailItem('Phone', supplier['phone']),
-                    _buildDetailItem('Email', supplier['email']),
-                    _buildDetailItem('GST', supplier['gstNumber']),
-                    _buildDetailItem('Status', supplier['status'] ?? 'Active'),
-                  ],
-                ),
+            const Divider(height: 0, thickness: 0.5),
 
-                const SizedBox(height: 12),
-
-                // Address
-                if (supplier['address'] != null)
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            // Content
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Basic Info
+                  Row(
                     children: [
-                      Text(
-                        'Address',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade600,
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: lightGreen.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.business,
+                          size: 16,
+                          color: lightGreen,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        supplier['address']!,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade800,
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          supplier['name'] ?? 'Unnamed Supplier',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade800,
+                          ),
                         ),
                       ),
                     ],
                   ),
 
-                const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-                // Action Buttons
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        icon: Icon(Icons.edit, size: 16),
-                        label: Text('Edit', style: TextStyle(fontSize: 13)),
-                        onPressed: () {
-                          Navigator.pop(context);
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  SupplierFormScreen(supplier: supplier),
+                  // Details Grid
+                  GridView.count(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisCount: 2,
+                    childAspectRatio: 3.5,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                    children: [
+                      _buildDetailItem('Phone', supplier['phone']),
+                      _buildDetailItem('Email', supplier['email']),
+                      _buildDetailItem('GST', supplier['gstNumber']),
+                      _buildDetailItem(
+                        'Status',
+                        supplier['status'] ?? 'Active',
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // Address
+                  if (supplier['address'] != null)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Address',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          supplier['address']!,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade800,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                  const SizedBox(height: 20),
+
+                  // Action Buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    SupplierFormScreen(supplier: supplier),
+                              ),
+                            );
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: primaryGreen,
+                            side: BorderSide(color: primaryGreen, width: 0.5),
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
                             ),
-                          );
-                        },
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: primaryGreen,
-                          side: BorderSide(color: primaryGreen),
-                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.edit, size: 14),
+                              const SizedBox(width: 4),
+                              Text('Edit', style: TextStyle(fontSize: 12)),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        icon: Icon(Icons.add_shopping_cart, size: 16),
-                        label: Text(
-                          'New Purchase',
-                          style: TextStyle(fontSize: 13),
-                        ),
-                        onPressed: () {
-                          Navigator.pop(context);
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  CreatePurchaseScreen(supplier: supplier),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    CreatePurchaseScreen(supplier: supplier),
+                              ),
+                            );
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: lightGreen,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
                             ),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: lightGreen,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.add_shopping_cart, size: 14),
+                              const SizedBox(width: 4),
+                              Text('Purchase', style: TextStyle(fontSize: 12)),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1190,17 +1247,20 @@ class SupplierDetailsModal extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          label,
+          label.toUpperCase(),
           style: TextStyle(
-            fontSize: 11,
+            fontSize: 9,
             color: Colors.grey.shade600,
-            fontWeight: FontWeight.w500,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.3,
           ),
         ),
         const SizedBox(height: 4),
         Text(
           value ?? 'Not provided',
-          style: TextStyle(fontSize: 13, color: Colors.grey.shade800),
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
       ],
     );
