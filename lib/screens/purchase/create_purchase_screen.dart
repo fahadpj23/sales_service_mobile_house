@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:sales_stock/models/purchase_item.dart';
 import 'package:sales_stock/services/firestore_service.dart';
+import 'dart:math' as math;
 
 class CreatePurchaseScreen extends StatefulWidget {
   final Map<String, dynamic>? supplier;
@@ -96,8 +97,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
             .toString()
             .toLowerCase();
         final brand = (product['brand'] ?? '').toString().toLowerCase();
-        final model = (product['model'] ?? '').toString().toLowerCase();
-        final combinedText = '$productName $brand $model';
+        final combinedText = '$productName $brand';
 
         return searchWords.every((word) {
           if (word.isEmpty) return true;
@@ -170,7 +170,14 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
       final newIndex = _purchaseItems.length;
       _purchaseItems.add(PurchaseItem(discountPercentage: 0.0));
       _itemImeis[newIndex] = [];
-      _showEditSections[newIndex] = false;
+
+      // Collapse ALL existing items
+      for (var key in _showEditSections.keys) {
+        _showEditSections[key] = false;
+      }
+
+      // Expand ONLY the new item
+      _showEditSections[newIndex] = true;
     });
   }
 
@@ -207,7 +214,17 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
 
   void _toggleEditSection(int index) {
     setState(() {
-      _showEditSections[index] = !(_showEditSections[index] ?? false);
+      final currentState = _showEditSections[index] ?? false;
+
+      if (!currentState) {
+        // If we're expanding this item, collapse all others first
+        for (var key in _showEditSections.keys) {
+          _showEditSections[key] = false;
+        }
+      }
+
+      // Toggle the current item
+      _showEditSections[index] = !currentState;
     });
   }
 
@@ -230,7 +247,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
               children: [
                 Text(
                   imeiIndex != null
-                      ? 'Scan IMEI ${imeiIndex + 1}'
+                      ? 'Scan Serial ${imeiIndex + 1}'
                       : 'Scan IMEI/Serial Number *',
                   style: TextStyle(color: _pink, fontSize: 14),
                 ),
@@ -285,7 +302,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
               TextButton(
                 onPressed: () {
                   Navigator.pop(context);
-                  _showManualIMEIEntry(itemIndex, imeiIndex: imeiIndex);
+                  _showManualSerialEntry(itemIndex, imeiIndex: imeiIndex);
                 },
                 child: const Text(
                   'Enter Manually',
@@ -310,12 +327,12 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
 
   void _onScanComplete(String scannedValue) {
     if (_currentScanItemIndex != null) {
-      // Validate IMEI is 15 digits
-      if (!_isValidIMEI(scannedValue)) {
+      // Validate serial number is at least 10 characters
+      if (!_isValidSerialNumber(scannedValue)) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Invalid IMEI. Must be 15 digits. Scanned: $scannedValue',
+              'Invalid Serial. Must be at least 10 characters. Scanned: $scannedValue',
               style: const TextStyle(fontSize: 12),
             ),
             backgroundColor: _red,
@@ -327,14 +344,14 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
 
       setState(() {
         if (_currentScanImeiIndex != null) {
-          // Update specific IMEI
+          // Update specific serial
           if ((_itemImeis[_currentScanItemIndex!]?.length ?? 0) >
               _currentScanImeiIndex!) {
             _itemImeis[_currentScanItemIndex!]![_currentScanImeiIndex!] =
                 scannedValue;
           }
         } else {
-          // Add new IMEI
+          // Add new serial
           _itemImeis[_currentScanItemIndex!] ??= [];
           _itemImeis[_currentScanItemIndex!]!.add(scannedValue);
         }
@@ -343,7 +360,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text(
-            'IMEI scanned successfully ✓',
+            'Serial scanned successfully ✓',
             style: TextStyle(fontSize: 12),
           ),
           backgroundColor: _lightGreen,
@@ -355,12 +372,14 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     _currentScanImeiIndex = null;
   }
 
-  bool _isValidIMEI(String imei) {
-    return imei.length == 15 && RegExp(r'^\d+$').hasMatch(imei);
+  bool _isValidSerialNumber(String serial) {
+    // Allow both IMEI (15 digits) and Serial Numbers (can be alphanumeric and longer)
+    // Minimum length check, you can adjust as needed
+    return serial.isNotEmpty && serial.length >= 10;
   }
 
-  Future<void> _showManualIMEIEntry(int itemIndex, {int? imeiIndex}) async {
-    final imeiController = TextEditingController(
+  Future<void> _showManualSerialEntry(int itemIndex, {int? imeiIndex}) async {
+    final serialController = TextEditingController(
       text:
           imeiIndex != null && (_itemImeis[itemIndex]?.length ?? 0) > imeiIndex
           ? _itemImeis[itemIndex]![imeiIndex]
@@ -372,25 +391,24 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
       builder: (context) => AlertDialog(
         title: Text(
           imeiIndex != null
-              ? 'Edit IMEI ${imeiIndex + 1}'
-              : 'Enter IMEI Number *',
+              ? 'Edit Serial ${imeiIndex + 1}'
+              : 'Enter Serial Number *',
           style: TextStyle(color: _pink, fontSize: 14),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'IMEI is required for inventory tracking',
+              'Enter IMEI or Serial Number for inventory tracking',
               style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
             ),
             const SizedBox(height: 10),
             TextField(
-              controller: imeiController,
-              keyboardType: TextInputType.number,
-              maxLength: 15,
+              controller: serialController,
+              maxLength: 30, // Increased for longer serial numbers
               style: const TextStyle(fontSize: 12),
               decoration: InputDecoration(
-                hintText: 'Enter 15-digit IMEI number...',
+                hintText: 'Enter IMEI/Serial number...',
                 hintStyle: const TextStyle(fontSize: 11),
                 border: const OutlineInputBorder(),
                 counterText: '',
@@ -401,7 +419,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                 ),
                 suffixIcon: IconButton(
                   icon: const Icon(Icons.clear, size: 16),
-                  onPressed: () => imeiController.clear(),
+                  onPressed: () => serialController.clear(),
                 ),
               ),
               autofocus: true,
@@ -413,7 +431,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'IMEI is usually found under battery or in phone settings',
+                    'For mobile phones: IMEI (15 digits). For other products: Serial Number',
                     style: TextStyle(fontSize: 9, color: Colors.grey.shade600),
                   ),
                 ),
@@ -434,7 +452,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: const Text(
-                      'IMEI removed',
+                      'Serial removed',
                       style: TextStyle(fontSize: 12),
                     ),
                     backgroundColor: _amber,
@@ -451,25 +469,25 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
           ),
           ElevatedButton(
             onPressed: () {
-              final imei = imeiController.text.trim();
-              if (_isValidIMEI(imei)) {
+              final serial = serialController.text.trim();
+              if (_isValidSerialNumber(serial)) {
                 Navigator.pop(context);
                 setState(() {
                   if (imeiIndex != null) {
-                    // Edit existing IMEI
+                    // Edit existing serial
                     if ((_itemImeis[itemIndex]?.length ?? 0) > imeiIndex) {
-                      _itemImeis[itemIndex]![imeiIndex] = imei;
+                      _itemImeis[itemIndex]![imeiIndex] = serial;
                     }
                   } else {
-                    // Add new IMEI
+                    // Add new serial
                     _itemImeis[itemIndex] ??= [];
-                    _itemImeis[itemIndex]!.add(imei);
+                    _itemImeis[itemIndex]!.add(serial);
                   }
                 });
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
-                      'IMEI saved: ${imei.substring(0, 4)}...',
+                      'Serial saved: ${serial.substring(0, math.min(serial.length, 8))}...',
                       style: const TextStyle(fontSize: 12),
                     ),
                     backgroundColor: _lightGreen,
@@ -480,7 +498,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
-                      'IMEI must be exactly 15 digits (${imei.length}/15)',
+                      'Serial must be at least 10 characters (${serial.length}/10)',
                       style: const TextStyle(fontSize: 12),
                     ),
                     backgroundColor: _red,
@@ -494,7 +512,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             ),
             child: Text(
-              imeiIndex != null ? 'Update IMEI' : 'Save IMEI',
+              imeiIndex != null ? 'Update Serial' : 'Save Serial',
               style: const TextStyle(color: Colors.white, fontSize: 12),
             ),
           ),
@@ -745,7 +763,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         product['purchaseRate'] > 0;
     final productName = product['productName'] ?? 'Unnamed Product';
     final brand = product['brand'] ?? '';
-    final model = product['model'] ?? '';
     final hsnCode = product['hsnCode'] ?? '';
     final purchaseRate = product['purchaseRate'] ?? 0.0;
     final price = product['price'] ?? 0.0;
@@ -782,11 +799,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
             Text(
               brand,
               style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
-            ),
-          if (model.isNotEmpty)
-            Text(
-              model,
-              style: TextStyle(fontSize: 9, color: Colors.grey.shade500),
             ),
           const SizedBox(height: 2),
           Row(
@@ -862,7 +874,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Don\'t forget to add IMEIs for ${product['productName'] ?? 'this product'}',
+            'Don\'t forget to add Serial Numbers for ${product['productName'] ?? 'this product'}',
             style: const TextStyle(fontSize: 12),
           ),
           backgroundColor: _amber,
@@ -877,7 +889,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
       _purchaseItems[itemIndex].productName =
           product['productName'] ?? 'Unnamed Product';
       _purchaseItems[itemIndex].brand = product['brand'];
-      _purchaseItems[itemIndex].model = product['model'];
       _purchaseItems[itemIndex].hsnCode = product['hsnCode'] ?? '';
 
       final purchaseRate = product['purchaseRate'];
@@ -886,11 +897,12 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         _purchaseItems[itemIndex].gstAmount = purchaseRate.toDouble() * 0.18;
       }
 
-      // Auto-show edit section only if it's a new product selection (not editing existing)
-      if (!_showEditSections.containsKey(itemIndex) ||
-          !_showEditSections[itemIndex]!) {
-        _showEditSections[itemIndex] = true;
+      // Collapse all other items and expand only this one
+      for (var key in _showEditSections.keys) {
+        _showEditSections[key] = false;
       }
+      _showEditSections[itemIndex] = true;
+
       _calculateTotals();
     });
   }
@@ -1062,7 +1074,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   Future<void> _showAddProductDialog({String preFilledSearch = ''}) async {
     final brandController = TextEditingController();
     final productNameController = TextEditingController();
-    final modelController = TextEditingController();
     final purchaseRateController = TextEditingController();
     final priceController = TextEditingController();
     final hsnController = TextEditingController();
@@ -1252,28 +1263,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                               ),
                               prefixIcon: Icon(
                                 Icons.phone_android,
-                                color: _primaryGreen,
-                                size: 18,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-
-                        // Model (Optional)
-                        _buildFormSection(
-                          label: 'Model (Optional)',
-                          child: TextField(
-                            controller: modelController,
-                            style: const TextStyle(fontSize: 12),
-                            decoration: InputDecoration(
-                              hintText: 'e.g., SM-S911B',
-                              hintStyle: const TextStyle(fontSize: 11),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              prefixIcon: Icon(
-                                Icons.model_training,
                                 color: _primaryGreen,
                                 size: 18,
                               ),
@@ -1479,7 +1468,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                                   await _saveProduct(
                                     selectedBrand,
                                     productNameController,
-                                    modelController,
                                     hsnController,
                                     purchaseRateController,
                                     priceController,
@@ -1566,7 +1554,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   Future<void> _saveProduct(
     String selectedBrand,
     TextEditingController productNameController,
-    TextEditingController modelController,
     TextEditingController hsnController,
     TextEditingController purchaseRateController,
     TextEditingController priceController,
@@ -1575,7 +1562,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
       final productData = {
         'brand': selectedBrand,
         'productName': productNameController.text.trim(),
-        'model': modelController.text.trim(),
         'hsnCode': hsnController.text.trim(),
         'purchaseRate': double.parse(purchaseRateController.text),
         'price': double.parse(priceController.text),
@@ -1865,14 +1851,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                                       : Colors.grey.shade500,
                                 ),
                               ),
-                              if (item.model != null)
-                                Text(
-                                  item.model!,
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
                             ],
                           ),
                         ),
@@ -1991,7 +1969,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              'IMEIs:',
+                              'Serials:',
                               style: TextStyle(
                                 fontSize: 10,
                                 color: Colors.grey.shade700,
@@ -2035,7 +2013,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                     crossAxisCount: 2,
                     crossAxisSpacing: 8,
                     mainAxisSpacing: 8,
-                    childAspectRatio: 2.2,
+                    childAspectRatio: 3,
                     children: [
                       // Quantity
                       _buildInputField(
@@ -2115,7 +2093,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                     ],
                   ),
 
-                  // IMEI Section
+                  // Serial Number Section
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -2133,7 +2111,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(
-                                'IMEI Numbers *',
+                                'Serial/IMEI Numbers *',
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
@@ -2163,7 +2141,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Required: $requiredImeiCount IMEI${requiredImeiCount > 1 ? 's' : ''} (1 per unit)',
+                          'Required: $requiredImeiCount Serial${requiredImeiCount > 1 ? 's' : ''} (1 per unit)',
                           style: TextStyle(
                             fontSize: 10,
                             color: Colors.grey.shade600,
@@ -2171,12 +2149,12 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                         ),
                         const SizedBox(height: 10),
 
-                        // IMEI List
+                        // Serial List
                         if (itemImeis.isNotEmpty)
                           ...List.generate(itemImeis.length, (imeiIndex) {
                             final imei = itemImeis[imeiIndex];
                             final isValid =
-                                imei.isNotEmpty && _isValidIMEI(imei);
+                                imei.isNotEmpty && _isValidSerialNumber(imei);
 
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 6),
@@ -2207,7 +2185,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                                   const SizedBox(width: 6),
                                   Expanded(
                                     child: InkWell(
-                                      onTap: () => _showManualIMEIEntry(
+                                      onTap: () => _showManualSerialEntry(
                                         index,
                                         imeiIndex: imeiIndex,
                                       ),
@@ -2232,7 +2210,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                                             Expanded(
                                               child: Text(
                                                 imei.isEmpty
-                                                    ? 'Tap to enter IMEI'
+                                                    ? 'Tap to enter Serial'
                                                     : imei,
                                                 style: TextStyle(
                                                   fontSize: 10,
@@ -2278,7 +2256,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                             );
                           }),
 
-                        // Add IMEI Button
+                        // Add Serial Button
                         if (currentImeiCount < requiredImeiCount)
                           Padding(
                             padding: const EdgeInsets.only(top: 6),
@@ -2299,23 +2277,23 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                                 ),
                                 icon: const Icon(Icons.add, size: 14),
                                 label: const Text(
-                                  'Add IMEI',
+                                  'Add Serial/IMEI',
                                   style: TextStyle(fontSize: 11),
                                 ),
                               ),
                             ),
                           ),
 
-                        // IMEI Status Message
+                        // Serial Status Message
                         Padding(
                           padding: const EdgeInsets.only(top: 6),
                           child: Text(
                             hasAllImeis &&
                                     itemImeis.every(
-                                      (imei) => _isValidIMEI(imei),
+                                      (imei) => _isValidSerialNumber(imei),
                                     )
-                                ? '✅ All IMEIs are valid'
-                                : '⚠️ ${requiredImeiCount - currentImeiCount} IMEI${requiredImeiCount - currentImeiCount > 1 ? 's' : ''} remaining',
+                                ? '✅ All Serial Numbers are valid'
+                                : '⚠️ ${requiredImeiCount - currentImeiCount} Serial${requiredImeiCount - currentImeiCount > 1 ? 's' : ''} remaining',
                             style: TextStyle(
                               fontSize: 9,
                               color: hasAllImeis ? _lightGreen : _amber,
@@ -2869,7 +2847,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'IMEIs:',
+                                    'Serials:',
                                     style: TextStyle(
                                       fontSize: 10,
                                       color: Colors.grey.shade600,
@@ -2877,7 +2855,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                                   ),
                                   ...itemImeis.take(3).map((imei) {
                                     return Text(
-                                      '• ${imei.substring(0, 4)}...${imei.substring(imei.length - 4)}',
+                                      '• ${imei.substring(0, math.min(imei.length, 8))}...',
                                       style: TextStyle(
                                         fontSize: 9,
                                         color: Colors.grey.shade500,
@@ -3393,21 +3371,23 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
           return;
         }
 
-        // IMEI validation
+        // Serial validation
         final requiredImeiCount = item.quantity!.toInt();
         final itemImeis = _itemImeis[i] ?? [];
         if (itemImeis.length < requiredImeiCount) {
           _showErrorSnackbar(
-            'Item ${i + 1}: Need $requiredImeiCount IMEIs, got ${itemImeis.length}',
+            'Item ${i + 1}: Need $requiredImeiCount Serial Numbers, got ${itemImeis.length}',
           );
           return;
         }
 
-        // Validate each IMEI
+        // Validate each serial number
         for (var j = 0; j < requiredImeiCount; j++) {
-          final imei = itemImeis[j];
-          if (imei.isEmpty || !_isValidIMEI(imei)) {
-            _showErrorSnackbar('Item ${i + 1}, IMEI ${j + 1}: Invalid IMEI');
+          final serial = itemImeis[j];
+          if (serial.isEmpty || !_isValidSerialNumber(serial)) {
+            _showErrorSnackbar(
+              'Item ${i + 1}, Serial ${j + 1}: Invalid serial number',
+            );
             return;
           }
         }

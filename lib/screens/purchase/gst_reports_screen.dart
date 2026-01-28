@@ -174,6 +174,71 @@ class _GSTReportsScreenState extends State<GSTReportsScreen> {
     return NumberFormat('#,##0.00').format(amount);
   }
 
+  String formatDateManual(dynamic dateValue) {
+    print(dateValue);
+    // Convert to string first
+    final dateString = dateValue?.toString()?.trim() ?? '';
+
+    if (dateString == 'N/A' || dateString.isEmpty || dateString == 'null') {
+      return 'N/A';
+    }
+
+    try {
+      final parts = dateString.split('/');
+      if (parts.length != 3) return dateString;
+
+      // Expanded month map with more variations
+      const monthMap = {
+        // Standard 3-letter abbreviations
+        'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04',
+        'may': '05', 'jun': '06', 'jul': '07', 'aug': '08',
+        'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12',
+
+        // Sometimes with period
+        'jan.': '01', 'feb.': '02', 'mar.': '03', 'apr.': '04',
+        'may.': '05', 'jun.': '06', 'jul.': '07', 'aug.': '08',
+        'sep.': '09', 'oct.': '10', 'nov.': '11', 'dec.': '12',
+
+        // Full month names
+        'january': '01', 'february': '02', 'march': '03', 'april': '04',
+        'june': '06', 'july': '07', 'august': '08', 'september': '09',
+        'october': '10', 'november': '11', 'december': '12',
+      };
+
+      final day = parts[0].padLeft(2, '0');
+      final monthAbbr = parts[1].toLowerCase().trim();
+      final year = parts[2].trim();
+
+      // Check if month is already a number (01-12)
+      if (RegExp(r'^\d{1,2}$').hasMatch(monthAbbr)) {
+        final monthNum = int.tryParse(monthAbbr);
+        if (monthNum != null && monthNum >= 1 && monthNum <= 12) {
+          return '$day/${monthAbbr.padLeft(2, '0')}/$year';
+        }
+      }
+
+      // Look up month abbreviation
+      final monthNumber = monthMap[monthAbbr];
+
+      if (monthNumber == null) {
+        // Try removing any trailing period
+        final monthAbbrNoPeriod = monthAbbr.replaceAll(RegExp(r'\.$'), '');
+        final monthNumber2 = monthMap[monthAbbrNoPeriod];
+
+        if (monthNumber2 != null) {
+          return '$day/$monthNumber2/$year';
+        }
+
+        // Return original if month not found
+        return dateString;
+      }
+
+      return '$day/$monthNumber/$year';
+    } catch (e) {
+      return dateString;
+    }
+  }
+
   Future<Uint8List> _generatePDF() async {
     final pdf = pw.Document();
 
@@ -227,7 +292,9 @@ class _GSTReportsScreenState extends State<GSTReportsScreen> {
               ],
               data: _gstReports.map((report) {
                 return [
-                  report['date'] ?? 'N/A',
+                  report['date'] != null && report['date'].toString().isNotEmpty
+                      ? formatDateManual(report['date'].toString())
+                      : 'N/A',
                   report['invoiceNo'] ?? 'N/A',
                   report['supplierName'] ?? 'Unknown',
                   report['18%'] ?? '18%',
