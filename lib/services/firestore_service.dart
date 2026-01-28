@@ -238,6 +238,40 @@ class FirestoreService {
     }
   }
 
+  // Add this method to your FirestoreService class
+
+  Future<List<Map<String, dynamic>>> getPurchasesByDateRange(
+    DateTime startDate,
+    DateTime endDate,
+  ) async {
+    try {
+      final endOfDay = DateTime(
+        endDate.year,
+        endDate.month,
+        endDate.day,
+        23,
+        59,
+        59,
+      );
+
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('purchases')
+          .where('purchaseDate', isGreaterThanOrEqualTo: startDate)
+          .where('purchaseDate', isLessThanOrEqualTo: endOfDay)
+          .orderBy('purchaseDate', descending: true)
+          .get();
+
+      return querySnapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+    } catch (e) {
+      print('Error fetching purchases by date range: $e');
+      rethrow;
+    }
+  }
+
   // ========== PURCHASE METHODS ==========
   Future<List<Map<String, dynamic>>> getPurchases() async {
     try {

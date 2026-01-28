@@ -3,6 +3,7 @@ import 'package:sales_stock/services/firestore_service.dart';
 import 'package:sales_stock/screens/purchase/supplier_form_screen.dart';
 import 'package:sales_stock/screens/purchase/create_purchase_screen.dart';
 import 'package:sales_stock/screens/purchase/purchase_history_screen.dart';
+import 'package:sales_stock/screens/purchase/gst_reports_screen.dart'; // Add this import
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class PurchaseDashboard extends StatefulWidget {
@@ -79,6 +80,8 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
         return 'Suppliers';
       case 2:
         return 'Purchases';
+      case 3:
+        return 'GST Reports';
       default:
         return 'Purchase';
     }
@@ -102,6 +105,26 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
             icon: const Icon(Icons.add_shopping_cart, size: 18),
             onPressed: _navigateToCreatePurchase,
             tooltip: 'New Purchase',
+            padding: EdgeInsets.zero,
+          ),
+        ];
+      case 3:
+        return [
+          IconButton(
+            icon: const Icon(Icons.download, size: 18),
+            onPressed: () {
+              // Export functionality for GST reports
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Exporting GST Report...',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  backgroundColor: _lightGreen,
+                ),
+              );
+            },
+            tooltip: 'Export Report',
             padding: EdgeInsets.zero,
           ),
         ];
@@ -188,6 +211,11 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
                   icon: Icons.shopping_cart,
                   label: 'Purchases',
                 ),
+                _buildDrawerItem(
+                  index: 3,
+                  icon: Icons.description,
+                  label: 'GST Reports',
+                ),
                 const Divider(height: 20, thickness: 0.5),
 
                 // Quick Actions
@@ -234,6 +262,23 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
                   onTap: () {
                     Navigator.pop(context);
                     _navigateToCreatePurchase();
+                  },
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                ),
+                ListTile(
+                  dense: true,
+                  leading: Icon(
+                    Icons.receipt_long,
+                    size: 16,
+                    color: _darkGreen,
+                  ),
+                  title: Text(
+                    'GST Reports',
+                    style: TextStyle(fontSize: 12, color: _darkGreen),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    setState(() => _currentDrawerIndex = 3);
                   },
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                 ),
@@ -290,6 +335,8 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
         return _buildSuppliersScreen();
       case 2:
         return PurchaseHistoryScreen();
+      case 3:
+        return GSTReportsScreen(); // New GST Reports Screen
       default:
         return _buildDashboardScreen();
     }
@@ -356,10 +403,10 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
                 color: Colors.orange.shade700,
               ),
               _buildStatCard(
-                title: 'Pending',
-                value: '₹0',
-                icon: Icons.payment,
-                color: Colors.red.shade700,
+                title: 'GST This Month',
+                value: '₹${_getMonthlyGST()}',
+                icon: Icons.receipt,
+                color: Colors.purple.shade700,
               ),
             ],
           ),
@@ -407,10 +454,10 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
                 onTap: () => setState(() => _currentDrawerIndex = 1),
               ),
               _buildActionCard(
-                title: 'History',
-                icon: Icons.history,
+                title: 'GST Reports',
+                icon: Icons.description,
                 color: Colors.teal.shade700,
-                onTap: () => setState(() => _currentDrawerIndex = 2),
+                onTap: () => setState(() => _currentDrawerIndex = 3),
               ),
             ],
           ),
@@ -588,7 +635,7 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
                   child: Icon(icon, size: 14, color: color),
                 ),
                 const Spacer(),
-                if (title == 'This Month')
+                if (title == 'This Month' || title == 'GST This Month')
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 6,
@@ -599,7 +646,7 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
-                      'Purchase',
+                      title == 'This Month' ? 'Purchase' : 'GST',
                       style: TextStyle(fontSize: 8, color: color),
                     ),
                   ),
@@ -916,7 +963,13 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
   }
 
   String _getMonthlyPurchaseAmount() {
+    // This should be replaced with actual data from your database
     return '12,450';
+  }
+
+  String _getMonthlyGST() {
+    // This should be replaced with actual data from your database
+    return '2,241';
   }
 
   void _navigateToSupplierForm({Map<String, dynamic>? supplier}) async {
