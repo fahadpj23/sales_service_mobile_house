@@ -215,40 +215,7 @@ class _SupplierFormScreenState extends State<SupplierFormScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _backgroundColor,
-      appBar: AppBar(
-        title: Text(
-          widget.supplier == null ? 'Add Supplier' : 'Edit Supplier',
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-        ),
-        backgroundColor: _primaryGreen,
-        foregroundColor: Colors.white,
-        centerTitle: false,
-        actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 10),
-            child: ElevatedButton.icon(
-              onPressed: _saveSupplier,
-              icon: const Icon(Icons.save, size: 16),
-              label: const Text(
-                'Save',
-                style: TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: _primaryGreen,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                elevation: 0,
-              ),
-            ),
-          ),
-        ],
-      ),
+
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(

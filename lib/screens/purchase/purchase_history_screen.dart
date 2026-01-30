@@ -22,8 +22,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
   List<Map<String, dynamic>> _filteredPurchases = [];
   bool _isLoading = true;
   double _totalAmount = 0;
-  double _paidAmount = 0;
-  double _pendingAmount = 0;
   final TextEditingController _searchController = TextEditingController();
 
   @override
@@ -38,23 +36,13 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     try {
       final purchases = await _firestoreService.getPurchases();
 
-      // Calculate statistics
+      // Calculate total amount
       double total = 0;
-      double paid = 0;
-      double pending = 0;
 
       _purchases = purchases.map((purchase) {
         // Safely parse amounts
         final amount = _parseDouble(purchase['totalAmount']) ?? 0.0;
         total += amount;
-
-        // Determine payment status
-        final String status = _determinePaymentStatus(purchase);
-        if (status == 'Paid') {
-          paid += amount;
-        } else {
-          pending += amount;
-        }
 
         // Format date
         String formattedDate = 'N/A';
@@ -80,7 +68,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
               purchase['supplierName']?.toString() ?? 'Unknown Supplier',
           'date': formattedDate,
           'amount': amount,
-          'status': status,
           'totalDiscount': _parseDouble(purchase['totalDiscount']) ?? 0.0,
           'subtotal': _parseDouble(purchase['subtotal']) ?? 0.0,
           'gstAmount': _parseDouble(purchase['gstAmount']) ?? 0.0,
@@ -88,7 +75,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
           'notes': purchase['notes']?.toString() ?? '',
           'purchaseDate': purchase['purchaseDate'],
           'createdAt': purchase['createdAt'],
-          'paymentStatus': purchase['paymentStatus']?.toString(),
         };
       }).toList();
 
@@ -97,8 +83,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
 
       setState(() {
         _totalAmount = total;
-        _paidAmount = paid;
-        _pendingAmount = pending;
         _isLoading = false;
       });
     } catch (e) {
@@ -112,25 +96,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
           backgroundColor: Colors.red,
         ),
       );
-    }
-  }
-
-  String _determinePaymentStatus(Map<String, dynamic> purchase) {
-    // Check if there's a paymentStatus field
-    if (purchase['paymentStatus'] != null) {
-      return purchase['paymentStatus'].toString();
-    }
-
-    // Default logic - you might want to modify this based on your data structure
-    final amount = _parseDouble(purchase['totalAmount']) ?? 0.0;
-    final paidAmount = _parseDouble(purchase['paidAmount']) ?? 0.0;
-
-    if (paidAmount >= amount) {
-      return 'Paid';
-    } else if (paidAmount > 0) {
-      return 'Partial';
-    } else {
-      return 'Pending';
     }
   }
 
@@ -249,27 +214,28 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
             ),
           ),
 
-          // Purchase Statistics
+          // Total Purchase Statistics
           Container(
             padding: const EdgeInsets.all(16),
             color: Colors.grey.shade50,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
+            child: Column(
               children: [
-                _buildPurchaseStat(
+                Text(
                   'Total Purchase',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
                   '₹ ${_formatCurrency(_totalAmount)}',
-                  Colors.blue.shade700,
-                ),
-                _buildPurchaseStat(
-                  'Paid',
-                  '₹ ${_formatCurrency(_paidAmount)}',
-                  _lightGreen,
-                ),
-                _buildPurchaseStat(
-                  'Pending',
-                  '₹ ${_formatCurrency(_pendingAmount)}',
-                  Colors.orange.shade700,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue.shade700,
+                  ),
                 ),
               ],
             ),
@@ -371,30 +337,9 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     return NumberFormat('#,##0.00').format(amount);
   }
 
-  Widget _buildPurchaseStat(String label, String value, Color color) {
-    return Column(
-      children: [
-        Text(
-          label,
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: color,
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildPurchaseItem(Map<String, dynamic> purchase) {
     final amount = purchase['amount'] as double;
     final items = purchase['items'] as List;
-    final status = purchase['status'] as String;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -460,22 +405,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                 color: Colors.grey.shade800,
               ),
             ),
-            const SizedBox(height: 4),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: _getStatusColor(status).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                status,
-                style: TextStyle(
-                  fontSize: 10,
-                  color: _getStatusColor(status),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
           ],
         ),
         onTap: () {
@@ -483,19 +412,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
         },
       ),
     );
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'paid':
-        return _lightGreen;
-      case 'partial':
-        return Colors.blue;
-      case 'pending':
-        return Colors.orange;
-      default:
-        return Colors.grey;
-    }
   }
 
   void _showPurchaseDetails(Map<String, dynamic> purchase) {
@@ -526,7 +442,6 @@ class PurchaseDetailsSheet extends StatelessWidget {
     final gstAmount = purchase['gstAmount'] as double;
     final totalAmount = purchase['amount'] as double;
     final notes = purchase['notes'] as String;
-    final status = purchase['status'] as String;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -560,24 +475,6 @@ class PurchaseDetailsSheet extends StatelessWidget {
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: Colors.grey.shade800,
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: _getStatusColor(status).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  status.toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: _getStatusColor(status),
-                  ),
                 ),
               ),
             ],
@@ -859,18 +756,5 @@ class PurchaseDetailsSheet extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'paid':
-        return const Color(0xFF4CAF50);
-      case 'partial':
-        return Colors.blue;
-      case 'pending':
-        return Colors.orange;
-      default:
-        return Colors.grey;
-    }
   }
 }

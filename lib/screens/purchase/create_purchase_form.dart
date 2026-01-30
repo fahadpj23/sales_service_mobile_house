@@ -32,6 +32,10 @@ class CreatePurchaseForm extends StatelessWidget {
   final bool Function(String) isValidSerialNumber;
   final void Function() togglePreview;
   final void Function() savePurchase;
+  final void Function(int, String) updateItemQuantity;
+  final void Function(int, String) updateItemRate;
+  final void Function(int, String) updateItemDiscount;
+  final void Function(int, String) updateItemHsnCode;
 
   const CreatePurchaseForm({
     Key? key,
@@ -64,6 +68,10 @@ class CreatePurchaseForm extends StatelessWidget {
     required this.isValidSerialNumber,
     required this.togglePreview,
     required this.savePurchase,
+    required this.updateItemQuantity,
+    required this.updateItemRate,
+    required this.updateItemDiscount,
+    required this.updateItemHsnCode,
   }) : super(key: key);
 
   Widget _buildPurchaseItemCard(int index) {
@@ -350,7 +358,7 @@ class CreatePurchaseForm extends StatelessWidget {
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: hasAllImeis
+                                color: currentImeiCount == requiredImeiCount
                                     ? lightGreen.withOpacity(0.1)
                                     : Colors.amber.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(4),
@@ -360,7 +368,7 @@ class CreatePurchaseForm extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 9,
                                   fontWeight: FontWeight.w600,
-                                  color: hasAllImeis
+                                  color: currentImeiCount == requiredImeiCount
                                       ? lightGreen
                                       : Colors.amber,
                                 ),
@@ -368,6 +376,20 @@ class CreatePurchaseForm extends StatelessWidget {
                             ),
                           ],
                         ),
+                        if (currentImeiCount != requiredImeiCount)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              currentImeiCount < requiredImeiCount
+                                  ? 'Need ${requiredImeiCount - currentImeiCount} more serial${requiredImeiCount - currentImeiCount > 1 ? 's' : ''}'
+                                  : 'Too many serials (remove ${currentImeiCount - requiredImeiCount})',
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: Colors.amber.shade700,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -380,32 +402,32 @@ class CreatePurchaseForm extends StatelessWidget {
                     crossAxisCount: 2,
                     crossAxisSpacing: 8,
                     mainAxisSpacing: 8,
-                    childAspectRatio: 3.9,
+                    childAspectRatio: 2,
                     children: [
                       _buildInputField(
                         label: 'Quantity *',
                         value: item.quantity?.toString(),
-                        onChanged: (value) {},
+                        onChanged: (value) => updateItemQuantity(index, value),
                         keyboardType: TextInputType.number,
                       ),
                       _buildInputField(
                         label: 'Rate *',
                         value: item.rate?.toStringAsFixed(2),
-                        onChanged: (value) {},
+                        onChanged: (value) => updateItemRate(index, value),
                         keyboardType: TextInputType.number,
                         prefix: '₹',
                       ),
                       _buildInputField(
                         label: 'Discount %',
                         value: item.discountPercentage?.toStringAsFixed(1),
-                        onChanged: (value) {},
+                        onChanged: (value) => updateItemDiscount(index, value),
                         keyboardType: TextInputType.number,
                         suffix: '%',
                       ),
                       _buildInputField(
                         label: 'HSN Code',
                         value: item.hsnCode,
-                        onChanged: (value) {},
+                        onChanged: (value) => updateItemHsnCode(index, value),
                       ),
                     ],
                   ),
@@ -444,7 +466,9 @@ class CreatePurchaseForm extends StatelessWidget {
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: hasAllImeis ? lightGreen : Colors.amber,
+                                color: currentImeiCount == requiredImeiCount
+                                    ? lightGreen
+                                    : Colors.amber,
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Text(
@@ -601,7 +625,7 @@ class CreatePurchaseForm extends StatelessWidget {
                         Padding(
                           padding: const EdgeInsets.only(top: 6),
                           child: Text(
-                            hasAllImeis &&
+                            currentImeiCount == requiredImeiCount &&
                                     itemImeisList.every(
                                       (imei) => isValidSerialNumber(imei),
                                     )
@@ -609,7 +633,9 @@ class CreatePurchaseForm extends StatelessWidget {
                                 : '⚠️ ${requiredImeiCount - currentImeiCount} Serial${requiredImeiCount - currentImeiCount > 1 ? 's' : ''} remaining',
                             style: TextStyle(
                               fontSize: 9,
-                              color: hasAllImeis ? lightGreen : Colors.amber,
+                              color: currentImeiCount == requiredImeiCount
+                                  ? lightGreen
+                                  : Colors.amber,
                               fontWeight: FontWeight.w500,
                             ),
                           ),

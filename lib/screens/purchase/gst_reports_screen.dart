@@ -494,11 +494,7 @@ class _GSTReportsScreenState extends State<GSTReportsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _backgroundColor,
-      appBar: AppBar(
-        title: Text('GST Reports', style: TextStyle(color: Colors.white)),
-        backgroundColor: _primaryGreen,
-        iconTheme: IconThemeData(color: Colors.white),
-      ),
+
       body: Column(
         children: [
           // Date Range Selector

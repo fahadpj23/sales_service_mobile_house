@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:sales_stock/models/purchase_item.dart';
+import 'package:sales_stock/screens/purchase/purchase_history_screen.dart';
 import 'package:sales_stock/services/firestore_service.dart';
 import 'package:sales_stock/screens/purchase/create_purchase_form.dart';
 import 'package:sales_stock/screens/purchase/create_purchase_preview.dart';
@@ -159,7 +160,12 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   void _addNewItem() {
     setState(() {
       final newIndex = _purchaseItems.length;
-      _purchaseItems.add(PurchaseItem(discountPercentage: 0.0));
+      _purchaseItems.add(
+        PurchaseItem(
+          discountPercentage: 0.0,
+          quantity: 1.0, // Default quantity to 1
+        ),
+      );
       _itemImeis[newIndex] = [];
 
       // Collapse ALL existing items
@@ -220,9 +226,10 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   }
 
   bool _isValidSerialNumber(String serial) {
-    // Allow both IMEI (15 digits) and Serial Numbers (can be alphanumeric and longer)
-    // Minimum length check, you can adjust as needed
-    return serial.isNotEmpty && serial.length >= 10;
+    // Remove 15-digit restriction, allow various serial formats
+    // Minimum 3 characters, maximum 30 for most products
+    final trimmed = serial.trim();
+    return trimmed.isNotEmpty && trimmed.length >= 3 && trimmed.length <= 30;
   }
 
   void _togglePreview() {
@@ -240,33 +247,21 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     );
   }
 
+  void _showSuccessSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontSize: 12)),
+        backgroundColor: _lightGreen,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _backgroundColor,
-      appBar: AppBar(
-        title: const Text(
-          'New Purchase',
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-        ),
-        backgroundColor: _primaryGreen,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.calendar_today, size: 20),
-            tooltip: 'Change Date',
-            onPressed: _selectDate,
-          ),
-          IconButton(
-            icon: Icon(
-              _showPreview ? Icons.edit : Icons.remove_red_eye,
-              size: 20,
-            ),
-            tooltip: _showPreview ? 'Edit Purchase' : 'Preview Purchase',
-            onPressed: _togglePreview,
-          ),
-        ],
-      ),
+
       body: Stack(
         children: [
           CreatePurchaseForm(
@@ -299,6 +294,10 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
             isValidSerialNumber: _isValidSerialNumber,
             togglePreview: _togglePreview,
             savePurchase: _savePurchase,
+            updateItemQuantity: _updateItemQuantity,
+            updateItemRate: _updateItemRate,
+            updateItemDiscount: _updateItemDiscount,
+            updateItemHsnCode: _updateItemHsnCode,
           ),
           if (_showPreview)
             Container(
@@ -324,6 +323,51 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         ],
       ),
     );
+  }
+
+  // Methods for form updates
+  void _updateItemQuantity(int index, String value) {
+    final quantity = double.tryParse(value);
+    if (quantity != null && quantity > 0) {
+      setState(() {
+        _purchaseItems[index].quantity = quantity;
+        // Check if we need to adjust IMEIs
+        final currentImeis = _itemImeis[index] ?? [];
+        final requiredCount = quantity.toInt();
+
+        if (currentImeis.length > requiredCount) {
+          // Remove excess IMEIs
+          _itemImeis[index] = currentImeis.sublist(0, requiredCount);
+        }
+      });
+      _calculateTotals();
+    }
+  }
+
+  void _updateItemRate(int index, String value) {
+    final rate = double.tryParse(value);
+    if (rate != null && rate >= 0) {
+      setState(() {
+        _purchaseItems[index].rate = rate;
+      });
+      _calculateTotals();
+    }
+  }
+
+  void _updateItemDiscount(int index, String value) {
+    final discount = double.tryParse(value);
+    if (discount != null && discount >= 0) {
+      setState(() {
+        _purchaseItems[index].discountPercentage = discount;
+      });
+      _calculateTotals();
+    }
+  }
+
+  void _updateItemHsnCode(int index, String value) {
+    setState(() {
+      _purchaseItems[index].hsnCode = value;
+    });
   }
 
   // Methods that need to be accessible from child widgets
@@ -1496,16 +1540,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
       _productSearchController.clear();
       _filterProducts('');
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text(
-            'Product added successfully',
-            style: TextStyle(fontSize: 12),
-          ),
-          backgroundColor: _lightGreen,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _showSuccessSnackbar('Product added successfully');
     } catch (e) {
       _showErrorSnackbar('Error adding product: $e');
     }
@@ -1639,7 +1674,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         title: Text(
           imeiIndex != null
               ? 'Edit Serial ${imeiIndex + 1}'
-              : 'Enter Serial Number *',
+              : 'Enter Serial Number',
           style: TextStyle(color: const Color(0xFFE91E63), fontSize: 14),
         ),
         content: Column(
@@ -1678,7 +1713,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'For mobile phones: IMEI (15 digits). For other products: Serial Number',
+                    'For mobile phones: IMEI (15 digits). For other products: Serial Number (3-30 characters)',
                     style: TextStyle(fontSize: 9, color: Colors.grey.shade600),
                   ),
                 ),
@@ -1733,26 +1768,12 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                     _itemImeis[itemIndex]!.add(serial);
                   }
                 });
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Serial saved: ${serial.substring(0, math.min(serial.length, 8))}...',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    backgroundColor: _lightGreen,
-                    behavior: SnackBarBehavior.floating,
-                  ),
+                _showSuccessSnackbar(
+                  'Serial saved: ${serial.substring(0, math.min(serial.length, 12))}...',
                 );
               } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Serial must be at least 10 characters (${serial.length}/10)',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    backgroundColor: const Color(0xFFE53935),
-                    behavior: SnackBarBehavior.floating,
-                  ),
+                _showErrorSnackbar(
+                  'Serial must be 3-30 characters (${serial.length}/30)',
                 );
               }
             },
@@ -1772,16 +1793,11 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
 
   void _onScanComplete(String scannedValue) {
     if (_currentScanItemIndex != null) {
-      if (!_isValidSerialNumber(scannedValue)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Invalid Serial. Must be at least 10 characters. Scanned: $scannedValue',
-              style: const TextStyle(fontSize: 12),
-            ),
-            backgroundColor: const Color(0xFFE53935),
-            behavior: SnackBarBehavior.floating,
-          ),
+      final trimmedValue = scannedValue.trim();
+
+      if (!_isValidSerialNumber(trimmedValue)) {
+        _showErrorSnackbar(
+          'Invalid Serial. Must be 3-30 characters. Scanned: ${trimmedValue.substring(0, math.min(trimmedValue.length, 20))}...',
         );
         return;
       }
@@ -1792,25 +1808,16 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
           if ((_itemImeis[_currentScanItemIndex!]?.length ?? 0) >
               _currentScanImeiIndex!) {
             _itemImeis[_currentScanItemIndex!]![_currentScanImeiIndex!] =
-                scannedValue;
+                trimmedValue;
           }
         } else {
           // Add new serial
           _itemImeis[_currentScanItemIndex!] ??= [];
-          _itemImeis[_currentScanItemIndex!]!.add(scannedValue);
+          _itemImeis[_currentScanItemIndex!]!.add(trimmedValue);
         }
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text(
-            'Serial scanned successfully ✓',
-            style: TextStyle(fontSize: 12),
-          ),
-          backgroundColor: _lightGreen,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _showSuccessSnackbar('Serial scanned successfully ✓');
     }
     _currentScanItemIndex = null;
     _currentScanImeiIndex = null;
@@ -1839,9 +1846,11 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
 
         final requiredImeiCount = item.quantity!.toInt();
         final itemImeis = _itemImeis[i] ?? [];
-        if (itemImeis.length < requiredImeiCount) {
+
+        // Check if IMEI count matches quantity
+        if (itemImeis.length != requiredImeiCount) {
           _showErrorSnackbar(
-            'Item ${i + 1}: Need $requiredImeiCount Serial Numbers, got ${itemImeis.length}',
+            'Item ${i + 1}: Quantity is ${requiredImeiCount}, but you have ${itemImeis.length} Serial Numbers. Please add ${requiredImeiCount - itemImeis.length} more.',
           );
           return;
         }
@@ -1850,7 +1859,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
           final serial = itemImeis[j];
           if (serial.isEmpty || !_isValidSerialNumber(serial)) {
             _showErrorSnackbar(
-              'Item ${i + 1}, Serial ${j + 1}: Invalid serial number',
+              'Item ${i + 1}, Serial ${j + 1}: Invalid serial number (must be 3-30 characters)',
             );
             return;
           }
@@ -1902,22 +1911,14 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
           }
         }
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-              'Purchase saved successfully',
-              style: TextStyle(fontSize: 12),
-            ),
-            backgroundColor: _lightGreen,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(6),
-            ),
-          ),
-        );
+        _showSuccessSnackbar('Purchase saved successfully');
 
-        _togglePreview();
-        Navigator.pop(context, true);
+        // Navigate to PurchaseHistoryScreen after successful save
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => PurchaseHistoryScreen()),
+          (route) => false, // Remove all previous routes from stack
+        );
       } catch (e) {
         _showErrorSnackbar('Error saving purchase: $e');
       }

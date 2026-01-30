@@ -108,6 +108,10 @@ class CreatePurchasePreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final validItems = purchaseItems
+        .where((item) => item.productId != null)
+        .toList();
+
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: SingleChildScrollView(
@@ -177,7 +181,7 @@ class CreatePurchasePreview extends StatelessWidget {
                   ),
                   const Divider(height: 20),
                   Text(
-                    'Items (${purchaseItems.where((item) => item.productId != null).length})',
+                    'Items (${validItems.length})',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
@@ -185,11 +189,12 @@ class CreatePurchasePreview extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  ...purchaseItems.where((item) => item.productId != null).map((
-                    item,
-                  ) {
+                  ...validItems.map((item) {
                     final index = purchaseItems.indexOf(item);
                     final itemImeisList = itemImeis[index] ?? [];
+                    final requiredImeiCount = item.quantity?.toInt() ?? 0;
+                    final hasAllImeis =
+                        itemImeisList.length == requiredImeiCount;
 
                     return Container(
                       margin: const EdgeInsets.only(bottom: 10),
@@ -197,6 +202,10 @@ class CreatePurchasePreview extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: Colors.grey.shade50,
                         borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: hasAllImeis ? lightGreen : Colors.amber,
+                          width: 1,
+                        ),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -238,34 +247,85 @@ class CreatePurchasePreview extends StatelessWidget {
                               ),
                             ],
                           ),
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Serials:',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: hasAllImeis
+                                      ? lightGreen.withOpacity(0.1)
+                                      : Colors.amber.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  '${itemImeisList.length}/${requiredImeiCount}',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w600,
+                                    color: hasAllImeis
+                                        ? lightGreen
+                                        : Colors.amber,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                           if (itemImeisList.isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.only(top: 6),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    'Serials:',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                  ),
                                   ...itemImeisList.take(3).map((imei) {
-                                    return Text(
-                                      '• ${imei.substring(0, math.min(imei.length, 8))}...',
-                                      style: TextStyle(
-                                        fontSize: 9,
-                                        color: Colors.grey.shade500,
+                                    final isValid = isValidSerialNumber(imei);
+                                    return Padding(
+                                      padding: const EdgeInsets.only(bottom: 2),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            isValid
+                                                ? Icons.check_circle
+                                                : Icons.warning,
+                                            size: 10,
+                                            color: isValid
+                                                ? lightGreen
+                                                : Colors.amber,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Expanded(
+                                            child: Text(
+                                              '${imei.substring(0, math.min(imei.length, 12))}...',
+                                              style: TextStyle(
+                                                fontSize: 9,
+                                                color: Colors.grey.shade500,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     );
                                   }),
                                   if (itemImeisList.length > 3)
-                                    Text(
-                                      '+ ${itemImeisList.length - 3} more',
-                                      style: TextStyle(
-                                        fontSize: 9,
-                                        color: Colors.grey.shade500,
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 2),
+                                      child: Text(
+                                        '+ ${itemImeisList.length - 3} more',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          color: Colors.grey.shade500,
+                                        ),
                                       ),
                                     ),
                                 ],

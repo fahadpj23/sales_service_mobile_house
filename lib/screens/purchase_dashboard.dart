@@ -558,7 +558,7 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             crossAxisCount: 2,
-            childAspectRatio: 1.8,
+            childAspectRatio: 1,
             crossAxisSpacing: 10,
             mainAxisSpacing: 10,
             children: [
