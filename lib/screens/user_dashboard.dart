@@ -14,6 +14,7 @@ import 'user/base_model_sale_upload.dart';
 import 'user/purchase_upload_screen.dart';
 import 'user/supplier_list_screen.dart';
 import 'user/add_supplier_screen.dart';
+import 'user/sales_history.dart'; // Add this import
 
 class UserDashboard extends StatefulWidget {
   const UserDashboard({super.key});
@@ -23,7 +24,6 @@ class UserDashboard extends StatefulWidget {
 }
 
 class _UserDashboardState extends State<UserDashboard> {
-  int _selectedIndex = 0;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final List<String> collectionNames = [
     'accessories_service_sales',
@@ -501,13 +501,6 @@ class _UserDashboardState extends State<UserDashboard> {
       'December',
     ];
     return months[month - 1];
-  }
-
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-    _scaffoldKey.currentState?.closeDrawer();
   }
 
   void _navigateToScreen(Widget screen) {
@@ -1255,6 +1248,8 @@ class _UserDashboardState extends State<UserDashboard> {
   }
 
   Widget _buildDrawer() {
+    final user = Provider.of<AuthProvider>(context).user;
+
     return Drawer(
       child: Container(
         decoration: BoxDecoration(
@@ -1296,43 +1291,38 @@ class _UserDashboardState extends State<UserDashboard> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Consumer<AuthProvider>(
-                      builder: (context, authProvider, child) {
-                        final user = authProvider.user;
-                        return Column(
-                          children: [
-                            Text(
-                              user?.name ?? user?.email ?? 'User',
+                    Column(
+                      children: [
+                        Text(
+                          user?.name ?? user?.email ?? 'User',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        if (user?.shopId != null) ...[
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              'Shop: ${user!.shopId!}',
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
                               ),
-                              textAlign: TextAlign.center,
                             ),
-                            if (user?.shopId != null) ...[
-                              const SizedBox(height: 4),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.15),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  'Shop: ${user!.shopId!}',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ],
-                        );
-                      },
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                 ),
@@ -1358,11 +1348,14 @@ class _UserDashboardState extends State<UserDashboard> {
                             icon: Icons.dashboard,
                             title: 'Dashboard',
                             color: Colors.green,
-                            isSelected: _selectedIndex == 0,
-                            onTap: () => _onItemTapped(0),
+                            isSelected: true,
+                            onTap: () {
+                              _scaffoldKey.currentState?.closeDrawer();
+                            },
                           ),
                         ],
                       ),
+
                       // Inventory Section
                       _buildDrawerSection(
                         title: 'INVENTORY',
@@ -1387,6 +1380,7 @@ class _UserDashboardState extends State<UserDashboard> {
                           ),
                         ],
                       ),
+
                       // Sales Upload Section
                       _buildDrawerSection(
                         title: 'SALES UPLOAD',
@@ -1429,6 +1423,7 @@ class _UserDashboardState extends State<UserDashboard> {
                           ),
                         ],
                       ),
+
                       // History Section
                       _buildDrawerSection(
                         title: 'HISTORY',
@@ -1437,8 +1432,40 @@ class _UserDashboardState extends State<UserDashboard> {
                             icon: Icons.history,
                             title: 'Sales History',
                             color: Colors.grey,
-                            onTap: () => _onItemTapped(1),
+                            onTap: () {
+                              final user = Provider.of<AuthProvider>(
+                                context,
+                                listen: false,
+                              ).user;
+                              if (user?.shopId != null &&
+                                  user!.shopId!.isNotEmpty) {
+                                _scaffoldKey.currentState?.closeDrawer();
+                                _navigateToScreen(
+                                  SalesHistoryScreen(shopId: user.shopId!),
+                                );
+                              } else {
+                                _scaffoldKey.currentState?.closeDrawer();
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Shop ID not found. Please contact administrator.',
+                                    ),
+                                    backgroundColor: Colors.red,
+                                    duration: Duration(seconds: 3),
+                                  ),
+                                );
+                              }
+                            },
                           ),
+                          // _buildDrawerTile(
+                          //   icon: Icons.inventory,
+                          //   title: 'Purchase History',
+                          //   color: Colors.brown,
+                          //   onTap: () {
+                          //     _scaffoldKey.currentState?.closeDrawer();
+                          //     _navigateToScreen(const PurchaseHistoryScreen());
+                          //   },
+                          // ),
                         ],
                       ),
 
@@ -1848,7 +1875,7 @@ class _UserDashboardState extends State<UserDashboard> {
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
-                        vertical: 4,
+                        vertical: 6,
                       ),
                       decoration: BoxDecoration(
                         color: _getTypeColor(
@@ -2120,210 +2147,6 @@ class _UserDashboardState extends State<UserDashboard> {
 
   @override
   Widget build(BuildContext context) {
-    return _selectedIndex == 0
-        ? _buildDashboardHome()
-        : _buildSalesHistoryView();
-  }
-
-  Widget _buildSalesHistoryView() {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Sales History'),
-        backgroundColor: Colors.green,
-        foregroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => _onItemTapped(0),
-        ),
-      ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              // Sales Statistics in History View
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.green.shade100),
-                ),
-                child: Column(
-                  children: [
-                    const Text(
-                      'Sales Statistics',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildHistoryStatItem(
-                            'Total Sales',
-                            '₹${totalSalesValue.toStringAsFixed(0)}',
-                            Colors.green,
-                            Icons.receipt,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _buildHistoryStatItem(
-                            'Total Count',
-                            totalSalesCount.toString(),
-                            Colors.blue,
-                            Icons.shopping_cart,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              // Sales List with all items
-              _buildSalesHistoryList(),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHistoryStatItem(
-    String label,
-    String value,
-    Color color,
-    IconData icon,
-  ) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.2)),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 20, color: color),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-          Text(
-            label,
-            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSalesHistoryList() {
-    final user = Provider.of<AuthProvider>(context).user;
-    final shopId = user?.shopId;
-
-    if (shopId == null || shopId.isEmpty || isLoading) {
-      return Container(
-        padding: const EdgeInsets.all(40),
-        child: Column(
-          children: [
-            if (isLoading)
-              CircularProgressIndicator(color: Colors.green)
-            else
-              Icon(Icons.error_outline, size: 50, color: Colors.red.shade300),
-            const SizedBox(height: 16),
-            Text(
-              isLoading ? 'Loading...' : 'Shop ID Required',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: isLoading ? Colors.grey : Colors.red,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (allSales.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(40),
-        child: Column(
-          children: [
-            Icon(Icons.receipt, size: 50, color: Colors.grey.shade300),
-            const SizedBox(height: 16),
-            Text(
-              'No sales found',
-              style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Column(
-      children: allSales.map((sale) {
-        final type = sale['type'] as String;
-        final color = _getTypeColor(type);
-
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: ListTile(
-            leading: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(_getTypeIcon(type), size: 20, color: color),
-            ),
-            title: Text(
-              sale['customerInfo'] as String,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(sale['displayDate'] as String),
-                const SizedBox(height: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    type,
-                    style: TextStyle(fontSize: 10, color: color),
-                  ),
-                ),
-              ],
-            ),
-            trailing: Text(
-              '₹${(sale['displayAmount'] as double).toStringAsFixed(0)}',
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.green,
-              ),
-            ),
-            onTap: () => _showSaleDetails(context, sale),
-          ),
-        );
-      }).toList(),
-    );
+    return _buildDashboardHome();
   }
 }
