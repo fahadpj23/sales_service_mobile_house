@@ -373,6 +373,17 @@ class _UserDashboardState extends State<UserDashboard> {
       if (data['AccessoriesAmount'] != null) {
         return (data['AccessoriesAmount'] ?? 0).toDouble();
       }
+      // Check for accessories value in salesData
+      if (data['salesData'] != null && data['salesData'] is List) {
+        final List salesData = data['salesData'];
+        double total = 0.0;
+        for (var item in salesData) {
+          if (item is Map<String, dynamic>) {
+            total += (item['accessoriesPrice'] ?? 0).toDouble();
+          }
+        }
+        return total;
+      }
       return 0.0;
     } catch (e) {
       return 0.0;
@@ -388,6 +399,17 @@ class _UserDashboardState extends State<UserDashboard> {
       // Check for serviceAmount with different capitalization
       if (data['ServiceAmount'] != null) {
         return (data['ServiceAmount'] ?? 0).toDouble();
+      }
+      // Check for service value in salesData
+      if (data['salesData'] != null && data['salesData'] is List) {
+        final List salesData = data['salesData'];
+        double total = 0.0;
+        for (var item in salesData) {
+          if (item is Map<String, dynamic>) {
+            total += (item['servicePrice'] ?? 0).toDouble();
+          }
+        }
+        return total;
       }
       return 0.0;
     } catch (e) {
@@ -1238,10 +1260,14 @@ class _UserDashboardState extends State<UserDashboard> {
                   ),
                 ),
                 const SizedBox(height: 3), // Reduced from 4
-                _buildPaymentChips(
-                  sale['paymentInfo'] as Map<String, dynamic>,
-                  sale['collection'] as String,
-                ),
+                // For accessories & service sales, show accessories and service amounts
+                if (sale['collection'] == 'accessories_service_sales')
+                  _buildAccessoriesServiceChips(sale)
+                else
+                  _buildPaymentChips(
+                    sale['paymentInfo'] as Map<String, dynamic>,
+                    sale['collection'] as String,
+                  ),
               ],
             ),
             trailing: Text(
@@ -1256,6 +1282,100 @@ class _UserDashboardState extends State<UserDashboard> {
           ),
         );
       }).toList(),
+    );
+  }
+
+  // New method for showing accessories & service chips
+  Widget _buildAccessoriesServiceChips(Map<String, dynamic> sale) {
+    final accessoriesAmount = sale['accessoriesAmount'] as double? ?? 0.0;
+    final serviceAmount = sale['serviceAmount'] as double? ?? 0.0;
+
+    final chips = <Widget>[];
+
+    if (accessoriesAmount > 0) {
+      chips.add(
+        Container(
+          margin: const EdgeInsets.only(right: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.blue.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: Colors.blue.withOpacity(0.2)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.shopping_basket, size: 9, color: Colors.blue),
+              const SizedBox(width: 2),
+              Text(
+                '₹${accessoriesAmount.toStringAsFixed(0)}',
+                style: TextStyle(
+                  fontSize: 8,
+                  color: Colors.blue,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (serviceAmount > 0) {
+      chips.add(
+        Container(
+          margin: const EdgeInsets.only(right: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.teal.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: Colors.teal.withOpacity(0.2)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.build, size: 9, color: Colors.teal),
+              const SizedBox(width: 2),
+              Text(
+                '₹${serviceAmount.toStringAsFixed(0)}',
+                style: TextStyle(
+                  fontSize: 8,
+                  color: Colors.teal,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (chips.isEmpty) {
+      chips.add(
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.receipt, size: 9, color: Colors.grey),
+              SizedBox(width: 2),
+              Text(
+                'Details',
+                style: TextStyle(fontSize: 8, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(children: chips),
     );
   }
 
@@ -1636,8 +1756,6 @@ class _UserDashboardState extends State<UserDashboard> {
     }
   }
 
-  // Removed _showProfileDialog method completely
-
   Widget _buildPaymentChips(
     Map<String, dynamic> paymentInfo,
     String collection,
@@ -1759,6 +1877,8 @@ class _UserDashboardState extends State<UserDashboard> {
     // Get the accessories and service amounts that we stored
     final accessoriesAmount = sale['accessoriesAmount'] as double? ?? 0.0;
     final serviceAmount = sale['serviceAmount'] as double? ?? 0.0;
+    // Get payment info
+    final paymentInfo = sale['paymentInfo'] as Map<String, dynamic>;
 
     showModalBottomSheet(
       context: context,
@@ -1898,6 +2018,25 @@ class _UserDashboardState extends State<UserDashboard> {
                   _buildDetailRow('IMEI', sale['imei'].toString()),
 
                 const SizedBox(height: 16), // Reduced from 20
+                // Show accessories and service breakdown for accessories sales
+                if (sale['collection'] == 'accessories_service_sales') ...[
+                  const Text(
+                    'Amount Breakdown',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14, // Reduced from 16
+                      color: Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(height: 10), // Reduced from 12
+                  ..._buildAccessoriesServiceDetails(
+                    accessoriesAmount,
+                    serviceAmount,
+                  ),
+                  const SizedBox(height: 16), // Reduced from 20
+                ],
+
+                // Show payment breakdown for ALL sales (including accessories)
                 const Text(
                   'Payment Breakdown',
                   style: TextStyle(
@@ -1908,7 +2047,7 @@ class _UserDashboardState extends State<UserDashboard> {
                 ),
                 const SizedBox(height: 10), // Reduced from 12
                 ..._buildPaymentDetails(
-                  sale['paymentInfo'] as Map<String, dynamic>,
+                  paymentInfo,
                   sale['collection'] as String,
                 ),
 
@@ -1938,6 +2077,87 @@ class _UserDashboardState extends State<UserDashboard> {
           ),
         );
       },
+    );
+  }
+
+  // New method for showing accessories & service details
+  List<Widget> _buildAccessoriesServiceDetails(
+    double accessoriesAmount,
+    double serviceAmount,
+  ) {
+    final List<Widget> widgets = [];
+
+    if (accessoriesAmount > 0) {
+      widgets.add(
+        _buildAccessoriesServiceRow(
+          'Accessories Amount',
+          accessoriesAmount,
+          Colors.blue,
+          Icons.shopping_basket,
+        ),
+      );
+    }
+    if (serviceAmount > 0) {
+      widgets.add(
+        _buildAccessoriesServiceRow(
+          'Service Amount',
+          serviceAmount,
+          Colors.teal,
+          Icons.build,
+        ),
+      );
+    }
+
+    return widgets;
+  }
+
+  Widget _buildAccessoriesServiceRow(
+    String label,
+    double amount,
+    Color color,
+    IconData icon,
+  ) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6), // Reduced from 8
+      padding: const EdgeInsets.all(10), // Reduced from 12
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(8), // Reduced from 10
+        border: Border.all(color: color.withOpacity(0.1)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(5), // Reduced from 6
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, size: 14, color: color), // Reduced
+              ),
+              const SizedBox(width: 6), // Reduced from 8
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 13, // Reduced from 14
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          Text(
+            '₹${amount.toStringAsFixed(0)}',
+            style: TextStyle(
+              fontSize: 14, // Reduced from 16
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

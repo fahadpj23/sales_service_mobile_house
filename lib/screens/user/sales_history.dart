@@ -706,15 +706,24 @@ ${filteredSales.map((sale) {
       'gpay': 0.0,
       'credit': 0.0,
       'downPayment': 0.0,
+      // For accessories sales, we need to preserve actual payment amounts
+      'actualCash': 0.0,
+      'actualCard': 0.0,
+      'actualGpay': 0.0,
     };
 
     try {
       if (collection == 'accessories_service_sales') {
-        paymentInfo['cash'] = (data['cashAmount'] ?? 0).toDouble();
-        paymentInfo['card'] = (data['cardAmount'] ?? 0).toDouble();
-        paymentInfo['gpay'] = (data['gpayAmount'] ?? 0).toDouble();
-        // For accessories sales, you might also have a credit field
+        // For accessories sales, get actual payment amounts
+        paymentInfo['actualCash'] = (data['cashAmount'] ?? 0).toDouble();
+        paymentInfo['actualCard'] = (data['cardAmount'] ?? 0).toDouble();
+        paymentInfo['actualGpay'] = (data['gpayAmount'] ?? 0).toDouble();
         paymentInfo['credit'] = (data['customerCredit'] ?? 0).toDouble();
+
+        // Also store accessories and service amounts separately
+        paymentInfo['accessoriesAmount'] = (data['accessoriesAmount'] ?? 0)
+            .toDouble();
+        paymentInfo['serviceAmount'] = (data['serviceAmount'] ?? 0).toDouble();
       } else if (collection == 'phoneSales') {
         final paymentBreakdown = data['paymentBreakdown'] ?? {};
         paymentInfo['cash'] = (paymentBreakdown['cash'] ?? 0).toDouble();
@@ -1278,6 +1287,26 @@ ${filteredSales.map((sale) {
     Map<String, dynamic> paymentInfo,
     String collection,
   ) {
+    // For accessories sales, show accessories and service amounts instead of payment methods
+    if (collection == 'accessories_service_sales') {
+      final accessoriesAmount = paymentInfo['accessoriesAmount'] ?? 0.0;
+      final serviceAmount = paymentInfo['serviceAmount'] ?? 0.0;
+
+      final List<Widget> chips = [];
+
+      if (accessoriesAmount > 0) {
+        chips.add(
+          _buildAmountChip('Accessories', accessoriesAmount, Colors.blue),
+        );
+      }
+      if (serviceAmount > 0) {
+        chips.add(_buildAmountChip('Service', serviceAmount, Colors.orange));
+      }
+
+      return Wrap(spacing: 3, runSpacing: 2, children: chips);
+    }
+
+    // For other sales, show payment methods as before
     final List<Widget> chips = [];
 
     if (paymentInfo['cash'] > 0) {
@@ -1328,6 +1357,31 @@ ${filteredSales.map((sale) {
     );
   }
 
+  Widget _buildAmountChip(String label, double amount, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(_getAmountIcon(label), size: 8, color: color),
+          const SizedBox(width: 1),
+          Text(
+            '₹${amount.toStringAsFixed(0)}',
+            style: TextStyle(
+              fontSize: 8,
+              color: color,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   IconData _getPaymentIcon(String method) {
     switch (method.toLowerCase()) {
       case 'cash':
@@ -1345,9 +1399,23 @@ ${filteredSales.map((sale) {
     }
   }
 
+  IconData _getAmountIcon(String type) {
+    switch (type.toLowerCase()) {
+      case 'accessories':
+        return Icons.shopping_bag;
+      case 'service':
+        return Icons.build;
+      default:
+        return Icons.attach_money;
+    }
+  }
+
   void _showSaleDetails(BuildContext context, Map<String, dynamic> sale) {
+    final isAccessoriesSale = sale['collection'] == 'accessories_service_sales';
     final accessoriesAmount = sale['accessoriesAmount'] as double? ?? 0.0;
     final serviceAmount = sale['serviceAmount'] as double? ?? 0.0;
+    final totalAmount = (sale['displayAmount'] as double).toStringAsFixed(0);
+    final paymentInfo = sale['paymentInfo'] as Map<String, dynamic>;
 
     showModalBottomSheet(
       context: context,
@@ -1407,27 +1475,83 @@ ${filteredSales.map((sale) {
               _buildDetailRow('Shop', sale['shopName'].toString()),
               _buildDetailRow('Date', sale['displayDate'] as String),
 
-              // Accessories and Service amounts for accessories sales
-              if (sale['collection'] == 'accessories_service_sales') ...[
+              // For accessories & service sales, show separate amounts
+              if (isAccessoriesSale) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  'Amount Breakdown',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(height: 8),
                 if (accessoriesAmount > 0)
-                  _buildDetailRow(
+                  _buildAmountDetailRow(
                     'Accessories Amount',
-                    '₹${accessoriesAmount.toStringAsFixed(0)}',
+                    accessoriesAmount,
                   ),
                 if (serviceAmount > 0)
-                  _buildDetailRow(
-                    'Service Amount',
-                    '₹${serviceAmount.toStringAsFixed(0)}',
+                  _buildAmountDetailRow('Service Amount', serviceAmount),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(8),
                   ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Total Amount',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green.shade800,
+                        ),
+                      ),
+                      Text(
+                        '₹$totalAmount',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green.shade800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                // For other sales, show just the total amount
+                _buildDetailRow('Total Amount', '₹$totalAmount'),
               ],
 
-              _buildDetailRow(
-                'Total Amount',
-                '₹${(sale['displayAmount'] as double).toStringAsFixed(0)}',
+              // Always show payment breakdown for all sales
+              const SizedBox(height: 16),
+              const Text(
+                'Payment Breakdown',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
+              const SizedBox(height: 8),
+              if (isAccessoriesSale) ...[
+                // For accessories sales, show actual payment amounts
+                if (paymentInfo['actualCash'] > 0)
+                  _buildPaymentDetailRow('Cash', paymentInfo['actualCash']),
+                if (paymentInfo['actualCard'] > 0)
+                  _buildPaymentDetailRow('Card', paymentInfo['actualCard']),
+                if (paymentInfo['actualGpay'] > 0)
+                  _buildPaymentDetailRow('GPay', paymentInfo['actualGpay']),
+                if (paymentInfo['credit'] > 0)
+                  _buildPaymentDetailRow('Credit', paymentInfo['credit']),
+              ] else ...[
+                // For other sales, show regular payment breakdown
+                ..._buildPaymentDetails(
+                  paymentInfo,
+                  sale['collection'] as String,
+                ),
+              ],
 
               // Collection-specific details
               if (sale['collection'] == 'phoneSales') ...[
+                const SizedBox(height: 16),
                 if (sale['productModel'] != null)
                   _buildDetailRow('Product', sale['productModel'].toString()),
                 if (sale['brand'] != null)
@@ -1458,17 +1582,6 @@ ${filteredSales.map((sale) {
 
               if (sale['notes'] != null && (sale['notes'] as String).isNotEmpty)
                 _buildDetailRow('Notes', sale['notes'].toString()),
-
-              const SizedBox(height: 16),
-              const Text(
-                'Payment Breakdown',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-              const SizedBox(height: 8),
-              ..._buildPaymentDetails(
-                sale['paymentInfo'] as Map<String, dynamic>,
-                sale['collection'] as String,
-              ),
 
               const SizedBox(height: 20),
               SizedBox(
@@ -1509,6 +1622,22 @@ ${filteredSales.map((sale) {
               value,
               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAmountDetailRow(String label, double amount) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12)),
+          Text(
+            '₹${amount.toStringAsFixed(0)}',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
           ),
         ],
       ),
