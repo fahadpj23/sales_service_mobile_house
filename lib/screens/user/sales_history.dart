@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter/services.dart';
 
 class SalesHistoryScreen extends StatefulWidget {
   final String shopId;
@@ -31,23 +32,35 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     'Base Models',
   ];
 
-  // Current month info
-  late DateTime currentMonthStart;
-  late DateTime currentMonthEnd;
-  String currentMonthName = '';
-  int currentYear = 0;
+  // Date filter options
+  String selectedDateFilter = 'Monthly';
+  final List<String> dateFilterOptions = [
+    'Today',
+    'Yesterday',
+    'Weekly',
+    'Monthly',
+    'Last Month',
+    'Yearly',
+    'Custom',
+  ];
+
+  DateTime? customStartDate;
+  DateTime? customEndDate;
+  String currentPeriodText = '';
+
+  // Search
+  final TextEditingController searchController = TextEditingController();
+  String searchQuery = '';
+
+  // Report data
+  double totalAmount = 0.0;
+  int totalSales = 0;
+  Map<String, double> typeTotals = {};
 
   @override
   void initState() {
     super.initState();
-
-    // Initialize current month range
-    final now = DateTime.now();
-    currentMonthStart = DateTime(now.year, now.month, 1);
-    currentMonthEnd = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
-    currentMonthName = _getMonthName(now.month);
-    currentYear = now.year;
-
+    _initializeDates();
     if (widget.shopId.isEmpty) {
       _showError('Shop ID is required to view sales history');
       setState(() => isLoading = false);
@@ -56,14 +69,20 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     }
   }
 
+  void _initializeDates() {
+    currentPeriodText = _getDateFilterText('Monthly');
+  }
+
   Future<void> fetchSalesData() async {
     setState(() {
       isLoading = true;
       allSales.clear();
       filteredSales.clear();
+      totalAmount = 0.0;
+      totalSales = 0;
+      typeTotals.clear();
     });
 
-    // Check if shopId is valid
     if (widget.shopId.isEmpty) {
       setState(() => isLoading = false);
       return;
@@ -73,10 +92,10 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
 
     for (var collection in collectionNames) {
       try {
-        final List<Map<String, dynamic>> monthSales =
+        final List<Map<String, dynamic>> periodSales =
             await _fetchSalesForCollection(collection);
 
-        for (var sale in monthSales) {
+        for (var sale in periodSales) {
           // Add collection info and formatted data
           sale['collection'] = collection;
           sale['type'] = _getSaleType(collection);
@@ -101,10 +120,27 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       }
     }
 
+    // Calculate report data
+    _calculateReportData();
+
     // Apply initial filter
     _applyFilter();
 
     setState(() => isLoading = false);
+  }
+
+  void _calculateReportData() {
+    totalSales = allSales.length;
+    totalAmount = 0.0;
+    typeTotals.clear();
+
+    for (var sale in allSales) {
+      final amount = sale['displayAmount'] as double;
+      final type = sale['type'] as String;
+
+      totalAmount += amount;
+      typeTotals[type] = (typeTotals[type] ?? 0.0) + amount;
+    }
   }
 
   Future<List<Map<String, dynamic>>> _fetchSalesForCollection(
@@ -119,13 +155,17 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
           .where('shopId', isEqualTo: widget.shopId)
           .get();
 
+      final dateRange = _getDateRangeForFilter(selectedDateFilter);
+      final startDate = dateRange['start']!;
+      final endDate = dateRange['end']!;
+
       for (var doc in snapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
 
-        // Check if sale is in current month
+        // Check if sale is in selected date range
         final saleDate = _getSaleDate(data, collection);
-        if (_isDateInCurrentMonth(saleDate)) {
+        if (_isDateInRange(saleDate, startDate, endDate)) {
           sales.add(data);
         }
       }
@@ -134,6 +174,381 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     }
 
     return sales;
+  }
+
+  Map<String, DateTime> _getDateRangeForFilter(String filter) {
+    final now = DateTime.now();
+    DateTime startDate, endDate;
+
+    switch (filter) {
+      case 'Today':
+        startDate = DateTime(now.year, now.month, now.day);
+        endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
+        break;
+      case 'Yesterday':
+        final yesterday = now.subtract(const Duration(days: 1));
+        startDate = DateTime(yesterday.year, yesterday.month, yesterday.day);
+        endDate = DateTime(
+          yesterday.year,
+          yesterday.month,
+          yesterday.day,
+          23,
+          59,
+          59,
+        );
+        break;
+      case 'Weekly':
+        startDate = now.subtract(const Duration(days: 7));
+        endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
+        break;
+      case 'Monthly':
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+        break;
+      case 'Last Month':
+        final lastMonth = DateTime(now.year, now.month - 1, 1);
+        startDate = lastMonth;
+        endDate = DateTime(lastMonth.year, lastMonth.month + 1, 0, 23, 59, 59);
+        break;
+      case 'Yearly':
+        startDate = DateTime(now.year, 1, 1);
+        endDate = DateTime(now.year, 12, 31, 23, 59, 59);
+        break;
+      case 'Custom':
+        startDate = customStartDate ?? now.subtract(const Duration(days: 30));
+        endDate =
+            customEndDate ?? DateTime(now.year, now.month, now.day, 23, 59, 59);
+        break;
+      default:
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+    }
+
+    return {'start': startDate, 'end': endDate};
+  }
+
+  String _getDateFilterText(String filter) {
+    final range = _getDateRangeForFilter(filter);
+    final start = range['start'];
+    final end = range['end'];
+
+    switch (filter) {
+      case 'Today':
+        return DateFormat('dd MMM yyyy').format(start!);
+      case 'Yesterday':
+        return DateFormat('dd MMM yyyy').format(start!);
+      case 'Weekly':
+        return '${DateFormat('dd MMM').format(start!)} - ${DateFormat('dd MMM yyyy').format(end!)}';
+      case 'Monthly':
+        return DateFormat('MMM yyyy').format(start!);
+      case 'Last Month':
+        return DateFormat('MMM yyyy').format(start!);
+      case 'Yearly':
+        return DateFormat('yyyy').format(start!);
+      case 'Custom':
+        if (customStartDate != null && customEndDate != null) {
+          return '${DateFormat('dd MMM').format(customStartDate!)} - ${DateFormat('dd MMM yyyy').format(customEndDate!)}';
+        }
+        return 'Custom Range';
+      default:
+        return DateFormat('MMM yyyy').format(start!);
+    }
+  }
+
+  bool _isDateInRange(DateTime date, DateTime start, DateTime end) {
+    return date.isAfter(start.subtract(const Duration(seconds: 1))) &&
+        date.isBefore(end.add(const Duration(seconds: 1)));
+  }
+
+  void _applyFilter() {
+    // First filter by type
+    List<Map<String, dynamic>> tempSales;
+    if (selectedFilter == 'All') {
+      tempSales = List.from(allSales);
+    } else {
+      switch (selectedFilter) {
+        case 'Accessories':
+          tempSales = allSales
+              .where(
+                (sale) => sale['collection'] == 'accessories_service_sales',
+              )
+              .toList();
+          break;
+        case 'Phones':
+          tempSales = allSales
+              .where((sale) => sale['collection'] == 'phoneSales')
+              .toList();
+          break;
+        case 'Second Phones':
+          tempSales = allSales
+              .where((sale) => sale['collection'] == 'seconds_phone_sale')
+              .toList();
+          break;
+        case 'Base Models':
+          tempSales = allSales
+              .where((sale) => sale['collection'] == 'base_model_sale')
+              .toList();
+          break;
+        default:
+          tempSales = allSales;
+      }
+    }
+
+    // Then filter by search query if any
+    if (searchQuery.isNotEmpty) {
+      final query = searchQuery.toLowerCase();
+      tempSales = tempSales.where((sale) {
+        final customer = (sale['customerInfo'] as String).toLowerCase();
+        final shopName = (sale['shopName'] as String).toLowerCase();
+        final type = (sale['type'] as String).toLowerCase();
+        final product = (sale['productName'] ?? '').toString().toLowerCase();
+        final brand = (sale['brand'] ?? '').toString().toLowerCase();
+        final imei = (sale['imei'] ?? '').toString().toLowerCase();
+
+        return customer.contains(query) ||
+            shopName.contains(query) ||
+            type.contains(query) ||
+            product.contains(query) ||
+            brand.contains(query) ||
+            imei.contains(query);
+      }).toList();
+    }
+
+    // Sort by date (newest first)
+    tempSales.sort((a, b) {
+      final dateA = _getSaleDate(a, a['collection'] as String);
+      final dateB = _getSaleDate(b, b['collection'] as String);
+      return dateB.compareTo(dateA);
+    });
+
+    setState(() {
+      filteredSales = tempSales;
+    });
+  }
+
+  void _onSearchChanged(String query) {
+    setState(() {
+      searchQuery = query;
+    });
+    _applyFilter();
+  }
+
+  Future<void> _selectCustomDateRange(BuildContext context) async {
+    final DateTimeRange? picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      initialDateRange: customStartDate != null && customEndDate != null
+          ? DateTimeRange(start: customStartDate!, end: customEndDate!)
+          : DateTimeRange(
+              start: DateTime.now().subtract(const Duration(days: 30)),
+              end: DateTime.now(),
+            ),
+    );
+
+    if (picked != null) {
+      setState(() {
+        customStartDate = picked.start;
+        customEndDate = picked.end;
+        selectedDateFilter = 'Custom';
+        currentPeriodText = _getDateFilterText('Custom');
+      });
+      fetchSalesData();
+    }
+  }
+
+  void _changeDateFilter(String filter) async {
+    if (filter == 'Custom') {
+      await _selectCustomDateRange(context);
+      return;
+    }
+
+    setState(() {
+      selectedDateFilter = filter;
+      currentPeriodText = _getDateFilterText(filter);
+    });
+    fetchSalesData();
+  }
+
+  void _showCustomReport(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 60,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Sales Report',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              _buildReportDetailRow('Date Range', currentPeriodText),
+              _buildReportDetailRow('Total Sales', totalSales.toString()),
+              _buildReportDetailRow(
+                'Total Amount',
+                '₹${totalAmount.toStringAsFixed(0)}',
+              ),
+
+              const SizedBox(height: 16),
+              const Text(
+                'Sales by Type',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              ...typeTotals.entries
+                  .map(
+                    (entry) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            entry.key,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: _getTypeColor(entry.key),
+                            ),
+                          ),
+                          Text(
+                            '₹${entry.value.toStringAsFixed(0)}',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                  .toList(),
+
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => _exportReport(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text(
+                        'Export Report',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text('Close'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _exportReport(BuildContext context) async {
+    // Create report content
+    final reportContent =
+        '''
+Sales Report
+Date Range: $currentPeriodText
+Shop ID: ${widget.shopId}
+Total Sales: $totalSales
+Total Amount: ₹${totalAmount.toStringAsFixed(0)}
+
+Sales by Type:
+${typeTotals.entries.map((e) => '${e.key}: ₹${e.value.toStringAsFixed(0)}').join('\n')}
+
+Detailed Sales:
+${filteredSales.map((sale) {
+          final date = sale['displayDate'] as String;
+          final customer = sale['customerInfo'] as String;
+          final amount = (sale['displayAmount'] as double).toStringAsFixed(0);
+          final type = sale['type'] as String;
+          return '$date - $customer - $type - ₹$amount';
+        }).join('\n')}
+''';
+
+    // Show share dialog
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Export Report'),
+        content: SingleChildScrollView(
+          child: Text(
+            'Report generated for $currentPeriodText\n\n'
+            'Total Sales: $totalSales\n'
+            'Total Amount: ₹${totalAmount.toStringAsFixed(0)}\n\n'
+            'You can copy this data to share with your team.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              // Copy to clipboard
+              Clipboard.setData(ClipboardData(text: reportContent));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Report copied to clipboard')),
+              );
+              Navigator.pop(context);
+            },
+            child: const Text('Copy to Clipboard'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReportDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+          ),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          ),
+        ],
+      ),
+    );
   }
 
   DateTime _getSaleDate(Map<String, dynamic> data, String collection) {
@@ -208,53 +623,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     } catch (_) {
       return DateTime.now();
     }
-  }
-
-  bool _isDateInCurrentMonth(DateTime date) {
-    return date.isAfter(
-          currentMonthStart.subtract(const Duration(seconds: 1)),
-        ) &&
-        date.isBefore(currentMonthEnd.add(const Duration(seconds: 1)));
-  }
-
-  void _applyFilter() {
-    if (selectedFilter == 'All') {
-      filteredSales = List.from(allSales);
-    } else {
-      switch (selectedFilter) {
-        case 'Accessories':
-          filteredSales = allSales
-              .where(
-                (sale) => sale['collection'] == 'accessories_service_sales',
-              )
-              .toList();
-          break;
-        case 'Phones':
-          filteredSales = allSales
-              .where((sale) => sale['collection'] == 'phoneSales')
-              .toList();
-          break;
-        case 'Second Phones':
-          filteredSales = allSales
-              .where((sale) => sale['collection'] == 'seconds_phone_sale')
-              .toList();
-          break;
-        case 'Base Models':
-          filteredSales = allSales
-              .where((sale) => sale['collection'] == 'base_model_sale')
-              .toList();
-          break;
-        default:
-          filteredSales = allSales;
-      }
-    }
-
-    // Sort by date (newest first)
-    filteredSales.sort((a, b) {
-      final dateA = _getSaleDate(a, a['collection'] as String);
-      final dateB = _getSaleDate(b, b['collection'] as String);
-      return dateB.compareTo(dateA);
-    });
   }
 
   String _getSaleType(String collection) {
@@ -397,24 +765,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     }
   }
 
-  String _getMonthName(int month) {
-    final months = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
-    ];
-    return months[month - 1];
-  }
-
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -436,12 +786,17 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sales History'),
+        title: const Text('Sales History', style: TextStyle(fontSize: 18)),
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.assessment, size: 22),
+            onPressed: () => _showCustomReport(context),
+            tooltip: 'View Report',
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh, size: 22),
             onPressed: fetchSalesData,
             tooltip: 'Refresh Data',
           ),
@@ -454,90 +809,152 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                 children: [
                   Icon(
                     Icons.error_outline,
-                    size: 60,
+                    size: 50,
                     color: Colors.red.shade300,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   const Text(
                     'Shop ID Required',
                     style: TextStyle(
-                      fontSize: 20,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                       color: Colors.red,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   const Text(
                     'Please contact administrator to set up your shop ID',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                 ],
               ),
             )
           : Column(
               children: [
-                // Month Header
+                // Search Bar
+                Padding(
+                  padding: const EdgeInsets.all(10.0),
+                  child: TextField(
+                    controller: searchController,
+                    onChanged: _onSearchChanged,
+                    decoration: InputDecoration(
+                      hintText: 'Search by customer, product, brand, IMEI...',
+                      hintStyle: const TextStyle(fontSize: 12),
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      suffixIcon: searchQuery.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 18),
+                              onPressed: () {
+                                searchController.clear();
+                                _onSearchChanged('');
+                              },
+                            )
+                          : null,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 14,
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Date Filter Chips
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 6,
+                    horizontal: 10,
+                  ),
                   decoration: BoxDecoration(
-                    color: Colors.green.shade50,
+                    color: Colors.grey.shade50,
                     border: Border(
-                      bottom: BorderSide(color: Colors.green.shade100),
+                      bottom: BorderSide(color: Colors.grey.shade200),
+                    ),
+                  ),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: dateFilterOptions.map((filter) {
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 4),
+                          child: ChoiceChip(
+                            label: Text(
+                              filter,
+                              style: const TextStyle(fontSize: 11),
+                            ),
+                            selected: selectedDateFilter == filter,
+                            onSelected: (selected) => _changeDateFilter(filter),
+                            backgroundColor: Colors.grey.shade200,
+                            selectedColor: Colors.blue.shade100,
+                            labelStyle: TextStyle(
+                              fontSize: 11,
+                              color: selectedDateFilter == filter
+                                  ? Colors.blue.shade800
+                                  : Colors.grey.shade700,
+                              fontWeight: selectedDateFilter == filter
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ),
+
+                // Period Info
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 8,
+                    horizontal: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    border: Border(
+                      bottom: BorderSide(color: Colors.blue.shade100),
                     ),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '$currentMonthName $currentYear',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green,
-                            ),
+                      Text(
+                        currentPeriodText,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.blue.shade800,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.green,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          'Shop: ${widget.shopId}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w500,
+                            fontSize: 9,
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Showing current month sales only',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.green,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              'Shop: ${widget.shopId}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w500,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ],
                   ),
                 ),
 
-                // Filter Chips
+                // Type Filter Chips
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    vertical: 8,
-                    horizontal: 16,
+                    vertical: 6,
+                    horizontal: 10,
                   ),
                   decoration: BoxDecoration(
                     color: Colors.grey.shade50,
@@ -550,9 +967,12 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                     child: Row(
                       children: filterOptions.map((filter) {
                         return Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: FilterChip(
-                            label: Text(filter),
+                          padding: const EdgeInsets.only(right: 4),
+                          child: ChoiceChip(
+                            label: Text(
+                              filter,
+                              style: const TextStyle(fontSize: 11),
+                            ),
                             selected: selectedFilter == filter,
                             onSelected: (selected) {
                               setState(() {
@@ -562,13 +982,13 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                             },
                             backgroundColor: Colors.grey.shade200,
                             selectedColor: Colors.green.shade100,
-                            checkmarkColor: Colors.green,
                             labelStyle: TextStyle(
+                              fontSize: 11,
                               color: selectedFilter == filter
-                                  ? Colors.green
+                                  ? Colors.green.shade800
                                   : Colors.grey.shade700,
                               fontWeight: selectedFilter == filter
-                                  ? FontWeight.bold
+                                  ? FontWeight.w600
                                   : FontWeight.normal,
                             ),
                           ),
@@ -589,40 +1009,58 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                             children: [
                               Icon(
                                 Icons.receipt_long,
-                                size: 60,
+                                size: 50,
                                 color: Colors.grey.shade300,
                               ),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 12),
                               Text(
-                                'No sales for $currentMonthName $currentYear',
+                                'No sales found',
                                 style: TextStyle(
-                                  fontSize: 18,
+                                  fontSize: 14,
                                   color: Colors.grey.shade500,
                                 ),
                                 textAlign: TextAlign.center,
                               ),
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 6),
+                              if (searchQuery.isNotEmpty)
+                                Text(
+                                  'for "$searchQuery"',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              const SizedBox(height: 6),
                               Text(
                                 'Shop ID: ${widget.shopId}',
                                 style: TextStyle(
-                                  fontSize: 14,
+                                  fontSize: 11,
                                   color: Colors.grey.shade600,
                                 ),
                               ),
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 6),
                               Text(
-                                'Sales will appear here when recorded',
+                                'Period: $currentPeriodText',
                                 style: TextStyle(
-                                  fontSize: 14,
+                                  fontSize: 11,
                                   color: Colors.grey.shade500,
                                 ),
                                 textAlign: TextAlign.center,
                               ),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 12),
                               ElevatedButton.icon(
                                 onPressed: fetchSalesData,
-                                icon: const Icon(Icons.refresh),
-                                label: const Text('Refresh'),
+                                icon: const Icon(Icons.refresh, size: 16),
+                                label: const Text(
+                                  'Refresh',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 8,
+                                  ),
+                                ),
                               ),
                             ],
                           ),
@@ -633,13 +1071,14 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                             children: [
                               // Summary Card
                               Container(
-                                padding: const EdgeInsets.all(16),
-                                margin: const EdgeInsets.all(8),
+                                padding: const EdgeInsets.all(10),
+                                margin: const EdgeInsets.all(6),
                                 decoration: BoxDecoration(
                                   color: Colors.blue.shade50,
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(10),
                                   border: Border.all(
                                     color: Colors.blue.shade100,
+                                    width: 1,
                                   ),
                                 ),
                                 child: Row(
@@ -651,16 +1090,17 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                           CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          'Monthly Sales',
+                                          'Total Sales',
                                           style: TextStyle(
-                                            fontSize: 12,
+                                            fontSize: 10,
                                             color: Colors.grey.shade600,
                                           ),
                                         ),
+                                        const SizedBox(height: 2),
                                         Text(
                                           filteredSales.length.toString(),
                                           style: const TextStyle(
-                                            fontSize: 24,
+                                            fontSize: 18,
                                             fontWeight: FontWeight.bold,
                                             color: Colors.blue,
                                           ),
@@ -672,16 +1112,17 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                           CrossAxisAlignment.end,
                                       children: [
                                         Text(
-                                          'Monthly Amount',
+                                          'Total Amount',
                                           style: TextStyle(
-                                            fontSize: 12,
+                                            fontSize: 10,
                                             color: Colors.grey.shade600,
                                           ),
                                         ),
+                                        const SizedBox(height: 2),
                                         Text(
                                           '₹${_calculateTotalAmount().toStringAsFixed(0)}',
                                           style: const TextStyle(
-                                            fontSize: 24,
+                                            fontSize: 18,
                                             fontWeight: FontWeight.bold,
                                             color: Colors.green,
                                           ),
@@ -697,7 +1138,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                 child: ListView.separated(
                                   itemCount: filteredSales.length,
                                   separatorBuilder: (context, index) => Divider(
-                                    height: 1,
+                                    height: 0.5,
                                     color: Colors.grey.shade200,
                                   ),
                                   itemBuilder: (context, index) {
@@ -707,52 +1148,69 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
 
                                     return Card(
                                       margin: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
+                                        horizontal: 6,
+                                        vertical: 3,
                                       ),
-                                      elevation: 2,
+                                      elevation: 0.5,
                                       shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
+                                        borderRadius: BorderRadius.circular(8),
+                                        side: BorderSide(
+                                          color: Colors.grey.shade200,
+                                          width: 0.5,
+                                        ),
                                       ),
                                       child: ListTile(
+                                        dense: true,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 4,
+                                            ),
                                         leading: Container(
-                                          width: 40,
-                                          height: 40,
+                                          width: 32,
+                                          height: 32,
                                           decoration: BoxDecoration(
                                             color: color.withOpacity(0.15),
                                             shape: BoxShape.circle,
                                           ),
                                           child: Icon(
                                             _getTypeIcon(type),
-                                            size: 20,
+                                            size: 16,
                                             color: color,
                                           ),
                                         ),
                                         title: Text(
                                           sale['customerInfo'] as String,
                                           style: const TextStyle(
+                                            fontSize: 13,
                                             fontWeight: FontWeight.w500,
                                           ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                         ),
                                         subtitle: Column(
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            const SizedBox(height: 4),
+                                            const SizedBox(height: 2),
                                             Text(
                                               sale['displayDate'] as String,
                                               style: TextStyle(
-                                                fontSize: 12,
+                                                fontSize: 10,
                                                 color: Colors.grey.shade600,
                                               ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
                                             ),
                                             const SizedBox(height: 2),
                                             Text(
                                               '${sale['shopName']} • $type',
                                               style: TextStyle(
-                                                fontSize: 12,
+                                                fontSize: 10,
                                                 color: Colors.grey.shade600,
                                               ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
                                             ),
                                             const SizedBox(height: 4),
                                             _buildPaymentChips(
@@ -771,27 +1229,27 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                             Text(
                                               '₹${(sale['displayAmount'] as double).toStringAsFixed(0)}',
                                               style: const TextStyle(
-                                                fontSize: 16,
+                                                fontSize: 13,
                                                 fontWeight: FontWeight.bold,
                                                 color: Colors.green,
                                               ),
                                             ),
-                                            const SizedBox(height: 4),
+                                            const SizedBox(height: 3),
                                             Container(
                                               padding:
                                                   const EdgeInsets.symmetric(
-                                                    horizontal: 8,
-                                                    vertical: 2,
+                                                    horizontal: 6,
+                                                    vertical: 1,
                                                   ),
                                               decoration: BoxDecoration(
                                                 color: color.withOpacity(0.1),
                                                 borderRadius:
-                                                    BorderRadius.circular(12),
+                                                    BorderRadius.circular(8),
                                               ),
                                               child: Text(
                                                 type,
                                                 style: TextStyle(
-                                                  fontSize: 10,
+                                                  fontSize: 8,
                                                   color: color,
                                                   fontWeight: FontWeight.w600,
                                                 ),
@@ -842,24 +1300,28 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       );
     }
 
-    return Wrap(spacing: 4, runSpacing: 4, children: chips);
+    return Wrap(spacing: 3, runSpacing: 2, children: chips);
   }
 
   Widget _buildPaymentChip(String label, double amount, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(_getPaymentIcon(label), size: 10, color: color),
-          const SizedBox(width: 2),
+          Icon(_getPaymentIcon(label), size: 8, color: color),
+          const SizedBox(width: 1),
           Text(
             '₹${amount.toStringAsFixed(0)}',
-            style: TextStyle(fontSize: 10, color: color),
+            style: TextStyle(
+              fontSize: 8,
+              color: color,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ],
       ),
@@ -891,18 +1353,18 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (context) {
         return Container(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Center(
                 child: Container(
-                  width: 60,
+                  width: 50,
                   height: 4,
                   decoration: BoxDecoration(
                     color: Colors.grey.shade300,
@@ -910,30 +1372,29 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
                     'Sale Details',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
+                      horizontal: 10,
+                      vertical: 4,
                     ),
                     decoration: BoxDecoration(
                       color: _getTypeColor(
                         sale['type'] as String,
                       ).withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
                       sale['type'] as String,
                       style: TextStyle(
+                        fontSize: 12,
                         color: _getTypeColor(sale['type'] as String),
                         fontWeight: FontWeight.w600,
                       ),
@@ -941,7 +1402,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               _buildDetailRow('Customer', sale['customerInfo'] as String),
               _buildDetailRow('Shop', sale['shopName'].toString()),
               _buildDetailRow('Date', sale['displayDate'] as String),
@@ -998,29 +1459,29 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               if (sale['notes'] != null && (sale['notes'] as String).isNotEmpty)
                 _buildDetailRow('Notes', sale['notes'].toString()),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               const Text(
                 'Payment Breakdown',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
               ..._buildPaymentDetails(
                 sale['paymentInfo'] as Map<String, dynamic>,
                 sale['collection'] as String,
               ),
 
-              const SizedBox(height: 30),
+              const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () => Navigator.pop(context),
                   style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  child: const Text('Close'),
+                  child: const Text('Close', style: TextStyle(fontSize: 14)),
                 ),
               ),
             ],
@@ -1032,21 +1493,21 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
 
   Widget _buildDetailRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 120,
+            width: 100,
             child: Text(
               '$label:',
-              style: TextStyle(color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(fontWeight: FontWeight.w500),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
             ),
           ),
         ],
@@ -1083,17 +1544,23 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
 
   Widget _buildPaymentDetailRow(String method, double amount) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(method),
+          Text(method, style: const TextStyle(fontSize: 12)),
           Text(
             '₹${amount.toStringAsFixed(0)}',
-            style: const TextStyle(fontWeight: FontWeight.w500),
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
           ),
         ],
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
   }
 }

@@ -530,36 +530,11 @@ class _UserDashboardState extends State<UserDashboard> {
               }
             },
           ),
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'logout') {
-                _logoutUser(authService);
-              } else if (value == 'profile') {
-                _showProfileDialog(user);
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'profile',
-                child: Row(
-                  children: [
-                    Icon(Icons.person, size: 20),
-                    SizedBox(width: 8),
-                    Text('Profile'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'logout',
-                child: Row(
-                  children: [
-                    Icon(Icons.logout, size: 20, color: Colors.red),
-                    SizedBox(width: 8),
-                    Text('Logout', style: TextStyle(color: Colors.red)),
-                  ],
-                ),
-              ),
-            ],
+          // Direct logout icon instead of three-dot menu
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () => _logoutUser(authService),
+            tooltip: 'Logout',
           ),
         ],
       ),
@@ -576,10 +551,10 @@ class _UserDashboardState extends State<UserDashboard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Welcome Section
+            // Welcome Section (Reduced size)
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(14),
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -599,68 +574,75 @@ class _UserDashboardState extends State<UserDashboard> {
               child: Column(
                 children: [
                   Container(
-                    width: 60,
-                    height: 60,
+                    width: 50, // Reduced from 60
+                    height: 50, // Reduced from 60
                     decoration: BoxDecoration(
                       color: Colors.white,
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 3),
+                      border: Border.all(
+                        color: Colors.white,
+                        width: 2,
+                      ), // Reduced from 3
                     ),
                     child: Icon(
                       Icons.person,
-                      size: 30,
+                      size: 25, // Reduced from 30
                       color: Colors.green.shade600,
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8), // Reduced from 12
                   Text(
                     'Welcome, ${user?.name ?? user?.email ?? 'User'}!',
                     style: const TextStyle(
-                      fontSize: 20,
+                      fontSize: 16, // Reduced from 20
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),
                     textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 3), // Reduced from 4
                   const Text(
                     'Sales Representative',
                     style: TextStyle(
-                      fontSize: 14,
+                      fontSize: 12, // Reduced from 14
                       color: Colors.white70,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                   if (user?.shopId != null) ...[
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6), // Reduced from 8
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
+                        horizontal: 10, // Reduced from 12
+                        vertical: 4, // Reduced from 6
                       ),
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(
+                          12,
+                        ), // Reduced from 16
                       ),
                       child: Text(
                         'Shop: ${user!.shopName!}',
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w600,
-                          fontSize: 14,
+                          fontSize: 12, // Reduced from 14
                         ),
                       ),
                     ),
                   ],
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10), // Reduced from 12
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
+                      horizontal: 10, // Reduced from 12
+                      vertical: 4, // Reduced from 6
                     ),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(
+                        12,
+                      ), // Reduced from 16
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -668,14 +650,14 @@ class _UserDashboardState extends State<UserDashboard> {
                         Icon(
                           Icons.calendar_today,
                           color: Colors.white,
-                          size: 16,
+                          size: 14, // Reduced from 16
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 4), // Reduced from 6
                         Text(
                           '$currentMonthName $currentYear',
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 14,
+                            fontSize: 12, // Reduced from 14
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -686,10 +668,10 @@ class _UserDashboardState extends State<UserDashboard> {
               ),
             ),
 
-            // Total Sales Card
+            // Total Sales Card (with reduced text)
             Container(
               margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(14), // Reduced from 16
               decoration: BoxDecoration(
                 color: Colors.green.shade50,
                 borderRadius: BorderRadius.circular(16),
@@ -711,7 +693,7 @@ class _UserDashboardState extends State<UserDashboard> {
                       const Text(
                         'Total Sales',
                         style: TextStyle(
-                          fontSize: 16,
+                          fontSize: 14, // Reduced from 16
                           fontWeight: FontWeight.bold,
                           color: Colors.green,
                         ),
@@ -719,7 +701,7 @@ class _UserDashboardState extends State<UserDashboard> {
                       IconButton(
                         icon: Icon(
                           Icons.refresh,
-                          size: 20,
+                          size: 18, // Reduced from 20
                           color: Colors.green.shade600,
                         ),
                         onPressed: () {
@@ -735,17 +717,17 @@ class _UserDashboardState extends State<UserDashboard> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10), // Reduced from 12
                   Row(children: [Expanded(child: _buildTotalSalesCard())]),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 14), // Reduced from 16
                   _buildSalesBreakdown(),
                 ],
               ),
             ),
 
-            // Recent Sales Section
+            // Recent Sales Section (with reduced text)
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(14), // Reduced from 16
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
@@ -767,7 +749,7 @@ class _UserDashboardState extends State<UserDashboard> {
                       const Text(
                         'Recent Sales',
                         style: TextStyle(
-                          fontSize: 16,
+                          fontSize: 14, // Reduced from 16
                           fontWeight: FontWeight.bold,
                           color: Colors.grey,
                         ),
@@ -777,23 +759,26 @@ class _UserDashboardState extends State<UserDashboard> {
                           onPressed: _showFilterOptions,
                           icon: Icon(
                             Icons.filter_list,
-                            size: 16,
+                            size: 14, // Reduced from 16
                             color: Colors.green.shade600,
                           ),
                           label: Text(
                             selectedFilter,
-                            style: TextStyle(color: Colors.green.shade600),
+                            style: TextStyle(
+                              fontSize: 12, // Reduced
+                              color: Colors.green.shade600,
+                            ),
                           ),
                           style: TextButton.styleFrom(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
+                              horizontal: 6, // Reduced from 8
+                              vertical: 3, // Reduced from 4
                             ),
                           ),
                         ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10), // Reduced from 12
                   _buildRecentSalesList(),
                 ],
               ),
@@ -806,7 +791,7 @@ class _UserDashboardState extends State<UserDashboard> {
 
   Widget _buildTotalSalesCard() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14), // Reduced from 16
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -822,18 +807,18 @@ class _UserDashboardState extends State<UserDashboard> {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(6), // Reduced from 8
                 decoration: BoxDecoration(
                   color: Colors.green.shade200,
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
                   Icons.receipt,
-                  size: 20,
+                  size: 18, // Reduced from 20
                   color: Colors.green.shade800,
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8), // Reduced from 10
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -841,7 +826,7 @@ class _UserDashboardState extends State<UserDashboard> {
                     Text(
                       'Total Sales Value',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 11, // Reduced from 12
                         color: Colors.green.shade700,
                         fontWeight: FontWeight.w500,
                       ),
@@ -849,7 +834,7 @@ class _UserDashboardState extends State<UserDashboard> {
                     Text(
                       '₹${totalSalesValue.toStringAsFixed(0)}',
                       style: TextStyle(
-                        fontSize: 24,
+                        fontSize: 20, // Reduced from 24
                         fontWeight: FontWeight.bold,
                         color: Colors.green.shade800,
                       ),
@@ -859,26 +844,29 @@ class _UserDashboardState extends State<UserDashboard> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6), // Reduced from 8
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 6,
+              vertical: 3,
+            ), // Reduced
             decoration: BoxDecoration(
               color: Colors.green.shade100,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(6), // Reduced from 8
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
                   Icons.shopping_cart,
-                  size: 14,
+                  size: 12, // Reduced from 14
                   color: Colors.green.shade700,
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(width: 3), // Reduced from 4
                 Text(
                   '$totalSalesCount Sales',
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 11, // Reduced from 12
                     color: Colors.green.shade700,
                     fontWeight: FontWeight.w600,
                   ),
@@ -898,18 +886,18 @@ class _UserDashboardState extends State<UserDashboard> {
         const Text(
           'Sales Breakdown',
           style: TextStyle(
-            fontSize: 14,
+            fontSize: 13, // Reduced from 14
             fontWeight: FontWeight.w600,
             color: Colors.grey,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6), // Reduced from 8
         GridView.count(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           crossAxisCount: 2,
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 8,
+          mainAxisSpacing: 6, // Reduced from 8
+          crossAxisSpacing: 6, // Reduced from 8
           childAspectRatio: 2.5,
           children: [
             _buildCategoryCard(
@@ -940,16 +928,16 @@ class _UserDashboardState extends State<UserDashboard> {
         ),
         // Accessories & Service breakdown if there are any
         if (accessoriesSalesValue > 0) ...[
-          const SizedBox(height: 12),
+          const SizedBox(height: 10), // Reduced from 12
           const Text(
             'Accessories & Service Breakdown',
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 13, // Reduced from 14
               fontWeight: FontWeight.w600,
               color: Colors.grey,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6), // Reduced from 8
           Row(
             children: [
               Expanded(
@@ -960,7 +948,7 @@ class _UserDashboardState extends State<UserDashboard> {
                   Icons.shopping_basket,
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6), // Reduced from 8
               Expanded(
                 child: _buildBreakdownItem(
                   'Service',
@@ -983,10 +971,10 @@ class _UserDashboardState extends State<UserDashboard> {
     IconData icon,
   ) {
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(8), // Reduced from 10
       decoration: BoxDecoration(
         color: color.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8), // Reduced from 10
         border: Border.all(color: color.withOpacity(0.2)),
       ),
       child: Column(
@@ -994,23 +982,23 @@ class _UserDashboardState extends State<UserDashboard> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 16, color: color),
-              const SizedBox(width: 6),
+              Icon(icon, size: 14, color: color), // Reduced from 16
+              const SizedBox(width: 4), // Reduced from 6
               Text(
                 title,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 11, // Reduced from 12
                   color: color,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 3), // Reduced from 4
           Text(
             '₹${value.toStringAsFixed(0)}',
             style: TextStyle(
-              fontSize: 16,
+              fontSize: 12, // Reduced from 16
               fontWeight: FontWeight.bold,
               color: color,
             ),
@@ -1027,23 +1015,23 @@ class _UserDashboardState extends State<UserDashboard> {
     IconData icon,
   ) {
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(8), // Reduced from 10
       decoration: BoxDecoration(
         color: color.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8), // Reduced from 10
         border: Border.all(color: color.withOpacity(0.2)),
       ),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(6),
+            padding: const EdgeInsets.all(5), // Reduced from 6
             decoration: BoxDecoration(
               color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(6), // Reduced from 8
             ),
-            child: Icon(icon, size: 16, color: color),
+            child: Icon(icon, size: 14, color: color), // Reduced from 16
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6), // Reduced from 8
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1052,7 +1040,7 @@ class _UserDashboardState extends State<UserDashboard> {
                 Text(
                   title,
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 9, // Reduced from 10
                     color: Colors.grey.shade700,
                     fontWeight: FontWeight.w500,
                   ),
@@ -1062,7 +1050,7 @@ class _UserDashboardState extends State<UserDashboard> {
                 Text(
                   '₹${value.toStringAsFixed(0)}',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 12, // Reduced from 14
                     fontWeight: FontWeight.bold,
                     color: color,
                   ),
@@ -1083,7 +1071,7 @@ class _UserDashboardState extends State<UserDashboard> {
       ),
       builder: (context) {
         return Container(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(16), // Reduced from 20
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1092,7 +1080,7 @@ class _UserDashboardState extends State<UserDashboard> {
                 child: Container(
                   width: 40,
                   height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
+                  margin: const EdgeInsets.only(bottom: 12), // Reduced from 16
                   decoration: BoxDecoration(
                     color: Colors.grey.shade300,
                     borderRadius: BorderRadius.circular(2),
@@ -1102,20 +1090,23 @@ class _UserDashboardState extends State<UserDashboard> {
               const Text(
                 'Filter Sales',
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: 16, // Reduced from 18
                   fontWeight: FontWeight.bold,
                   color: Colors.grey,
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8), // Reduced from 12
               Text(
                 'Select a category to filter sales data',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey.shade600,
+                ), // Reduced
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12), // Reduced from 16
               Wrap(
-                spacing: 8,
-                runSpacing: 8,
+                spacing: 6, // Reduced from 8
+                runSpacing: 6, // Reduced from 8
                 children: filterOptions.map((filter) {
                   final isSelected = selectedFilter == filter;
                   final color = _getTypeColor(filter);
@@ -1123,15 +1114,15 @@ class _UserDashboardState extends State<UserDashboard> {
                   return ChoiceChip(
                     label: Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
+                        horizontal: 10, // Reduced from 12
+                        vertical: 5, // Reduced from 6
                       ),
                       child: Text(
                         filter,
                         style: TextStyle(
                           color: isSelected ? Colors.white : color,
                           fontWeight: FontWeight.w600,
-                          fontSize: 12,
+                          fontSize: 11, // Reduced from 12
                         ),
                       ),
                     ),
@@ -1146,13 +1137,15 @@ class _UserDashboardState extends State<UserDashboard> {
                     selectedColor: color,
                     backgroundColor: color.withOpacity(0.1),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(
+                        12,
+                      ), // Reduced from 16
                       side: BorderSide(color: color.withOpacity(0.3), width: 1),
                     ),
                   );
                 }).toList(),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16), // Reduced from 20
             ],
           ),
         );
@@ -1163,7 +1156,7 @@ class _UserDashboardState extends State<UserDashboard> {
   Widget _buildRecentSalesList() {
     if (isLoading) {
       return Container(
-        padding: const EdgeInsets.all(40),
+        padding: const EdgeInsets.all(30), // Reduced from 40
         child: const Center(
           child: CircularProgressIndicator(color: Colors.green),
         ),
@@ -1172,14 +1165,18 @@ class _UserDashboardState extends State<UserDashboard> {
 
     if (filteredSales.isEmpty) {
       return Container(
-        padding: const EdgeInsets.all(40),
+        padding: const EdgeInsets.all(30), // Reduced from 40
         child: Column(
           children: [
-            Icon(Icons.receipt, size: 50, color: Colors.grey.shade300),
-            const SizedBox(height: 16),
+            Icon(
+              Icons.receipt,
+              size: 40,
+              color: Colors.grey.shade300,
+            ), // Reduced
+            const SizedBox(height: 12), // Reduced from 16
             const Text(
               'No sales found',
-              style: TextStyle(fontSize: 14, color: Colors.grey),
+              style: TextStyle(fontSize: 13, color: Colors.grey), // Reduced
             ),
           ],
         ),
@@ -1192,30 +1189,41 @@ class _UserDashboardState extends State<UserDashboard> {
         final color = _getTypeColor(type);
 
         return Card(
-          margin: const EdgeInsets.only(bottom: 12),
+          margin: const EdgeInsets.only(bottom: 10), // Reduced from 12
           child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12, // Reduced
+              vertical: 6, // Reduced
+            ),
             leading: Container(
-              width: 40,
-              height: 40,
+              width: 36, // Reduced from 40
+              height: 36, // Reduced from 40
               decoration: BoxDecoration(
                 color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(6), // Reduced from 8
               ),
-              child: Icon(_getTypeIcon(type), size: 20, color: color),
+              child: Icon(
+                _getTypeIcon(type),
+                size: 18,
+                color: color,
+              ), // Reduced
             ),
             title: Text(
               sale['customerInfo'] as String,
-              style: const TextStyle(fontWeight: FontWeight.w600),
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
             ),
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(sale['displayDate'] as String),
-                const SizedBox(height: 4),
+                Text(
+                  sale['displayDate'] as String,
+                  style: const TextStyle(fontSize: 11), // Reduced
+                ),
+                const SizedBox(height: 3), // Reduced from 4
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
+                    horizontal: 5, // Reduced from 6
+                    vertical: 1, // Reduced from 2
                   ),
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.1),
@@ -1223,10 +1231,13 @@ class _UserDashboardState extends State<UserDashboard> {
                   ),
                   child: Text(
                     type,
-                    style: TextStyle(fontSize: 10, color: color),
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: color,
+                    ), // Reduced from 10
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 3), // Reduced from 4
                 _buildPaymentChips(
                   sale['paymentInfo'] as Map<String, dynamic>,
                   sale['collection'] as String,
@@ -1238,6 +1249,7 @@ class _UserDashboardState extends State<UserDashboard> {
               style: const TextStyle(
                 fontWeight: FontWeight.bold,
                 color: Colors.green,
+                fontSize: 13, // Added
               ),
             ),
             onTap: () => _showSaleDetails(context, sale),
@@ -1262,9 +1274,9 @@ class _UserDashboardState extends State<UserDashboard> {
         child: SafeArea(
           child: Column(
             children: [
-              // Drawer Header
+              // Drawer Header (Reduced)
               Container(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(16), // Reduced from 20
                 decoration: BoxDecoration(
                   color: Colors.green.shade700.withOpacity(0.2),
                   border: Border(
@@ -1277,47 +1289,50 @@ class _UserDashboardState extends State<UserDashboard> {
                 child: Column(
                   children: [
                     Container(
-                      width: 60,
-                      height: 60,
+                      width: 50, // Reduced from 60
+                      height: 50, // Reduced from 60
                       decoration: BoxDecoration(
                         color: Colors.white,
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 3),
+                        border: Border.all(
+                          color: Colors.white,
+                          width: 2,
+                        ), // Reduced
                       ),
                       child: const Icon(
                         Icons.person,
-                        size: 30,
+                        size: 25, // Reduced from 30
                         color: Colors.green,
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8), // Reduced from 12
                     Column(
                       children: [
                         Text(
                           user?.name ?? user?.email ?? 'User',
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 16,
+                            fontSize: 14, // Reduced from 16
                             fontWeight: FontWeight.bold,
                           ),
                           textAlign: TextAlign.center,
                         ),
                         if (user?.shopId != null) ...[
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 3), // Reduced from 4
                           Container(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
+                              horizontal: 6, // Reduced from 8
+                              vertical: 3, // Reduced from 4
                             ),
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(8), // Reduced
                             ),
                             child: Text(
-                              'Shop: ${user!.shopId!}',
+                              'Shop: ${user!.shopName!}',
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 12,
+                                fontSize: 11, // Reduced from 12
                               ),
                             ),
                           ),
@@ -1338,7 +1353,7 @@ class _UserDashboardState extends State<UserDashboard> {
                     ),
                   ),
                   child: ListView(
-                    padding: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.only(top: 6), // Reduced from 8
                     children: [
                       // Dashboard Section
                       _buildDrawerSection(
@@ -1474,7 +1489,7 @@ class _UserDashboardState extends State<UserDashboard> {
 
                       // Logout Button
                       Container(
-                        margin: const EdgeInsets.all(16),
+                        margin: const EdgeInsets.all(12), // Reduced from 16
                         child: ElevatedButton.icon(
                           onPressed: () async {
                             await AuthService().signOut();
@@ -1487,19 +1502,21 @@ class _UserDashboardState extends State<UserDashboard> {
                             backgroundColor: Colors.red.shade600,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 14,
+                              horizontal: 16, // Reduced from 20
+                              vertical: 12, // Reduced from 14
                             ),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(
+                                10,
+                              ), // Reduced
                             ),
                             elevation: 3,
                           ),
-                          icon: const Icon(Icons.logout),
+                          icon: const Icon(Icons.logout, size: 18), // Reduced
                           label: const Text(
                             'Logout',
                             style: TextStyle(
-                              fontSize: 14,
+                              fontSize: 13, // Reduced from 14
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -1524,12 +1541,16 @@ class _UserDashboardState extends State<UserDashboard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 20, top: 16, bottom: 8),
+          padding: const EdgeInsets.only(
+            left: 16,
+            top: 12,
+            bottom: 6,
+          ), // Reduced
           child: Text(
             title,
             style: const TextStyle(
               color: Colors.grey,
-              fontSize: 10,
+              fontSize: 9, // Reduced from 10
               fontWeight: FontWeight.bold,
               letterSpacing: 1.0,
             ),
@@ -1548,23 +1569,27 @@ class _UserDashboardState extends State<UserDashboard> {
     required VoidCallback onTap,
   }) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 1), // Reduced
       decoration: BoxDecoration(
         color: isSelected ? color.withOpacity(0.1) : Colors.transparent,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8), // Reduced from 10
       ),
       child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 8, // Reduced
+          vertical: 4, // Reduced
+        ),
         leading: Container(
-          width: 36,
-          height: 36,
+          width: 32, // Reduced from 36
+          height: 32, // Reduced from 36
           decoration: BoxDecoration(
             color: color.withOpacity(isSelected ? 0.2 : 0.1),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(6), // Reduced from 8
           ),
           child: Icon(
             icon,
             color: isSelected ? color : color.withOpacity(0.8),
-            size: 18,
+            size: 16, // Reduced from 18
           ),
         ),
         title: Text(
@@ -1572,154 +1597,46 @@ class _UserDashboardState extends State<UserDashboard> {
           style: TextStyle(
             color: isSelected ? color : Colors.grey.shade800,
             fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-            fontSize: 13,
+            fontSize: 12, // Reduced from 13
           ),
         ),
         trailing: isSelected
-            ? Icon(Icons.chevron_right, color: color)
-            : Icon(Icons.chevron_right, color: Colors.grey.shade400),
+            ? Icon(Icons.chevron_right, color: color, size: 18) // Reduced
+            : Icon(Icons.chevron_right, color: Colors.grey.shade400, size: 18),
         onTap: onTap,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
   }
 
   Future<void> _logoutUser(AuthService authService) async {
-    await authService.signOut();
-    Provider.of<AuthProvider>(context, listen: false).clearUser();
-  }
-
-  void _showProfileDialog(dynamic user) {
-    showDialog(
+    // Show confirmation dialog before logout
+    bool? confirm = await showDialog(
       context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
+      builder: (context) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade100,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.person,
-                    size: 28,
-                    color: Colors.green,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Center(
-                child: Text(
-                  'Profile',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              _buildProfileInfoRow(
-                'Name',
-                user?.name ?? 'Not set',
-                Icons.person,
-                Colors.green,
-              ),
-              _buildProfileInfoRow(
-                'Email',
-                user?.email ?? 'Not set',
-                Icons.email,
-                Colors.blue,
-              ),
-              _buildProfileInfoRow(
-                'Shop ID',
-                user?.shopId ?? 'Not assigned',
-                Icons.store,
-                Colors.orange,
-              ),
-              _buildProfileInfoRow(
-                'Phone',
-                user?.phone ?? 'Not set',
-                Icons.phone,
-                Colors.purple,
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  child: const Text('Close', style: TextStyle(fontSize: 14)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProfileInfoRow(
-    String label,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.1)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.grey.shade800,
-                  ),
-                ),
-              ],
-            ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Logout', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
     );
+
+    if (confirm == true) {
+      await authService.signOut();
+      Provider.of<AuthProvider>(context, listen: false).clearUser();
+    }
   }
+
+  // Removed _showProfileDialog method completely
 
   Widget _buildPaymentChips(
     Map<String, dynamic> paymentInfo,
@@ -1754,19 +1671,22 @@ class _UserDashboardState extends State<UserDashboard> {
     if (paymentTypes.isEmpty) {
       chips.add(
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          padding: const EdgeInsets.symmetric(
+            horizontal: 5,
+            vertical: 2,
+          ), // Reduced
           decoration: BoxDecoration(
             color: Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(6), // Reduced from 8
           ),
           child: const Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.money, size: 10, color: Colors.grey),
+              Icon(Icons.money, size: 9, color: Colors.grey), // Reduced
               SizedBox(width: 2),
               Text(
                 'Payment Info',
-                style: TextStyle(fontSize: 9, color: Colors.grey),
+                style: TextStyle(fontSize: 8, color: Colors.grey), // Reduced
               ),
             ],
           ),
@@ -1776,11 +1696,14 @@ class _UserDashboardState extends State<UserDashboard> {
       chips.addAll(
         paymentTypes.map((type) {
           return Container(
-            margin: const EdgeInsets.only(right: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            margin: const EdgeInsets.only(right: 3), // Reduced from 4
+            padding: const EdgeInsets.symmetric(
+              horizontal: 5,
+              vertical: 2,
+            ), // Reduced
             decoration: BoxDecoration(
               color: (type['color'] as Color).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(6), // Reduced from 8
               border: Border.all(
                 color: (type['color'] as Color).withOpacity(0.2),
               ),
@@ -1790,14 +1713,14 @@ class _UserDashboardState extends State<UserDashboard> {
               children: [
                 Icon(
                   _getPaymentIcon(type['label'] as String),
-                  size: 10,
+                  size: 9, // Reduced from 10
                   color: type['color'] as Color,
                 ),
                 const SizedBox(width: 2),
                 Text(
                   '₹${(type['amount'] as double).toStringAsFixed(0)}',
                   style: TextStyle(
-                    fontSize: 9,
+                    fontSize: 8, // Reduced from 9
                     color: type['color'] as Color,
                     fontWeight: FontWeight.w600,
                   ),
@@ -1846,7 +1769,7 @@ class _UserDashboardState extends State<UserDashboard> {
       builder: (context) {
         return SingleChildScrollView(
           child: Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(16), // Reduced from 20
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1861,7 +1784,7 @@ class _UserDashboardState extends State<UserDashboard> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16), // Reduced from 20
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -1869,32 +1792,32 @@ class _UserDashboardState extends State<UserDashboard> {
                       'Sale Details',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.bold,
-                        fontSize: 18,
+                        fontSize: 16, // Reduced from 18
                       ),
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
+                        horizontal: 10, // Reduced from 12
+                        vertical: 5, // Reduced from 6
                       ),
                       decoration: BoxDecoration(
                         color: _getTypeColor(
                           sale['type'] as String,
                         ).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(10), // Reduced
                       ),
                       child: Text(
                         sale['type'] as String,
                         style: TextStyle(
                           color: _getTypeColor(sale['type'] as String),
                           fontWeight: FontWeight.w600,
-                          fontSize: 12,
+                          fontSize: 11, // Reduced from 12
                         ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16), // Reduced from 20
                 _buildDetailRow('Customer', sale['customerInfo'] as String),
                 _buildDetailRow('Shop', sale['shopName'].toString()),
                 _buildDetailRow('Date', sale['displayDate'] as String),
@@ -1916,11 +1839,11 @@ class _UserDashboardState extends State<UserDashboard> {
                   // Show breakdown
                   if (accessoriesAmount > 0 || serviceAmount > 0)
                     Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 10), // Reduced
+                      padding: const EdgeInsets.all(10), // Reduced from 12
                       decoration: BoxDecoration(
                         color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(8), // Reduced
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1928,7 +1851,7 @@ class _UserDashboardState extends State<UserDashboard> {
                           Text(
                             'Total Sale Amount:',
                             style: TextStyle(
-                              fontSize: 14,
+                              fontSize: 13, // Reduced from 14
                               color: Colors.blue.shade700,
                               fontWeight: FontWeight.w600,
                             ),
@@ -1936,7 +1859,7 @@ class _UserDashboardState extends State<UserDashboard> {
                           Text(
                             '₹${(sale['displayAmount'] as double).toStringAsFixed(0)}',
                             style: TextStyle(
-                              fontSize: 18,
+                              fontSize: 16, // Reduced from 18
                               fontWeight: FontWeight.bold,
                               color: Colors.blue.shade800,
                             ),
@@ -1974,22 +1897,22 @@ class _UserDashboardState extends State<UserDashboard> {
                 if (sale['imei'] != null && sale['collection'] != 'phoneSales')
                   _buildDetailRow('IMEI', sale['imei'].toString()),
 
-                const SizedBox(height: 20),
+                const SizedBox(height: 16), // Reduced from 20
                 const Text(
                   'Payment Breakdown',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    fontSize: 16,
+                    fontSize: 14, // Reduced from 16
                     color: Colors.grey,
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10), // Reduced from 12
                 ..._buildPaymentDetails(
                   sale['paymentInfo'] as Map<String, dynamic>,
                   sale['collection'] as String,
                 ),
 
-                const SizedBox(height: 20),
+                const SizedBox(height: 16), // Reduced from 20
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -1997,12 +1920,17 @@ class _UserDashboardState extends State<UserDashboard> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 12,
+                      ), // Reduced
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(10), // Reduced
                       ),
                     ),
-                    child: const Text('Close', style: TextStyle(fontSize: 14)),
+                    child: const Text(
+                      'Close',
+                      style: TextStyle(fontSize: 13),
+                    ), // Reduced
                   ),
                 ),
               ],
@@ -2020,23 +1948,23 @@ class _UserDashboardState extends State<UserDashboard> {
     Color? amountColor,
   }) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 10), // Reduced from 12
+      padding: const EdgeInsets.all(10), // Reduced from 12
       decoration: BoxDecoration(
         color: isTotal
             ? Colors.green.shade50
             : amountColor?.withOpacity(0.05) ?? Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8), // Reduced from 10
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 120,
+            width: 100, // Reduced from 120
             child: Text(
               '$label:',
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12, // Reduced from 13
                 color: isTotal
                     ? Colors.green.shade700
                     : amountColor ?? Colors.grey.shade700,
@@ -2048,7 +1976,7 @@ class _UserDashboardState extends State<UserDashboard> {
             child: Text(
               value,
               style: TextStyle(
-                fontSize: isTotal ? 18 : 14,
+                fontSize: isTotal ? 16 : 13, // Reduced
                 fontWeight: isTotal ? FontWeight.bold : FontWeight.w500,
                 color: isTotal
                     ? Colors.green.shade800
@@ -2102,11 +2030,11 @@ class _UserDashboardState extends State<UserDashboard> {
 
   Widget _buildPaymentDetailRow(String method, double amount, Color color) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 6), // Reduced from 8
+      padding: const EdgeInsets.all(10), // Reduced from 12
       decoration: BoxDecoration(
         color: color.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8), // Reduced from 10
         border: Border.all(color: color.withOpacity(0.1)),
       ),
       child: Row(
@@ -2115,18 +2043,22 @@ class _UserDashboardState extends State<UserDashboard> {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(6),
+                padding: const EdgeInsets.all(5), // Reduced from 6
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.1),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(_getPaymentIcon(method), size: 16, color: color),
+                child: Icon(
+                  _getPaymentIcon(method),
+                  size: 14,
+                  color: color,
+                ), // Reduced
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6), // Reduced from 8
               Text(
                 method,
                 style: const TextStyle(
-                  fontSize: 14,
+                  fontSize: 13, // Reduced from 14
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -2135,7 +2067,7 @@ class _UserDashboardState extends State<UserDashboard> {
           Text(
             '₹${amount.toStringAsFixed(0)}',
             style: TextStyle(
-              fontSize: 16,
+              fontSize: 14, // Reduced from 16
               fontWeight: FontWeight.bold,
               color: color,
             ),
