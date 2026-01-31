@@ -1396,7 +1396,7 @@ class _UserDashboardState extends State<UserDashboard> {
             children: [
               // Drawer Header (Reduced)
               Container(
-                padding: const EdgeInsets.all(16), // Reduced from 20
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.green.shade700.withOpacity(0.2),
                   border: Border(
@@ -1409,50 +1409,47 @@ class _UserDashboardState extends State<UserDashboard> {
                 child: Column(
                   children: [
                     Container(
-                      width: 50, // Reduced from 60
-                      height: 50, // Reduced from 60
+                      width: 50,
+                      height: 50,
                       decoration: BoxDecoration(
                         color: Colors.white,
                         shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white,
-                          width: 2,
-                        ), // Reduced
+                        border: Border.all(color: Colors.white, width: 2),
                       ),
                       child: const Icon(
                         Icons.person,
-                        size: 25, // Reduced from 30
+                        size: 25,
                         color: Colors.green,
                       ),
                     ),
-                    const SizedBox(height: 8), // Reduced from 12
+                    const SizedBox(height: 8),
                     Column(
                       children: [
                         Text(
                           user?.name ?? user?.email ?? 'User',
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 14, // Reduced from 16
+                            fontSize: 14,
                             fontWeight: FontWeight.bold,
                           ),
                           textAlign: TextAlign.center,
                         ),
                         if (user?.shopId != null) ...[
-                          const SizedBox(height: 3), // Reduced from 4
+                          const SizedBox(height: 3),
                           Container(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 6, // Reduced from 8
-                              vertical: 3, // Reduced from 4
+                              horizontal: 6,
+                              vertical: 3,
                             ),
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(8), // Reduced
+                              borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
                               'Shop: ${user!.shopName!}',
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 11, // Reduced from 12
+                                fontSize: 11,
                               ),
                             ),
                           ),
@@ -1463,6 +1460,7 @@ class _UserDashboardState extends State<UserDashboard> {
                 ),
               ),
 
+              // FIXED: Use Expanded for scrollable content area
               Expanded(
                 child: Container(
                   decoration: const BoxDecoration(
@@ -1472,172 +1470,197 @@ class _UserDashboardState extends State<UserDashboard> {
                       topRight: Radius.circular(20),
                     ),
                   ),
-                  child: ListView(
-                    padding: const EdgeInsets.only(top: 6), // Reduced from 8
+                  child: Column(
                     children: [
-                      // Dashboard Section
-                      _buildDrawerSection(
-                        title: 'DASHBOARD',
-                        children: [
-                          _buildDrawerTile(
-                            icon: Icons.dashboard,
-                            title: 'Dashboard',
-                            color: Colors.green,
-                            isSelected: true,
-                            onTap: () {
-                              _scaffoldKey.currentState?.closeDrawer();
-                            },
-                          ),
-                        ],
+                      // FIXED: Main scrollable content
+                      Expanded(
+                        child: ListView(
+                          padding: const EdgeInsets.only(top: 6),
+                          children: [
+                            // Dashboard Section
+                            _buildDrawerSection(
+                              title: 'DASHBOARD',
+                              children: [
+                                _buildDrawerTile(
+                                  icon: Icons.dashboard,
+                                  title: 'Dashboard',
+                                  color: Colors.green,
+                                  isSelected: true,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                  },
+                                ),
+                              ],
+                            ),
+
+                            // Inventory Section
+                            _buildDrawerSection(
+                              title: 'INVENTORY',
+                              children: [
+                                _buildDrawerTile(
+                                  icon: Icons.inventory,
+                                  title: 'Phone Stock',
+                                  color: Colors.red,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(const PhoneStockScreen());
+                                  },
+                                ),
+                                _buildDrawerTile(
+                                  icon: Icons.search,
+                                  title: 'Stock Check',
+                                  color: Colors.teal,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(const StockCheckScreen());
+                                  },
+                                ),
+                              ],
+                            ),
+
+                            // Sales Upload Section
+                            _buildDrawerSection(
+                              title: 'SALES UPLOAD',
+                              children: [
+                                _buildDrawerTile(
+                                  icon: Icons.shopping_bag,
+                                  title: 'Accessories & Service',
+                                  color: Colors.blue,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(
+                                      const AccessoriesSaleUpload(),
+                                    );
+                                  },
+                                ),
+                                _buildDrawerTile(
+                                  icon: Icons.phone_iphone,
+                                  title: 'Phone Sales',
+                                  color: Colors.green,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(const PhoneSaleUpload());
+                                  },
+                                ),
+                                _buildDrawerTile(
+                                  icon: Icons.phone_android,
+                                  title: 'Second Phones',
+                                  color: Colors.orange,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(
+                                      const SecondPhoneSaleUpload(),
+                                    );
+                                  },
+                                ),
+                                _buildDrawerTile(
+                                  icon: Icons.devices,
+                                  title: 'Base Models',
+                                  color: Colors.purple,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(
+                                      const BaseModelSaleUpload(),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+
+                            // History Section
+                            _buildDrawerSection(
+                              title: 'HISTORY',
+                              children: [
+                                _buildDrawerTile(
+                                  icon: Icons.history,
+                                  title: 'Sales History',
+                                  color: Colors.grey,
+                                  onTap: () {
+                                    final user = Provider.of<AuthProvider>(
+                                      context,
+                                      listen: false,
+                                    ).user;
+                                    if (user?.shopId != null &&
+                                        user!.shopId!.isNotEmpty) {
+                                      _scaffoldKey.currentState?.closeDrawer();
+                                      _navigateToScreen(
+                                        SalesHistoryScreen(
+                                          shopId: user.shopId!,
+                                        ),
+                                      );
+                                    } else {
+                                      _scaffoldKey.currentState?.closeDrawer();
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            'Shop ID not found. Please contact administrator.',
+                                          ),
+                                          backgroundColor: Colors.red,
+                                          duration: Duration(seconds: 3),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                ),
+                                // Commented out as per your code
+                                // _buildDrawerTile(
+                                //   icon: Icons.inventory,
+                                //   title: 'Purchase History',
+                                //   color: Colors.brown,
+                                //   onTap: () {
+                                //     _scaffoldKey.currentState?.closeDrawer();
+                                //     _navigateToScreen(const PurchaseHistoryScreen());
+                                //   },
+                                // ),
+                              ],
+                            ),
+
+                            // Add some bottom padding to prevent logout button from being too close
+                            const SizedBox(height: 20),
+                          ],
+                        ),
                       ),
 
-                      // Inventory Section
-                      _buildDrawerSection(
-                        title: 'INVENTORY',
-                        children: [
-                          _buildDrawerTile(
-                            icon: Icons.inventory,
-                            title: 'Phone Stock',
-                            color: Colors.red,
-                            onTap: () {
-                              _scaffoldKey.currentState?.closeDrawer();
-                              _navigateToScreen(const PhoneStockScreen());
-                            },
-                          ),
-                          _buildDrawerTile(
-                            icon: Icons.search,
-                            title: 'Stock Check',
-                            color: Colors.teal,
-                            onTap: () {
-                              _scaffoldKey.currentState?.closeDrawer();
-                              _navigateToScreen(const StockCheckScreen());
-                            },
-                          ),
-                        ],
-                      ),
-
-                      // Sales Upload Section
-                      _buildDrawerSection(
-                        title: 'SALES UPLOAD',
-                        children: [
-                          _buildDrawerTile(
-                            icon: Icons.shopping_bag,
-                            title: 'Accessories & Service',
-                            color: Colors.blue,
-                            onTap: () {
-                              _scaffoldKey.currentState?.closeDrawer();
-                              _navigateToScreen(const AccessoriesSaleUpload());
-                            },
-                          ),
-                          _buildDrawerTile(
-                            icon: Icons.phone_iphone,
-                            title: 'Phone Sales',
-                            color: Colors.green,
-                            onTap: () {
-                              _scaffoldKey.currentState?.closeDrawer();
-                              _navigateToScreen(const PhoneSaleUpload());
-                            },
-                          ),
-                          _buildDrawerTile(
-                            icon: Icons.phone_android,
-                            title: 'Second Phones',
-                            color: Colors.orange,
-                            onTap: () {
-                              _scaffoldKey.currentState?.closeDrawer();
-                              _navigateToScreen(const SecondPhoneSaleUpload());
-                            },
-                          ),
-                          _buildDrawerTile(
-                            icon: Icons.devices,
-                            title: 'Base Models',
-                            color: Colors.purple,
-                            onTap: () {
-                              _scaffoldKey.currentState?.closeDrawer();
-                              _navigateToScreen(const BaseModelSaleUpload());
-                            },
-                          ),
-                        ],
-                      ),
-
-                      // History Section
-                      _buildDrawerSection(
-                        title: 'HISTORY',
-                        children: [
-                          _buildDrawerTile(
-                            icon: Icons.history,
-                            title: 'Sales History',
-                            color: Colors.grey,
-                            onTap: () {
-                              final user = Provider.of<AuthProvider>(
-                                context,
-                                listen: false,
-                              ).user;
-                              if (user?.shopId != null &&
-                                  user!.shopId!.isNotEmpty) {
-                                _scaffoldKey.currentState?.closeDrawer();
-                                _navigateToScreen(
-                                  SalesHistoryScreen(shopId: user.shopId!),
-                                );
-                              } else {
-                                _scaffoldKey.currentState?.closeDrawer();
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'Shop ID not found. Please contact administrator.',
-                                    ),
-                                    backgroundColor: Colors.red,
-                                    duration: Duration(seconds: 3),
-                                  ),
-                                );
-                              }
-                            },
-                          ),
-                          // _buildDrawerTile(
-                          //   icon: Icons.inventory,
-                          //   title: 'Purchase History',
-                          //   color: Colors.brown,
-                          //   onTap: () {
-                          //     _scaffoldKey.currentState?.closeDrawer();
-                          //     _navigateToScreen(const PurchaseHistoryScreen());
-                          //   },
-                          // ),
-                        ],
-                      ),
-
-                      // Spacer
-                      const Spacer(),
-
-                      // Logout Button
+                      // FIXED: Logout button placed outside the scrollable area
                       Container(
-                        margin: const EdgeInsets.all(12), // Reduced from 16
-                        child: ElevatedButton.icon(
-                          onPressed: () async {
-                            await AuthService().signOut();
-                            Provider.of<AuthProvider>(
-                              context,
-                              listen: false,
-                            ).clearUser();
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red.shade600,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16, // Reduced from 20
-                              vertical: 12, // Reduced from 14
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          border: Border(
+                            top: BorderSide(
+                              color: Colors.grey.shade200,
+                              width: 1,
                             ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                10,
-                              ), // Reduced
-                            ),
-                            elevation: 3,
                           ),
-                          icon: const Icon(Icons.logout, size: 18), // Reduced
-                          label: const Text(
-                            'Logout',
-                            style: TextStyle(
-                              fontSize: 13, // Reduced from 14
-                              fontWeight: FontWeight.w600,
+                        ),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () async {
+                              _scaffoldKey.currentState?.closeDrawer();
+                              await _logoutUser(AuthService());
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red.shade600,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              elevation: 3,
+                            ),
+                            icon: const Icon(Icons.logout, size: 18),
+                            label: const Text(
+                              'Logout',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ),

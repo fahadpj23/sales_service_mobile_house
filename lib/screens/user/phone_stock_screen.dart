@@ -86,6 +86,10 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   // For search focus
   final FocusNode _searchFocusNode = FocusNode();
 
+  // NEW: For sold stock warning
+  Map<String, dynamic>? _foundInSoldStock;
+  bool _showingSoldStockWarning = false;
+
   // FIXED: Smart Search Logic that handles "f17 4/128" searching in "samsung galaxy f17 5g 4/128 violet pop"
   List<Map<String, dynamic>> _filterStocksBySearch(
     List<QueryDocumentSnapshot> stocks,
@@ -160,6 +164,34 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     return result;
   }
 
+  // NEW: Check if IMEI exists in sold stock
+  Future<Map<String, dynamic>?> _checkImeiInSoldStock(String imei) async {
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final user = authProvider.user;
+      final currentShopId = user?.shopId;
+
+      if (currentShopId == null) return null;
+
+      final snapshot = await FirebaseFirestore.instance
+          .collection('phoneStock')
+          .where('shopId', isEqualTo: currentShopId)
+          .where('imei', isEqualTo: imei)
+          .where('status', isEqualTo: 'sold')
+          .limit(1)
+          .get();
+
+      if (snapshot.docs.isNotEmpty) {
+        final data = snapshot.docs.first.data();
+        return {...data, 'id': snapshot.docs.first.id};
+      }
+      return null;
+    } catch (e) {
+      print('Error checking sold stock: $e');
+      return null;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -174,6 +206,9 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     _tabController.addListener(() {
       setState(() {
         _currentTabIndex = _tabController.index;
+        // Clear sold stock warning when switching tabs
+        _foundInSoldStock = null;
+        _showingSoldStockWarning = false;
       });
     });
     _loadExistingProducts();
@@ -876,11 +911,20 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       builder: (context) => OptimizedImeiScanner(
         title: 'Search IMEI',
         description: 'Scan IMEI to search in stock',
-        onScanComplete: (imei) {
+        onScanComplete: (imei) async {
           setState(() {
             _searchController.text = imei;
             _searchQuery = imei.toLowerCase();
           });
+
+          // Check if this IMEI exists in sold stock
+          final soldItem = await _checkImeiInSoldStock(imei);
+          if (soldItem != null) {
+            setState(() {
+              _foundInSoldStock = soldItem;
+              _showingSoldStockWarning = true;
+            });
+          }
         },
       ),
     );
@@ -962,6 +1006,229 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     if (imei.length != 15 && imei.length != 16) return false;
     if (!RegExp(r'^[0-9]+$').hasMatch(imei)) return false;
     return true;
+  }
+
+  // NEW: Show sold stock warning widget
+  Widget _buildSoldStockWarning() {
+    final soldItem = _foundInSoldStock!;
+    final productName = soldItem['productName'] as String? ?? 'Unknown';
+    final productBrand = soldItem['productBrand'] as String? ?? 'Unknown';
+    final soldAt = soldItem['soldAt'];
+
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.orange.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.warning_amber,
+                color: Colors.orange.shade700,
+                size: 16,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'IMEI Found in Sold Stock',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.orange.shade700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      productName,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Brand: $productBrand',
+                      style: TextStyle(fontSize: 10, color: Colors.grey[700]),
+                    ),
+                    if (soldAt != null)
+                      Text(
+                        'Sold: ${_formatDate(soldAt)}',
+                        style: TextStyle(fontSize: 10, color: Colors.grey[700]),
+                      ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.info_outline, size: 16),
+                onPressed: () {
+                  _showSoldItemDetails(soldItem);
+                },
+                tooltip: 'View details',
+                color: Colors.orange,
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'This IMEI is not available in current stock (it has been sold).',
+            style: TextStyle(fontSize: 10, color: Colors.orange.shade600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // NEW: Show sold item details
+  void _showSoldItemDetails(Map<String, dynamic> soldItem) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        final productName = soldItem['productName'] as String? ?? 'Unknown';
+        final productBrand = soldItem['productBrand'] as String? ?? 'Unknown';
+        final imei = soldItem['imei'] as String? ?? 'N/A';
+        final price = soldItem['productPrice'];
+        final soldAt = soldItem['soldAt'];
+        final uploadedAt = soldItem['uploadedAt'];
+        final uploadedBy = soldItem['uploadedBy'] ?? 'Unknown';
+
+        return SingleChildScrollView(
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.orange.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.shopping_cart_checkout,
+                        color: Colors.orange,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'SOLD PHONE DETAILS',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.orange,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'This phone was previously sold',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.orange.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                _buildDetailItem('Product Name', productName),
+                _buildDetailItem('Brand', productBrand),
+                _buildDetailItem('IMEI', _formatImeiForDisplay(imei)),
+                _buildDetailItem('Price', _formatPrice(price)),
+                if (uploadedAt != null)
+                  _buildDetailItem('Added Date', _formatDate(uploadedAt)),
+                if (soldAt != null)
+                  _buildDetailItem('Sold Date', _formatDate(soldAt)),
+                _buildDetailItem('Uploaded By', uploadedBy.toString()),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // NEW: Helper for detail items
+  Widget _buildDetailItem(String label, String value) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              '$label:',
+              style: const TextStyle(
+                fontSize: 12,
+                color: Colors.grey,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 12, color: Colors.black),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildProductList() {
@@ -1747,57 +2014,95 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   }
 
   Widget _buildSearchField() {
-    return TextField(
-      controller: _searchController,
-      focusNode: _searchFocusNode,
-      decoration: InputDecoration(
-        labelText:
-            'Search by IMEI, model, specs (e.g., "f17 4/128", "samsung 5g")',
-        labelStyle: const TextStyle(fontSize: 13),
-        prefixIcon: const Icon(Icons.search, size: 20),
-        suffixIcon: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (_searchQuery.isNotEmpty)
-              IconButton(
-                icon: const Icon(Icons.clear, size: 20),
-                onPressed: () {
-                  _searchController.clear();
-                  setState(() => _searchQuery = '');
-                  _searchFocusNode.unfocus();
-                },
-              ),
-            Container(width: 1, height: 20, color: Colors.grey.shade300),
-            IconButton(
-              icon: const Icon(Icons.qr_code_scanner, size: 22),
-              onPressed: _openScannerForSearch,
-              tooltip: 'Scan IMEI to search',
-              color: Colors.blue,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _searchController,
+          focusNode: _searchFocusNode,
+          decoration: InputDecoration(
+            labelText: 'Search by IMEI, model, specs',
+            labelStyle: const TextStyle(fontSize: 13),
+            prefixIcon: const Icon(Icons.search, size: 20),
+            suffixIcon: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_searchQuery.isNotEmpty)
+                  IconButton(
+                    icon: const Icon(Icons.clear, size: 20),
+                    onPressed: () {
+                      _searchController.clear();
+                      setState(() {
+                        _searchQuery = '';
+                        _foundInSoldStock = null;
+                        _showingSoldStockWarning = false;
+                      });
+                      _searchFocusNode.unfocus();
+                    },
+                  ),
+                Container(width: 1, height: 20, color: Colors.grey.shade300),
+                IconButton(
+                  icon: const Icon(Icons.qr_code_scanner, size: 22),
+                  onPressed: _openScannerForSearch,
+                  tooltip: 'Scan IMEI to search',
+                  color: Colors.blue,
+                ),
+              ],
             ),
-          ],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(
+                color: _showingSoldStockWarning ? Colors.orange : Colors.blue,
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(
+                color: _showingSoldStockWarning ? Colors.orange : Colors.blue,
+                width: 2,
+              ),
+            ),
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 14,
+            ),
+          ),
+          style: const TextStyle(fontSize: 13, color: Colors.black),
+          onChanged: (value) async {
+            setState(() => _searchQuery = value);
+
+            // Clear previous warning
+            if (_showingSoldStockWarning) {
+              setState(() {
+                _foundInSoldStock = null;
+                _showingSoldStockWarning = false;
+              });
+            }
+
+            // Check if it's a pure IMEI search (only digits)
+            if (RegExp(r'^[0-9]+$').hasMatch(value) &&
+                (value.length == 15 || value.length == 16)) {
+              // Check if this IMEI exists in sold stock
+              final soldItem = await _checkImeiInSoldStock(value);
+              if (soldItem != null) {
+                setState(() {
+                  _foundInSoldStock = soldItem;
+                  _showingSoldStockWarning = true;
+                });
+              }
+            }
+          },
+          onSubmitted: (value) {
+            _searchFocusNode.unfocus();
+          },
         ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Colors.blue),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Colors.blue, width: 2),
-        ),
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 14,
-        ),
-      ),
-      style: const TextStyle(fontSize: 13, color: Colors.black),
-      onChanged: (value) {
-        setState(() => _searchQuery = value);
-      },
-      onSubmitted: (value) {
-        _searchFocusNode.unfocus();
-      },
+
+        // Show warning if IMEI is found in sold stock
+        if (_showingSoldStockWarning && _foundInSoldStock != null)
+          _buildSoldStockWarning(),
+      ],
     );
   }
 
@@ -2180,7 +2485,20 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                     style: const TextStyle(fontSize: 14, color: Colors.grey),
                   ),
                   const SizedBox(height: 6),
-                  if (type == 'available')
+                  // Show additional message if we have a sold stock warning
+                  if (_showingSoldStockWarning && type == 'available')
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Text(
+                        'This IMEI was found in sold stock. Check the warning above for details.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.orange.shade600,
+                        ),
+                      ),
+                    )
+                  else if (type == 'available')
                     ElevatedButton.icon(
                       onPressed: _openAddStockModal,
                       icon: const Icon(Icons.add, size: 16),
@@ -2230,10 +2548,24 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                     style: TextStyle(fontSize: 14, color: Colors.grey),
                   ),
                   const SizedBox(height: 6),
-                  Text(
-                    'Try different search',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                  ),
+                  // Show additional message if we have a sold stock warning
+                  if (_showingSoldStockWarning && type == 'available')
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Text(
+                        'This IMEI was found in sold stock. Check the warning above for details.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.orange.shade600,
+                        ),
+                      ),
+                    )
+                  else
+                    Text(
+                      'Try different search',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
                 ],
               ),
             );
