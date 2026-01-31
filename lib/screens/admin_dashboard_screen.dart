@@ -6,17 +6,15 @@ import 'package:sales_stock/screens/login_screen.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../services/auth_service.dart';
 import '../../../models/sale.dart';
+import 'dart:async';
 
 // Import all screen files
 import 'admin/sales/sales_details_screen.dart.dart';
 import 'admin/sales/transactions_details_screen.dart';
-import 'admin/sales/brand_analysis_card.dart';
 import 'admin/sales/phone_sales_details_screen.dart';
 import 'admin/sales/phone_sales_reports_screen.dart';
 import 'admin/sales/accessories_service_report_screen.dart';
 import 'admin/inventory/inventory_details_screen.dart';
-import 'admin/analysis/brand_analysis_details_screen.dart';
-import 'admin/analysis/brand_details_screen.dart';
 import 'admin/reports/specific_report_screen.dart';
 import 'admin/reports/shop_wise_report_screen.dart';
 import 'admin/reports/category_details_screen.dart';
@@ -67,10 +65,36 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   List<Sale> allSales = [];
   List<Map<String, dynamic>> shops = [];
 
+  // Timer for auto refresh
+  Timer? _autoRefreshTimer;
+
   @override
   void initState() {
     super.initState();
     _fetchAllData();
+
+    // Start auto refresh timer - refresh every 1 hour
+    _startAutoRefreshTimer();
+  }
+
+  @override
+  void dispose() {
+    // Cancel timer when widget is disposed
+    _autoRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startAutoRefreshTimer() {
+    // Cancel existing timer if any
+    _autoRefreshTimer?.cancel();
+
+    // Create new timer that fires every 1 hour
+    _autoRefreshTimer = Timer.periodic(Duration(hours: 1), (timer) {
+      if (mounted) {
+        _fetchAllData();
+        print('Auto-refresh triggered at ${DateTime.now()}');
+      }
+    });
   }
 
   Future<void> _fetchAllData() async {
@@ -374,7 +398,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           'Admin Dashboard',
           style: TextStyle(
             fontWeight: FontWeight.bold,
-            fontSize: 24,
+            fontSize: 20,
             color: Colors.white,
             letterSpacing: 0.5,
           ),
@@ -396,6 +420,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 color: _isLoading ? Colors.grey : Colors.white,
                 onPressed: () async {
                   // Clear data before logout
+                  _autoRefreshTimer?.cancel();
                   allSales.clear();
                   shops.clear();
                   await authService.signOut();
@@ -428,7 +453,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
           SizedBox(height: 8),
           Text(
-            'Fetching from Firebase...',
+            'Auto-refresh every hour',
             style: TextStyle(color: Colors.grey[600], fontSize: 12),
           ),
         ],
@@ -450,31 +475,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             _buildHeader(),
             _buildTimePeriodSelector(),
             _buildKPIStats(filteredSales),
-            SizedBox(height: 16),
-
-            // Brand Analysis Card
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: BrandAnalysisCard(
-                allSales: allSales,
-                formatNumber: _formatNumber,
-                onViewDetails: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => BrandAnalysisDetailsScreen(
-                        allSales: allSales,
-                        formatNumber: _formatNumber,
-                        shops: shops,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-
+            SizedBox(height: 12),
             _buildPerformanceInsights(),
-            SizedBox(height: 20),
+            SizedBox(height: 12),
+            _buildShopPerformanceSection(),
+            SizedBox(height: 16),
           ],
         ),
       ),
@@ -494,14 +499,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           colors: [primaryGreen, secondaryGreen],
         ),
         borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(25),
-          bottomRight: Radius.circular(25),
+          bottomLeft: Radius.circular(20),
+          bottomRight: Radius.circular(20),
         ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: Offset(0, 4),
+            blurRadius: 8,
+            offset: Offset(0, 3),
           ),
         ],
       ),
@@ -519,7 +524,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       _getPeriodLabel(),
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.9),
-                        fontSize: 14,
+                        fontSize: 13,
                         letterSpacing: 0.5,
                       ),
                     ),
@@ -528,18 +533,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       '₹${_formatNumber(totalSales)}',
                       style: TextStyle(
                         color: Colors.white,
-                        fontSize: 32,
+                        fontSize: 28,
                         fontWeight: FontWeight.bold,
                         shadows: [
                           Shadow(
                             color: Colors.black.withOpacity(0.2),
-                            blurRadius: 4,
-                            offset: Offset(0, 2),
+                            blurRadius: 3,
+                            offset: Offset(0, 1),
                           ),
                         ],
                       ),
                     ),
-                    SizedBox(height: 6),
+                    SizedBox(height: 4),
                     if (_isCustomPeriod &&
                         _customStartDate != null &&
                         _customEndDate != null)
@@ -547,7 +552,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         '${DateFormat('dd MMM yyyy').format(_customStartDate!)} - ${DateFormat('dd MMM yyyy').format(_customEndDate!)}',
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.8),
-                          fontSize: 12,
+                          fontSize: 11,
                         ),
                       ),
                   ],
@@ -561,121 +566,125 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Widget _buildTimePeriodSelector() {
-    List<Map<String, dynamic>> periods = [
-      {'label': 'Daily', 'icon': Icons.today, 'value': 'daily'},
-      {'label': 'Yesterday', 'icon': Icons.history, 'value': 'yesterday'},
-      {
-        'label': 'Last Month',
-        'icon': Icons.calendar_view_month,
-        'value': 'last_month',
-      },
-      {'label': 'Monthly', 'icon': Icons.calendar_month, 'value': 'monthly'},
-      {'label': 'Yearly', 'icon': Icons.calendar_today, 'value': 'yearly'},
-      {'label': 'Custom Range', 'icon': Icons.date_range, 'value': 'custom'},
+    final List<String> periodOptions = [
+      'Daily',
+      'Yesterday',
+      'Last Month',
+      'Monthly',
+      'Yearly',
+      'Custom Range',
     ];
 
     return Container(
-      padding: EdgeInsets.all(16),
+      padding: EdgeInsets.all(12),
       child: Card(
         elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Select Time Period',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: primaryGreen,
+              Row(
+                children: [
+                  Icon(Icons.calendar_today, color: primaryGreen, size: 18),
+                  SizedBox(width: 6),
+                  Text(
+                    'Select Time Period',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: primaryGreen,
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: DropdownButton<String>(
+                  value: _isCustomPeriod ? 'Custom Range' : _getPeriodLabel(),
+                  isExpanded: true,
+                  underline: SizedBox(),
+                  icon: Icon(
+                    Icons.arrow_drop_down,
+                    color: primaryGreen,
+                    size: 20,
+                  ),
+                  items: periodOptions.map((String value) {
+                    return DropdownMenuItem<String>(
+                      value: value,
+                      child: Text(
+                        value,
+                        style: TextStyle(color: primaryGreen, fontSize: 13),
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (String? newValue) {
+                    if (newValue == 'Custom Range') {
+                      _showCustomDateRangePicker();
+                    } else {
+                      setState(() {
+                        _isCustomPeriod = false;
+                        switch (newValue) {
+                          case 'Daily':
+                            _timePeriod = 'daily';
+                            break;
+                          case 'Yesterday':
+                            _timePeriod = 'yesterday';
+                            break;
+                          case 'Last Month':
+                            _timePeriod = 'last_month';
+                            break;
+                          case 'Monthly':
+                            _timePeriod = 'monthly';
+                            break;
+                          case 'Yearly':
+                            _timePeriod = 'yearly';
+                            break;
+                        }
+                      });
+                    }
+                  },
                 ),
               ),
-              SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: periods.map((period) {
-                  bool isSelected = false;
-
-                  if (period['value'] == 'custom') {
-                    isSelected = _isCustomPeriod;
-                  } else {
-                    isSelected =
-                        _timePeriod == period['value'] && !_isCustomPeriod;
-                  }
-
-                  return FilterChip(
-                    label: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          period['icon'],
-                          size: 16,
-                          color: isSelected ? Colors.white : secondaryGreen,
-                        ),
-                        SizedBox(width: 4),
-                        Text(
-                          period['label'],
-                          style: TextStyle(
-                            color: isSelected ? Colors.white : Colors.grey[700],
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                    selected: isSelected,
-                    onSelected: (selected) {
-                      if (period['value'] == 'custom') {
-                        _showCustomDateRangePicker();
-                      } else {
-                        setState(() {
-                          _timePeriod = period['value'];
-                          _isCustomPeriod = false;
-                          _customStartDate = null;
-                          _customEndDate = null;
-                        });
-                      }
-                    },
-                    backgroundColor: Colors.grey.shade100,
-                    selectedColor: secondaryGreen,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  );
-                }).toList(),
-              ),
-              SizedBox(height: 8),
               // Show custom date range if selected
               if (_isCustomPeriod &&
                   _customStartDate != null &&
                   _customEndDate != null)
                 Container(
-                  padding: EdgeInsets.all(12),
+                  margin: EdgeInsets.only(top: 10),
+                  padding: EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: secondaryGreen.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: secondaryGreen.withOpacity(0.3)),
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.date_range, color: secondaryGreen, size: 16),
-                      SizedBox(width: 8),
+                      Icon(Icons.date_range, color: secondaryGreen, size: 14),
+                      SizedBox(width: 6),
                       Expanded(
                         child: Text(
                           'Custom Range: ${DateFormat('dd MMM yyyy').format(_customStartDate!)} - ${DateFormat('dd MMM yyyy').format(_customEndDate!)}',
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 11,
                             color: secondaryGreen,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
                       ),
                       IconButton(
-                        icon: Icon(Icons.edit, size: 16, color: secondaryGreen),
+                        icon: Icon(Icons.edit, size: 14, color: secondaryGreen),
                         onPressed: _showCustomDateRangePicker,
+                        padding: EdgeInsets.zero,
+                        constraints: BoxConstraints(),
                       ),
                     ],
                   ),
@@ -692,16 +701,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     int transactionCount = filteredSales.length;
 
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 16),
+      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: GridView.count(
         shrinkWrap: true,
         physics: NeverScrollableScrollPhysics(),
         crossAxisCount: 2,
-        childAspectRatio: 1.2,
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 16,
+        childAspectRatio: 1.1,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
         children: [
-          _buildKPIStatCard(
+          _buildCompactKPIStatCard(
             'Total Sales',
             '₹${_formatNumber(totalSales)}',
             Icons.currency_rupee,
@@ -720,7 +729,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               );
             },
           ),
-          _buildKPIStatCard(
+          _buildCompactKPIStatCard(
             'Transactions',
             '$transactionCount',
             Icons.receipt,
@@ -742,7 +751,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
-  Widget _buildKPIStatCard(
+  Widget _buildCompactKPIStatCard(
     String title,
     String value,
     IconData icon,
@@ -753,37 +762,37 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       onTap: onTap,
       child: Card(
         elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         child: Container(
-          padding: EdgeInsets.all(16),
+          padding: EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(12),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                padding: EdgeInsets.all(8),
+                padding: EdgeInsets.all(6),
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(icon, color: color, size: 24),
+                child: Icon(icon, color: color, size: 20),
               ),
-              SizedBox(height: 12),
+              SizedBox(height: 8),
               Text(
                 value,
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.bold,
                   color: color,
                 ),
               ),
-              SizedBox(height: 4),
+              SizedBox(height: 2),
               Text(
                 title,
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                style: TextStyle(fontSize: 11, color: Colors.grey[600]),
               ),
             ],
           ),
@@ -792,14 +801,369 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
-  Widget _buildPerformanceInsights() {
+  Widget _buildShopPerformanceSection() {
     List<Sale> filteredSales = _filterSales();
 
-    // Debug: Print filtered sales count
-    print('Filtered Sales Count: ${filteredSales.length}');
-    if (_isCustomPeriod && _customStartDate != null && _customEndDate != null) {
-      print('Custom Range: ${_customStartDate} to ${_customEndDate}');
+    // Calculate shop-wise performance
+    Map<String, Map<String, double>> shopCategoryData = {};
+    Map<String, double> shopTotalSales = {};
+
+    for (var shop in shops) {
+      String shopName = shop['name'];
+      shopCategoryData[shopName] = {
+        'New Phone': 0.0,
+        'Base Model': 0.0,
+        'Second Phone': 0.0,
+        'Service': 0.0,
+      };
+      shopTotalSales[shopName] = 0.0;
     }
+
+    // Aggregate data
+    for (var sale in filteredSales) {
+      String shopName = sale.shopName;
+      String category = sale.category;
+      double amount = sale.amount;
+
+      if (shopCategoryData.containsKey(shopName)) {
+        shopCategoryData[shopName]![category] =
+            (shopCategoryData[shopName]![category] ?? 0.0) + amount;
+        shopTotalSales[shopName] = (shopTotalSales[shopName] ?? 0.0) + amount;
+      }
+    }
+
+    // Sort shops by total sales (descending)
+    List<MapEntry<String, double>> sortedShops =
+        shopTotalSales.entries.where((entry) => entry.value > 0).toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+
+    if (sortedShops.isEmpty) {
+      return SizedBox();
+    }
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 16),
+      child: Card(
+        elevation: 4,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.store, color: primaryGreen, size: 20),
+                      SizedBox(width: 8),
+                      Text(
+                        'Shop Performance',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: primaryGreen,
+                        ),
+                      ),
+                    ],
+                  ),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ShopWiseReportScreen(
+                            allSales: filteredSales,
+                            shops: shops,
+                            formatNumber: _formatNumber,
+                            getCategoryColor: _getCategoryColor,
+                          ),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: secondaryGreen.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'View All',
+                        style: TextStyle(
+                          color: secondaryGreen,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 12),
+
+              // Top 3 shops in a more compact view
+              ...sortedShops.take(3).map((shopEntry) {
+                String shopName = shopEntry.key;
+                double shopTotal = shopEntry.value;
+                Map<String, double>? categoryData = shopCategoryData[shopName];
+
+                return GestureDetector(
+                  onTap: () {
+                    // Show shop category details
+                    _showShopCategoryDetails(
+                      shopName,
+                      categoryData!,
+                      shopTotal,
+                    );
+                  },
+                  child: Container(
+                    margin: EdgeInsets.only(bottom: 12),
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                shopName,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: primaryGreen,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Text(
+                              '₹${_formatNumber(shopTotal)}',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: secondaryGreen,
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 8),
+
+                        // Category breakdown - COMPACT version showing amounts
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            _buildCompactCategoryTile(
+                              'New Phone',
+                              categoryData?['New Phone'] ?? 0.0,
+                            ),
+                            SizedBox(width: 4),
+                            _buildCompactCategoryTile(
+                              'Base Model',
+                              categoryData?['Base Model'] ?? 0.0,
+                            ),
+                            SizedBox(width: 4),
+                            _buildCompactCategoryTile(
+                              'Second Phone',
+                              categoryData?['Second Phone'] ?? 0.0,
+                            ),
+                            SizedBox(width: 4),
+                            _buildCompactCategoryTile(
+                              'Service',
+                              categoryData?['Service'] ?? 0.0,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+
+              if (sortedShops.length > 3)
+                Center(
+                  child: TextButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ShopWiseReportScreen(
+                            allSales: filteredSales,
+                            shops: shops,
+                            formatNumber: _formatNumber,
+                            getCategoryColor: _getCategoryColor,
+                          ),
+                        ),
+                      );
+                    },
+                    child: Text(
+                      '+ ${sortedShops.length - 3} more shops',
+                      style: TextStyle(
+                        color: secondaryGreen,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompactCategoryTile(String category, double amount) {
+    if (amount == 0) return SizedBox(width: 0);
+
+    return Expanded(
+      child: Column(
+        children: [
+          Container(
+            padding: EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: _getCategoryColor(category).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(
+              _getCategoryIcon(category),
+              size: 12,
+              color: _getCategoryColor(category),
+            ),
+          ),
+          SizedBox(height: 2),
+          Text(
+            '₹${_formatNumber(amount)}',
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w600,
+              color: _getCategoryColor(category),
+            ),
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showShopCategoryDetails(
+    String shopName,
+    Map<String, double> categoryData,
+    double total,
+  ) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('$shopName - Category Details'),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Total Sales: ₹${_formatNumber(total)}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: primaryGreen,
+                  ),
+                ),
+                SizedBox(height: 16),
+
+                ...categoryData.entries.map((entry) {
+                  String category = entry.key;
+                  double amount = entry.value;
+                  double percentage = total > 0 ? (amount / total * 100) : 0;
+
+                  if (amount == 0) return SizedBox();
+
+                  return Container(
+                    margin: EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: _getCategoryColor(category).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            _getCategoryIcon(category),
+                            size: 16,
+                            color: _getCategoryColor(category),
+                          ),
+                        ),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                category,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                  color: Colors.grey[800],
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    '₹${_formatNumber(amount)}',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                      color: primaryGreen,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${percentage.toStringAsFixed(0)}%',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: secondaryGreen,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Close', style: TextStyle(color: secondaryGreen)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildPerformanceInsights() {
+    List<Sale> filteredSales = _filterSales();
 
     if (filteredSales.isEmpty) {
       return Container(
@@ -807,26 +1171,26 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         child: Card(
           elevation: 4,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(16),
           ),
           child: Padding(
-            padding: const EdgeInsets.all(32),
+            padding: const EdgeInsets.all(24),
             child: Column(
               children: [
-                Icon(Icons.inbox, size: 64, color: Colors.grey[400]),
-                SizedBox(height: 16),
+                Icon(Icons.inbox, size: 48, color: Colors.grey[400]),
+                SizedBox(height: 12),
                 Text(
                   'No sales data',
                   style: TextStyle(
-                    fontSize: 18,
+                    fontSize: 16,
                     fontWeight: FontWeight.bold,
                     color: Colors.grey[600],
                   ),
                 ),
-                SizedBox(height: 8),
+                SizedBox(height: 6),
                 Text(
                   'Try selecting a different time period',
-                  style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                  style: TextStyle(fontSize: 13, color: Colors.grey[500]),
                 ),
               ],
             ),
@@ -852,23 +1216,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       ..sort((a, b) => b.value.compareTo(a.value));
 
     return Container(
-      padding: EdgeInsets.all(16),
+      padding: EdgeInsets.all(12),
       child: Card(
         elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Icon(Icons.analytics, color: primaryGreen, size: 22),
+                  Icon(Icons.analytics, color: primaryGreen, size: 20),
                   SizedBox(width: 8),
                   Text(
                     'Category Performance',
                     style: TextStyle(
-                      fontSize: 18,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                       color: primaryGreen,
                     ),
@@ -881,10 +1245,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               Container(
                 decoration: BoxDecoration(
                   color: primaryGreen.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: primaryGreen.withOpacity(0.1)),
                 ),
-                padding: EdgeInsets.all(12),
+                padding: EdgeInsets.all(10),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -893,7 +1257,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         Text(
                           'Total Sales',
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 11,
                             color: Colors.grey[600],
                           ),
                         ),
@@ -901,7 +1265,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         Text(
                           '₹${_formatNumber(totalSales)}',
                           style: TextStyle(
-                            fontSize: 16,
+                            fontSize: 14,
                             fontWeight: FontWeight.bold,
                             color: primaryGreen,
                           ),
@@ -913,7 +1277,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         Text(
                           'Categories',
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 11,
                             color: Colors.grey[600],
                           ),
                         ),
@@ -921,7 +1285,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         Text(
                           '${sortedCategories.length}',
                           style: TextStyle(
-                            fontSize: 16,
+                            fontSize: 14,
                             fontWeight: FontWeight.bold,
                             color: secondaryGreen,
                           ),
@@ -932,12 +1296,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 ),
               ),
 
-              SizedBox(height: 20),
+              SizedBox(height: 16),
 
               ...sortedCategories.map((entry) {
                 String category = entry.key;
                 double amount = entry.value;
                 int count = categoryCount[category] ?? 0;
+                double percentage = totalSales > 0
+                    ? (amount / totalSales * 100)
+                    : 0;
 
                 return GestureDetector(
                   onTap: () {
@@ -954,29 +1321,29 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     );
                   },
                   child: Container(
-                    margin: EdgeInsets.only(bottom: 16),
+                    margin: EdgeInsets.only(bottom: 12),
                     child: Column(
                       children: [
                         Row(
                           children: [
                             Container(
-                              width: 40,
-                              height: 40,
+                              width: 36,
+                              height: 36,
                               decoration: BoxDecoration(
                                 color: _getCategoryColor(
                                   category,
                                 ).withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(10),
+                                borderRadius: BorderRadius.circular(8),
                               ),
                               child: Center(
                                 child: Icon(
                                   _getCategoryIcon(category),
                                   color: _getCategoryColor(category),
-                                  size: 20,
+                                  size: 18,
                                 ),
                               ),
                             ),
-                            SizedBox(width: 12),
+                            SizedBox(width: 10),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -990,31 +1357,31 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                           category,
                                           style: TextStyle(
                                             fontWeight: FontWeight.w600,
-                                            fontSize: 15,
+                                            fontSize: 14,
                                             color: Colors.grey[800],
                                           ),
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
-                                      SizedBox(width: 8),
+                                      SizedBox(width: 6),
                                       Container(
                                         padding: EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 4,
+                                          horizontal: 8,
+                                          vertical: 3,
                                         ),
                                         decoration: BoxDecoration(
                                           color: secondaryGreen.withOpacity(
                                             0.1,
                                           ),
                                           borderRadius: BorderRadius.circular(
-                                            12,
+                                            10,
                                           ),
                                         ),
                                         child: Text(
                                           '${count} sales',
                                           style: TextStyle(
-                                            fontSize: 12,
+                                            fontSize: 11,
                                             color: secondaryGreen,
                                             fontWeight: FontWeight.w600,
                                           ),
@@ -1036,14 +1403,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                             style: TextStyle(
                                               fontWeight: FontWeight.bold,
                                               color: primaryGreen,
-                                              fontSize: 16,
+                                              fontSize: 14,
                                             ),
                                           ),
                                           SizedBox(height: 2),
                                           Text(
-                                            '$count transactions',
+                                            '${percentage.toStringAsFixed(1)}% of total',
                                             style: TextStyle(
-                                              fontSize: 12,
+                                              fontSize: 11,
                                               color: Colors.grey[600],
                                             ),
                                           ),
@@ -1074,7 +1441,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         padding: EdgeInsets.zero,
         children: [
           Container(
-            height: 160,
+            height: 140,
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
@@ -1086,27 +1453,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 CircleAvatar(
-                  radius: 40,
+                  radius: 32,
                   backgroundColor: Colors.white,
                   child: Icon(
                     Icons.admin_panel_settings,
-                    size: 40,
+                    size: 32,
                     color: primaryGreen,
                   ),
                 ),
-                SizedBox(height: 12),
+                SizedBox(height: 10),
                 Text(
                   'MobileHouse Admin',
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 18,
+                    fontSize: 16,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                SizedBox(height: 4),
+                SizedBox(height: 2),
                 Text(
                   'Dashboard',
-                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                  style: TextStyle(color: Colors.white70, fontSize: 11),
                 ),
               ],
             ),
@@ -1123,11 +1490,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
           // INVENTORY MANAGEMENT SECTION
           Padding(
-            padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
+            padding: EdgeInsets.only(left: 16, top: 12, bottom: 6),
             child: Text(
               'INVENTORY MANAGEMENT',
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 9,
                 color: Colors.grey[600],
                 fontWeight: FontWeight.bold,
               ),
@@ -1150,11 +1517,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             },
           ),
           Padding(
-            padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
+            padding: EdgeInsets.only(left: 16, top: 12, bottom: 6),
             child: Text(
               'CATEGORY REPORTS',
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 9,
                 color: Colors.grey[600],
                 fontWeight: FontWeight.bold,
               ),
@@ -1234,51 +1601,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             },
           ),
           Divider(height: 1),
-          // BRAND ANALYSIS SECTION
+
+          // SHOP REPORTS SECTION
           Padding(
-            padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
-            child: Text(
-              'BRAND ANALYSIS',
-              style: TextStyle(
-                fontSize: 10,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          _buildDrawerItem(
-            Icons.bar_chart,
-            'Brand Performance',
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => BrandAnalysisDetailsScreen(
-                    allSales: allSales
-                        .where((s) => s.type == 'phone_sale')
-                        .toList(),
-                    formatNumber: _formatNumber,
-                    shops: shops,
-                  ),
-                ),
-              );
-            },
-          ),
-
-          Divider(height: 1),
-
-          // REMOVED CUSTOM REPORTS SECTION FROM SIDEBAR
-
-          // Specific Reports
-          Divider(height: 1),
-          // Shop Reports
-          Padding(
-            padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
+            padding: EdgeInsets.only(left: 16, top: 12, bottom: 6),
             child: Text(
               'SHOP REPORTS',
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 9,
                 color: Colors.grey[600],
                 fontWeight: FontWeight.bold,
               ),
@@ -1305,11 +1635,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
           // Category Reports
           Padding(
-            padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
+            padding: EdgeInsets.only(left: 16, top: 12, bottom: 6),
             child: Text(
               'DETAILED REPORTS',
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 9,
                 color: Colors.grey[600],
                 fontWeight: FontWeight.bold,
               ),
@@ -1333,11 +1663,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
           Divider(height: 1),
           Padding(
-            padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
+            padding: EdgeInsets.only(left: 16, top: 12, bottom: 6),
             child: Text(
               'SPECIFIC REPORTS',
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 9,
                 color: Colors.grey[600],
                 fontWeight: FontWeight.bold,
               ),
@@ -1459,19 +1789,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       leading: Icon(
         icon,
         color: isSelected ? secondaryGreen : Colors.grey[700],
-        size: 20,
+        size: 18,
       ),
       title: Text(
         title,
         style: TextStyle(
           color: isSelected ? secondaryGreen : Colors.grey[700],
           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-          fontSize: 13,
+          fontSize: 12,
         ),
       ),
       tileColor: isSelected ? secondaryGreen.withOpacity(0.1) : null,
       onTap: onTap,
-      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 3),
     );
   }
 
@@ -1479,7 +1809,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     await _fetchAllData();
   }
 
-  // Fixed Custom Date Range Picker - SIMPLIFIED VERSION
   Future<void> _showCustomDateRangePicker() async {
     DateTime startDate =
         _customStartDate ?? DateTime.now().subtract(Duration(days: 7));
@@ -1554,13 +1883,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
-  // FIXED Date Filtering Method
   List<Sale> _filterSales() {
     DateTime startDate;
     DateTime endDate;
 
     if (_isCustomPeriod && _customStartDate != null && _customEndDate != null) {
-      // For custom range - use the exact dates already set
       startDate = _customStartDate!;
       endDate = _customEndDate!;
 
@@ -1568,7 +1895,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         'Custom range filtering: ${startDate.toIso8601String()} to ${endDate.toIso8601String()}',
       );
     } else {
-      // For predefined periods
       switch (_timePeriod) {
         case 'daily':
           startDate = DateTime(
@@ -1668,9 +1994,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       }
     }
 
-    // Filter sales
     List<Sale> filtered = allSales.where((sale) {
-      // Check if sale date is between startDate and endDate (inclusive)
       return (sale.date.isAfter(
                 startDate.subtract(Duration(milliseconds: 1)),
               ) ||
@@ -1688,22 +2012,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   String _getPeriodLabel() {
     if (_isCustomPeriod) {
-      return 'Custom Period Sale';
+      return 'Custom Range';
     }
 
     switch (_timePeriod) {
       case 'daily':
-        return 'Today\'s Sale';
+        return 'Daily';
       case 'yesterday':
-        return 'Yesterday\'s Sale';
+        return 'Yesterday';
       case 'last_month':
-        return 'Last Month Sale';
+        return 'Last Month';
       case 'monthly':
-        return 'Monthly Sale';
+        return 'Monthly';
       case 'yearly':
-        return 'Yearly Sale';
+        return 'Yearly';
       default:
-        return 'Sale';
+        return 'Monthly';
     }
   }
 

@@ -17,6 +17,7 @@ class PhoneSalesDetailsScreen extends StatefulWidget {
 
 class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
   List<Sale> _phoneSales = [];
+  List<Sale> _filteredSales = [];
   String? _selectedBrand;
   String? _selectedShop;
   String? _selectedFinanceType;
@@ -24,6 +25,8 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
   DateTime? _endDate;
   bool _sortAscending = false;
   String _sortColumn = 'date';
+  TextEditingController _searchController = TextEditingController();
+  bool _isSearching = false;
 
   // Date range options
   final List<String> _dateRangeOptions = [
@@ -35,46 +38,96 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
   ];
   String _selectedDateRange = 'Monthly'; // Default selection
 
-  // Monthly stats
-  double _monthlyTotal = 0.0;
-  int _monthlyTransactions = 0;
-  String _currentMonth = '';
-  double _previousMonthTotal = 0.0;
-  double _percentageChange = 0.0;
-
   @override
   void initState() {
     super.initState();
-    _initializeCurrentMonth();
     _applyDateRange('Monthly'); // Apply monthly range by default
+
+    // Add listener to search controller
+    _searchController.addListener(() {
+      _filterBySearch();
+    });
   }
 
-  void _initializeCurrentMonth() {
-    final now = DateTime.now();
-    _currentMonth = DateFormat('MMMM yyyy').format(now);
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
-    // Calculate previous month for comparison
-    final previousMonth = DateTime(now.year, now.month - 1);
-    final previousMonthStart = DateTime(
-      previousMonth.year,
-      previousMonth.month,
-      1,
-    );
-    final previousMonthEnd = DateTime(
-      previousMonth.year,
-      previousMonth.month + 1,
-      0,
-    );
+  void _filterBySearch() {
+    final searchQuery = _searchController.text.toLowerCase().trim();
 
-    // Calculate previous month total
-    _previousMonthTotal = widget.allSales
-        .where((sale) => sale.type == 'phone_sale')
-        .where(
-          (sale) =>
-              sale.date.isAfter(previousMonthStart) &&
-              sale.date.isBefore(previousMonthEnd.add(Duration(days: 1))),
-        )
-        .fold(0.0, (sum, sale) => sum + sale.amount);
+    if (searchQuery.isEmpty) {
+      setState(() {
+        _filteredSales = List.from(_phoneSales);
+      });
+      return;
+    }
+
+    setState(() {
+      _filteredSales = _phoneSales.where((sale) {
+        // Search in customer name
+        if (sale.customerName.toLowerCase().contains(searchQuery)) {
+          return true;
+        }
+
+        // Search in customer phone
+        if (sale.customerPhone != null &&
+            sale.customerPhone!.toLowerCase().contains(searchQuery)) {
+          return true;
+        }
+
+        // Search in brand
+        if (sale.brand != null &&
+            sale.brand!.toLowerCase().contains(searchQuery)) {
+          return true;
+        }
+
+        // Search in model
+        if (sale.model != null &&
+            sale.model!.toLowerCase().contains(searchQuery)) {
+          return true;
+        }
+
+        // Search in IMEI
+        if (sale.imei != null &&
+            sale.imei!.toLowerCase().contains(searchQuery)) {
+          return true;
+        }
+
+        // Search in sales person
+        if (sale.salesPersonName != null &&
+            sale.salesPersonName!.toLowerCase().contains(searchQuery)) {
+          return true;
+        }
+
+        // Search in email
+        if (sale.salesPersonEmail != null &&
+            sale.salesPersonEmail!.toLowerCase().contains(searchQuery)) {
+          return true;
+        }
+
+        // Search in shop name
+        if (sale.shopName.toLowerCase().contains(searchQuery)) {
+          return true;
+        }
+
+        // Search in finance type
+        if (sale.financeType != null &&
+            sale.financeType!.toLowerCase().contains(searchQuery)) {
+          return true;
+        }
+
+        // Search in purchase mode
+        if (sale.purchaseMode != null &&
+            sale.purchaseMode!.toLowerCase().contains(searchQuery)) {
+          return true;
+        }
+
+        return false;
+      }).toList();
+    });
   }
 
   void _applyDateRange(String range) {
@@ -156,37 +209,13 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
         return _sortAscending ? result : -result;
       });
 
-      // Calculate monthly stats
-      _calculateMonthlyStats();
+      // Apply search filter if search is active
+      if (_searchController.text.isNotEmpty) {
+        _filterBySearch();
+      } else {
+        _filteredSales = List.from(_phoneSales);
+      }
     });
-  }
-
-  void _calculateMonthlyStats() {
-    final now = DateTime.now();
-    final currentMonthStart = DateTime(now.year, now.month, 1);
-    final currentMonthEnd = DateTime(now.year, now.month + 1, 0);
-
-    final monthSales = widget.allSales
-        .where((sale) => sale.type == 'phone_sale')
-        .where(
-          (sale) =>
-              sale.date.isAfter(currentMonthStart) &&
-              sale.date.isBefore(currentMonthEnd.add(Duration(days: 1))),
-        )
-        .toList();
-
-    _monthlyTotal = monthSales.fold(0.0, (sum, sale) => sum + sale.amount);
-    _monthlyTransactions = monthSales.length;
-
-    // Calculate percentage change
-    if (_previousMonthTotal > 0) {
-      _percentageChange =
-          ((_monthlyTotal - _previousMonthTotal) / _previousMonthTotal * 100);
-    } else if (_monthlyTotal > 0) {
-      _percentageChange = 100.0; // First month with sales
-    } else {
-      _percentageChange = 0.0;
-    }
   }
 
   List<String> _getUniqueBrands() {
@@ -218,7 +247,7 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
   }
 
   double _calculateTotalAmount() {
-    return _phoneSales.fold(0.0, (sum, sale) => sum + sale.amount);
+    return _filteredSales.fold(0.0, (sum, sale) => sum + sale.amount);
   }
 
   Color _getStatusColor(String? purchaseMode) {
@@ -234,6 +263,86 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
     }
   }
 
+  Widget _buildSearchBar() {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      color: Colors.white,
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
+              child: Row(
+                children: [
+                  Padding(
+                    padding: EdgeInsets.only(left: 10),
+                    child: Icon(
+                      Icons.search,
+                      color: Colors.grey[600],
+                      size: 18,
+                    ),
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        hintText: 'Search by customer, phone, brand, IMEI...',
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 10,
+                        ),
+                        hintStyle: TextStyle(fontSize: 13),
+                      ),
+                      style: TextStyle(fontSize: 13),
+                      onChanged: (_) {
+                        setState(() {
+                          _isSearching = _searchController.text.isNotEmpty;
+                        });
+                      },
+                    ),
+                  ),
+                  if (_searchController.text.isNotEmpty)
+                    IconButton(
+                      icon: Icon(
+                        Icons.clear,
+                        color: Colors.grey[600],
+                        size: 16,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _searchController.clear();
+                          _isSearching = false;
+                          _filteredSales = List.from(_phoneSales);
+                        });
+                      },
+                    ),
+                ],
+              ),
+            ),
+          ),
+          if (_isSearching)
+            Padding(
+              padding: EdgeInsets.only(left: 6),
+              child: Chip(
+                label: Text(
+                  '${_filteredSales.length} found',
+                  style: TextStyle(fontSize: 11),
+                ),
+                backgroundColor: Color(0xFF0A4D2E),
+                labelStyle: TextStyle(color: Colors.white),
+                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -241,14 +350,14 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
         title: Text(
           'Phone Sales Details',
           style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 20,
+            fontWeight: FontWeight.w600,
+            fontSize: 18,
             color: Colors.white,
           ),
         ),
         backgroundColor: Color(0xFF0A4D2E),
         foregroundColor: Colors.white,
-        elevation: 3,
+        elevation: 2,
         centerTitle: true,
         actions: [
           IconButton(
@@ -256,6 +365,7 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
             color: Colors.white,
             onPressed: _showFilterDialog,
             tooltip: 'Filter',
+            iconSize: 22,
           ),
           IconButton(
             icon: Icon(Icons.bar_chart),
@@ -266,21 +376,25 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                 MaterialPageRoute(
                   builder: (context) => PhoneSalesReportsScreen(
                     allSales: widget.allSales,
-                    phoneSales: _phoneSales,
+                    phoneSales: _filteredSales,
                     formatNumber: widget.formatNumber,
                   ),
                 ),
               );
             },
             tooltip: 'Reports',
+            iconSize: 22,
           ),
         ],
       ),
       body: Column(
         children: [
+          // Search Bar
+          _buildSearchBar(),
+
           // Date Range Selection
           Container(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             color: Color(0xFFF5F5F5),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -288,9 +402,9 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                 children: _dateRangeOptions.map((option) {
                   final isSelected = _selectedDateRange == option;
                   return Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 4),
+                    padding: EdgeInsets.symmetric(horizontal: 3),
                     child: ChoiceChip(
-                      label: Text(option),
+                      label: Text(option, style: TextStyle(fontSize: 12)),
                       selected: isSelected,
                       onSelected: (selected) {
                         if (selected) {
@@ -301,6 +415,8 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                       labelStyle: TextStyle(
                         color: isSelected ? Colors.white : Colors.black,
                       ),
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      labelPadding: EdgeInsets.symmetric(horizontal: 4),
                     ),
                   );
                 }).toList(),
@@ -308,183 +424,86 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
             ),
           ),
 
-          // Monthly Information Card
+          // Filtered Results Summary Card
           Container(
-            padding: EdgeInsets.all(16),
+            padding: EdgeInsets.all(12),
             color: Color(0xFFE8F5E9),
-            child: Column(
-              children: [
-                // Monthly Stats Card
-                Card(
-                  elevation: 3,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Column(
+            child: Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    Column(
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Monthly Overview',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF0A4D2E),
-                              ),
-                            ),
-                            Container(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: _percentageChange >= 0
-                                    ? Color(0xFF4CAF50)
-                                    : Color(0xFFF44336),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                '${_percentageChange >= 0 ? '+' : ''}${_percentageChange.toStringAsFixed(1)}%',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
+                        Text(
+                          'Total Amount',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[600],
+                          ),
                         ),
-                        SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              children: [
-                                Text(
-                                  'Current Month',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                                SizedBox(height: 4),
-                                Text(
-                                  _currentMonth,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF0A4D2E),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            Column(
-                              children: [
-                                Text(
-                                  'Total Sales',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                                SizedBox(height: 4),
-                                Text(
-                                  '₹${widget.formatNumber(_monthlyTotal)}',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF0A4D2E),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            Column(
-                              children: [
-                                Text(
-                                  'Transactions',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                                SizedBox(height: 4),
-                                Text(
-                                  '$_monthlyTransactions',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF2196F3),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                        SizedBox(height: 3),
+                        Text(
+                          '₹${widget.formatNumber(_calculateTotalAmount())}',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF0A4D2E),
+                          ),
                         ),
                       ],
                     ),
-                  ),
-                ),
-                SizedBox(height: 12),
-
-                // Current Filter Stats Card
-                Card(
-                  elevation: 3,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    Container(width: 1, height: 30, color: Colors.grey[300]),
+                    Column(
                       children: [
-                        Column(
-                          children: [
-                            Text(
-                              'Filtered Sales',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              '₹${widget.formatNumber(_calculateTotalAmount())}',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF0A4D2E),
-                              ),
-                            ),
-                          ],
+                        Text(
+                          'Transactions',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[600],
+                          ),
                         ),
-                        Column(
-                          children: [
-                            Text(
-                              'Transactions',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              '${_phoneSales.length}',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF2196F3),
-                              ),
-                            ),
-                          ],
+                        SizedBox(height: 3),
+                        Text(
+                          '${_filteredSales.length}',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF2196F3),
+                          ),
                         ),
                       ],
                     ),
-                  ),
+                    Container(width: 1, height: 30, color: Colors.grey[300]),
+                    Column(
+                      children: [
+                        Text(
+                          'Date Range',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        SizedBox(height: 3),
+                        Text(
+                          _getDateRangeDisplay(),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF0A4D2E),
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
 
@@ -494,46 +513,65 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
               _selectedFinanceType != null ||
               (_startDate != null && _selectedDateRange == 'Custom Range'))
             Container(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
+                spacing: 6,
+                runSpacing: 6,
                 children: [
                   if (_selectedBrand != null)
                     Chip(
-                      label: Text('Brand: $_selectedBrand'),
+                      label: Text(
+                        'Brand: $_selectedBrand',
+                        style: TextStyle(fontSize: 11),
+                      ),
                       onDeleted: () {
                         setState(() {
                           _selectedBrand = null;
                         });
                         _filterPhoneSales();
                       },
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      labelPadding: EdgeInsets.symmetric(horizontal: 4),
+                      deleteIcon: Icon(Icons.close, size: 16),
                     ),
                   if (_selectedShop != null)
                     Chip(
-                      label: Text('Shop: $_selectedShop'),
+                      label: Text(
+                        'Shop: $_selectedShop',
+                        style: TextStyle(fontSize: 11),
+                      ),
                       onDeleted: () {
                         setState(() {
                           _selectedShop = null;
                         });
                         _filterPhoneSales();
                       },
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      labelPadding: EdgeInsets.symmetric(horizontal: 4),
+                      deleteIcon: Icon(Icons.close, size: 16),
                     ),
                   if (_selectedFinanceType != null)
                     Chip(
-                      label: Text('Finance: $_selectedFinanceType'),
+                      label: Text(
+                        'Finance: $_selectedFinanceType',
+                        style: TextStyle(fontSize: 11),
+                      ),
                       onDeleted: () {
                         setState(() {
                           _selectedFinanceType = null;
                         });
                         _filterPhoneSales();
                       },
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      labelPadding: EdgeInsets.symmetric(horizontal: 4),
+                      deleteIcon: Icon(Icons.close, size: 16),
                     ),
                   if (_startDate != null &&
                       _selectedDateRange == 'Custom Range')
                     Chip(
                       label: Text(
                         '${DateFormat('dd-MMM-yyyy').format(_startDate!)} to ${_endDate != null ? DateFormat('dd-MMM-yyyy').format(_endDate!) : 'Now'}',
+                        style: TextStyle(fontSize: 11),
                       ),
                       onDeleted: () {
                         setState(() {
@@ -542,6 +580,9 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                         });
                         _filterPhoneSales();
                       },
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      labelPadding: EdgeInsets.symmetric(horizontal: 4),
+                      deleteIcon: Icon(Icons.close, size: 16),
                     ),
                 ],
               ),
@@ -549,29 +590,36 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
 
           // Sales List
           Expanded(
-            child: _phoneSales.isEmpty
+            child: _filteredSales.isEmpty
                 ? Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
-                          Icons.phone_iphone,
-                          size: 64,
+                          _searchController.text.isNotEmpty
+                              ? Icons.search_off
+                              : Icons.phone_iphone,
+                          size: 56,
                           color: Colors.grey[400],
                         ),
-                        SizedBox(height: 16),
+                        SizedBox(height: 12),
                         Text(
-                          'No phone sales found',
+                          _searchController.text.isNotEmpty
+                              ? 'No results found for "${_searchController.text}"'
+                              : 'No phone sales found',
                           style: TextStyle(
-                            fontSize: 18,
+                            fontSize: 16,
                             color: Colors.grey[600],
                           ),
+                          textAlign: TextAlign.center,
                         ),
-                        SizedBox(height: 8),
+                        SizedBox(height: 6),
                         Text(
-                          'Try changing your filters',
+                          _searchController.text.isNotEmpty
+                              ? 'Try a different search term'
+                              : 'Try changing your filters',
                           style: TextStyle(
-                            fontSize: 14,
+                            fontSize: 13,
                             color: Colors.grey[500],
                           ),
                         ),
@@ -579,9 +627,9 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                     ),
                   )
                 : ListView.builder(
-                    itemCount: _phoneSales.length,
+                    itemCount: _filteredSales.length,
                     itemBuilder: (context, index) {
-                      final sale = _phoneSales[index];
+                      final sale = _filteredSales[index];
                       return _buildSaleCard(sale);
                     },
                   ),
@@ -591,13 +639,38 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
     );
   }
 
+  String _getDateRangeDisplay() {
+    switch (_selectedDateRange) {
+      case 'Today':
+        return 'Today';
+      case 'Yesterday':
+        return 'Yesterday';
+      case 'Monthly':
+        final now = DateTime.now();
+        return DateFormat('MMM yyyy').format(now);
+      case 'Yearly':
+        return DateFormat('yyyy').format(DateTime.now());
+      case 'Custom Range':
+        if (_startDate != null) {
+          if (_endDate != null) {
+            return '${DateFormat('dd MMM').format(_startDate!)} - ${DateFormat('dd MMM').format(_endDate!)}';
+          } else {
+            return 'From ${DateFormat('dd MMM').format(_startDate!)}';
+          }
+        }
+        return 'Custom';
+      default:
+        return 'All';
+    }
+  }
+
   Widget _buildSaleCard(Sale sale) {
     return Card(
-      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       child: Padding(
-        padding: EdgeInsets.all(16),
+        padding: EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -608,59 +681,64 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                   child: Text(
                     sale.customerName,
                     style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
                       color: Color(0xFF0A4D2E),
                     ),
                     overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                 ),
                 Container(
-                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                   decoration: BoxDecoration(
                     color: _getStatusColor(sale.purchaseMode ?? ''),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
                     sale.purchaseMode ?? 'Unknown',
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
               ],
             ),
-            SizedBox(height: 8),
+            SizedBox(height: 6),
             Row(
               children: [
-                Icon(Icons.phone, size: 16, color: Colors.grey[600]),
-                SizedBox(width: 8),
+                Icon(Icons.phone, size: 14, color: Colors.grey[600]),
+                SizedBox(width: 6),
                 Text(
                   sale.customerPhone ?? 'No phone',
-                  style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                  style: TextStyle(fontSize: 13, color: Colors.grey[700]),
                 ),
               ],
             ),
-            SizedBox(height: 4),
+            SizedBox(height: 3),
             Row(
               children: [
                 Icon(
                   Icons.branding_watermark,
-                  size: 16,
+                  size: 14,
                   color: Colors.grey[600],
                 ),
-                SizedBox(width: 8),
-                Text(
-                  '${sale.brand ?? 'Unknown'} - ${sale.model ?? 'Unknown'}',
-                  style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '${sale.brand ?? 'Unknown'} - ${sale.model ?? 'Unknown'}',
+                    style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
                 ),
               ],
             ),
-            SizedBox(height: 12),
+            SizedBox(height: 8),
             Divider(height: 1),
-            SizedBox(height: 12),
+            SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -669,14 +747,14 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                   children: [
                     Text(
                       'Sale Amount',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
-                    SizedBox(height: 4),
+                    SizedBox(height: 3),
                     Text(
                       '₹${widget.formatNumber(sale.amount)}',
                       style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
                         color: Color(0xFF0A4D2E),
                       ),
                     ),
@@ -684,7 +762,7 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                 ),
               ],
             ),
-            SizedBox(height: 8),
+            SizedBox(height: 6),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -693,12 +771,12 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                   children: [
                     Text(
                       'Finance Type',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
-                    SizedBox(height: 4),
+                    SizedBox(height: 3),
                     Text(
                       sale.financeType ?? 'Cash',
-                      style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                      style: TextStyle(fontSize: 13, color: Colors.grey[700]),
                     ),
                   ],
                 ),
@@ -707,18 +785,18 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                   children: [
                     Text(
                       'Shop',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
-                    SizedBox(height: 4),
+                    SizedBox(height: 3),
                     Text(
                       sale.shopName,
-                      style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                      style: TextStyle(fontSize: 13, color: Colors.grey[700]),
                     ),
                   ],
                 ),
               ],
             ),
-            SizedBox(height: 8),
+            SizedBox(height: 6),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -727,12 +805,12 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                   children: [
                     Text(
                       'Down Payment',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
-                    SizedBox(height: 4),
+                    SizedBox(height: 3),
                     Text(
                       '₹${widget.formatNumber(sale.downPayment ?? 0)}',
-                      style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                      style: TextStyle(fontSize: 13, color: Colors.grey[700]),
                     ),
                   ],
                 ),
@@ -741,38 +819,38 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                   children: [
                     Text(
                       'Date',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
-                    SizedBox(height: 4),
+                    SizedBox(height: 3),
                     Text(
                       DateFormat('dd MMM yyyy').format(sale.date),
-                      style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                      style: TextStyle(fontSize: 13, color: Colors.grey[700]),
                     ),
                   ],
                 ),
               ],
             ),
-            SizedBox(height: 8),
+            SizedBox(height: 6),
             if (sale.imei != null && sale.imei!.isNotEmpty)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     'IMEI: ${sale.imei}',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                   ),
                 ],
               ),
-            SizedBox(height: 4),
+            SizedBox(height: 3),
             if (sale.addedAt != null)
               Text(
                 'Added: ${DateFormat('dd MMM yyyy HH:mm').format(sale.addedAt!)}',
-                style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                style: TextStyle(fontSize: 10, color: Colors.grey[500]),
               ),
             SizedBox(height: 2),
             Text(
               'Sales Person: ${sale.salesPersonEmail ?? sale.salesPersonName ?? 'Unknown'}',
-              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+              style: TextStyle(fontSize: 11, color: Colors.grey[500]),
             ),
           ],
         ),
@@ -791,7 +869,7 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
-              title: Text('Filter Phone Sales'),
+              title: Text('Filter Phone Sales', style: TextStyle(fontSize: 16)),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -807,7 +885,7 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                         }
                       },
                     ),
-                    SizedBox(height: 16),
+                    SizedBox(height: 12),
                     _buildFilterDropdown('Brand', _selectedBrand, brands, (
                       value,
                     ) {
@@ -815,13 +893,13 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                         _selectedBrand = value;
                       });
                     }),
-                    SizedBox(height: 16),
+                    SizedBox(height: 12),
                     _buildFilterDropdown('Shop', _selectedShop, shops, (value) {
                       setState(() {
                         _selectedShop = value;
                       });
                     }),
-                    SizedBox(height: 16),
+                    SizedBox(height: 12),
                     _buildFilterDropdown(
                       'Finance Type',
                       _selectedFinanceType,
@@ -832,7 +910,7 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                         });
                       },
                     ),
-                    SizedBox(height: 16),
+                    SizedBox(height: 12),
                     if (_selectedDateRange == 'Custom Range')
                       _buildDateRangeFilter(),
                   ],
@@ -843,7 +921,7 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                   onPressed: () {
                     Navigator.pop(context);
                   },
-                  child: Text('Cancel'),
+                  child: Text('Cancel', style: TextStyle(fontSize: 13)),
                 ),
                 TextButton(
                   onPressed: () {
@@ -858,7 +936,7 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                     _filterPhoneSales();
                     Navigator.pop(context);
                   },
-                  child: Text('Clear All'),
+                  child: Text('Clear All', style: TextStyle(fontSize: 13)),
                 ),
                 ElevatedButton(
                   onPressed: () {
@@ -867,8 +945,9 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Color(0xFF0A4D2E),
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   ),
-                  child: Text('Apply Filters'),
+                  child: Text('Apply Filters', style: TextStyle(fontSize: 13)),
                 ),
               ],
             );
@@ -889,28 +968,28 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
       children: [
         Text(
           label,
-          style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+          style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
         ),
-        SizedBox(height: 8),
+        SizedBox(height: 6),
         Container(
           decoration: BoxDecoration(
             border: Border.all(color: Colors.grey[300]!),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(6),
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               value: currentValue,
               isExpanded: true,
               hint: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12),
-                child: Text('Select $label'),
+                padding: EdgeInsets.symmetric(horizontal: 10),
+                child: Text('Select $label', style: TextStyle(fontSize: 13)),
               ),
               items: items.map<DropdownMenuItem<String>>((String item) {
                 return DropdownMenuItem<String>(
                   value: item,
                   child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 12),
-                    child: Text(item),
+                    padding: EdgeInsets.symmetric(horizontal: 10),
+                    child: Text(item, style: TextStyle(fontSize: 13)),
                   ),
                 );
               }).toList(),
@@ -928,9 +1007,9 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
       children: [
         Text(
           'Custom Date Range',
-          style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+          style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
         ),
-        SizedBox(height: 8),
+        SizedBox(height: 6),
         Row(
           children: [
             Expanded(
@@ -952,30 +1031,33 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                   }
                 },
                 child: Container(
-                  padding: EdgeInsets.all(12),
+                  padding: EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     border: Border.all(color: Colors.grey[300]!),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(6),
                   ),
                   child: Row(
                     children: [
                       Icon(
                         Icons.calendar_today,
-                        size: 16,
+                        size: 15,
                         color: Colors.grey[600],
                       ),
-                      SizedBox(width: 8),
-                      Text(
-                        _startDate == null
-                            ? 'Start Date'
-                            : DateFormat('dd-MMM-yyyy').format(_startDate!),
+                      SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          _startDate == null
+                              ? 'Start Date'
+                              : DateFormat('dd-MMM-yyyy').format(_startDate!),
+                          style: TextStyle(fontSize: 13),
+                        ),
                       ),
                     ],
                   ),
                 ),
               ),
             ),
-            SizedBox(width: 8),
+            SizedBox(width: 6),
             Expanded(
               child: InkWell(
                 onTap: () async {
@@ -993,23 +1075,26 @@ class _PhoneSalesDetailsScreenState extends State<PhoneSalesDetailsScreen> {
                   }
                 },
                 child: Container(
-                  padding: EdgeInsets.all(12),
+                  padding: EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     border: Border.all(color: Colors.grey[300]!),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(6),
                   ),
                   child: Row(
                     children: [
                       Icon(
                         Icons.calendar_today,
-                        size: 16,
+                        size: 15,
                         color: Colors.grey[600],
                       ),
-                      SizedBox(width: 8),
-                      Text(
-                        _endDate == null
-                            ? 'End Date'
-                            : DateFormat('dd-MMM-yyyy').format(_endDate!),
+                      SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          _endDate == null
+                              ? 'End Date'
+                              : DateFormat('dd-MMM-yyyy').format(_endDate!),
+                          style: TextStyle(fontSize: 13),
+                        ),
                       ),
                     ],
                   ),
