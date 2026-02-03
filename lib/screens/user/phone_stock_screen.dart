@@ -1,14 +1,14 @@
-// lib/screens/inventory/phone_stock_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:sales_stock/screens/user/bill_form.dart';
 import 'package:sales_stock/screens/user/stock_check_screen.dart';
 import '../../providers/auth_provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'dart:async';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter/services.dart'; // This import is crucial for Clipboard
+import 'package:flutter/services.dart';
 import './add_stock_modal.dart';
 
 class PhoneStockScreen extends StatefulWidget {
@@ -25,11 +25,9 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey =
       GlobalKey<ScaffoldMessengerState>();
 
-  // For existing stock view
   String _searchQuery = '';
   late TextEditingController _searchController;
 
-  // For adding stock (modal)
   String? _selectedBrand;
   String? _selectedProduct;
   String? _newProductName;
@@ -54,48 +52,40 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   bool _showAddProductForm = false;
   bool _showAddStockModal = false;
 
-  // For shops data
   List<Map<String, dynamic>> _shops = [];
-
-  // For actions on phone
   Map<String, dynamic>? _selectedPhoneForAction;
   String _selectedAction = 'sell';
 
-  // For product search in dropdown
   late TextEditingController _productSearchController;
   List<Map<String, dynamic>> _filteredProducts = [];
 
-  // For price change
   double? _originalProductPrice;
   bool _showPriceChangeOption = false;
   late TextEditingController _priceChangeController;
 
-  // For new product form controllers
   late TextEditingController _newProductNameController;
   late TextEditingController _newProductPriceController;
 
-  // For modal error display
   String? _modalError;
   String? _modalSuccess;
 
-  // For tabs
   late TabController _tabController;
   int _currentTabIndex = 0;
   final List<String> _tabTitles = ['Available', 'Sold', 'Returned'];
 
-  // For search focus
   final FocusNode _searchFocusNode = FocusNode();
 
-  // NEW: For sold stock warning
   Map<String, dynamic>? _foundInSoldStock;
   bool _showingSoldStockWarning = false;
 
-  // FIXED: Smart Search Logic that handles "f17 4/128" searching in "samsung galaxy f17 5g 4/128 violet pop"
   List<Map<String, dynamic>> _filterStocksBySearch(
     List<QueryDocumentSnapshot> stocks,
   ) {
     if (_searchQuery.isEmpty)
-      return stocks.map((doc) => doc.data() as Map<String, dynamic>).toList();
+      return stocks.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return {...data, 'id': doc.id}; // Ensure ID is always included
+      }).toList();
 
     final query = _searchQuery.toLowerCase().trim();
     final result = <Map<String, dynamic>>[];
@@ -108,17 +98,13 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       final imei = (data['imei'] as String? ?? '').toLowerCase();
       final combinedText = '$productName $productBrand';
 
-      // Split search query into words
       final searchWords = query.split(' ').where((w) => w.isNotEmpty).toList();
 
       bool allWordsFound = true;
 
-      // Check if ALL search words are found (case-insensitive)
       for (final word in searchWords) {
-        // Create variations for the word
         final variations = <String>[word];
 
-        // Handle slash variations like "4/128"
         if (word.contains('/')) {
           variations.add(word.replaceAll('/', ' '));
           variations.add(word.replaceAll('/', ''));
@@ -126,17 +112,14 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           variations.add(word.replaceAll('/', '/gb'));
         }
 
-        // Handle "g" variations like "5g"
         if (word.endsWith('g') && word.length > 1) {
           variations.add(word.substring(0, word.length - 1));
         }
 
-        // Handle "gb" variations like "4gb"
         if (word.toLowerCase().endsWith('gb') && word.length > 2) {
           variations.add(word.toLowerCase().replaceAll('gb', ''));
         }
 
-        // Check if any variation is found in product name/brand
         bool wordFound = false;
         for (final variation in variations) {
           if (combinedText.contains(variation)) {
@@ -145,7 +128,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           }
         }
 
-        // Also check in IMEI
         if (!wordFound && imei.contains(word)) {
           wordFound = true;
         }
@@ -164,7 +146,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     return result;
   }
 
-  // NEW: Check if IMEI exists in sold stock
   Future<Map<String, dynamic>?> _checkImeiInSoldStock(String imei) async {
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -195,7 +176,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   @override
   void initState() {
     super.initState();
-    // Initialize controllers in initState
     _searchController = TextEditingController();
     _productSearchController = TextEditingController();
     _priceChangeController = TextEditingController();
@@ -206,7 +186,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     _tabController.addListener(() {
       setState(() {
         _currentTabIndex = _tabController.index;
-        // Clear sold stock warning when switching tabs
         _foundInSoldStock = null;
         _showingSoldStockWarning = false;
       });
@@ -338,7 +317,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         _priceChangeController.clear();
         _productSearchController.clear();
         _clearModalMessages();
-        // Clear new product form
         _newProductNameController.clear();
         _newProductPriceController.clear();
       });
@@ -346,10 +324,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       setState(() {
         _selectedProduct = value;
         _showAddProductForm = false;
-
-        // Set the product name in search controller
         _productSearchController.text = value ?? '';
-
         _clearModalMessages();
 
         if (_selectedBrand != null && value != null) {
@@ -419,7 +394,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       return;
     }
 
-    // Get values from controllers
     final productName = _newProductNameController.text.trim();
     final priceText = _newProductPriceController.text.trim();
 
@@ -480,8 +454,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         _originalProductPrice = price;
         _clearModalMessages();
         _showModalSuccess('Product "$productName" added successfully!');
-
-        // Clear controllers
         _newProductNameController.clear();
         _newProductPriceController.clear();
       });
@@ -515,7 +487,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       String? productId;
 
       if (_showAddProductForm) {
-        // Get values from new product form controllers
         final newProductName = _newProductNameController.text.trim();
         final newPriceText = _newProductPriceController.text.trim();
 
@@ -537,10 +508,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
         productName = newProductName;
         productPrice = newPrice;
-
-        // Save the new product first
         await _saveNewProduct();
-        // After saving, continue with stock addition
         if (_selectedProduct == null) {
           _showModalError('Product not selected after creation');
           return;
@@ -603,7 +571,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         return;
       }
 
-      // Enhanced IMEI validation
       for (int i = 0; i < _imeiNumbers.length; i++) {
         final imei = _imeiNumbers[i];
         if (imei.isEmpty) {
@@ -611,7 +578,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           return;
         }
 
-        // Basic validation
         if (imei.length < 15 || imei.length > 16) {
           _showModalError(
             'IMEI ${i + 1} must be 15-16 digits (${imei.length} entered)',
@@ -619,14 +585,12 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           return;
         }
 
-        // Check if all characters are digits
         if (!RegExp(r'^[0-9]+$').hasMatch(imei)) {
           _showModalError('IMEI ${i + 1} contains non-numeric characters');
           return;
         }
       }
 
-      // Check for duplicates in this batch
       final uniqueImeis = _imeiNumbers.toSet();
       if (uniqueImeis.length != _imeiNumbers.length) {
         _showModalError('Duplicate IMEI numbers found in this batch');
@@ -648,7 +612,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           user.email?.trim() ?? user.name?.trim() ?? 'Unknown User';
       final uploadedById = user.uid;
 
-      // Check for duplicates in database
       try {
         for (String imei in _imeiNumbers) {
           final existingQuery = await _firestore
@@ -792,14 +755,18 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final user = authProvider.user;
 
+      final currentShopId = phoneData['shopId'] as String? ?? '';
+      final currentShopName =
+          phoneData['shopName'] as String? ?? 'Unknown Shop';
+
       await _firestore.collection('phoneStock').doc(phoneId).update({
         'shopId': newShopId,
         'shopName': newShopName,
         'transferredBy': user?.email ?? user?.name ?? 'Unknown',
         'transferredById': user?.uid ?? '',
         'transferredAt': FieldValue.serverTimestamp(),
-        'previousShopId': phoneData['shopId'],
-        'previousShopName': phoneData['shopName'],
+        'previousShopId': currentShopId,
+        'previousShopName': currentShopName,
       });
 
       setState(() {
@@ -828,12 +795,12 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
       final returnData = {
         'phoneId': phoneId,
-        'productBrand': phoneData['productBrand'],
-        'productName': phoneData['productName'],
-        'productPrice': phoneData['productPrice'],
-        'imei': phoneData['imei'],
-        'originalShopId': phoneData['shopId'],
-        'originalShopName': phoneData['shopName'],
+        'productBrand': phoneData['productBrand'] ?? 'Unknown',
+        'productName': phoneData['productName'] ?? 'Unknown',
+        'productPrice': phoneData['productPrice'] ?? 0,
+        'imei': phoneData['imei'] ?? 'N/A',
+        'originalShopId': phoneData['shopId'] ?? '',
+        'originalShopName': phoneData['shopName'] ?? 'Unknown Shop',
         'returnedBy': user?.email ?? user?.name ?? 'Unknown',
         'returnedById': user?.uid ?? '',
         'returnedAt': FieldValue.serverTimestamp(),
@@ -860,7 +827,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     }
   }
 
-  // IMEI Scanner Methods
   Future<bool> _checkCameraPermission() async {
     try {
       final status = await Permission.camera.status;
@@ -917,9 +883,14 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             _searchQuery = imei.toLowerCase();
           });
 
-          // Check if this IMEI exists in sold stock
+          // Clear previous sold stock warning
+          setState(() {
+            _foundInSoldStock = null;
+            _showingSoldStockWarning = false;
+          });
+
           final soldItem = await _checkImeiInSoldStock(imei);
-          if (soldItem != null) {
+          if (soldItem != null && mounted) {
             setState(() {
               _foundInSoldStock = soldItem;
               _showingSoldStockWarning = true;
@@ -990,7 +961,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     );
   }
 
-  // IMEI Helper Methods
   String _formatImeiForDisplay(String imei) {
     if (imei.isEmpty) return '';
     if (imei.length == 15) {
@@ -1008,8 +978,11 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     return true;
   }
 
-  // NEW: Show sold stock warning widget
   Widget _buildSoldStockWarning() {
+    if (_foundInSoldStock == null) {
+      return const SizedBox.shrink();
+    }
+
     final soldItem = _foundInSoldStock!;
     final productName = soldItem['productName'] as String? ?? 'Unknown';
     final productBrand = soldItem['productBrand'] as String? ?? 'Unknown';
@@ -1093,7 +1066,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     );
   }
 
-  // NEW: Show sold item details
   void _showSoldItemDetails(Map<String, dynamic> soldItem) {
     showModalBottomSheet(
       context: context,
@@ -1200,7 +1172,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     );
   }
 
-  // NEW: Helper for detail items
   Widget _buildDetailItem(String label, String value) {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -1359,7 +1330,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       );
     }
 
-    // Filter products based on search text or selected product
     final products = _productsByBrand[_selectedBrand!] ?? [];
     final searchText = _productSearchController.text.toLowerCase();
 
@@ -1400,7 +1370,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               horizontal: 12,
               vertical: 12,
             ),
-            // Show selected product hint in the field
             hintText: _selectedProduct != null
                 ? _selectedProduct
                 : 'Search or select product',
@@ -1408,7 +1377,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           style: const TextStyle(fontSize: 12, color: Colors.black),
           onChanged: (value) {
             setState(() {
-              // If user starts typing, clear the selected product
               if (_selectedProduct != null && value != _selectedProduct) {
                 _selectedProduct = null;
                 _showPriceChangeOption = false;
@@ -1419,7 +1387,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             });
           },
           onTap: () {
-            // When user taps to search, show all products
             if (_selectedProduct != null &&
                 _productSearchController.text == _selectedProduct) {
               _productSearchController.clear();
@@ -1456,7 +1423,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             ),
           ),
 
-        // Show product dropdown only if no product is selected or user is searching
         if (_selectedProduct == null ||
             _productSearchController.text.isNotEmpty)
           Container(
@@ -1468,7 +1434,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             child: _buildProductList(),
           ),
 
-        // Show selected product info if a product is selected
         if (_selectedProduct != null && _productSearchController.text.isEmpty)
           Container(
             margin: const EdgeInsets.only(top: 8),
@@ -1705,8 +1670,11 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     final productBrand = phone['productBrand'] as String? ?? 'Unknown';
     final imei = phone['imei'] as String? ?? 'N/A';
     final price = phone['productPrice'];
-    final currentShopId = phone['shopId'] as String?;
+    final currentShopId = phone['shopId'] as String? ?? '';
+    final currentShopName = phone['shopName'] as String? ?? 'Unknown Shop';
+    final phoneId = phone['id'] as String? ?? '';
 
+    // Filter shops to exclude the current shop
     final filteredShops = _shops
         .where((shop) => shop['id'] != currentShopId)
         .toList();
@@ -1796,6 +1764,20 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Current Shop: $currentShopName',
+                      style: const TextStyle(fontSize: 10, color: Colors.grey),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (phoneId.isNotEmpty)
+                      Text(
+                        'Phone ID: ${phoneId.substring(0, 8)}...',
+                        style: const TextStyle(fontSize: 9, color: Colors.grey),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                   ],
                 ),
               ),
@@ -1831,8 +1813,13 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                         onPressed: _isLoading
                             ? null
                             : () {
-                                final phoneId = phone['id'] as String;
-                                _markAsSold(phoneId, phone);
+                                if (phoneId.isNotEmpty) {
+                                  _markAsSold(phoneId, phone);
+                                } else {
+                                  _showError(
+                                    'Phone ID not found. Please try again.',
+                                  );
+                                }
                               },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green,
@@ -1888,7 +1875,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                             size: 18,
                           ),
                           title: Text(
-                            shop['name'],
+                            shop['name'] as String? ?? 'Unknown Shop',
                             style: const TextStyle(fontSize: 12),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1897,7 +1884,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                               shop['address'] != null &&
                                   (shop['address'] as String).isNotEmpty
                               ? Text(
-                                  shop['address'],
+                                  shop['address'] as String,
                                   style: const TextStyle(fontSize: 10),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
@@ -1906,13 +1893,18 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                           onTap: _isLoading
                               ? null
                               : () {
-                                  final phoneId = phone['id'] as String;
-                                  _transferToShop(
-                                    phoneId,
-                                    phone,
-                                    shop['id'],
-                                    shop['name'],
-                                  );
+                                  if (phoneId.isNotEmpty) {
+                                    _transferToShop(
+                                      phoneId,
+                                      phone,
+                                      shop['id'] as String? ?? '',
+                                      shop['name'] as String? ?? 'Unknown Shop',
+                                    );
+                                  } else {
+                                    _showError(
+                                      'Phone ID not found. Please try again.',
+                                    );
+                                  }
                                 },
                           dense: true,
                           visualDensity: VisualDensity.compact,
@@ -1980,8 +1972,13 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                         onPressed: _isLoading
                             ? null
                             : () {
-                                final phoneId = phone['id'] as String;
-                                _returnPhone(phoneId, phone);
+                                if (phoneId.isNotEmpty) {
+                                  _returnPhone(phoneId, phone);
+                                } else {
+                                  _showError(
+                                    'Phone ID not found. Please try again.',
+                                  );
+                                }
                               },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.orange,
@@ -2073,7 +2070,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           onChanged: (value) async {
             setState(() => _searchQuery = value);
 
-            // Clear previous warning
             if (_showingSoldStockWarning) {
               setState(() {
                 _foundInSoldStock = null;
@@ -2081,12 +2077,10 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               });
             }
 
-            // Check if it's a pure IMEI search (only digits)
             if (RegExp(r'^[0-9]+$').hasMatch(value) &&
                 (value.length == 15 || value.length == 16)) {
-              // Check if this IMEI exists in sold stock
               final soldItem = await _checkImeiInSoldStock(value);
-              if (soldItem != null) {
+              if (soldItem != null && mounted) {
                 setState(() {
                   _foundInSoldStock = soldItem;
                   _showingSoldStockWarning = true;
@@ -2099,7 +2093,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           },
         ),
 
-        // Show warning if IMEI is found in sold stock
         if (_showingSoldStockWarning && _foundInSoldStock != null)
           _buildSoldStockWarning(),
       ],
@@ -2210,7 +2203,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             );
           }
 
-          // Sort returns by returnedAt (most recent first)
           returns.sort((a, b) {
             final aData = a.data() as Map<String, dynamic>;
             final bData = b.data() as Map<String, dynamic>;
@@ -2219,12 +2211,11 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
             if (aDate == null || bDate == null) return 0;
             if (aDate is Timestamp && bDate is Timestamp) {
-              return bDate.compareTo(aDate); // Descending
+              return bDate.compareTo(aDate);
             }
             return 0;
           });
 
-          // Apply smart search filter
           final filteredReturns = _filterStocksBySearch(returns);
 
           if (filteredReturns.isEmpty) {
@@ -2248,7 +2239,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             );
           }
 
-          // Calculate statistics for returned tab
           double totalValue = 0;
           int totalPhones = 0;
           final Map<String, Map<String, dynamic>> brandStats = {};
@@ -2485,7 +2475,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                     style: const TextStyle(fontSize: 14, color: Colors.grey),
                   ),
                   const SizedBox(height: 6),
-                  // Show additional message if we have a sold stock warning
                   if (_showingSoldStockWarning && type == 'available')
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -2533,7 +2522,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             return 0;
           });
 
-          // Apply smart search filter
           final filteredStocks = _filterStocksBySearch(stocks);
 
           if (filteredStocks.isEmpty) {
@@ -2548,7 +2536,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                     style: TextStyle(fontSize: 14, color: Colors.grey),
                   ),
                   const SizedBox(height: 6),
-                  // Show additional message if we have a sold stock warning
                   if (_showingSoldStockWarning && type == 'available')
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -2665,8 +2652,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                                 fontWeight: FontWeight.bold,
                                 overflow: TextOverflow.ellipsis,
                               ),
-                              maxLines: 1,
-                              textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 2),
                             Text(
@@ -2745,6 +2730,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                     final price = stock['productPrice'];
                     final uploadedAt = stock['uploadedAt'];
                     final soldAt = stock['soldAt'];
+                    final phoneId = stock['id'] as String? ?? '';
 
                     return _buildPhoneCard(
                       productName: productName,
@@ -2756,12 +2742,19 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                       status: type,
                       onSell: type == 'available'
                           ? () {
-                              setState(() {
-                                _selectedPhoneForAction = {
-                                  ...stock,
-                                  'id': stock['id'],
-                                };
-                                _selectedAction = 'sell';
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => BillFormScreen(
+                                    phoneData: stock,
+                                    imei: imei,
+                                    phoneId: phoneId,
+                                  ),
+                                ),
+                              ).then((success) {
+                                if (success == true) {
+                                  setState(() {});
+                                }
                               });
                             }
                           : null,
@@ -2770,7 +2763,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                               setState(() {
                                 _selectedPhoneForAction = {
                                   ...stock,
-                                  'id': stock['id'],
+                                  'id': phoneId,
                                 };
                                 _selectedAction = 'transfer';
                               });
@@ -2781,7 +2774,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                               setState(() {
                                 _selectedPhoneForAction = {
                                   ...stock,
-                                  'id': stock['id'],
+                                  'id': phoneId,
                                 };
                                 _selectedAction = 'return';
                               });
