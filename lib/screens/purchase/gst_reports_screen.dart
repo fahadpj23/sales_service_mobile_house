@@ -1,4 +1,3 @@
-// gst_reports_screen.dart
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -66,12 +65,10 @@ class _GSTReportsScreenState extends State<GSTReportsScreen> {
         String formattedDate = 'N/A';
         if (purchaseDate is Timestamp) {
           formattedDate = DateFormat(
-            'dd/MM/yyyy', // Changed from 'dd-MMM-yyyy' to 'dd/MM/yyyy'
+            'dd/MM/yyyy',
           ).format(purchaseDate.toDate());
         } else if (purchaseDate is DateTime) {
-          formattedDate = DateFormat(
-            'dd/MM/yyyy',
-          ).format(purchaseDate); // Changed here
+          formattedDate = DateFormat('dd/MM/yyyy').format(purchaseDate);
         }
 
         totalPurchase += totalAmount;
@@ -98,7 +95,6 @@ class _GSTReportsScreenState extends State<GSTReportsScreen> {
     } catch (e) {
       print('Error fetching GST reports: $e');
       setState(() => _isLoading = false);
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to load GST reports: $e'),
@@ -174,75 +170,9 @@ class _GSTReportsScreenState extends State<GSTReportsScreen> {
     return NumberFormat('#,##0.00').format(amount);
   }
 
-  String formatDateManual(dynamic dateValue) {
-    print(dateValue);
-    // Convert to string first
-    final dateString = dateValue?.toString()?.trim() ?? '';
-
-    if (dateString == 'N/A' || dateString.isEmpty || dateString == 'null') {
-      return 'N/A';
-    }
-
-    try {
-      final parts = dateString.split('/');
-      if (parts.length != 3) return dateString;
-
-      // Expanded month map with more variations
-      const monthMap = {
-        // Standard 3-letter abbreviations
-        'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04',
-        'may': '05', 'jun': '06', 'jul': '07', 'aug': '08',
-        'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12',
-
-        // Sometimes with period
-        'jan.': '01', 'feb.': '02', 'mar.': '03', 'apr.': '04',
-        'may.': '05', 'jun.': '06', 'jul.': '07', 'aug.': '08',
-        'sep.': '09', 'oct.': '10', 'nov.': '11', 'dec.': '12',
-
-        // Full month names
-        'january': '01', 'february': '02', 'march': '03', 'april': '04',
-        'june': '06', 'july': '07', 'august': '08', 'september': '09',
-        'october': '10', 'november': '11', 'december': '12',
-      };
-
-      final day = parts[0].padLeft(2, '0');
-      final monthAbbr = parts[1].toLowerCase().trim();
-      final year = parts[2].trim();
-
-      // Check if month is already a number (01-12)
-      if (RegExp(r'^\d{1,2}$').hasMatch(monthAbbr)) {
-        final monthNum = int.tryParse(monthAbbr);
-        if (monthNum != null && monthNum >= 1 && monthNum <= 12) {
-          return '$day/${monthAbbr.padLeft(2, '0')}/$year';
-        }
-      }
-
-      // Look up month abbreviation
-      final monthNumber = monthMap[monthAbbr];
-
-      if (monthNumber == null) {
-        // Try removing any trailing period
-        final monthAbbrNoPeriod = monthAbbr.replaceAll(RegExp(r'\.$'), '');
-        final monthNumber2 = monthMap[monthAbbrNoPeriod];
-
-        if (monthNumber2 != null) {
-          return '$day/$monthNumber2/$year';
-        }
-
-        // Return original if month not found
-        return dateString;
-      }
-
-      return '$day/$monthNumber/$year';
-    } catch (e) {
-      return dateString;
-    }
-  }
-
   Future<Uint8List> _generatePDF() async {
     final pdf = pw.Document();
 
-    // Use built-in font to avoid loading issues
     final textStyle = pw.TextStyle(fontSize: 10);
     final headerStyle = pw.TextStyle(
       fontSize: 24,
@@ -262,10 +192,9 @@ class _GSTReportsScreenState extends State<GSTReportsScreen> {
                 pw.Text('MOBILE HOUSE', style: headerStyle),
                 pw.SizedBox(height: 8),
                 pw.Text(
-                  'Period: ${DateFormat('dd/MM/yyyy').format(_selectedStartDate)} - ${DateFormat('dd/MM/yyyy').format(_selectedEndDate)}', // Changed here
+                  'Period: ${DateFormat('dd/MM/yyyy').format(_selectedStartDate)} - ${DateFormat('dd/MM/yyyy').format(_selectedEndDate)}',
                   style: textStyle,
                 ),
-
                 pw.Divider(thickness: 1),
                 pw.SizedBox(height: 20),
               ],
@@ -280,7 +209,6 @@ class _GSTReportsScreenState extends State<GSTReportsScreen> {
                 fontSize: 10,
                 color: PdfColors.black,
               ),
-              // headerDecoration: pw.BoxDecoration(color: PdfColors.green),
               headers: [
                 'Date',
                 'Invoice No',
@@ -292,12 +220,10 @@ class _GSTReportsScreenState extends State<GSTReportsScreen> {
               ],
               data: _gstReports.map((report) {
                 return [
-                  report['date'] != null && report['date'].toString().isNotEmpty
-                      ? formatDateManual(report['date'].toString())
-                      : 'N/A',
-                  report['invoiceNo'] ?? 'N/A',
-                  report['supplierName'] ?? 'Unknown',
-                  report['18%'] ?? '18%',
+                  report['date']?.toString() ?? 'N/A',
+                  report['invoiceNo']?.toString() ?? 'N/A',
+                  report['supplierName']?.toString() ?? 'Unknown',
+                  '18%',
                   ' ${_formatCurrency(report['subtotal'] as double)}',
                   ' ${_formatCurrency(report['gstAmount'] as double)}',
                   ' ${_formatCurrency(report['totalAmount'] as double)}',
@@ -310,12 +236,8 @@ class _GSTReportsScreenState extends State<GSTReportsScreen> {
             pw.SizedBox(height: 30),
 
             // Summary
-            pw.Container(
+            pw.Padding(
               padding: const pw.EdgeInsets.all(12),
-              decoration: pw.BoxDecoration(
-                border: pw.Border.all(color: PdfColors.grey.shade(300)),
-                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
-              ),
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
@@ -374,41 +296,6 @@ class _GSTReportsScreenState extends State<GSTReportsScreen> {
     return pdf.save();
   }
 
-  pw.Widget _buildPdfStatCard(
-    String title,
-    String value,
-    PdfColor color, {
-    required pw.TextStyle textStyle,
-  }) {
-    return pw.Container(
-      width: 120,
-      padding: const pw.EdgeInsets.all(12),
-      decoration: pw.BoxDecoration(
-        color: color.shade(50),
-        border: pw.Border.all(color: color.shade(200), width: 0.5),
-        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
-      ),
-      child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.center,
-        children: [
-          pw.Text(
-            value,
-            style: textStyle.copyWith(
-              fontSize: 14,
-              fontWeight: pw.FontWeight.bold,
-              color: color,
-            ),
-          ),
-          pw.SizedBox(height: 4),
-          pw.Text(
-            title,
-            style: textStyle.copyWith(fontSize: 10, color: PdfColors.grey),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _savePDF() async {
     if (_gstReports.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -423,23 +310,16 @@ class _GSTReportsScreenState extends State<GSTReportsScreen> {
     setState(() => _isExporting = true);
 
     try {
-      // Check and request storage permission for Android
       if (Platform.isAndroid) {
         final status = await Permission.storage.status;
-        if (!status.isGranted) {
-          await Permission.storage.request();
-        }
-
-        // Also request manage external storage for Android 11+
+        if (!status.isGranted) await Permission.storage.request();
         if (await Permission.manageExternalStorage.isDenied) {
           await Permission.manageExternalStorage.request();
         }
       }
 
-      // Generate PDF
       final pdfBytes = await _generatePDF();
 
-      // Get directory - use getExternalStorageDirectory for better visibility
       Directory directory;
       if (Platform.isAndroid) {
         directory = Directory('/storage/emulated/0/Download');
@@ -459,14 +339,11 @@ class _GSTReportsScreenState extends State<GSTReportsScreen> {
           'GST_Report_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
       final filePath = '${directory.path}/$fileName';
 
-      // Save file
       final file = File(filePath);
       await file.writeAsBytes(pdfBytes, flush: true);
 
-      // Open the file after saving
       if (await file.exists()) {
         await OpenFile.open(filePath);
-
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('PDF saved successfully to Downloads folder'),
@@ -494,7 +371,6 @@ class _GSTReportsScreenState extends State<GSTReportsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _backgroundColor,
-
       body: Column(
         children: [
           // Date Range Selector
@@ -551,7 +427,7 @@ class _GSTReportsScreenState extends State<GSTReportsScreen> {
                                   ),
                                   Text(
                                     DateFormat(
-                                      'dd/MM/yyyy', // Changed from 'dd-MMM-yyyy' to 'dd/MM/yyyy'
+                                      'dd/MM/yyyy',
                                     ).format(_selectedStartDate),
                                     style: TextStyle(
                                       fontSize: 12,
@@ -602,7 +478,7 @@ class _GSTReportsScreenState extends State<GSTReportsScreen> {
                                   ),
                                   Text(
                                     DateFormat(
-                                      'dd/MM/yyyy', // Changed from 'dd-MMM-yyyy' to 'dd/MM/yyyy'
+                                      'dd/MM/yyyy',
                                     ).format(_selectedEndDate),
                                     style: TextStyle(
                                       fontSize: 12,
@@ -833,7 +709,7 @@ class _GSTReportsScreenState extends State<GSTReportsScreen> {
             Row(
               children: [
                 Text(
-                  'Date: ${report['date']}', // This will now show 03/01/2026 instead of 03/JAN/2026
+                  'Date: ${report['date']}',
                   style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
                 ),
                 const SizedBox(width: 12),
