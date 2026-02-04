@@ -178,51 +178,51 @@ class _BillFormScreenState extends State<BillFormScreen> {
       setState(() => _isLoading = true);
 
       // Mark phone as sold in inventory
-      // if (widget.phoneId != null) {
-      //   await _firestore.collection('phoneStock').doc(widget.phoneId).update({
-      //     'status': 'sold',
-      //     'soldAt': FieldValue.serverTimestamp(),
-      //     'soldTo': customerNameController.text,
-      //     'soldBillNo': 'MH-${billNoController.text}',
-      //     'soldAmount': double.parse(totalAmountController.text),
-      //     'soldShop': _selectedShop,
-      //     'soldBy': Provider.of<AuthProvider>(
-      //       context,
-      //       listen: false,
-      //     ).user?.email,
-      //     'updatedAt': FieldValue.serverTimestamp(),
-      //   });
-      // } else {
-      //   final imei = imei1Controller.text.trim();
-      //   if (imei.isNotEmpty) {
-      //     final querySnapshot = await _firestore
-      //         .collection('phoneStock')
-      //         .where('imei', isEqualTo: imei)
-      //         .where('status', isEqualTo: 'available')
-      //         .limit(1)
-      //         .get();
+      if (widget.phoneId != null) {
+        await _firestore.collection('phoneStock').doc(widget.phoneId).update({
+          'status': 'sold',
+          'soldAt': FieldValue.serverTimestamp(),
+          'soldTo': customerNameController.text,
+          'soldBillNo': 'MH-${billNoController.text}',
+          'soldAmount': double.parse(totalAmountController.text),
+          'soldShop': _selectedShop,
+          'soldBy': Provider.of<AuthProvider>(
+            context,
+            listen: false,
+          ).user?.email,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        final imei = imei1Controller.text.trim();
+        if (imei.isNotEmpty) {
+          final querySnapshot = await _firestore
+              .collection('phoneStock')
+              .where('imei', isEqualTo: imei)
+              .where('status', isEqualTo: 'available')
+              .limit(1)
+              .get();
 
-      //     if (querySnapshot.docs.isNotEmpty) {
-      //       final docId = querySnapshot.docs.first.id;
-      //       await _firestore.collection('phoneStock').doc(docId).update({
-      //         'status': 'sold',
-      //         'soldAt': FieldValue.serverTimestamp(),
-      //         'soldTo': customerNameController.text,
-      //         'soldBillNo': 'MH-${billNoController.text}',
-      //         'soldAmount': double.parse(totalAmountController.text),
-      //         'soldShop': _selectedShop,
-      //         'soldBy': Provider.of<AuthProvider>(
-      //           context,
-      //           listen: false,
-      //         ).user?.email,
-      //         'updatedAt': FieldValue.serverTimestamp(),
-      //       });
-      //     }
-      //   }
-      // }
+          if (querySnapshot.docs.isNotEmpty) {
+            final docId = querySnapshot.docs.first.id;
+            await _firestore.collection('phoneStock').doc(docId).update({
+              'status': 'sold',
+              'soldAt': FieldValue.serverTimestamp(),
+              'soldTo': customerNameController.text,
+              'soldBillNo': 'MH-${billNoController.text}',
+              'soldAmount': double.parse(totalAmountController.text),
+              'soldShop': _selectedShop,
+              'soldBy': Provider.of<AuthProvider>(
+                context,
+                listen: false,
+              ).user?.email,
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+          }
+        }
+      }
 
-      // // Save bill record
-      // await _saveBillRecord();
+      // Save bill record
+      await _saveBillRecord();
 
       // Generate and print PDF
       final pdfBytes = await _generatePdf();
