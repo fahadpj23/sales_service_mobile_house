@@ -101,17 +101,29 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
   Future<void> _loadImages() async {
     try {
-      final ByteData logoData = await rootBundle.load(
-        'assets/mobileHouseLogo.png',
+      // Load logo
+      final logoByteData = await rootBundle.load('assets/mobileHouseLogo.png');
+      _logoImage = Uint8List.view(
+        logoByteData.buffer,
+        logoByteData.offsetInBytes,
+        logoByteData.lengthInBytes,
       );
-      _logoImage = logoData.buffer.asUint8List();
 
-      final ByteData sealData = await rootBundle.load(
-        'assets/mobileHouseSeal.jpeg',
+      print('Logo image loaded: ${_logoImage?.length} bytes');
+
+      // Load seal
+      final sealByteData = await rootBundle.load('assets/mobileHouseSeal.jpeg');
+      _sealImage = Uint8List.view(
+        sealByteData.buffer,
+        sealByteData.offsetInBytes,
+        sealByteData.lengthInBytes,
       );
-      _sealImage = sealData.buffer.asUint8List();
+
+      print('Seal image loaded: ${_sealImage?.length} bytes');
     } catch (e) {
       print('Error loading images: $e');
+      _logoImage = null;
+      _sealImage = null;
     }
   }
 
@@ -165,58 +177,63 @@ class _BillFormScreenState extends State<BillFormScreen> {
     try {
       setState(() => _isLoading = true);
 
-      if (widget.phoneId != null) {
-        await _firestore.collection('phoneStock').doc(widget.phoneId).update({
-          'status': 'sold',
-          'soldAt': FieldValue.serverTimestamp(),
-          'soldTo': customerNameController.text,
-          'soldBillNo': 'MH-${billNoController.text}',
-          'soldAmount': double.parse(totalAmountController.text),
-          'soldShop': _selectedShop,
-          'soldBy': Provider.of<AuthProvider>(
-            context,
-            listen: false,
-          ).user?.email,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      } else {
-        final imei = imei1Controller.text.trim();
-        if (imei.isNotEmpty) {
-          final querySnapshot = await _firestore
-              .collection('phoneStock')
-              .where('imei', isEqualTo: imei)
-              .where('status', isEqualTo: 'available')
-              .limit(1)
-              .get();
+      // Mark phone as sold in inventory
+      // if (widget.phoneId != null) {
+      //   await _firestore.collection('phoneStock').doc(widget.phoneId).update({
+      //     'status': 'sold',
+      //     'soldAt': FieldValue.serverTimestamp(),
+      //     'soldTo': customerNameController.text,
+      //     'soldBillNo': 'MH-${billNoController.text}',
+      //     'soldAmount': double.parse(totalAmountController.text),
+      //     'soldShop': _selectedShop,
+      //     'soldBy': Provider.of<AuthProvider>(
+      //       context,
+      //       listen: false,
+      //     ).user?.email,
+      //     'updatedAt': FieldValue.serverTimestamp(),
+      //   });
+      // } else {
+      //   final imei = imei1Controller.text.trim();
+      //   if (imei.isNotEmpty) {
+      //     final querySnapshot = await _firestore
+      //         .collection('phoneStock')
+      //         .where('imei', isEqualTo: imei)
+      //         .where('status', isEqualTo: 'available')
+      //         .limit(1)
+      //         .get();
 
-          if (querySnapshot.docs.isNotEmpty) {
-            final docId = querySnapshot.docs.first.id;
-            await _firestore.collection('phoneStock').doc(docId).update({
-              'status': 'sold',
-              'soldAt': FieldValue.serverTimestamp(),
-              'soldTo': customerNameController.text,
-              'soldBillNo': 'MH-${billNoController.text}',
-              'soldAmount': double.parse(totalAmountController.text),
-              'soldShop': _selectedShop,
-              'soldBy': Provider.of<AuthProvider>(
-                context,
-                listen: false,
-              ).user?.email,
-              'updatedAt': FieldValue.serverTimestamp(),
-            });
-          }
-        }
-      }
+      //     if (querySnapshot.docs.isNotEmpty) {
+      //       final docId = querySnapshot.docs.first.id;
+      //       await _firestore.collection('phoneStock').doc(docId).update({
+      //         'status': 'sold',
+      //         'soldAt': FieldValue.serverTimestamp(),
+      //         'soldTo': customerNameController.text,
+      //         'soldBillNo': 'MH-${billNoController.text}',
+      //         'soldAmount': double.parse(totalAmountController.text),
+      //         'soldShop': _selectedShop,
+      //         'soldBy': Provider.of<AuthProvider>(
+      //           context,
+      //           listen: false,
+      //         ).user?.email,
+      //         'updatedAt': FieldValue.serverTimestamp(),
+      //       });
+      //     }
+      //   }
+      // }
 
-      await _saveBillRecord();
-      final pdf = await _generatePdf();
+      // // Save bill record
+      // await _saveBillRecord();
+
+      // Generate and print PDF
+      final pdfBytes = await _generatePdf();
 
       try {
         await Printing.layoutPdf(
-          onLayout: (PdfPageFormat format) async => pdf.save(),
+          onLayout: (PdfPageFormat format) async => pdfBytes,
         );
       } catch (e) {
         print('Printing error: $e');
+        // Still show success even if printing fails
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -227,7 +244,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
       );
 
       await Future.delayed(Duration(seconds: 1));
-      Navigator.pop(context, true);
+      // Navigator.pop(context, true);
     } catch (e) {
       print('Error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -334,519 +351,651 @@ class _BillFormScreenState extends State<BillFormScreen> {
       'Eighty',
       'Ninety',
     ];
-    List<String> thousands = ['', 'Thousand', 'Lakh', 'Crore'];
 
     String words = '';
-    int temp = number;
-    int index = 0;
 
-    while (temp > 0) {
-      int part = temp % 1000;
-      if (part > 0) {
-        String partWords = _convertThreeDigit(part);
-        if (thousands[index] != '') {
-          partWords += ' ${thousands[index]} ';
-        }
-        words = partWords + words;
+    if (number >= 10000000) {
+      words += _convertNumberToWords(number ~/ 10000000) + ' Crore ';
+      number %= 10000000;
+    }
+
+    if (number >= 100000) {
+      words += _convertNumberToWords(number ~/ 100000) + ' Lakh ';
+      number %= 100000;
+    }
+
+    if (number >= 1000) {
+      words += _convertNumberToWords(number ~/ 1000) + ' Thousand ';
+      number %= 1000;
+    }
+
+    if (number >= 100) {
+      words += _convertNumberToWords(number ~/ 100) + ' Hundred ';
+      number %= 100;
+    }
+
+    if (number > 0) {
+      if (words.isNotEmpty) {
+        words += 'and ';
       }
-      temp = temp ~/ 1000;
-      index++;
+
+      if (number < 10) {
+        words += units[number];
+      } else if (number < 20) {
+        words += teens[number - 10];
+      } else {
+        words += tens[number ~/ 10];
+        if (number % 10 > 0) {
+          words += ' ' + units[number % 10];
+        }
+      }
     }
 
     return words.trim();
   }
 
-  String _convertThreeDigit(int number) {
-    List<String> units = [
-      '',
-      'One',
-      'Two',
-      'Three',
-      'Four',
-      'Five',
-      'Six',
-      'Seven',
-      'Eight',
-      'Nine',
-    ];
-    List<String> teens = [
-      'Ten',
-      'Eleven',
-      'Twelve',
-      'Thirteen',
-      'Fourteen',
-      'Fifteen',
-      'Sixteen',
-      'Seventeen',
-      'Eighteen',
-      'Nineteen',
-    ];
-    List<String> tens = [
-      '',
-      '',
-      'Twenty',
-      'Thirty',
-      'Forty',
-      'Fifty',
-      'Sixty',
-      'Seventy',
-      'Eighty',
-      'Ninety',
-    ];
+  Future<Uint8List> _generatePdf() async {
+    print('Generating PDF - Logo loaded: ${_logoImage != null}');
+    print('Generating PDF - Seal loaded: ${_sealImage != null}');
 
-    String words = '';
-    int hundreds = number ~/ 100;
-    int remainder = number % 100;
-
-    if (hundreds > 0) {
-      words += '${units[hundreds]} Hundred ';
-    }
-
-    if (remainder > 0) {
-      if (remainder < 10) {
-        words += '${units[remainder]} ';
-      } else if (remainder < 20) {
-        words += '${teens[remainder - 10]} ';
-      } else {
-        words += '${tens[remainder ~/ 10]} ';
-        if (remainder % 10 > 0) {
-          words += '${units[remainder % 10]} ';
-        }
-      }
-    }
-
-    return words;
-  }
-
-  Future<pw.Document> _generatePdf() async {
     final pdf = pw.Document();
-    String currentDate =
-        '${DateTime.now().day} ${_getMonthName(DateTime.now().month)} ${DateTime.now().year}';
+    final PdfPageFormat pageFormat = PdfPageFormat.a4;
+
+    // Get current date
+    String currentDate = DateFormat('dd MMMM yyyy').format(DateTime.now());
 
     pdf.addPage(
       pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        margin: pw.EdgeInsets.all(20),
+        pageFormat: pageFormat,
+        margin: pw.EdgeInsets.all(15),
         build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              // GSTIN
-              pw.Text(
-                'GSTIN: 32BSGPJ3340H1Z4',
-                style: pw.TextStyle(
-                  fontSize: 9,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.SizedBox(height: 8),
-
-              // Logo and Shop Info
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.center,
-                children: [
-                  if (_logoImage != null)
-                    pw.Column(
-                      children: [
-                        pw.Image(pw.MemoryImage(_logoImage!), height: 35),
-                        pw.SizedBox(height: 4),
-                        _selectedShop == 'Peringottukara'
-                            ? pw.Column(
-                                children: [
-                                  pw.Text(
-                                    "3way junction Peringottukara",
-                                    style: pw.TextStyle(fontSize: 9),
-                                  ),
-                                  pw.SizedBox(height: 2),
-                                  pw.Text(
-                                    "Mob: 9072430483, 8304830868",
-                                    style: pw.TextStyle(fontSize: 9),
-                                  ),
-                                ],
-                              )
-                            : pw.Column(
-                                children: [
-                                  pw.Text(
-                                    "Cherpu, Thayamkulangara",
-                                    style: pw.TextStyle(fontSize: 9),
-                                  ),
-                                  pw.SizedBox(height: 2),
-                                  pw.Text(
-                                    "Mob: 9544466724",
-                                    style: pw.TextStyle(fontSize: 9),
-                                  ),
-                                ],
-                              ),
-                        pw.SizedBox(height: 2),
-                        pw.Text(
-                          "Mobile house",
-                          style: pw.TextStyle(fontSize: 9),
-                        ),
-                        pw.SizedBox(height: 2),
-                        pw.Text(
-                          "GST TAX INVOICE (TYPE-B2C) - CASH SALE",
-                          style: pw.TextStyle(fontSize: 7),
-                        ),
-                      ],
-                    )
-                  else
-                    pw.Text(
-                      'MOBILE HOUSE',
+          return pw.Container(
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.black, width: 1.0),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                // GSTIN at top
+                pw.Padding(
+                  padding: pw.EdgeInsets.all(8),
+                  child: pw.Center(
+                    child: pw.Text(
+                      'GSTIN: 32BSGPJ3340H1Z4',
                       style: pw.TextStyle(
-                        fontSize: 18,
+                        fontSize: 9,
                         fontWeight: pw.FontWeight.bold,
                       ),
                     ),
-                ],
-              ),
-              pw.SizedBox(height: 8),
+                  ),
+                ),
 
-              // Invoice Details
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        'STATE : KERALA',
-                        style: pw.TextStyle(
-                          fontWeight: pw.FontWeight.bold,
-                          fontSize: 8,
-                        ),
-                      ),
-                      pw.SizedBox(height: 3),
-                      pw.Text(
-                        'Invoice No. : MH-${billNoController.text}',
-                        style: pw.TextStyle(
-                          fontWeight: pw.FontWeight.bold,
-                          fontSize: 8,
-                          color: PdfColors.green,
-                        ),
-                      ),
-                    ],
-                  ),
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.end,
-                    children: [
-                      pw.Text(
-                        'STATE CODE : 32',
-                        style: pw.TextStyle(
-                          fontWeight: pw.FontWeight.bold,
-                          fontSize: 8,
-                        ),
-                      ),
-                      pw.SizedBox(height: 3),
-                      pw.Text(
-                        'Invoice Date : $currentDate',
-                        style: pw.TextStyle(
-                          fontWeight: pw.FontWeight.bold,
-                          fontSize: 8,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              pw.Divider(),
-              pw.SizedBox(height: 8),
+                pw.SizedBox(height: 2),
 
-              // Customer Details
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    'Customer  : ${customerNameController.text}',
-                    style: pw.TextStyle(
-                      fontWeight: pw.FontWeight.bold,
-                      fontSize: 9,
-                    ),
-                  ),
-                  pw.SizedBox(height: 4),
-                  pw.Row(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                // Header with Logo
+                pw.Padding(
+                  padding: pw.EdgeInsets.all(8),
+                  child: pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.center,
                     children: [
-                      pw.Text(
-                        'Address     :',
-                        style: pw.TextStyle(fontSize: 9),
-                      ),
-                      pw.SizedBox(width: 4),
-                      pw.Expanded(
-                        child: pw.Text(
-                          addressController.text,
-                          style: pw.TextStyle(fontSize: 9),
-                        ),
-                      ),
-                    ],
-                  ),
-                  pw.SizedBox(height: 4),
-                  pw.Text(
-                    'Mobile Tel  :  ${mobileNumberController.text}',
-                    style: pw.TextStyle(fontSize: 9),
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 8),
-
-              // Product Table
-              pw.Table(
-                border: pw.TableBorder.all(),
-                columnWidths: {
-                  0: pw.FlexColumnWidth(0.5),
-                  1: pw.FlexColumnWidth(2.5),
-                  2: pw.FlexColumnWidth(0.7),
-                  3: pw.FlexColumnWidth(0.7),
-                  4: pw.FlexColumnWidth(0.9),
-                  5: pw.FlexColumnWidth(0.7),
-                  6: pw.FlexColumnWidth(0.7),
-                  7: pw.FlexColumnWidth(0.9),
-                  8: pw.FlexColumnWidth(1.0),
-                },
-                children: [
-                  pw.TableRow(
-                    decoration: pw.BoxDecoration(color: PdfColors.grey100),
-                    children: [
-                      _buildTableCell('SLNO', true),
-                      _buildTableCell('Description', true),
-                      _buildTableCell('HSN', true),
-                      _buildTableCell('Qty', true),
-                      _buildTableCell('Rate', true),
-                      _buildTableCell('Disc', true),
-                      _buildTableCell('GST%', true),
-                      _buildTableCell('GST Amt', true),
-                      _buildTableCell('Total', true),
-                    ],
-                  ),
-                  pw.TableRow(
-                    children: [
-                      _buildTableCell('1', false),
-                      pw.Padding(
-                        padding: pw.EdgeInsets.all(3),
-                        child: pw.Column(
-                          crossAxisAlignment: pw.CrossAxisAlignment.start,
-                          children: [
+                      pw.Column(
+                        children: [
+                          if (_logoImage != null)
+                            pw.SizedBox(
+                              height: 40,
+                              child: pw.Image(
+                                pw.MemoryImage(_logoImage!),
+                                fit: pw.BoxFit.contain,
+                              ),
+                            )
+                          else
                             pw.Text(
-                              phoneModelController.text,
+                              'MOBILE HOUSE',
                               style: pw.TextStyle(
-                                fontSize: 9,
+                                fontSize: 14,
                                 fontWeight: pw.FontWeight.bold,
                               ),
                             ),
-                            pw.SizedBox(height: 1),
+                          pw.SizedBox(height: 2),
+
+                          // Shop address based on selection
+                          if (_selectedShop == 'Peringottukara')
                             pw.Text(
-                              'IMEI: ${imei1Controller.text}',
-                              style: pw.TextStyle(fontSize: 8),
+                              "3way junction Peringottukara",
+                              style: pw.TextStyle(fontSize: 9),
+                            )
+                          else if (_selectedShop == 'Cherpu')
+                            pw.Text(
+                              "Cherpu, Thayamkulangara",
+                              style: pw.TextStyle(fontSize: 9),
+                            ),
+
+                          pw.SizedBox(height: 2),
+                          pw.Text(
+                            _selectedShop == 'Peringottukara'
+                                ? "Mob: 9072430483, 8304830868"
+                                : "Mob: 9544466724",
+                            style: pw.TextStyle(fontSize: 9),
+                          ),
+                          pw.SizedBox(height: 2),
+                          pw.Text(
+                            "Mobile house",
+                            style: pw.TextStyle(fontSize: 9),
+                          ),
+                          pw.SizedBox(height: 2),
+                          pw.Text(
+                            "GST TAX INVOICE (TYPE-B2C) - CASH SALE",
+                            style: pw.TextStyle(fontSize: 7),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Divider that touches border
+                pw.Divider(color: PdfColors.black, thickness: 0.5, height: 0),
+
+                // State and Invoice Details
+                pw.Padding(
+                  padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text(
+                            'STATE : KERALA',
+                            style: pw.TextStyle(
+                              fontSize: 8,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
+                          pw.SizedBox(height: 6),
+                          pw.Text(
+                            'Invoice No. : MH-${billNoController.text}',
+                            style: pw.TextStyle(
+                              fontSize: 8,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.end,
+                        children: [
+                          pw.Text(
+                            'STATE CODE : 32',
+                            style: pw.TextStyle(
+                              fontSize: 8,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
+                          pw.SizedBox(height: 6),
+                          pw.Text(
+                            'Invoice Date : $currentDate',
+                            style: pw.TextStyle(
+                              fontSize: 8,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Divider that touches border
+                pw.Divider(color: PdfColors.black, thickness: 0.5, height: 0),
+
+                pw.SizedBox(height: 4),
+
+                // Customer Details with padding
+                pw.Padding(
+                  padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: pw.Container(
+                    padding: pw.EdgeInsets.all(6),
+
+                    width: pageFormat.width - 46,
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          'Customer  : ${customerNameController.text}',
+                          style: pw.TextStyle(
+                            fontSize: 9,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                        pw.SizedBox(height: 4),
+                        pw.Row(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            pw.Text(
+                              'Address     :',
+                              style: pw.TextStyle(fontSize: 9),
+                            ),
+                            pw.SizedBox(width: 4),
+                            pw.Expanded(
+                              child: pw.Text(
+                                addressController.text.isNotEmpty
+                                    ? addressController.text
+                                    : "N/A",
+                                style: pw.TextStyle(fontSize: 9),
+                                maxLines: 2,
+                              ),
                             ),
                           ],
                         ),
-                      ),
-                      _buildTableCell('8517', false),
-                      _buildTableCell('1', false),
-                      _buildTableCell(
-                        '₹${taxableAmountController.text}',
-                        false,
-                      ),
-                      _buildTableCell('₹0.00', false),
-                      _buildTableCell('18%', false),
-                      _buildTableCell('₹${gstAmountController.text}', false),
-                      _buildTableCell(
-                        '₹${totalAmountController.text}.00',
-                        false,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 8),
-
-              // Seal Image
-              if (_sealImage != null && _sealChecked)
-                pw.Align(
-                  alignment: pw.Alignment.centerRight,
-                  child: pw.Transform.rotate(
-                    angle: 25 * 3.14159 / 180,
-                    child: pw.Image(
-                      pw.MemoryImage(_sealImage!),
-                      width: 80,
-                      height: 80,
+                        pw.SizedBox(height: 4),
+                        pw.Text(
+                          'Mobile Tel  : ${mobileNumberController.text}',
+                          style: pw.TextStyle(fontSize: 9),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              pw.SizedBox(height: 8),
 
-              // Summary
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('Total', style: pw.TextStyle(fontSize: 9)),
-                  pw.Text('1', style: pw.TextStyle(fontSize: 9)),
-                  pw.Text(
-                    '₹${taxableAmountController.text}',
-                    style: pw.TextStyle(fontSize: 9),
-                  ),
-                  pw.Text(
-                    '₹${gstAmountController.text}',
-                    style: pw.TextStyle(fontSize: 9),
-                  ),
-                  pw.Text(
-                    '₹${totalAmountController.text}.00',
-                    style: pw.TextStyle(fontSize: 9),
-                  ),
-                ],
-              ),
-              pw.Divider(),
-              pw.SizedBox(height: 8),
+                pw.SizedBox(height: 4),
 
-              // Amount in Words
-              pw.Text(
-                'In Words: ${_amountToWords(totalAmountController.text)}',
-                style: pw.TextStyle(
-                  fontSize: 8,
-                  fontStyle: pw.FontStyle.italic,
-                ),
-              ),
-              pw.SizedBox(height: 16),
-
-              // GST Summary Table
-              pw.Table(
-                border: pw.TableBorder.all(),
-                columnWidths: {
-                  0: pw.FlexColumnWidth(1.5),
-                  1: pw.FlexColumnWidth(1),
-                  2: pw.FlexColumnWidth(1),
-                  3: pw.FlexColumnWidth(1),
-                  4: pw.FlexColumnWidth(1),
-                  5: pw.FlexColumnWidth(1),
-                },
-                children: [
-                  pw.TableRow(
-                    decoration: pw.BoxDecoration(color: PdfColors.grey100),
-                    children: [
-                      _buildTableCell('', true),
-                      _buildTableCell('GST 0%', true),
-                      _buildTableCell('GST 5%', true),
-                      _buildTableCell('GST 12%', true),
-                      _buildTableCell('GST 18%', true),
-                      _buildTableCell('GST 28%', true),
-                    ],
+                // Main Table
+                pw.Table(
+                  border: pw.TableBorder.all(
+                    color: PdfColors.black,
+                    width: 0.5,
                   ),
-                  pw.TableRow(
-                    children: [
-                      _buildTableCell('Taxable', false),
-                      _buildTableCell('0.00', false),
-                      _buildTableCell('0.00', false),
-                      _buildTableCell('0.00', false),
-                      _buildTableCell(taxableAmountController.text, false),
-                      _buildTableCell('0.00', false),
-                    ],
-                  ),
-                  pw.TableRow(
-                    children: [
-                      _buildTableCell('CGST Amt', false),
-                      _buildTableCell('0.00', false),
-                      _buildTableCell('0.00', false),
-                      _buildTableCell('0.00', false),
-                      _buildTableCell(
-                        (double.parse(gstAmountController.text) / 2)
-                            .toStringAsFixed(2),
-                        false,
-                      ),
-                      _buildTableCell('0.00', false),
-                    ],
-                  ),
-                  pw.TableRow(
-                    children: [
-                      _buildTableCell('SGST Amt', false),
-                      _buildTableCell('0.00', false),
-                      _buildTableCell('0.00', false),
-                      _buildTableCell('0.00', false),
-                      _buildTableCell(
-                        (double.parse(gstAmountController.text) / 2)
-                            .toStringAsFixed(2),
-                        false,
-                      ),
-                      _buildTableCell('0.00', false),
-                    ],
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 16),
-
-              // Footer
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        'Certified that the particulars given above are true and correct',
-                        style: pw.TextStyle(
-                          fontSize: 7,
-                          fontStyle: pw.FontStyle.italic,
+                  columnWidths: {
+                    0: pw.FixedColumnWidth(30), // SLNO
+                    1: pw.FlexColumnWidth(2.5), // Item
+                    2: pw.FixedColumnWidth(50), // HSN
+                    3: pw.FixedColumnWidth(25), // Qty
+                    4: pw.FixedColumnWidth(50), // Rate
+                    5: pw.FixedColumnWidth(50), // Disc
+                    6: pw.FixedColumnWidth(30), // GST%
+                    7: pw.FixedColumnWidth(50), // GST Amt
+                    8: pw.FixedColumnWidth(60), // Total
+                  },
+                  defaultVerticalAlignment:
+                      pw.TableCellVerticalAlignment.middle, // Center vertically
+                  children: [
+                    // Table Header
+                    pw.TableRow(
+                      decoration: pw.BoxDecoration(color: PdfColors.grey100),
+                      verticalAlignment: pw.TableCellVerticalAlignment.middle,
+                      children: [
+                        _buildTableCell('SLNO', isHeader: true),
+                        _buildTableCell(
+                          'Name of Item/Commodity',
+                          isHeader: true,
                         ),
-                      ),
+                        _buildTableCell('HSNCode', isHeader: true),
+                        _buildTableCell('Qty', isHeader: true),
+                        _buildTableCell('Total Rate', isHeader: true),
+                        _buildTableCell('Total Disc', isHeader: true),
+                        _buildTableCell('GST%', isHeader: true),
+                        _buildTableCell('GST Amt', isHeader: true),
+                        _buildTableCell('Total Amount', isHeader: true),
+                      ],
+                    ),
+
+                    // Product Row
+                    pw.TableRow(
+                      verticalAlignment: pw.TableCellVerticalAlignment.middle,
+                      children: [
+                        _buildTableCell('1'),
+                        _buildTableCell(
+                          '${phoneModelController.text.isNotEmpty ? phoneModelController.text : ""}\nIMEI: ${imei1Controller.text.isNotEmpty ? imei1Controller.text : ""}',
+                          textAlign: pw.TextAlign.left,
+                          fontSize: 7,
+                          maxLines: 3,
+                        ),
+                        _buildTableCell('8517'),
+                        _buildTableCell('1'),
+                        _buildTableCell(
+                          taxableAmountController.text.isNotEmpty
+                              ? '${taxableAmountController.text}'
+                              : "0.00",
+                        ),
+                        _buildTableCell('0.00'),
+                        _buildTableCell('18'),
+                        _buildTableCell(
+                          gstAmountController.text.isNotEmpty
+                              ? '${gstAmountController.text}'
+                              : "₹0.00",
+                        ),
+                        _buildTableCell(
+                          totalAmountController.text.isNotEmpty
+                              ? '${totalAmountController.text}'
+                              : '0.00',
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+
+                // Empty space for seal
+                pw.Container(
+                  height: 350,
+                  child: pw.Stack(
+                    children: [
+                      // Seal Image
+                      if (_sealImage != null && _sealChecked)
+                        pw.Positioned(
+                          right: 8,
+                          top: 140,
+                          child: pw.Transform.rotate(
+                            angle: 25 * 3.14159 / 180,
+                            child: pw.SizedBox(
+                              width: 60,
+                              height: 60,
+                              child: pw.Image(
+                                pw.MemoryImage(_sealImage!),
+                                fit: pw.BoxFit.contain,
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                ),
+
+                pw.SizedBox(height: 8),
+
+                // Total Section
+                pw.Divider(color: PdfColors.black, thickness: 0.5, height: 0),
+                pw.Padding(
+                  padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     children: [
                       pw.Text(
-                        'For MOBILE HOUSE',
+                        'Total',
                         style: pw.TextStyle(
                           fontSize: 9,
                           fontWeight: pw.FontWeight.bold,
                         ),
                       ),
-                      pw.SizedBox(height: 16),
-                      pw.Container(width: 120, child: pw.Divider()),
                       pw.Text(
-                        'Authorised Signatory',
-                        style: pw.TextStyle(fontSize: 9),
+                        '1',
+                        style: pw.TextStyle(
+                          fontSize: 9,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.Text(
+                        taxableAmountController.text.isNotEmpty
+                            ? '${taxableAmountController.text}'
+                            : '₹0.00',
+                        style: pw.TextStyle(
+                          fontSize: 9,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.Text(
+                        gstAmountController.text.isNotEmpty
+                            ? '${gstAmountController.text}'
+                            : '0.00',
+                        style: pw.TextStyle(
+                          fontSize: 9,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.Text(
+                        totalAmountController.text.isNotEmpty
+                            ? '${totalAmountController.text}'
+                            : '0.00',
+                        style: pw.TextStyle(
+                          fontSize: 9,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
                       ),
                     ],
                   ),
-                ],
-              ),
-            ],
+                ),
+                pw.Divider(color: PdfColors.black, thickness: 0.5, height: 0),
+
+                // Amount in Words
+                pw.Padding(
+                  padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'In Words: ${totalAmountController.text.isNotEmpty ? _amountToWords(totalAmountController.text) : ""}',
+                        style: pw.TextStyle(fontSize: 8),
+                        maxLines: 2,
+                      ),
+                      pw.SizedBox(height: 4),
+                      pw.Align(
+                        alignment: pw.Alignment.centerRight,
+                        child: pw.Text(
+                          'Total Amount: ${totalAmountController.text.isNotEmpty ? totalAmountController.text : "0.00"}',
+                          style: pw.TextStyle(
+                            fontSize: 9,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                pw.SizedBox(height: 4),
+
+                // Bottom Section
+                pw.Padding(
+                  padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: pw.Row(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      // GST Breakdown Table with padding
+                      pw.Expanded(
+                        flex: 2,
+                        child: pw.Container(
+                          padding: pw.EdgeInsets.all(2),
+                          decoration: pw.BoxDecoration(
+                            border: pw.Border.all(
+                              color: PdfColors.grey400,
+                              width: 0.5,
+                            ),
+                            borderRadius: pw.BorderRadius.circular(4),
+                          ),
+                          child: pw.Table(
+                            border: pw.TableBorder.all(
+                              color: PdfColors.grey400,
+                              width: 0.5,
+                            ),
+                            columnWidths: {
+                              0: pw.FixedColumnWidth(40),
+                              1: pw.FixedColumnWidth(35),
+                              2: pw.FixedColumnWidth(35),
+                              3: pw.FixedColumnWidth(35),
+                              4: pw.FixedColumnWidth(40),
+                              5: pw.FixedColumnWidth(40),
+                            },
+                            defaultVerticalAlignment:
+                                pw.TableCellVerticalAlignment.middle,
+                            children: [
+                              pw.TableRow(
+                                decoration: pw.BoxDecoration(
+                                  color: PdfColors.grey100,
+                                ),
+                                verticalAlignment:
+                                    pw.TableCellVerticalAlignment.middle,
+                                children: [
+                                  _buildTableCell(
+                                    '',
+                                    isHeader: true,
+                                    fontSize: 7,
+                                  ),
+                                  _buildTableCell(
+                                    'GST 0%',
+                                    isHeader: true,
+                                    fontSize: 7,
+                                  ),
+                                  _buildTableCell(
+                                    'GST 5%',
+                                    isHeader: true,
+                                    fontSize: 7,
+                                  ),
+                                  _buildTableCell(
+                                    'GST 12%',
+                                    isHeader: true,
+                                    fontSize: 7,
+                                  ),
+                                  _buildTableCell(
+                                    'GST 18%',
+                                    isHeader: true,
+                                    fontSize: 7,
+                                  ),
+                                  _buildTableCell(
+                                    'GST 28%',
+                                    isHeader: true,
+                                    fontSize: 7,
+                                  ),
+                                ],
+                              ),
+                              pw.TableRow(
+                                verticalAlignment:
+                                    pw.TableCellVerticalAlignment.middle,
+                                children: [
+                                  _buildTableCell('Taxable', fontSize: 7),
+                                  _buildTableCell('0.00', fontSize: 7),
+                                  _buildTableCell('0.00', fontSize: 7),
+                                  _buildTableCell('0.00', fontSize: 7),
+                                  _buildTableCell(
+                                    taxableAmountController.text.isNotEmpty
+                                        ? taxableAmountController.text
+                                        : "0.00",
+                                    fontSize: 7,
+                                  ),
+                                  _buildTableCell('0.00', fontSize: 7),
+                                ],
+                              ),
+                              pw.TableRow(
+                                verticalAlignment:
+                                    pw.TableCellVerticalAlignment.middle,
+                                children: [
+                                  _buildTableCell('CGST Amt', fontSize: 7),
+                                  _buildTableCell('0.00', fontSize: 7),
+                                  _buildTableCell('0.00', fontSize: 7),
+                                  _buildTableCell('0.00', fontSize: 7),
+                                  _buildTableCell(
+                                    gstAmountController.text.isNotEmpty
+                                        ? (double.parse(
+                                                    gstAmountController.text,
+                                                  ) /
+                                                  2)
+                                              .toStringAsFixed(2)
+                                        : "0.00",
+                                    fontSize: 7,
+                                  ),
+                                  _buildTableCell('0.00', fontSize: 7),
+                                ],
+                              ),
+                              pw.TableRow(
+                                verticalAlignment:
+                                    pw.TableCellVerticalAlignment.middle,
+                                children: [
+                                  _buildTableCell('SGST Amt', fontSize: 7),
+                                  _buildTableCell('0.00', fontSize: 7),
+                                  _buildTableCell('0.00', fontSize: 7),
+                                  _buildTableCell('0.00', fontSize: 7),
+                                  _buildTableCell(
+                                    gstAmountController.text.isNotEmpty
+                                        ? (double.parse(
+                                                    gstAmountController.text,
+                                                  ) /
+                                                  2)
+                                              .toStringAsFixed(2)
+                                        : "0.00",
+                                    fontSize: 7,
+                                  ),
+                                  _buildTableCell('0.00', fontSize: 7),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      pw.SizedBox(width: 10),
+
+                      // Authorized Signatory
+                      pw.Expanded(
+                        flex: 1,
+                        child: pw.Container(
+                          padding: pw.EdgeInsets.all(6),
+
+                          child: pw.Column(
+                            crossAxisAlignment: pw.CrossAxisAlignment.end,
+                            children: [
+                              pw.Text(
+                                'Certified that the particulars given above are true and correct',
+                                style: pw.TextStyle(
+                                  fontSize: 7,
+                                  fontStyle: pw.FontStyle.italic,
+                                ),
+                                textAlign: pw.TextAlign.right,
+                              ),
+                              pw.SizedBox(height: 15),
+                              pw.Text(
+                                'For MOBILE HOUSE',
+                                style: pw.TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: pw.FontWeight.bold,
+                                ),
+                              ),
+                              pw.SizedBox(height: 8),
+                              pw.Divider(
+                                color: PdfColors.black,
+                                thickness: 0.5,
+                              ),
+                              pw.SizedBox(height: 5),
+                              pw.Text(
+                                'Authorised Signatory',
+                                style: pw.TextStyle(fontSize: 8),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           );
         },
       ),
     );
 
-    return pdf;
+    return pdf.save();
   }
 
-  pw.Widget _buildTableCell(String text, bool isHeader) {
-    return pw.Padding(
-      padding: pw.EdgeInsets.all(3),
+  // Updated _buildTableCell function with more parameters for better control
+  pw.Widget _buildTableCell(
+    String text, {
+    bool isHeader = false,
+    double fontSize = 8,
+    pw.TextAlign textAlign = pw.TextAlign.center,
+    int maxLines = 1,
+  }) {
+    return pw.Container(
+      alignment: pw.Alignment.center,
+      padding: pw.EdgeInsets.symmetric(horizontal: 2, vertical: 4),
       child: pw.Text(
         text,
         style: pw.TextStyle(
-          fontSize: 9,
+          fontSize: fontSize,
           fontWeight: isHeader ? pw.FontWeight.bold : pw.FontWeight.normal,
         ),
-        textAlign: pw.TextAlign.center,
+        textAlign: textAlign,
+        maxLines: maxLines,
       ),
     );
-  }
-
-  String _getMonthName(int month) {
-    List<String> months = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
-    ];
-    return months[month - 1];
   }
 
   @override
