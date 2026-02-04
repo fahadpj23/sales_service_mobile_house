@@ -15,6 +15,7 @@ import 'admin/sales/phone_sales_details_screen.dart';
 import 'admin/sales/phone_sales_reports_screen.dart';
 import 'admin/sales/accessories_service_report_screen.dart';
 import 'admin/inventory/inventory_details_screen.dart';
+import 'admin/inventory/brand_details_screen.dart';
 import 'admin/reports/specific_report_screen.dart';
 import 'admin/reports/shop_wise_report_screen.dart';
 import 'admin/reports/category_details_screen.dart';
@@ -1511,6 +1512,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   builder: (context) => InventoryDetailsScreen(
                     shops: shops,
                     formatNumber: _formatNumber,
+                  ),
+                ),
+              );
+            },
+          ),
+          _buildDrawerItem(
+            Icons.branding_watermark,
+            'Brand Details',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => BrandDetailsScreen(
+                    formatNumber: _formatNumber,
+                    // You can optionally pass shopId and shopName to filter by specific shop
+                    // shopId: 'specific_shop_id',
+                    // shopName: 'specific_shop_name',
                   ),
                 ),
               );
