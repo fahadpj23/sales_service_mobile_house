@@ -34,9 +34,9 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   double? _newProductPrice;
   int? _quantity;
   List<String> _imeiNumbers = [];
-  List<TextEditingController> _imeiControllers = [];
+  final List<TextEditingController> _imeiControllers = [];
 
-  List<String> _brands = [
+  final List<String> _brands = [
     'Samsung',
     'Oppo',
     'Vivo',
@@ -47,7 +47,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     'Google',
     'OnePlus',
   ];
-  Map<String, List<Map<String, dynamic>>> _productsByBrand = {};
+  final Map<String, List<Map<String, dynamic>>> _productsByBrand = {};
   bool _isLoading = false;
   bool _showAddProductForm = false;
   bool _showAddStockModal = false;
@@ -81,11 +81,12 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   List<Map<String, dynamic>> _filterStocksBySearch(
     List<QueryDocumentSnapshot> stocks,
   ) {
-    if (_searchQuery.isEmpty)
+    if (_searchQuery.isEmpty) {
       return stocks.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
         return {...data, 'id': doc.id}; // Ensure ID is always included
       }).toList();
+    }
 
     final query = _searchQuery.toLowerCase().trim();
     final result = <Map<String, dynamic>>[];
@@ -223,7 +224,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       final snapshot = await _firestore.collection('Mobile_house_Shops').get();
       setState(() {
         _shops = snapshot.docs.map((doc) {
-          final data = doc.data() as Map<String, dynamic>;
+          final data = doc.data();
           return {
             'id': doc.id,
             'name': data['shopName'] ?? 'Unknown Shop',
@@ -246,7 +247,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       _productsByBrand.clear();
 
       for (var doc in snapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
+        final data = doc.data();
         final brand = data['brand'] as String?;
         final productName = data['productName'] as String?;
         final price = data['price'];
@@ -607,9 +608,9 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
       final shopId = user.shopId?.trim() ?? 'unknown_shop';
       final shopName =
-          user.shopName?.trim() ?? user.name?.trim() ?? 'Unknown Shop';
+          user.shopName?.trim() ?? user.name.trim() ?? 'Unknown Shop';
       final uploadedBy =
-          user.email?.trim() ?? user.name?.trim() ?? 'Unknown User';
+          user.email.trim() ?? user.name.trim() ?? 'Unknown User';
       final uploadedById = user.uid;
 
       try {
@@ -1370,9 +1371,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               horizontal: 12,
               vertical: 12,
             ),
-            hintText: _selectedProduct != null
-                ? _selectedProduct
-                : 'Search or select product',
+            hintText: _selectedProduct ?? 'Search or select product',
           ),
           style: const TextStyle(fontSize: 12, color: Colors.black),
           onChanged: (value) {
@@ -3294,7 +3293,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                         color: Colors.white,
                         child: Column(
                           children: [
-                            Container(
+                            SizedBox(
                               width: double.infinity,
                               height: 40,
                               child: TabBar(

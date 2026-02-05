@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../providers/auth_provider.dart';
+import './phone_stock_screen.dart';
 
 class BillFormScreen extends StatefulWidget {
   final Map<String, dynamic>? phoneData;
@@ -208,9 +209,14 @@ class _BillFormScreenState extends State<BillFormScreen> {
           ),
         );
 
-        // Navigate back after successful operation
+        // Navigate back to PhoneStockScreen after successful operation
         await Future.delayed(Duration(seconds: 2));
-        // Navigator.pop(context, true);
+
+        // Clear all routes and go to PhoneStockScreen
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => PhoneStockScreen()),
+          (route) => false,
+        );
       }
     } catch (e) {
       print('Error: $e');
