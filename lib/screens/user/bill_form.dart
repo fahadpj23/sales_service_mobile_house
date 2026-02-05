@@ -1,13 +1,15 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf/pdf.dart';
-import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../providers/auth_provider.dart';
 
 class BillFormScreen extends StatefulWidget {
@@ -188,26 +190,27 @@ class _BillFormScreenState extends State<BillFormScreen> {
       setState(() => _isLoading = true);
 
       // Mark phone as sold in inventory
-      await _markPhoneAsSold();
+      // await _markPhoneAsSold();
 
-      // Save bill record
-      await _saveBillRecord();
+      // // Save bill record
+      // await _saveBillRecord();
 
       // Generate and save PDF
       final pdfBytes = await _generatePdf();
-      await _savePdfToStorage(pdfBytes);
+      final filePath = await _savePdfToStorage(pdfBytes);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Bill created successfully!'),
+            content: Text('Bill created and saved to: $filePath'),
             backgroundColor: Colors.green,
+            duration: Duration(seconds: 5),
           ),
         );
 
         // Navigate back after successful operation
-        await Future.delayed(Duration(seconds: 1));
-        Navigator.pop(context, true);
+        await Future.delayed(Duration(seconds: 2));
+        // Navigator.pop(context, true);
       }
     } catch (e) {
       print('Error: $e');
@@ -294,15 +297,69 @@ class _BillFormScreenState extends State<BillFormScreen> {
     await _firestore.collection('bills').add(billData);
   }
 
-  Future<void> _savePdfToStorage(Uint8List pdfBytes) async {
-    // You can implement PDF saving logic here
-    // Options:
-    // 1. Save to device storage using path_provider
-    // 2. Upload to Firebase Storage
-    // 3. Share via share_plus package
+  Future<String> _savePdfToStorage(Uint8List pdfBytes) async {
+    try {
+      // Request storage permission for Android
+      if (Platform.isAndroid) {
+        final status = await Permission.storage.status;
+        if (status != PermissionStatus.granted) {
+          await Permission.storage.request();
+        }
+      }
 
-    print('PDF generated: ${pdfBytes.length} bytes');
-    // Add your PDF saving logic here
+      // Get directory based on platform
+      Directory directory;
+      if (Platform.isAndroid) {
+        // For Android, use Downloads directory
+        directory = Directory('/storage/emulated/0/Download');
+        if (!await directory.exists()) {
+          directory = (await getExternalStorageDirectory())!;
+        }
+      } else {
+        // For iOS, use Documents directory
+        directory = await getApplicationDocumentsDirectory();
+      }
+
+      // Create MobileHouse folder if it doesn't exist
+      final mobileHouseDir = Directory('${directory.path}/MobileHouse');
+      if (!await mobileHouseDir.exists()) {
+        await mobileHouseDir.create(recursive: true);
+      }
+
+      // Generate filename
+      final billNo = billNoController.text;
+      final customerName = customerNameController.text
+          .replaceAll(RegExp(r'[^\w\s-]'), '_')
+          .replaceAll(' ', '_');
+      final fileName = 'MH_${billNo}_${customerName}.pdf';
+
+      final filePath = '${mobileHouseDir.path}/$fileName';
+      final file = File(filePath);
+
+      // Save PDF
+      await file.writeAsBytes(pdfBytes);
+
+      print('PDF saved at: $filePath');
+
+      // Return simplified path for display
+      if (Platform.isAndroid) {
+        return '/Download/MobileHouse/$fileName';
+      } else {
+        return '/Documents/MobileHouse/$fileName';
+      }
+    } catch (e) {
+      print('Error saving PDF: $e');
+      // If saving to Download fails, try app directory
+      try {
+        final appDir = await getApplicationDocumentsDirectory();
+        final fileName = 'MH_${billNoController.text}.pdf';
+        final file = File('${appDir.path}/$fileName');
+        await file.writeAsBytes(pdfBytes);
+        return '/Documents/$fileName';
+      } catch (e2) {
+        rethrow;
+      }
+    }
   }
 
   // Amount conversion methods remain the same
@@ -482,12 +539,14 @@ class _BillFormScreenState extends State<BillFormScreen> {
       children: [
         pw.Padding(
           padding: pw.EdgeInsets.all(8),
-          child: pw.Text(
-            'GSTIN: 32BSGPJ3340H1Z4',
-            style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+          child: pw.Align(
+            alignment: pw.Alignment.centerLeft,
+            child: pw.Text(
+              'GSTIN: 32BSGPJ3340H1Z4',
+              style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+            ),
           ),
         ),
-
         pw.Padding(
           padding: pw.EdgeInsets.all(8),
           child: pw.Row(
@@ -687,7 +746,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
             ),
             _buildTableCell(
               totalAmountController.text.isNotEmpty
-                  ? '${totalAmountController.text}.00'
+                  ? '${totalAmountController.text}'
                   : '0.00',
             ),
           ],
@@ -740,7 +799,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
               ),
               pw.Text(
                 totalAmountController.text.isNotEmpty
-                    ? '${totalAmountController.text}.00'
+                    ? '${totalAmountController.text}'
                     : '0.00',
                 style: pw.TextStyle(
                   fontSize: 11,
@@ -766,7 +825,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
               pw.Align(
                 alignment: pw.Alignment.centerRight,
                 child: pw.Text(
-                  'Total Amount: ${totalAmountController.text.isNotEmpty ? '${totalAmountController.text}.00' : "0.00"}',
+                  'Total Amount: ${totalAmountController.text.isNotEmpty ? '${totalAmountController.text}' : "0.00"}',
                   style: pw.TextStyle(
                     fontSize: 11,
                     fontWeight: pw.FontWeight.bold,
