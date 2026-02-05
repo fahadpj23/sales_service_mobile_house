@@ -190,10 +190,10 @@ class _BillFormScreenState extends State<BillFormScreen> {
       setState(() => _isLoading = true);
 
       // Mark phone as sold in inventory
-      // await _markPhoneAsSold();
+      await _markPhoneAsSold();
 
-      // // Save bill record
-      // await _saveBillRecord();
+      // Save bill record
+      await _saveBillRecord();
 
       // Generate and save PDF
       final pdfBytes = await _generatePdf();
