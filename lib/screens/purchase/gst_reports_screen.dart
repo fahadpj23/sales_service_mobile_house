@@ -12,7 +12,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:open_file/open_file.dart';
 
 class GSTReportsScreen extends StatefulWidget {
-  const GSTReportsScreen({Key? key}) : super(key: key);
+  const GSTReportsScreen({super.key});
 
   @override
   State<GSTReportsScreen> createState() => _GSTReportsScreenState();
