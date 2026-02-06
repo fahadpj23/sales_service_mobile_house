@@ -10,8 +10,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../providers/auth_provider.dart';
-import './phone_stock_screen.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 
 class BillFormScreen extends StatefulWidget {
   final Map<String, dynamic>? phoneData;
@@ -47,6 +48,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
   final List<String> _shopOptions = ['Peringottukara', 'Cherpu'];
   Uint8List? _logoImage;
   Uint8List? _sealImage;
+  File? _savedPdfFile; // Store the saved PDF file
 
   @override
   void initState() {
@@ -193,30 +195,31 @@ class _BillFormScreenState extends State<BillFormScreen> {
       // Mark phone as sold in inventory
       await _markPhoneAsSold();
 
-      // Save bill record
+      // // Save bill record
       await _saveBillRecord();
 
       // Generate and save PDF
       final pdfBytes = await _generatePdf();
       final filePath = await _savePdfToStorage(pdfBytes);
 
+      // Store file reference
+      final pdfFile = File(filePath);
+      setState(() {
+        _savedPdfFile = pdfFile;
+      });
+
       if (mounted) {
+        // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Bill created and saved to: $filePath'),
+            content: Text('Bill created successfully!'),
             backgroundColor: Colors.green,
-            duration: Duration(seconds: 5),
+            duration: Duration(seconds: 3),
           ),
         );
 
-        // Navigate back to PhoneStockScreen after successful operation
-        await Future.delayed(Duration(seconds: 2));
-
-        // Clear all routes and go to PhoneStockScreen
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => PhoneStockScreen()),
-          (route) => false,
-        );
+        // Auto-share the PDF
+        await _sharePdf(pdfFile);
       }
     } catch (e) {
       print('Error: $e');
@@ -305,28 +308,55 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
   Future<String> _savePdfToStorage(Uint8List pdfBytes) async {
     try {
-      // Request storage permission for Android
+      // For Android 13+, use MediaStore API or SAF
       if (Platform.isAndroid) {
-        final status = await Permission.storage.status;
-        if (status != PermissionStatus.granted) {
+        // Check and request permissions
+        Map<Permission, PermissionStatus> statuses = await [
+          Permission.storage,
+          Permission.manageExternalStorage,
+        ].request();
+
+        // For Android 10 and below, check storage permission
+        if (await Permission.storage.isGranted == false) {
           await Permission.storage.request();
+        }
+
+        // For Android 11+, check manage external storage
+        if (Platform.isAndroid &&
+            await DeviceInfoPlugin().androidInfo.then(
+                  (info) => info.version.sdkInt,
+                ) >=
+                30) {
+          if (await Permission.manageExternalStorage.isGranted == false) {
+            await Permission.manageExternalStorage.request();
+          }
         }
       }
 
-      // Get directory based on platform
+      // Get directory
       Directory directory;
       if (Platform.isAndroid) {
-        // For Android, use Downloads directory
-        directory = Directory('/storage/emulated/0/Download');
-        if (!await directory.exists()) {
-          directory = (await getExternalStorageDirectory())!;
+        // Try different directories
+        try {
+          // First try Downloads directory
+          directory = Directory('/storage/emulated/0/Download');
+          if (!await directory.exists()) {
+            directory = Directory('/storage/emulated/0/Downloads');
+            if (!await directory.exists()) {
+              directory =
+                  await getExternalStorageDirectory() ??
+                  await getApplicationDocumentsDirectory();
+            }
+          }
+        } catch (e) {
+          directory = await getApplicationDocumentsDirectory();
         }
       } else {
         // For iOS, use Documents directory
         directory = await getApplicationDocumentsDirectory();
       }
 
-      // Create MobileHouse folder if it doesn't exist
+      // Create MobileHouse folder
       final mobileHouseDir = Directory('${directory.path}/MobileHouse');
       if (!await mobileHouseDir.exists()) {
         await mobileHouseDir.create(recursive: true);
@@ -343,32 +373,70 @@ class _BillFormScreenState extends State<BillFormScreen> {
       final file = File(filePath);
 
       // Save PDF
-      await file.writeAsBytes(pdfBytes);
+      await file.writeAsBytes(pdfBytes, flush: true);
 
       print('PDF saved at: $filePath');
-
-      // Return simplified path for display
-      if (Platform.isAndroid) {
-        return '/Download/MobileHouse/$fileName';
-      } else {
-        return '/Documents/MobileHouse/$fileName';
-      }
+      return filePath;
     } catch (e) {
       print('Error saving PDF: $e');
-      // If saving to Download fails, try app directory
+      // Fallback to app directory
       try {
         final appDir = await getApplicationDocumentsDirectory();
         final fileName = 'MH_${billNoController.text}.pdf';
-        final file = File('${appDir.path}/$fileName');
-        await file.writeAsBytes(pdfBytes);
-        return '/Documents/$fileName';
+        final filePath = '${appDir.path}/$fileName';
+        final file = File(filePath);
+        await file.writeAsBytes(pdfBytes, flush: true);
+        return filePath;
       } catch (e2) {
         rethrow;
       }
     }
   }
 
-  // Amount conversion methods remain the same
+  // Method to share PDF
+  Future<void> _sharePdf(File pdfFile) async {
+    try {
+      if (!await pdfFile.exists()) {
+        throw Exception('PDF file not found');
+      }
+
+      final fileName = pdfFile.path.split('/').last;
+
+      // Share the file using share_plus
+      await Share.shareXFiles(
+        [XFile(pdfFile.path, mimeType: 'application/pdf', name: fileName)],
+        text: 'Mobile House Bill - ${customerNameController.text}',
+        subject: 'Mobile House Bill - MH-${billNoController.text}',
+      );
+    } catch (e) {
+      print('Error sharing PDF: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error sharing PDF: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // Method to share saved PDF (if exists)
+  Future<void> _shareSavedPdf() async {
+    if (_savedPdfFile == null || !await _savedPdfFile!.exists()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No PDF file found. Please create a bill first.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    await _sharePdf(_savedPdfFile!);
+  }
+
+  // Amount conversion methods
   String _amountToWords(String amount) {
     try {
       double value = double.parse(amount);
@@ -1050,8 +1118,24 @@ class _BillFormScreenState extends State<BillFormScreen> {
           icon: Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
+        actions: [
+          if (_savedPdfFile != null)
+            IconButton(
+              icon: Icon(Icons.share, color: Colors.white),
+              onPressed: _shareSavedPdf,
+              tooltip: 'Share Last Bill',
+            ),
+        ],
       ),
       body: _isScanning ? _buildScanner() : _buildForm(),
+      floatingActionButton: _savedPdfFile != null
+          ? FloatingActionButton(
+              onPressed: _shareSavedPdf,
+              backgroundColor: Colors.blue,
+              child: Icon(Icons.share, color: Colors.white),
+              tooltip: 'Share Bill',
+            )
+          : null,
     );
   }
 
@@ -1116,6 +1200,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
             _buildInputCard(),
             SizedBox(height: 16),
             _buildActionButton(),
+            SizedBox(height: 16),
+            if (_savedPdfFile != null) _buildShareButton(),
             SizedBox(height: 20),
           ],
         ),
@@ -1444,6 +1530,38 @@ class _BillFormScreenState extends State<BillFormScreen> {
           ),
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.green[700],
+            foregroundColor: Colors.white,
+            padding: EdgeInsets.symmetric(vertical: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            elevation: 0,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShareButton() {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.blue.withOpacity(0.2),
+            blurRadius: 8,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: SizedBox(
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          onPressed: _shareSavedPdf,
+          icon: Icon(Icons.share, size: 22),
+          label: Text('Share Bill Again', style: TextStyle(fontSize: 16)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blue[700],
             foregroundColor: Colors.white,
             padding: EdgeInsets.symmetric(vertical: 16),
             shape: RoundedRectangleBorder(
