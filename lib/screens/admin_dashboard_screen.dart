@@ -2,45 +2,44 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
+import 'package:sales_stock/screens/admin/analysis/downpayment_benefit_screen.dart';
+import 'package:sales_stock/screens/admin/analysis/exchange_analysis_screen.dart';
 import 'package:sales_stock/screens/login_screen.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../services/auth_service.dart';
 import '../../../models/sale.dart';
 import 'dart:async';
 
-// Import all screen files
 import 'admin/sales/sales_details_screen.dart.dart';
 import 'admin/sales/transactions_details_screen.dart';
 import 'admin/sales/phone_sales_details_screen.dart';
 import 'admin/sales/phone_sales_reports_screen.dart';
 import 'admin/sales/accessories_service_report_screen.dart';
 import 'admin/inventory/inventory_details_screen.dart';
-import 'admin/inventory/brand_details_screen.dart';
 import 'admin/reports/specific_report_screen.dart';
 import 'admin/reports/shop_wise_report_screen.dart';
 import 'admin/reports/category_details_screen.dart';
 import '../../models/sale.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
+  const AdminDashboardScreen({super.key});
+
   @override
   _AdminDashboardScreenState createState() => _AdminDashboardScreenState();
 }
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
-  DateTime _selectedDate = DateTime.now();
+  final DateTime _selectedDate = DateTime.now();
   String _timePeriod = 'monthly';
   bool _isLoading = true;
   final authService = AuthService();
 
-  // Custom date range variables
   DateTime? _customStartDate;
   DateTime? _customEndDate;
   bool _isCustomPeriod = false;
 
-  // Firebase instances
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Collections
   final CollectionReference accessoriesServiceSales = FirebaseFirestore.instance
       .collection('accessories_service_sales');
   final CollectionReference baseModelSales = FirebaseFirestore.instance
@@ -53,7 +52,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   final CollectionReference shopsCollection = FirebaseFirestore.instance
       .collection('Mobile_house_Shops');
 
-  // Green color scheme
   final Color primaryGreen = Color(0xFF0A4D2E);
   final Color secondaryGreen = Color(0xFF1A7D4A);
   final Color accentGreen = Color(0xFF28A745);
@@ -62,38 +60,29 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   final Color warningColor = Color(0xFFFFC107);
   final Color dangerColor = Color(0xFFDC3545);
 
-  // Data lists
   List<Sale> allSales = [];
   List<Map<String, dynamic>> shops = [];
 
-  // Timer for auto refresh
   Timer? _autoRefreshTimer;
 
   @override
   void initState() {
     super.initState();
     _fetchAllData();
-
-    // Start auto refresh timer - refresh every 1 hour
     _startAutoRefreshTimer();
   }
 
   @override
   void dispose() {
-    // Cancel timer when widget is disposed
     _autoRefreshTimer?.cancel();
     super.dispose();
   }
 
   void _startAutoRefreshTimer() {
-    // Cancel existing timer if any
     _autoRefreshTimer?.cancel();
-
-    // Create new timer that fires every 1 hour
     _autoRefreshTimer = Timer.periodic(Duration(hours: 1), (timer) {
       if (mounted) {
         _fetchAllData();
-        print('Auto-refresh triggered at ${DateTime.now()}');
       }
     });
   }
@@ -104,11 +93,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     });
 
     try {
-      // Clear existing data before fetching new data
       allSales.clear();
       shops.clear();
 
-      // Fetch all data concurrently
       await Future.wait([
         _fetchAccessoriesServiceSales(),
         _fetchBaseModelSales(),
@@ -117,21 +104,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         _fetchShops(),
       ]);
 
-      // Sort all sales by date (newest first)
       allSales.sort((a, b) => b.date.compareTo(a.date));
 
       setState(() {
         _isLoading = false;
       });
     } catch (e) {
-      print('Error fetching data: $e');
       setState(() {
         _isLoading = false;
       });
-      // Show error snackbar
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error loading data: $e'),
+          content: Text('Error loading data'),
           backgroundColor: dangerColor,
           duration: Duration(seconds: 3),
         ),
@@ -146,7 +130,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       for (var doc in snapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
 
-        // Parse date
         DateTime saleDate;
         if (data['date'] is Timestamp) {
           saleDate = (data['date'] as Timestamp).toDate();
@@ -187,9 +170,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
         );
       }
-    } catch (e) {
-      print('Error fetching accessories service sales: $e');
-    }
+    } catch (e) {}
   }
 
   Future<void> _fetchBaseModelSales() async {
@@ -199,7 +180,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       for (var doc in snapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
 
-        // Parse date
         DateTime saleDate;
         if (data['timestamp'] != null) {
           saleDate = DateTime.fromMillisecondsSinceEpoch(data['timestamp']);
@@ -232,9 +212,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
         );
       }
-    } catch (e) {
-      print('Error fetching base model sales: $e');
-    }
+    } catch (e) {}
   }
 
   Future<void> _fetchPhoneSales() async {
@@ -244,7 +222,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       for (var doc in snapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
 
-        // Parse date
         DateTime saleDate;
         if (data['saleDate'] is Timestamp) {
           saleDate = (data['saleDate'] as Timestamp).toDate();
@@ -254,45 +231,107 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           saleDate = DateTime.now();
         }
 
+        DateTime? addedAt;
+        if (data['addedAt'] is Timestamp) {
+          addedAt = (data['addedAt'] as Timestamp).toDate();
+        }
+
+        DateTime? createdAt;
+        if (data['createdAt'] is Timestamp) {
+          createdAt = (data['createdAt'] as Timestamp).toDate();
+        }
+
+        DateTime? updatedAt;
+        if (data['updatedAt'] is Timestamp) {
+          updatedAt = (data['updatedAt'] as Timestamp).toDate();
+        }
+
         final effectivePrice = (data['effectivePrice'] ?? 0).toDouble();
 
-        allSales.add(
-          Sale(
-            id: doc.id,
-            type: 'phone_sale',
-            shopName: data['shopName'] ?? 'Unknown Shop',
-            shopId: data['shopId'] ?? '',
-            amount: effectivePrice,
-            date: saleDate,
-            customerName: data['customerName'] ?? 'Unknown Customer',
-            category: 'New Phone',
-            itemName: data['productModel'] ?? 'New Phone',
-            brand: data['brand'] ?? '',
-            model: data['productModel'] ?? '',
-            cashAmount: (data['paymentBreakdown']?['cash'] ?? 0).toDouble(),
-            cardAmount: (data['paymentBreakdown']?['card'] ?? 0).toDouble(),
-            downPayment: (data['downPayment'] ?? 0).toDouble(),
-            financeType: data['financeType'],
-            purchaseMode: data['purchaseMode'],
-            salesPersonEmail: data['userEmail'] ?? 'Unknown',
-            customerPhone: data['customerPhone'] ?? '',
-            imei: data['imei'] ?? '',
-            discount: (data['discount'] ?? 0).toDouble(),
-            exchangeValue: (data['exchangeValue'] ?? 0).toDouble(),
-            amountToPay: (data['amountToPay'] ?? 0).toDouble(),
-            balanceReturnedToCustomer: (data['balanceReturnedToCustomer'] ?? 0)
-                .toDouble(),
-            customerCredit: (data['customerCredit'] ?? 0).toDouble(),
-            gpayAmount: (data['paymentBreakdown']?['gpay'] ?? 0).toDouble(),
-            addedAt: (data['createdAt'] is Timestamp)
-                ? (data['createdAt'] as Timestamp).toDate()
-                : saleDate,
-          ),
+        Map<String, dynamic>? paymentBreakdown;
+        if (data.containsKey('paymentBreakdown') &&
+            data['paymentBreakdown'] is Map) {
+          paymentBreakdown = Map<String, dynamic>.from(
+            data['paymentBreakdown'],
+          );
+        }
+
+        Map<String, dynamic>? paymentBreakdownVerified;
+        if (data.containsKey('paymentBreakdownVerified') &&
+            data['paymentBreakdownVerified'] is Map) {
+          paymentBreakdownVerified = Map<String, dynamic>.from(
+            data['paymentBreakdownVerified'],
+          );
+        }
+
+        bool hasDisbursementAmount = data.containsKey('disbursementAmount');
+        double disbursementAmountValue = hasDisbursementAmount
+            ? (data['disbursementAmount'] ?? 0).toDouble()
+            : 0.0;
+
+        Sale sale = Sale(
+          id: doc.id,
+          type: 'phone_sale',
+          shopName: data['shopName'] ?? 'Unknown Shop',
+          shopId: data['shopId'] ?? '',
+          amount: effectivePrice,
+          date: saleDate,
+          customerName: data['customerName'] ?? 'Unknown Customer',
+          category: 'New Phone',
+          itemName: data['productModel'] ?? 'New Phone',
+          brand: data['brand'] ?? '',
+          price: (data['price'] ?? 0).toDouble(),
+          disbursementAmount: disbursementAmountValue,
+          model: data['productModel'] ?? '',
+          cashAmount: paymentBreakdown?['cash'] != null
+              ? (paymentBreakdown!['cash']).toDouble()
+              : 0.0,
+          cardAmount: paymentBreakdown?['card'] != null
+              ? (paymentBreakdown!['card']).toDouble()
+              : 0.0,
+          gpayAmount: paymentBreakdown?['gpay'] != null
+              ? (paymentBreakdown!['gpay']).toDouble()
+              : 0.0,
+          downPayment: data.containsKey('downPayment')
+              ? (data['downPayment'] ?? 0).toDouble()
+              : 0.0,
+          financeType: data['financeType']?.toString(),
+          purchaseMode: data['purchaseMode']?.toString(),
+          salesPersonEmail: data['userEmail'] ?? 'Unknown',
+          customerPhone: data['customerPhone']?.toString() ?? '',
+          imei: data['imei']?.toString() ?? '',
+          discount: data.containsKey('discount')
+              ? (data['discount'] ?? 0).toDouble()
+              : 0.0,
+          exchangeValue: data.containsKey('exchangeValue')
+              ? (data['exchangeValue'] ?? 0).toDouble()
+              : 0.0,
+          amountToPay: data.containsKey('amountToPay')
+              ? (data['amountToPay'] ?? 0).toDouble()
+              : 0.0,
+          balanceReturnedToCustomer:
+              data.containsKey('balanceReturnedToCustomer')
+              ? (data['balanceReturnedToCustomer'] ?? 0).toDouble()
+              : 0.0,
+          customerCredit: data.containsKey('customerCredit')
+              ? (data['customerCredit'] ?? 0).toDouble()
+              : 0.0,
+          addedAt: addedAt,
+          userEmail: data['userEmail']?.toString(),
+          userId: data['userId']?.toString(),
+          updatedAt: updatedAt,
+          createdAt: createdAt,
+          support: data['support']?.toString(),
+          upgrade: data['upgrade']?.toString(),
+          paymentBreakdownVerified: paymentBreakdownVerified,
+          paymentVerified: data['paymentVerified'] as bool?,
+          disbursementReceived: data['disbursementReceived'] as bool?,
+          downPaymentReceived: data['downPaymentReceived'] as bool?,
         );
+
+        allSales.add(sale);
       }
-    } catch (e) {
-      print('Error fetching phone sales: $e');
-    }
+    } catch (e) {}
   }
 
   Future<void> _fetchSecondsPhoneSales() async {
@@ -302,7 +341,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       for (var doc in snapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
 
-        // Parse date
         DateTime saleDate;
         if (data['uploadedAt'] is Timestamp) {
           saleDate = (data['uploadedAt'] as Timestamp).toDate();
@@ -335,9 +373,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
         );
       }
-    } catch (e) {
-      print('Error fetching seconds phone sales: $e');
-    }
+    } catch (e) {}
   }
 
   Future<void> _fetchShops() async {
@@ -354,13 +390,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         });
       }
 
-      // Sort shops by name
       shops.sort(
         (a, b) => (a['name'] as String).compareTo(b['name'] as String),
       );
     } catch (e) {
-      print('Error fetching shops: $e');
-      // Fallback to default shops if collection doesn't exist
       shops = [
         {
           'id': 'Mk9k3DiuelPsEbE0MCqQ',
@@ -420,7 +453,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 icon: const Icon(Icons.logout),
                 color: _isLoading ? Colors.grey : Colors.white,
                 onPressed: () async {
-                  // Clear data before logout
                   _autoRefreshTimer?.cancel();
                   allSales.clear();
                   shops.clear();
@@ -655,7 +687,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   },
                 ),
               ),
-              // Show custom date range if selected
               if (_isCustomPeriod &&
                   _customStartDate != null &&
                   _customEndDate != null)
@@ -805,7 +836,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Widget _buildShopPerformanceSection() {
     List<Sale> filteredSales = _filterSales();
 
-    // Calculate shop-wise performance
     Map<String, Map<String, double>> shopCategoryData = {};
     Map<String, double> shopTotalSales = {};
 
@@ -820,7 +850,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       shopTotalSales[shopName] = 0.0;
     }
 
-    // Aggregate data
     for (var sale in filteredSales) {
       String shopName = sale.shopName;
       String category = sale.category;
@@ -833,7 +862,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       }
     }
 
-    // Sort shops by total sales (descending)
     List<MapEntry<String, double>> sortedShops =
         shopTotalSales.entries.where((entry) => entry.value > 0).toList()
           ..sort((a, b) => b.value.compareTo(a.value));
@@ -906,7 +934,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               ),
               SizedBox(height: 12),
 
-              // Top 3 shops in a more compact view
               ...sortedShops.take(3).map((shopEntry) {
                 String shopName = shopEntry.key;
                 double shopTotal = shopEntry.value;
@@ -914,7 +941,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
                 return GestureDetector(
                   onTap: () {
-                    // Show shop category details
                     _showShopCategoryDetails(
                       shopName,
                       categoryData!,
@@ -959,7 +985,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         ),
                         SizedBox(height: 8),
 
-                        // Category breakdown - COMPACT version showing amounts
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -988,7 +1013,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     ),
                   ),
                 );
-              }).toList(),
+              }),
 
               if (sortedShops.length > 3)
                 Center(
@@ -1148,7 +1173,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ],
                     ),
                   );
-                }).toList(),
+                }),
               ],
             ),
           ),
@@ -1209,10 +1234,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       categoryCount[sale.category] = (categoryCount[sale.category] ?? 0) + 1;
     }
 
-    // Get total sales for percentage calculation
     double totalSales = _calculateTotalSales();
 
-    // Sort categories by amount (highest first)
     var sortedCategories = categoryPerformance.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
@@ -1242,7 +1265,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               ),
               SizedBox(height: 16),
 
-              // Add summary row at the top
               Container(
                 decoration: BoxDecoration(
                   color: primaryGreen.withOpacity(0.05),
@@ -1380,7 +1402,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                           ),
                                         ),
                                         child: Text(
-                                          '${count} sales',
+                                          '$count sales',
                                           style: TextStyle(
                                             fontSize: 11,
                                             color: secondaryGreen,
@@ -1428,7 +1450,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     ),
                   ),
                 );
-              }).toList(),
+              }),
             ],
           ),
         ),
@@ -1489,7 +1511,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
           Divider(height: 1),
 
-          // INVENTORY MANAGEMENT SECTION
           Padding(
             padding: EdgeInsets.only(left: 16, top: 12, bottom: 6),
             child: Text(
@@ -1512,24 +1533,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   builder: (context) => InventoryDetailsScreen(
                     shops: shops,
                     formatNumber: _formatNumber,
-                  ),
-                ),
-              );
-            },
-          ),
-          _buildDrawerItem(
-            Icons.branding_watermark,
-            'Brand Details',
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => BrandDetailsScreen(
-                    formatNumber: _formatNumber,
-                    // You can optionally pass shopId and shopName to filter by specific shop
-                    // shopId: 'specific_shop_id',
-                    // shopName: 'specific_shop_name',
                   ),
                 ),
               );
@@ -1621,7 +1624,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
           Divider(height: 1),
 
-          // SHOP REPORTS SECTION
           Padding(
             padding: EdgeInsets.only(left: 16, top: 12, bottom: 6),
             child: Text(
@@ -1652,7 +1654,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             },
           ),
 
-          // Category Reports
           Padding(
             padding: EdgeInsets.only(left: 16, top: 12, bottom: 6),
             child: Text(
@@ -1675,6 +1676,52 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   builder: (context) => PhoneSalesDetailsScreen(
                     allSales: allSales,
                     formatNumber: _formatNumber,
+                  ),
+                ),
+              );
+            },
+          ),
+          Divider(height: 1),
+          Padding(
+            padding: EdgeInsets.only(left: 16, top: 12, bottom: 6),
+            child: Text(
+              'PAYMENT ANALYSIS',
+              style: TextStyle(
+                fontSize: 9,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          _buildDrawerItem(
+            Icons.swap_horiz,
+            'Exchange Analysis',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ExchangeAnalysisScreen(
+                    allSales: allSales,
+                    formatNumber: _formatNumber,
+                    shops: shops,
+                  ),
+                ),
+              );
+            },
+          ),
+          _buildDrawerItem(
+            Icons.monetization_on,
+            'Downpayment Benefit',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => DownpaymentBenefitScreen(
+                    allSales: allSales,
+                    formatNumber: _formatNumber,
+                    shops: shops,
                   ),
                 ),
               );
@@ -1833,7 +1880,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         _customStartDate ?? DateTime.now().subtract(Duration(days: 7));
     DateTime endDate = _customEndDate ?? DateTime.now();
 
-    // First, pick start date
     final DateTime? pickedStartDate = await showDatePicker(
       context: context,
       initialDate: startDate,
@@ -1851,9 +1897,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       },
     );
 
-    if (pickedStartDate == null) return; // User cancelled
+    if (pickedStartDate == null) return;
 
-    // Then, pick end date
     final DateTime? pickedEndDate = await showDatePicker(
       context: context,
       initialDate: endDate,
@@ -1871,9 +1916,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       },
     );
 
-    if (pickedEndDate == null) return; // User cancelled
+    if (pickedEndDate == null) return;
 
-    // Update the state with selected dates
     setState(() {
       _customStartDate = DateTime(
         pickedStartDate.year,
@@ -1896,10 +1940,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       _isCustomPeriod = true;
       _timePeriod = 'custom';
     });
-
-    print(
-      'Custom range set: ${_customStartDate!.toIso8601String()} to ${_customEndDate!.toIso8601String()}',
-    );
   }
 
   List<Sale> _filterSales() {
@@ -1909,10 +1949,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     if (_isCustomPeriod && _customStartDate != null && _customEndDate != null) {
       startDate = _customStartDate!;
       endDate = _customEndDate!;
-
-      print(
-        'Custom range filtering: ${startDate.toIso8601String()} to ${endDate.toIso8601String()}',
-      );
     } else {
       switch (_timePeriod) {
         case 'daily':
