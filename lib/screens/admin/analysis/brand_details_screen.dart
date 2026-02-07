@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../../models/sale.dart';
+import '../../../../models/sale.dart';
 
 class BrandDetailsScreen extends StatelessWidget {
   final String brand;
   final List<Sale> sales;
   final String Function(double) formatNumber;
 
-  BrandDetailsScreen({
+  const BrandDetailsScreen({
+    super.key,
     required this.brand,
     required this.sales,
     required this.formatNumber,
@@ -236,7 +237,7 @@ class BrandDetailsScreen extends StatelessWidget {
                       ],
                     ),
                   );
-                }).toList(),
+                }),
               ],
             ),
           ),
@@ -277,7 +278,7 @@ class BrandDetailsScreen extends StatelessWidget {
                       ),
                     ),
                   );
-                }).toList(),
+                }),
               ],
             ),
           ),
@@ -371,7 +372,7 @@ class BrandDetailsScreen extends StatelessWidget {
                           ),
                         ),
                       );
-                    }).toList(),
+                    }),
                   ],
                 ),
               ),
@@ -432,29 +433,26 @@ class BrandDetailsScreen extends StatelessWidget {
               ],
             ),
             children: [
-              Padding(
-                padding: EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    ...(data['sales'] as List<Sale>).map((sale) {
-                      return ListTile(
-                        dense: true,
-                        leading: Icon(Icons.shopping_cart, size: 20),
-                        title: Text(sale.customerName),
-                        subtitle: Text(
-                          '${sale.category} • ${DateFormat('dd MMM yyyy').format(sale.date)}',
-                        ),
-                        trailing: Text(
-                          '₹${formatNumber(sale.amount)}',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF0A4D2E),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ],
-                ),
+              // Removed the padding container and directly return the list
+              // without any scrolling container
+              Column(
+                children: (data['sales'] as List<Sale>).map((sale) {
+                  return ListTile(
+                    dense: true,
+                    leading: Icon(Icons.shopping_cart, size: 20),
+                    title: Text(sale.customerName),
+                    subtitle: Text(
+                      '${sale.category} • ${DateFormat('dd MMM yyyy').format(sale.date)}',
+                    ),
+                    trailing: Text(
+                      '₹${formatNumber(sale.amount)}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF0A4D2E),
+                      ),
+                    ),
+                  );
+                }).toList(),
               ),
             ],
           ),

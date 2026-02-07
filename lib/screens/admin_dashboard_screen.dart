@@ -10,6 +10,7 @@ import '../../../services/auth_service.dart';
 import '../../../models/sale.dart';
 import 'dart:async';
 
+import 'admin/inventory/brand_details_screen.dart';
 import 'admin/sales/sales_details_screen.dart.dart';
 import 'admin/sales/transactions_details_screen.dart';
 import 'admin/sales/phone_sales_details_screen.dart';
@@ -1534,6 +1535,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     shops: shops,
                     formatNumber: _formatNumber,
                   ),
+                ),
+              );
+            },
+          ),
+          _buildDrawerItem(
+            Icons.branding_watermark,
+            'Brand Details',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      BrandDetailsScreen(formatNumber: _formatNumber),
                 ),
               );
             },
