@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
+import 'package:sales_stock/screens/admin/analysis/customer_discount_screen.dart';
 import 'package:sales_stock/screens/admin/analysis/downpayment_benefit_screen.dart';
 import 'package:sales_stock/screens/admin/analysis/exchange_analysis_screen.dart';
 import 'package:sales_stock/screens/login_screen.dart';
@@ -1734,6 +1735,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => DownpaymentBenefitScreen(
+                    allSales: allSales,
+                    formatNumber: _formatNumber,
+                    shops: shops,
+                  ),
+                ),
+              );
+            },
+          ),
+          _buildDrawerItem(
+            Icons.discount,
+            'Customer Discount',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => CustomerDiscountScreen(
                     allSales: allSales,
                     formatNumber: _formatNumber,
                     shops: shops,
