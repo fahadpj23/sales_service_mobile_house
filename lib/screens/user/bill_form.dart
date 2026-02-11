@@ -46,6 +46,28 @@ class _BillFormScreenState extends State<BillFormScreen> {
   bool _isLoading = false;
   String? _selectedShop = 'Peringottukara';
   final List<String> _shopOptions = ['Peringottukara', 'Cherpu'];
+
+  // Purchase Mode and Finance Type
+  String? _selectedPurchaseMode = 'Ready Cash'; // Default to Ready Cash
+  String? _selectedFinanceType;
+  bool _showFinanceFields = false;
+
+  final List<String> _purchaseModes = ['Ready Cash', 'Credit Card', 'EMI'];
+  final List<String> _financeCompaniesList = [
+    'Bajaj Finance',
+    'TVS Credit',
+    'HDB Financial',
+    'Samsung Finance',
+    'Oppo Finance',
+    'Vivo Finance',
+    'yoga kshema Finance',
+    'First credit private Finance',
+    'ICICI Bank',
+    'HDFC Bank',
+    'Axis Bank',
+    'Other',
+  ];
+
   Uint8List? _logoImage;
   Uint8List? _sealImage;
   File? _savedPdfFile; // Store the saved PDF file
@@ -174,10 +196,31 @@ class _BillFormScreenState extends State<BillFormScreen> {
     }
   }
 
+  // Handle purchase mode selection
+  void _onPurchaseModeSelected(String? mode) {
+    setState(() {
+      _selectedPurchaseMode = mode;
+      if (mode == 'EMI') {
+        _showFinanceFields = true;
+      } else {
+        _selectedFinanceType = null;
+        _showFinanceFields = false;
+      }
+    });
+  }
+
   Future<void> _markAsSoldAndPrint() async {
     if (!_formKey.currentState!.validate()) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Please fill all required fields')),
+      );
+      return;
+    }
+
+    // Validate EMI fields
+    if (_selectedPurchaseMode == 'EMI' && _selectedFinanceType == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please select finance company for EMI')),
       );
       return;
     }
@@ -195,7 +238,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
       // Mark phone as sold in inventory
       await _markPhoneAsSold();
 
-      // // Save bill record
+      // Save bill record
       await _saveBillRecord();
 
       // Generate and save PDF
@@ -250,6 +293,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
       'soldAmount': double.parse(totalAmountController.text),
       'soldShop': _selectedShop,
       'soldBy': user?.email,
+      'purchaseMode': _selectedPurchaseMode,
+      'financeType': _selectedFinanceType,
       'updatedAt': FieldValue.serverTimestamp(),
     };
 
@@ -301,6 +346,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
       'createdAt': FieldValue.serverTimestamp(),
       'phoneStockId': widget.phoneId,
       'originalPhoneData': widget.phoneData,
+      'purchaseMode': _selectedPurchaseMode,
+      'financeType': _selectedFinanceType,
     };
 
     await _firestore.collection('bills').add(billData);
@@ -726,6 +773,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
+  // UPDATED: Purchase Mode and Finance displayed after address without background color
+  // Removed green background and renamed labels
   pw.Widget _buildCustomerDetails() {
     return pw.Padding(
       padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -760,6 +809,46 @@ class _BillFormScreenState extends State<BillFormScreen> {
               'Mobile Tel  : ${mobileNumberController.text}',
               style: pw.TextStyle(fontSize: 11),
             ),
+
+            // Purchase Mode and Finance - No background color, just plain text
+            pw.SizedBox(height: 6),
+            pw.Row(
+              children: [
+                pw.Text(
+                  'Purchase Mode : ',
+                  style: pw.TextStyle(
+                    fontSize: 11,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.Text(
+                  '${_selectedPurchaseMode ?? "Ready Cash"}',
+                  style: pw.TextStyle(
+                    fontSize: 11,
+                    fontWeight: pw.FontWeight.normal,
+                  ),
+                ),
+              ],
+            ),
+            if (_selectedPurchaseMode == 'EMI' && _selectedFinanceType != null)
+              pw.Row(
+                children: [
+                  pw.Text(
+                    'Finance       : ',
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.Text(
+                    '$_selectedFinanceType',
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.normal,
+                    ),
+                  ),
+                ],
+              ),
           ],
         ),
       ),
@@ -1195,7 +1284,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildHeaderCard(),
             SizedBox(height: 16),
             _buildInputCard(),
             SizedBox(height: 16),
@@ -1203,42 +1291,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
             SizedBox(height: 16),
             if (_savedPdfFile != null) _buildShareButton(),
             SizedBox(height: 20),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeaderCard() {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(color: Colors.green[100]!, width: 1),
-      ),
-      child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'SALES BILL',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.green[800],
-              ),
-            ),
-            SizedBox(height: 6),
-            if (widget.phoneData != null)
-              Text(
-                'Selling: ${phoneModelController.text}',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.green[700],
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
           ],
         ),
       ),
@@ -1257,6 +1309,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
         child: Column(
           children: [
             _buildShopDropdown(),
+
             SizedBox(height: 12),
             _buildTextField(
               billNoController,
@@ -1296,6 +1349,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
               Icons.location_on,
               maxLines: 2,
             ),
+
             SizedBox(height: 12),
             _buildTextField(
               totalAmountController,
@@ -1305,6 +1359,13 @@ class _BillFormScreenState extends State<BillFormScreen> {
               onChanged: (value) => _calculateGST(),
               validator: _validateAmount,
             ),
+            SizedBox(height: 12),
+            _buildPurchaseModeDropdown(),
+            SizedBox(height: 12),
+            if (_showFinanceFields) ...[
+              SizedBox(height: 12),
+              _buildFinanceTypeDropdown(),
+            ],
             SizedBox(height: 12),
             _buildGstInfoCard(),
             SizedBox(height: 12),
@@ -1348,6 +1409,101 @@ class _BillFormScreenState extends State<BillFormScreen> {
                 onChanged: (String? newValue) =>
                     setState(() => _selectedShop = newValue),
                 icon: Icon(Icons.arrow_drop_down, color: Colors.green[700]),
+              ),
+            ),
+          ),
+          SizedBox(width: 10),
+        ],
+      ),
+    );
+  }
+
+  // UPDATED: Removed green background
+  Widget _buildPurchaseModeDropdown() {
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.transparent, // Removed green background
+        border: Border.all(color: Colors.grey[300]!), // Changed to grey border
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          SizedBox(width: 10),
+          Icon(
+            Icons.shopping_cart,
+            color: Colors.green[700],
+          ), // Changed to grey
+          SizedBox(width: 10),
+          Text(
+            'Purchase Mode:',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedPurchaseMode,
+                isExpanded: true,
+                style: TextStyle(fontSize: 14, color: Colors.grey[800]),
+                items: _purchaseModes.map((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    child: Text(value, style: TextStyle(fontSize: 13)),
+                  );
+                }).toList(),
+                onChanged: _onPurchaseModeSelected,
+                icon: Icon(Icons.arrow_drop_down, color: Colors.grey[700]),
+              ),
+            ),
+          ),
+          SizedBox(width: 10),
+        ],
+      ),
+    );
+  }
+
+  // UPDATED: Removed green background
+  Widget _buildFinanceTypeDropdown() {
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.transparent, // Removed green background
+        border: Border.all(color: Colors.grey[300]!), // Changed to grey border
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          SizedBox(width: 10),
+          Icon(
+            Icons.account_balance,
+            color: Colors.grey[700],
+          ), // Changed to grey
+          SizedBox(width: 10),
+          Text(
+            'Finance:',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedFinanceType,
+                isExpanded: true,
+                hint: Text(
+                  'Select Finance Company',
+                  style: TextStyle(fontSize: 13),
+                ),
+                style: TextStyle(fontSize: 14, color: Colors.grey[800]),
+                items: _financeCompaniesList.map((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    child: Text(value, style: TextStyle(fontSize: 13)),
+                  );
+                }).toList(),
+                onChanged: (String? newValue) =>
+                    setState(() => _selectedFinanceType = newValue),
+                icon: Icon(Icons.arrow_drop_down, color: Colors.grey[700]),
               ),
             ),
           ),

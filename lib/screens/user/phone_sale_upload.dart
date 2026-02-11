@@ -127,7 +127,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // Green Color Scheme
+  // Color Scheme - Updated with softer greens
   final Color _primaryColor = const Color(0xFF10B981); // Green 500
   final Color _primaryDarkColor = const Color(0xFF059669); // Green 600
   final Color _primaryLightColor = const Color(0xFF34D399); // Green 400
@@ -146,7 +146,12 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   final Color _billAutofillColor = const Color(0xFF8B5CF6); // Purple 500
   final Color _successColor = const Color(0xFF10B981); // Green 500
   final Color _darkGreenColor = const Color(0xFF047857); // Green 700
-  final Color _lightGreenColor = const Color(0xFFD1FAE5); // Green 100
+
+  // NEW: Softer green colors for backgrounds
+  final Color _veryLightGreenColor = const Color(
+    0xFFF0FDF4,
+  ); // Very light mint green
+  final Color _softGreenColor = const Color(0xFFDCFCE7); // Soft green
 
   @override
   void initState() {
@@ -190,6 +195,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       }
     });
   }
+
+  // Check if brand is Samsung
+  bool get _isSamsungBrand => _selectedBrand?.toLowerCase() == 'samsung';
 
   // Get filtered bill numbers based on search text
   List<String> get _filteredBillNumbers {
@@ -304,9 +312,20 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  // Autofill data when bill number is selected
+  // FIXED: Improved autofill method with better error handling and feedback
   Future<void> _autofillFromBill(String? billNumber) async {
-    if (billNumber == null || billNumber.isEmpty) return;
+    if (billNumber == null || billNumber.isEmpty) {
+      _showMessage('No bill number selected');
+      return;
+    }
+
+    // Check if we have the bill data
+    if (!_billDataMap.containsKey(billNumber)) {
+      _showMessage(
+        'Bill data not found for $billNumber. Try refreshing the list.',
+      );
+      return;
+    }
 
     final billData = _billDataMap[billNumber];
     if (billData == null) {
@@ -315,6 +334,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
 
     try {
+      print('Autofilling from bill: $billNumber');
+      print('Bill data: $billData');
+
       // Extract data from bill
       final customerName = billData['customerName']?.toString() ?? '';
       final customerPhone = billData['customerMobile']?.toString() ?? '';
@@ -351,10 +373,14 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         if (billDate != null) {
           _saleDate = billDate;
         }
-
-        // Show success message
-        _showMessage('Data autofilled from bill $billNumber', isError: false);
       });
+
+      // Show success message
+      _showMessage('✓ Data autofilled from bill $billNumber', isError: false);
+
+      print('Autofill completed successfully');
+      print('Customer: $customerName, Phone: $customerPhone');
+      print('Product: $productBrand - $productName, Price: $productPrice');
     } catch (e) {
       print('Error autofilling from bill: $e');
       _showMessage('Error autofilling data: $e');
@@ -487,9 +513,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       _selectedFinanceType = null;
       _discountController.text = "0";
       _downPaymentController.text = "0";
-      _upgradeController.text = "0"; // Reset to default "0"
-      _supportController.text = "0"; // Reset to default "0"
-      _disbursementAmountController.text = "0"; // Reset to default "0"
+      _upgradeController.text = "0";
+      _supportController.text = "0";
+      _disbursementAmountController.text = "0";
       _exchangeController.text = "0";
       _customerCreditController.text = "0";
 
@@ -654,6 +680,15 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         return;
       }
 
+      // Ensure upgrade and support are zero if not Samsung
+      final upgradeValue = _isSamsungBrand
+          ? (double.tryParse(_upgradeController.text) ?? 0.0)
+          : 0.0;
+
+      final supportValue = _isSamsungBrand
+          ? (double.tryParse(_supportController.text) ?? 0.0)
+          : 0.0;
+
       final salesData = {
         'userId': user.uid,
         'userEmail': user.email,
@@ -670,12 +705,8 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         'purchaseMode': _selectedPurchaseMode ?? '',
         'paymentBreakdown': _selectedPaymentBreakdown.toMap(),
         'financeType': _selectedFinanceType,
-        'upgrade':
-            double.tryParse(_upgradeController.text) ??
-            0.0, // Ensure numeric value
-        'support':
-            double.tryParse(_supportController.text) ??
-            0.0, // Ensure numeric value
+        'upgrade': upgradeValue,
+        'support': supportValue,
         'disbursementAmount':
             double.tryParse(_disbursementAmountController.text) ?? 0.0,
         'downPayment': _selectedPurchaseMode == 'EMI'
@@ -698,7 +729,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       await _firestore.collection('phoneSales').add(salesData);
 
       _showMessage(
-        'Phone sale uploaded successfully! Shop: $_shopName',
+        '✓ Phone sale uploaded successfully! Shop: $_shopName',
         isError: false,
       );
       _resetForm();
@@ -772,6 +803,23 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                   'Purchase Mode: ${_selectedPurchaseMode ?? "N/A"}',
                   style: const TextStyle(fontSize: 13),
                 ),
+                if (_isSamsungBrand && _selectedPurchaseMode == 'EMI')
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 6),
+                      if ((double.tryParse(_upgradeController.text) ?? 0.0) > 0)
+                        Text(
+                          'Upgrade: ₹${(double.tryParse(_upgradeController.text) ?? 0.0).toStringAsFixed(2)}',
+                          style: TextStyle(fontSize: 13, color: _purpleColor),
+                        ),
+                      if ((double.tryParse(_supportController.text) ?? 0.0) > 0)
+                        Text(
+                          'Support: ₹${(double.tryParse(_supportController.text) ?? 0.0).toStringAsFixed(2)}',
+                          style: TextStyle(fontSize: 13, color: _pinkColor),
+                        ),
+                    ],
+                  ),
                 if (_calculateBalanceReturned() > 0)
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -827,9 +875,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       _priceController.clear();
       _discountController.text = "0";
       _downPaymentController.text = "0";
-      _upgradeController.text = "0"; // Reset to default "0"
-      _supportController.text = "0"; // Reset to default "0"
-      _disbursementAmountController.text = "0"; // Reset to default "0"
+      _upgradeController.text = "0";
+      _supportController.text = "0";
+      _disbursementAmountController.text = "0";
       _exchangeController.text = "0";
       _customerCreditController.text = "0";
 
@@ -947,7 +995,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  // Combined search and select bill number field
+  // FIXED: Improved bill number field with better autofill and softer green colors
   Widget _buildBillNumberField() {
     // Don't show bill section if shop info is not loaded
     if (_shopId == null) {
@@ -1139,12 +1187,11 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                       ),
 
                     // Search Results Dropdown
-                    if (_billSearchController.text.isNotEmpty ||
-                        _billSearchFocusNode.hasFocus)
+                    if ((_billSearchController.text.isNotEmpty ||
+                            _billSearchFocusNode.hasFocus) &&
+                        _filteredBillNumbers.isNotEmpty)
                       Container(
-                        constraints: BoxConstraints(
-                          maxHeight: 150, // Reduced height
-                        ),
+                        constraints: BoxConstraints(maxHeight: 150),
                         child: Scrollbar(
                           thumbVisibility: true,
                           thickness: 3,
@@ -1170,16 +1217,21 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                                         size: 16,
                                       )
                                     : null,
-                                onTap: () async {
+                                onTap: () {
+                                  // First set state to update UI immediately
                                   setState(() {
                                     _selectedBillNumber = billNumber;
                                     _billSearchController.text = billNumber;
                                   });
-                                  await _autofillFromBill(billNumber);
+                                  // Then call autofill with the selected bill number
+                                  // Use a microtask to ensure it runs after the setState
+                                  Future.microtask(() {
+                                    _autofillFromBill(billNumber);
+                                  });
                                   _billSearchFocusNode.unfocus();
                                 },
                                 tileColor: _selectedBillNumber == billNumber
-                                    ? _lightGreenColor
+                                    ? _veryLightGreenColor
                                     : null,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(4),
@@ -1192,6 +1244,32 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                               );
                             },
                           ),
+                        ),
+                      ),
+
+                    // Show "No results" message when search returns empty
+                    if ((_billSearchController.text.isNotEmpty ||
+                            _billSearchFocusNode.hasFocus) &&
+                        _filteredBillNumbers.isEmpty &&
+                        _billNumbers.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.search_off,
+                              size: 14,
+                              color: _errorColor,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'No bills match "${_billSearchController.text}"',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: _errorColor,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                   ],
@@ -1267,70 +1345,12 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                     ],
                   ),
                 ),
-              if (_filteredBillNumbers.isEmpty &&
-                  _billSearchController.text.isNotEmpty &&
-                  _billNumbers.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 3, left: 2),
-                  child: Row(
-                    children: [
-                      Icon(Icons.search_off, size: 11, color: _errorColor),
-                      const SizedBox(width: 3),
-                      Text(
-                        'No bills match your search',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: _errorColor,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
             ],
           ),
 
           const SizedBox(height: 6),
 
-          // Shop info display
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: _lightGreenColor,
-              borderRadius: BorderRadius.circular(5),
-              border: Border.all(color: _primaryColor.withOpacity(0.2)),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.store, size: 11, color: _primaryColor),
-                const SizedBox(width: 3),
-                Expanded(
-                  child: Text(
-                    'Bills from your shop: $_shopName',
-                    style: TextStyle(fontSize: 9, color: _primaryDarkColor),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 5,
-                    vertical: 1,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _primaryColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: Text(
-                    '${_billNumbers.length} bills',
-                    style: TextStyle(
-                      fontSize: 8,
-                      color: _primaryDarkColor,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          // Shop info display - UPDATED with softer green
         ],
       ],
     );
@@ -1391,6 +1411,11 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
           onChanged: (value) {
             setState(() {
               _selectedBrand = value;
+              // Reset upgrade and support to 0 if brand changes from Samsung
+              if (!_isSamsungBrand) {
+                _upgradeController.text = "0";
+                _supportController.text = "0";
+              }
             });
           },
           hint: 'Choose phone brand',
@@ -1454,12 +1479,12 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
           const SizedBox(height: 10),
         ],
 
-        // Price Display
+        // Price Display - UPDATED with softer green
         if (price > 0) ...[
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: _lightGreenColor,
+              color: _veryLightGreenColor,
               borderRadius: BorderRadius.circular(6),
               border: Border.all(color: _primaryColor.withOpacity(0.3)),
             ),
@@ -1829,7 +1854,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               ),
               const SizedBox(height: 10),
 
-              // Payment Calculation Summary
+              // Payment Calculation Summary - UPDATED with softer green
               const SizedBox(height: 10),
               _buildPaymentSummary(),
               const SizedBox(height: 10),
@@ -1906,29 +1931,36 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                     ],
                   ),
 
-                const SizedBox(height: 10),
-                // Upgrade Field with default value "0"
-                _buildAdditionalField(
-                  label: 'Upgrade',
-                  controller: _upgradeController,
-                  hint: 'Enter upgrade amount (default: 0)',
-                  icon: Icons.upgrade,
-                  iconColor: _purpleColor,
-                  keyboardType: TextInputType.numberWithOptions(decimal: true),
-                ),
-                const SizedBox(height: 10),
+                // Show Upgrade and Support fields only for Samsung brand
+                if (_isSamsungBrand) ...[
+                  const SizedBox(height: 10),
+                  // Upgrade Field with default value "0"
+                  _buildAdditionalField(
+                    label: 'Upgrade (Samsung Only)',
+                    controller: _upgradeController,
+                    hint: 'Enter upgrade amount (default: 0)',
+                    icon: Icons.upgrade,
+                    iconColor: _purpleColor,
+                    keyboardType: TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
 
-                // Support Field with default value "0"
-                _buildAdditionalField(
-                  label: 'Support',
-                  controller: _supportController,
-                  hint: 'Enter support amount (default: 0)',
-                  icon: Icons.support_agent,
-                  iconColor: _pinkColor,
-                  keyboardType: TextInputType.numberWithOptions(decimal: true),
-                ),
-                const SizedBox(height: 10),
+                  // Support Field with default value "0"
+                  _buildAdditionalField(
+                    label: 'Support (Samsung Only)',
+                    controller: _supportController,
+                    hint: 'Enter support amount (default: 0)',
+                    icon: Icons.support_agent,
+                    iconColor: _pinkColor,
+                    keyboardType: TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                  ),
+                ],
 
+                const SizedBox(height: 10),
                 // Disbursement Amount Field - default value "0"
                 _buildAdditionalField(
                   label: 'Disbursement Amount',
@@ -1958,6 +1990,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     return remainingDownPayment > 0 && balanceReturned == 0;
   }
 
+  // FIXED: Updated with softer green background
   Widget _buildPaymentSummary() {
     final price = _getSelectedPrice();
     final discount = double.tryParse(_discountController.text) ?? 0.0;
@@ -1974,7 +2007,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: _lightGreenColor,
+        color: _veryLightGreenColor,
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: _primaryColor.withOpacity(0.3)),
       ),
@@ -2185,6 +2218,52 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                       ),
                     ],
                   ),
+                // Show upgrade and support only for Samsung in summary
+                if (_isSamsungBrand && _selectedPurchaseMode == 'EMI')
+                  Column(
+                    children: [
+                      const SizedBox(height: 3),
+                      if ((double.tryParse(_upgradeController.text) ?? 0.0) > 0)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Upgrade:',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: _purpleColor,
+                              ),
+                            ),
+                            Text(
+                              '₹${(double.tryParse(_upgradeController.text) ?? 0.0).toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: _purpleColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      if ((double.tryParse(_supportController.text) ?? 0.0) > 0)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Support:',
+                              style: TextStyle(fontSize: 11, color: _pinkColor),
+                            ),
+                            Text(
+                              '₹${(double.tryParse(_supportController.text) ?? 0.0).toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: _pinkColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
                 Divider(height: 12, color: _secondaryColor.withOpacity(0.2)),
               ],
             ),
@@ -2324,6 +2403,15 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 fontStyle: FontStyle.italic,
               ),
             ),
+          if (_isSamsungBrand && _selectedPurchaseMode == 'EMI')
+            Text(
+              'Note: Upgrade and Support fields available for Samsung only',
+              style: TextStyle(
+                fontSize: 9,
+                color: _purpleColor,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
           if (balanceReturned > 0)
             Text(
               'Note: Customer will receive ₹${balanceReturned.toStringAsFixed(2)} as balance',
@@ -2338,90 +2426,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     );
   }
 
-  Widget _buildAdditionalField({
-    required String label,
-    required TextEditingController controller,
-    required String hint,
-    required IconData icon,
-    required Color iconColor,
-    required TextInputType keyboardType,
-    ValueChanged<String>? onChanged,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            color: _secondaryColor,
-            fontSize: 12,
-          ),
-        ),
-        const SizedBox(height: 4),
-        TextField(
-          controller: controller,
-          onChanged: onChanged,
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: const TextStyle(fontSize: 12),
-            prefixIcon: Icon(icon, color: iconColor, size: 18),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: _secondaryColor.withOpacity(0.3)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: iconColor, width: 1.5),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: 10,
-            ),
-          ),
-          style: const TextStyle(fontSize: 13),
-          keyboardType: keyboardType,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPaymentField({
-    required String label,
-    required TextEditingController controller,
-    required ValueChanged<String> onChanged,
-    required String hint,
-    required IconData icon,
-    required Color iconColor,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: TextStyle(fontSize: 11, color: _secondaryColor)),
-        const SizedBox(height: 3),
-        TextField(
-          controller: controller,
-          onChanged: onChanged,
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: const TextStyle(fontSize: 11),
-            prefixIcon: Icon(icon, size: 16, color: iconColor),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(6),
-              borderSide: BorderSide(color: _secondaryColor.withOpacity(0.3)),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 6,
-              vertical: 6,
-            ),
-          ),
-          keyboardType: TextInputType.numberWithOptions(decimal: true),
-          style: const TextStyle(fontSize: 12),
-        ),
-      ],
-    );
-  }
-
+  // FIXED: Updated with softer green background
   Widget _buildPaymentValidationForReadyCash() {
     final paymentTotal = _calculatePaymentTotal(_selectedPaymentBreakdown);
     final targetAmount = _calculateAmountToPay();
@@ -2433,7 +2438,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     return Container(
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: isValid ? _lightGreenColor : _errorColor.withOpacity(0.1),
+        color: isValid ? _veryLightGreenColor : _errorColor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(6),
         border: Border.all(
           color: isValid
@@ -2502,6 +2507,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     );
   }
 
+  // FIXED: Updated with softer green background
   Widget _buildPaymentValidationForEMI() {
     final downPayment = double.tryParse(_downPaymentController.text) ?? 0.0;
     final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
@@ -2519,7 +2525,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     return Container(
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: isValid ? _lightGreenColor : _errorColor.withOpacity(0.1),
+        color: isValid ? _veryLightGreenColor : _errorColor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(6),
         border: Border.all(
           color: isValid
@@ -2610,6 +2616,90 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
             ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAdditionalField({
+    required String label,
+    required TextEditingController controller,
+    required String hint,
+    required IconData icon,
+    required Color iconColor,
+    required TextInputType keyboardType,
+    ValueChanged<String>? onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: _secondaryColor,
+            fontSize: 12,
+          ),
+        ),
+        const SizedBox(height: 4),
+        TextField(
+          controller: controller,
+          onChanged: onChanged,
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: const TextStyle(fontSize: 12),
+            prefixIcon: Icon(icon, color: iconColor, size: 18),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: _secondaryColor.withOpacity(0.3)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: iconColor, width: 1.5),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 10,
+            ),
+          ),
+          style: const TextStyle(fontSize: 13),
+          keyboardType: keyboardType,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPaymentField({
+    required String label,
+    required TextEditingController controller,
+    required ValueChanged<String> onChanged,
+    required String hint,
+    required IconData icon,
+    required Color iconColor,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: TextStyle(fontSize: 11, color: _secondaryColor)),
+        const SizedBox(height: 3),
+        TextField(
+          controller: controller,
+          onChanged: onChanged,
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: const TextStyle(fontSize: 11),
+            prefixIcon: Icon(icon, size: 16, color: iconColor),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+              borderSide: BorderSide(color: _secondaryColor.withOpacity(0.3)),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 6,
+              vertical: 6,
+            ),
+          ),
+          keyboardType: TextInputType.numberWithOptions(decimal: true),
+          style: const TextStyle(fontSize: 12),
+        ),
+      ],
     );
   }
 
@@ -2707,6 +2797,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     );
   }
 
+  // FIXED: Updated with softer green background
   Widget _buildShopInfo() {
     if (_shopId == null || _shopName == null) {
       return Container(
@@ -2776,7 +2867,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: _lightGreenColor,
+        color: _veryLightGreenColor,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: _primaryColor.withOpacity(0.3)),
       ),
@@ -2963,8 +3054,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
           padding: const EdgeInsets.all(12),
           child: Column(
             children: [
-              // Header
-              _buildHeader(),
               const SizedBox(height: 16),
 
               // Shop Info
@@ -2997,23 +3086,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               const SizedBox(height: 12),
             ],
           ),
-        ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: () {
-            print('Debug Info:');
-            print('Bill numbers count: ${_billNumbers.length}');
-            print('Bill numbers: $_billNumbers');
-            print('Selected bill: $_selectedBillNumber');
-            print('Without Bill Number: $_withoutBillNumber');
-            print('Loading bills: $_loadingBills');
-            print('Shop ID: $_shopId');
-            print('Shop Name: $_shopName');
-          },
-          child: const Icon(Icons.bug_report, size: 20),
-          tooltip: 'Debug information',
-          backgroundColor: _primaryColor,
-          foregroundColor: Colors.white,
-          mini: true,
         ),
       ),
     );
