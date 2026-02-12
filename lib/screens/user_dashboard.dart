@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:sales_stock/screens/user/gst_accessories_sale_upload.dart';
 import 'package:sales_stock/screens/user/phone_stock_screen.dart';
 import 'package:sales_stock/screens/user/stock_check_screen.dart';
 import 'package:sales_stock/screens/user/purchase_history_screen.dart';
@@ -170,7 +171,7 @@ class _UserDashboardState extends State<UserDashboard> {
           .get();
 
       for (var doc in snapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
+        final data = doc.data();
         data['id'] = doc.id;
 
         // Check if sale is in current month
@@ -1561,6 +1562,17 @@ class _UserDashboardState extends State<UserDashboard> {
                                     _scaffoldKey.currentState?.closeDrawer();
                                     _navigateToScreen(
                                       const BaseModelSaleUpload(),
+                                    );
+                                  },
+                                ),
+                                _buildDrawerTile(
+                                  icon: Icons.receipt_long,
+                                  title: 'GST Accessories',
+                                  color: Colors.indigo,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(
+                                      const GSTAccessoriesSaleUpload(),
                                     );
                                   },
                                 ),
