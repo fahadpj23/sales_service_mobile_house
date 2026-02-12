@@ -697,7 +697,7 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
                   child: pw.Text(
                     _customerAddressController.text.isNotEmpty
                         ? _customerAddressController.text
-                        : 'N/A',
+                        : '  ',
                     style: pw.TextStyle(fontSize: 11),
                     maxLines: 2,
                   ),
@@ -722,14 +722,13 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
       columnWidths: {
         0: pw.FixedColumnWidth(40),
         1: pw.FlexColumnWidth(2.5),
-        2: pw.FixedColumnWidth(50),
+        2: pw.FixedColumnWidth(40),
         3: pw.FixedColumnWidth(30),
-        4: pw.FixedColumnWidth(50),
+        4: pw.FixedColumnWidth(40),
         5: pw.FixedColumnWidth(50),
         6: pw.FixedColumnWidth(70),
         7: pw.FixedColumnWidth(45),
         8: pw.FixedColumnWidth(70),
-        9: pw.FixedColumnWidth(70),
       },
       defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
       children: [
