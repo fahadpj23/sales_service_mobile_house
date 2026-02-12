@@ -531,7 +531,7 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
           pw.SizedBox(height: 4),
           _buildMainTable(product),
           pw.Container(
-            height: 300,
+            height: 330,
             child: pw.Stack(
               children: [
                 if (_sealImage != null && _sealChecked)
@@ -710,18 +710,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
               style: pw.TextStyle(fontSize: 11),
             ),
             pw.SizedBox(height: 6),
-            pw.Row(
-              children: [
-                pw.Text(
-                  'Purchase Mode : ',
-                  style: pw.TextStyle(
-                    fontSize: 11,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-                pw.Text(_purchaseMode, style: pw.TextStyle(fontSize: 11)),
-              ],
-            ),
           ],
         ),
       ),
@@ -734,29 +722,28 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
       columnWidths: {
         0: pw.FixedColumnWidth(40),
         1: pw.FlexColumnWidth(2.5),
-        2: pw.FixedColumnWidth(60),
+        2: pw.FixedColumnWidth(50),
         3: pw.FixedColumnWidth(30),
         4: pw.FixedColumnWidth(50),
         5: pw.FixedColumnWidth(50),
-        6: pw.FixedColumnWidth(50),
+        6: pw.FixedColumnWidth(70),
         7: pw.FixedColumnWidth(45),
-        8: pw.FixedColumnWidth(50),
-        9: pw.FixedColumnWidth(60),
+        8: pw.FixedColumnWidth(70),
+        9: pw.FixedColumnWidth(70),
       },
       defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
       children: [
         pw.TableRow(
           children: [
             _buildTableCell('SLNO', isHeader: true, fontSize: 9),
-            _buildTableCell('Item', isHeader: true, fontSize: 9),
+            _buildTableCell('Product Name', isHeader: true, fontSize: 9),
             _buildTableCell('HSN', isHeader: true, fontSize: 9),
             _buildTableCell('Qty', isHeader: true, fontSize: 9),
-            _buildTableCell('Rate', isHeader: true, fontSize: 9),
+            _buildTableCell('Total Rate', isHeader: true, fontSize: 9),
             _buildTableCell('Disc%', isHeader: true, fontSize: 9),
-            _buildTableCell('Taxable', isHeader: true, fontSize: 9),
             _buildTableCell('GST%', isHeader: true, fontSize: 9),
             _buildTableCell('GST Amt', isHeader: true, fontSize: 9),
-            _buildTableCell('Total', isHeader: true, fontSize: 9),
+            _buildTableCell('Total Amount', isHeader: true, fontSize: 9),
           ],
         ),
         pw.TableRow(
@@ -781,10 +768,7 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
               product['discount'] > 0 ? '${product['discount']}%' : '-',
               fontSize: 9,
             ),
-            _buildTableCell(
-              (product['taxableAmount'] ?? 0.0).toStringAsFixed(0),
-              fontSize: 9,
-            ),
+
             _buildTableCell('$gstRate', fontSize: 9),
             _buildTableCell(
               (product['gstAmount'] ?? 0.0).toStringAsFixed(0),
@@ -813,24 +797,24 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
         pw.Padding(
           padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 8),
           child: pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.end,
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
               pw.Text(
-                'Qty: ${product['quantity'] ?? 1}  |  ',
+                'Qty: ${product['quantity'] ?? 1}   ',
                 style: pw.TextStyle(
                   fontSize: 10,
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
               pw.Text(
-                'Taxable: ${taxableAmount.toStringAsFixed(0)}  |  ',
+                'Taxable: ${taxableAmount.toStringAsFixed(0)}    ',
                 style: pw.TextStyle(
                   fontSize: 10,
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
               pw.Text(
-                'GST: ${gstAmount.toStringAsFixed(0)}  |  ',
+                'GST: ${gstAmount.toStringAsFixed(0)}   ',
                 style: pw.TextStyle(
                   fontSize: 10,
                   fontWeight: pw.FontWeight.bold,
@@ -1312,34 +1296,26 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
             validator: (value) => value?.isEmpty ?? true ? 'Required' : null,
           ),
           const SizedBox(height: 10),
+          _buildTextField(
+            _quantityController,
+            'Quantity',
+            Icons.production_quantity_limits_outlined,
+            keyboardType: TextInputType.number,
+          ),
+          const SizedBox(height: 10),
+          _buildTextField(
+            _priceController,
+            'Price (Inc. GST) *',
+            Icons.currency_rupee,
+            keyboardType: TextInputType.number,
+            validator: (value) {
+              if (value?.isEmpty ?? true) return 'Required';
+              if (double.tryParse(value!) == null) return 'Invalid price';
+              return null;
+            },
+          ),
 
           // Quantity and Price Row
-          Row(
-            children: [
-              Expanded(
-                child: _buildTextField(
-                  _quantityController,
-                  'Quantity',
-                  Icons.production_quantity_limits_outlined,
-                  keyboardType: TextInputType.number,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildTextField(
-                  _priceController,
-                  'Price (Inc. GST) *',
-                  Icons.currency_rupee,
-                  keyboardType: TextInputType.number,
-                  validator: (value) {
-                    if (value?.isEmpty ?? true) return 'Required';
-                    if (double.tryParse(value!) == null) return 'Invalid price';
-                    return null;
-                  },
-                ),
-              ),
-            ],
-          ),
           const SizedBox(height: 10),
 
           // Discount
