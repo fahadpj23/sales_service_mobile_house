@@ -48,7 +48,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
   final List<String> _shopOptions = ['Peringottukara', 'Cherpu'];
 
   // Purchase Mode and Finance Type
-  String? _selectedPurchaseMode = 'Ready Cash'; // Default to Ready Cash
+  String? _selectedPurchaseMode = 'Ready Cash';
   String? _selectedFinanceType;
   bool _showFinanceFields = false;
 
@@ -70,7 +70,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
   Uint8List? _logoImage;
   Uint8List? _sealImage;
-  File? _savedPdfFile; // Store the saved PDF file
+  File? _savedPdfFile;
 
   @override
   void initState() {
@@ -89,6 +89,11 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
     // Initialize data
     _initData();
+
+    // Generate bill number when screen loads
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _generateAndSetBillNumber();
+    });
   }
 
   void _initData() async {
@@ -97,6 +102,71 @@ class _BillFormScreenState extends State<BillFormScreen> {
     _autoFillData();
     totalAmountController.addListener(_calculateGST);
   }
+
+  // ==================== BILL NUMBER AUTO-GENERATION ====================
+
+  Future<String> _generateBillNumber() async {
+    try {
+      // Query the last bill to get the highest sequence number
+      final billsQuery = await _firestore
+          .collection('bills')
+          .orderBy('createdAt', descending: true)
+          .limit(1)
+          .get();
+
+      int nextSequenceNumber = 1;
+
+      if (billsQuery.docs.isNotEmpty) {
+        final lastBill = billsQuery.docs.first;
+        final lastBillNumber = lastBill['billNumber'] as String? ?? '';
+
+        // Parse the last bill number (e.g., "MH-372")
+        if (lastBillNumber.startsWith('MH-')) {
+          final lastSequenceStr = lastBillNumber.substring(3); // Remove "MH-"
+          final lastSequence = int.tryParse(lastSequenceStr) ?? 0;
+          nextSequenceNumber = lastSequence + 1;
+        }
+      }
+
+      // Format: MH-372 (simple sequential)
+      return nextSequenceNumber.toString();
+    } catch (e) {
+      print('Error generating bill number: $e');
+      // Fallback to timestamp-based number
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      return timestamp.toString().substring(timestamp.toString().length - 6);
+    }
+  }
+
+  Future<void> _generateAndSetBillNumber() async {
+    try {
+      final billNumber = await _generateBillNumber();
+      if (mounted) {
+        setState(() {
+          billNoController.text = billNumber;
+        });
+      }
+    } catch (e) {
+      print('Error setting bill number: $e');
+    }
+  }
+
+  Future<void> _regenerateBillNumber() async {
+    if (_isLoading) return;
+
+    final newBillNumber = await _generateBillNumber();
+    setState(() {
+      billNoController.text = newBillNumber;
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Bill number regenerated: MH-$newBillNumber')),
+      );
+    }
+  }
+
+  // ==================== END BILL NUMBER GENERATION ====================
 
   void _autoFillData() {
     if (widget.phoneData != null) {
@@ -144,11 +214,9 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
   Future<void> _loadImages() async {
     try {
-      // Load logo
       final logoByteData = await rootBundle.load('assets/mobileHouseLogo.png');
       _logoImage = logoByteData.buffer.asUint8List();
 
-      // Load seal
       final sealByteData = await rootBundle.load('assets/mobileHouseSeal.jpeg');
       _sealImage = sealByteData.buffer.asUint8List();
 
@@ -196,7 +264,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
     }
   }
 
-  // Handle purchase mode selection
   void _onPurchaseModeSelected(String? mode) {
     setState(() {
       _selectedPurchaseMode = mode;
@@ -217,7 +284,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
       return;
     }
 
-    // Validate EMI fields
     if (_selectedPurchaseMode == 'EMI' && _selectedFinanceType == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Please select finance company for EMI')),
@@ -235,24 +301,18 @@ class _BillFormScreenState extends State<BillFormScreen> {
     try {
       setState(() => _isLoading = true);
 
-      // Mark phone as sold in inventory
       await _markPhoneAsSold();
-
-      // Save bill record
       await _saveBillRecord();
 
-      // Generate and save PDF
       final pdfBytes = await _generatePdf();
       final filePath = await _savePdfToStorage(pdfBytes);
 
-      // Store file reference
       final pdfFile = File(filePath);
       setState(() {
         _savedPdfFile = pdfFile;
       });
 
       if (mounted) {
-        // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Bill created successfully!'),
@@ -261,7 +321,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
           ),
         );
 
-        // Auto-share the PDF
         await _sharePdf(pdfFile);
       }
     } catch (e) {
@@ -285,11 +344,16 @@ class _BillFormScreenState extends State<BillFormScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final user = authProvider.user;
 
+    // Get the bill number without adding another "MH-" prefix
+    final billNumber = billNoController.text.startsWith('MH-')
+        ? billNoController.text
+        : 'MH-${billNoController.text}';
+
     final updateData = {
       'status': 'sold',
       'soldAt': FieldValue.serverTimestamp(),
       'soldTo': customerNameController.text,
-      'soldBillNo': 'MH-${billNoController.text}',
+      'soldBillNo': billNumber,
       'soldAmount': double.parse(totalAmountController.text),
       'soldShop': _selectedShop,
       'soldBy': user?.email,
@@ -327,8 +391,13 @@ class _BillFormScreenState extends State<BillFormScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final user = authProvider.user;
 
+    // Use the generated bill number from controller with MH- prefix
+    final billNumber = billNoController.text.startsWith('MH-')
+        ? billNoController.text
+        : 'MH-${billNoController.text}';
+
     final billData = {
-      'billNumber': 'MH-${billNoController.text}',
+      'billNumber': billNumber,
       'billDate': FieldValue.serverTimestamp(),
       'customerName': customerNameController.text,
       'customerMobile': mobileNumberController.text,
@@ -355,20 +424,16 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
   Future<String> _savePdfToStorage(Uint8List pdfBytes) async {
     try {
-      // For Android 13+, use MediaStore API or SAF
       if (Platform.isAndroid) {
-        // Check and request permissions
         Map<Permission, PermissionStatus> statuses = await [
           Permission.storage,
           Permission.manageExternalStorage,
         ].request();
 
-        // For Android 10 and below, check storage permission
         if (await Permission.storage.isGranted == false) {
           await Permission.storage.request();
         }
 
-        // For Android 11+, check manage external storage
         if (Platform.isAndroid &&
             await DeviceInfoPlugin().androidInfo.then(
                   (info) => info.version.sdkInt,
@@ -380,12 +445,9 @@ class _BillFormScreenState extends State<BillFormScreen> {
         }
       }
 
-      // Get directory
       Directory directory;
       if (Platform.isAndroid) {
-        // Try different directories
         try {
-          // First try Downloads directory
           directory = Directory('/storage/emulated/0/Download');
           if (!await directory.exists()) {
             directory = Directory('/storage/emulated/0/Downloads');
@@ -399,17 +461,14 @@ class _BillFormScreenState extends State<BillFormScreen> {
           directory = await getApplicationDocumentsDirectory();
         }
       } else {
-        // For iOS, use Documents directory
         directory = await getApplicationDocumentsDirectory();
       }
 
-      // Create MobileHouse folder
       final mobileHouseDir = Directory('${directory.path}/MobileHouse');
       if (!await mobileHouseDir.exists()) {
         await mobileHouseDir.create(recursive: true);
       }
 
-      // Generate filename
       final billNo = billNoController.text;
       final customerName = customerNameController.text
           .replaceAll(RegExp(r'[^\w\s-]'), '_')
@@ -419,14 +478,12 @@ class _BillFormScreenState extends State<BillFormScreen> {
       final filePath = '${mobileHouseDir.path}/$fileName';
       final file = File(filePath);
 
-      // Save PDF
       await file.writeAsBytes(pdfBytes, flush: true);
 
       print('PDF saved at: $filePath');
       return filePath;
     } catch (e) {
       print('Error saving PDF: $e');
-      // Fallback to app directory
       try {
         final appDir = await getApplicationDocumentsDirectory();
         final fileName = 'MH_${billNoController.text}.pdf';
@@ -440,7 +497,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
     }
   }
 
-  // Method to share PDF
   Future<void> _sharePdf(File pdfFile) async {
     try {
       if (!await pdfFile.exists()) {
@@ -449,7 +505,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
       final fileName = pdfFile.path.split('/').last;
 
-      // Share the file using share_plus
       await Share.shareXFiles(
         [XFile(pdfFile.path, mimeType: 'application/pdf', name: fileName)],
         text: 'Mobile House Bill - ${customerNameController.text}',
@@ -468,7 +523,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
     }
   }
 
-  // Method to share saved PDF (if exists)
   Future<void> _shareSavedPdf() async {
     if (_savedPdfFile == null || !await _savedPdfFile!.exists()) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -483,7 +537,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
     await _sharePdf(_savedPdfFile!);
   }
 
-  // Amount conversion methods
   String _amountToWords(String amount) {
     try {
       double value = double.parse(amount);
@@ -609,18 +662,10 @@ class _BillFormScreenState extends State<BillFormScreen> {
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          // Header
           _buildHeader(currentDate),
-
-          // Customer Details
           _buildCustomerDetails(),
-
           pw.SizedBox(height: 4),
-
-          // Main Table
           _buildMainTable(),
-
-          // Seal Space
           pw.Container(
             height: 300,
             child: pw.Stack(
@@ -644,11 +689,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
               ],
             ),
           ),
-
-          // Total Section
           _buildTotalSection(),
-
-          // Bottom Section
           _buildBottomSection(),
         ],
       ),
@@ -656,6 +697,11 @@ class _BillFormScreenState extends State<BillFormScreen> {
   }
 
   pw.Widget _buildHeader(String currentDate) {
+    // Get the full bill number with MH- prefix
+    final fullBillNumber = billNoController.text.startsWith('MH-')
+        ? billNoController.text
+        : 'MH-${billNoController.text}';
+
     return pw.Column(
       children: [
         pw.Padding(
@@ -691,7 +737,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
                         fontWeight: pw.FontWeight.bold,
                       ),
                     ),
-
                   pw.SizedBox(height: 2),
                   pw.Text(
                     _selectedShop == 'Peringottukara'
@@ -718,7 +763,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
             ],
           ),
         ),
-
         pw.Padding(
           padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 8),
           child: pw.Row(
@@ -736,7 +780,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
                   ),
                   pw.SizedBox(height: 6),
                   pw.Text(
-                    'Invoice No. : MH-${billNoController.text}',
+                    'Invoice No. : $fullBillNumber',
                     style: pw.TextStyle(
                       fontSize: 11,
                       fontWeight: pw.FontWeight.bold,
@@ -767,14 +811,11 @@ class _BillFormScreenState extends State<BillFormScreen> {
             ],
           ),
         ),
-
         pw.Divider(color: PdfColors.black, thickness: 0.2, height: 0),
       ],
     );
   }
 
-  // UPDATED: Purchase Mode and Finance displayed after address without background color
-  // Removed green background and renamed labels
   pw.Widget _buildCustomerDetails() {
     return pw.Padding(
       padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -809,8 +850,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
               'Mobile Tel  : ${mobileNumberController.text}',
               style: pw.TextStyle(fontSize: 11),
             ),
-
-            // Purchase Mode and Finance - No background color, just plain text
             pw.SizedBox(height: 6),
             pw.Row(
               children: [
@@ -859,15 +898,15 @@ class _BillFormScreenState extends State<BillFormScreen> {
     return pw.Table(
       border: pw.TableBorder.all(color: PdfColors.black, width: 0.5),
       columnWidths: {
-        0: pw.FixedColumnWidth(40), // SLNO
-        1: pw.FlexColumnWidth(2.5), // Item
-        2: pw.FixedColumnWidth(60), // HSN
-        3: pw.FixedColumnWidth(25), // Qty
-        4: pw.FixedColumnWidth(50), // Rate
-        5: pw.FixedColumnWidth(70), // Disc
-        6: pw.FixedColumnWidth(45), // GST%
-        7: pw.FixedColumnWidth(50), // GST Amt
-        8: pw.FixedColumnWidth(60), // Total
+        0: pw.FixedColumnWidth(40),
+        1: pw.FlexColumnWidth(2.5),
+        2: pw.FixedColumnWidth(60),
+        3: pw.FixedColumnWidth(25),
+        4: pw.FixedColumnWidth(50),
+        5: pw.FixedColumnWidth(70),
+        6: pw.FixedColumnWidth(45),
+        7: pw.FixedColumnWidth(50),
+        8: pw.FixedColumnWidth(60),
       },
       defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
       children: [
@@ -973,7 +1012,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
           ),
         ),
         pw.Divider(color: PdfColors.black, thickness: 0.5, height: 0),
-
         pw.Padding(
           padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           child: pw.Column(
@@ -1008,7 +1046,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
       child: pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          // GST Breakdown
           pw.Expanded(
             flex: 2,
             child: pw.Container(
@@ -1016,10 +1053,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
               child: _buildGstBreakdownTable(),
             ),
           ),
-
           pw.SizedBox(width: 10),
-
-          // Authorized Signatory
           pw.Expanded(
             flex: 1,
             child: pw.Container(
@@ -1208,6 +1242,12 @@ class _BillFormScreenState extends State<BillFormScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
+          // Regenerate bill number button
+          IconButton(
+            icon: Icon(Icons.refresh, color: Colors.white),
+            onPressed: _isLoading ? null : () => _regenerateBillNumber(),
+            tooltip: 'Regenerate Bill Number',
+          ),
           if (_savedPdfFile != null)
             IconButton(
               icon: Icon(Icons.share, color: Colors.white),
@@ -1284,6 +1324,52 @@ class _BillFormScreenState extends State<BillFormScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Bill Number Display
+            Container(
+              padding: EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+              margin: EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(
+                color: Colors.blue[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue[100]!),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.receipt, color: Colors.blue[700], size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'Bill Number: ',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.blue[800],
+                    ),
+                  ),
+                  Text(
+                    'MH-${billNoController.text}',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue[900],
+                    ),
+                  ),
+                  Spacer(),
+                  IconButton(
+                    icon: Icon(
+                      Icons.refresh,
+                      color: Colors.blue[700],
+                      size: 20,
+                    ),
+                    onPressed: _isLoading
+                        ? null
+                        : () => _regenerateBillNumber(),
+                    tooltip: 'Regenerate',
+                    constraints: BoxConstraints(),
+                    padding: EdgeInsets.all(4),
+                  ),
+                ],
+              ),
+            ),
             SizedBox(height: 16),
             _buildInputCard(),
             SizedBox(height: 16),
@@ -1309,13 +1395,13 @@ class _BillFormScreenState extends State<BillFormScreen> {
         child: Column(
           children: [
             _buildShopDropdown(),
-
             SizedBox(height: 12),
             _buildTextField(
               billNoController,
               'Bill No *',
               Icons.receipt,
               validator: _validateRequired,
+              readOnly: true, // Make it read-only since it's auto-generated
             ),
             SizedBox(height: 12),
             _buildTextField(
@@ -1349,7 +1435,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
               Icons.location_on,
               maxLines: 2,
             ),
-
             SizedBox(height: 12),
             _buildTextField(
               totalAmountController,
@@ -1418,22 +1503,18 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  // UPDATED: Removed green background
   Widget _buildPurchaseModeDropdown() {
     return Container(
       padding: EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.transparent, // Removed green background
-        border: Border.all(color: Colors.grey[300]!), // Changed to grey border
+        color: Colors.transparent,
+        border: Border.all(color: Colors.grey[300]!),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         children: [
           SizedBox(width: 10),
-          Icon(
-            Icons.shopping_cart,
-            color: Colors.green[700],
-          ), // Changed to grey
+          Icon(Icons.shopping_cart, color: Colors.green[700]),
           SizedBox(width: 10),
           Text(
             'Purchase Mode:',
@@ -1463,22 +1544,18 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  // UPDATED: Removed green background
   Widget _buildFinanceTypeDropdown() {
     return Container(
       padding: EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.transparent, // Removed green background
-        border: Border.all(color: Colors.grey[300]!), // Changed to grey border
+        color: Colors.transparent,
+        border: Border.all(color: Colors.grey[300]!),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         children: [
           SizedBox(width: 10),
-          Icon(
-            Icons.account_balance,
-            color: Colors.grey[700],
-          ), // Changed to grey
+          Icon(Icons.account_balance, color: Colors.grey[700]),
           SizedBox(width: 10),
           Text(
             'Finance:',
@@ -1756,7 +1833,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
   @override
   void dispose() {
-    // Dispose all controllers
     billNoController.dispose();
     customerNameController.dispose();
     mobileNumberController.dispose();
