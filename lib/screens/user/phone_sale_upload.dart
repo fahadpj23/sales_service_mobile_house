@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class PhoneSaleUpload extends StatefulWidget {
   const PhoneSaleUpload({super.key});
@@ -28,16 +31,24 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   String? _selectedFinanceType;
   String? _selectedBillNumber;
 
-  // NEW: Enhanced Gift selection states
+  // Gift selection states
   List<String> _selectedGifts = [];
   bool _isOtherGift = false;
   final TextEditingController _otherGiftController = TextEditingController();
   bool _showGiftDropdown = false;
 
-  // NEW: EMI Loan fields
+  // EMI Loan fields
   final TextEditingController _loanIdController = TextEditingController();
   bool _autoDebit = false;
   bool _insurance = false;
+
+  // Share functionality fields
+  bool _showShareButton = false;
+  Map<String, dynamic>? _lastSaleData;
+  String? _shopMobileNumber;
+  String? _shopWhatsAppNumber;
+  String? _shopAddress;
+  String? _shopInstagram;
 
   // Controllers
   final TextEditingController _customerNameController = TextEditingController();
@@ -56,7 +67,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   final TextEditingController _priceController = TextEditingController();
   final TextEditingController _imeiController = TextEditingController();
 
-  // EMI Controllers - NO DEFAULT VALUES
+  // EMI Controllers
   final TextEditingController _numberOfEmiController = TextEditingController();
   final TextEditingController _perMonthEmiController = TextEditingController();
 
@@ -118,7 +129,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     'Other',
   ];
 
-  // ENHANCED: Gift options list for multi-selection - FIXED with valid Flutter icons
+  // Gift options list
   final List<Map<String, dynamic>> _giftOptions = [
     {'name': 'screenGuard', 'icon': Icons.screen_lock_portrait},
     {'name': 'mobile cover', 'icon': Icons.phone_iphone},
@@ -169,6 +180,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   final Color _loanColor = const Color(0xFF8B5CF6);
   final Color _autoDebitColor = const Color(0xFF14B8A6);
   final Color _insuranceColor = const Color(0xFFF97316);
+  final Color _whatsappColor = const Color(0xFF25D366);
 
   final Color _veryLightGreenColor = const Color(0xFFF0FDF4);
   final Color _softGreenColor = const Color(0xFFDCFCE7);
@@ -226,7 +238,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  // ENHANCED: Get formatted gift list for display
+  // Get formatted gift list for display
   String get _formattedGiftList {
     if (_selectedGifts.isEmpty) return '';
     final gifts = _selectedGifts.where((g) => g.isNotEmpty).toList();
@@ -235,13 +247,13 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     return '${gifts.length} items: ${gifts.join(', ')}';
   }
 
-  // ENHANCED: Get final gift value for database
+  // Get final gift value for database
   List<String>? get _finalGiftValues {
     if (_selectedGifts.isEmpty) return null;
     return _selectedGifts.where((g) => g.isNotEmpty).toList();
   }
 
-  // ENHANCED: Toggle gift selection
+  // Toggle gift selection
   void _toggleGift(String giftName) {
     setState(() {
       if (giftName == 'Other') {
@@ -257,7 +269,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     });
   }
 
-  // ENHANCED: Add custom gift
+  // Add custom gift
   void _addCustomGift() {
     if (_otherGiftController.text.trim().isNotEmpty) {
       setState(() {
@@ -268,13 +280,15 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  // ENHANCED: Remove gift
+  // Remove gift
   void _removeGift(String gift) {
     setState(() {
       _selectedGifts.remove(gift);
     });
   }
 
+  // Load bill numbers with proper sorting and debug info
+  // Alternative query that doesn't require a composite index
   Future<void> _loadBillNumbers() async {
     try {
       setState(() => _loadingBills = true);
@@ -294,16 +308,31 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         }
       }
 
+      debugPrint('Loading bills for shop: $_shopId');
+
+      // First get all bills for this shop (without ordering)
       final billsSnapshot = await _firestore
           .collection('bills')
           .where('shopId', isEqualTo: _shopId)
           .limit(100)
           .get();
 
+      debugPrint('Found ${billsSnapshot.docs.length} bills');
+
       final billNumbers = <String>[];
       final billDataMap = <String, Map<String, dynamic>>{};
 
-      for (var doc in billsSnapshot.docs) {
+      // Then sort them in memory
+      final sortedDocs = List.from(billsSnapshot.docs);
+      sortedDocs.sort((a, b) {
+        final aDate =
+            (a.data()['billDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
+        final bDate =
+            (b.data()['billDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
+        return bDate.compareTo(aDate); // descending
+      });
+
+      for (var doc in sortedDocs) {
         final billData = doc.data();
         final billNumber = billData['billNumber']?.toString();
         final billShopId = billData['shopId']?.toString();
@@ -321,12 +350,20 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         _billDataMap = billDataMap;
         _loadingBills = false;
       });
+
+      if (billNumbers.isEmpty) {
+        _showMessage('No bills found for your shop', isError: false);
+      } else {
+        debugPrint('Loaded ${billNumbers.length} bills successfully');
+      }
     } catch (e) {
+      debugPrint('Error loading bills: $e');
       _showMessage('Error loading bills: $e');
       setState(() => _loadingBills = false);
     }
   }
 
+  // FIXED: Autofill from bill with purchase mode and finance type - NULL SAFE
   Future<void> _autofillFromBill(String? billNumber) async {
     if (billNumber == null || billNumber.isEmpty) {
       _showMessage('No bill number selected');
@@ -348,6 +385,36 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       final customerName = billData['customerName']?.toString() ?? '';
       final customerPhone = billData['customerMobile']?.toString() ?? '';
       final imei = billData['imei']?.toString() ?? '';
+
+      // Check multiple possible field names for purchase mode
+      String? purchaseMode;
+      if (billData.containsKey('purchaseMode')) {
+        purchaseMode = billData['purchaseMode']?.toString();
+      } else if (billData.containsKey('purchase_mode')) {
+        purchaseMode = billData['purchase_mode']?.toString();
+      } else if (billData.containsKey('PurchaseMode')) {
+        purchaseMode = billData['PurchaseMode']?.toString();
+      } else if (billData.containsKey('paymentMode')) {
+        purchaseMode = billData['paymentMode']?.toString();
+      } else if (billData.containsKey('payment_mode')) {
+        purchaseMode = billData['payment_mode']?.toString();
+      }
+
+      // Check multiple possible field names for finance type
+      String? financeType;
+      if (billData.containsKey('financeType')) {
+        financeType = billData['financeType']?.toString();
+      } else if (billData.containsKey('finance_type')) {
+        financeType = billData['finance_type']?.toString();
+      } else if (billData.containsKey('FinanceType')) {
+        financeType = billData['FinanceType']?.toString();
+      } else if (billData.containsKey('financeCompany')) {
+        financeType = billData['financeCompany']?.toString();
+      } else if (billData.containsKey('finance_company')) {
+        financeType = billData['finance_company']?.toString();
+      } else if (billData.containsKey('financer')) {
+        financeType = billData['financer']?.toString();
+      }
 
       final originalPhoneData =
           billData['originalPhoneData'] as Map<String, dynamic>?;
@@ -372,6 +439,73 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
           _priceController.text = productPrice.toStringAsFixed(2);
         }
 
+        // Autofill purchase mode if available with debug logging
+        if (purchaseMode != null && purchaseMode.isNotEmpty) {
+          debugPrint('Found purchaseMode in bill: $purchaseMode');
+
+          // Normalize the purchase mode value to match dropdown options
+          String normalizedMode = purchaseMode;
+          final lowerMode = purchaseMode.toLowerCase();
+
+          if (lowerMode.contains('cash')) {
+            normalizedMode = 'Ready Cash';
+          } else if (lowerMode.contains('credit')) {
+            normalizedMode = 'Credit Card';
+          } else if (lowerMode.contains('emi')) {
+            normalizedMode = 'EMI';
+          }
+
+          // Check if normalized mode is in our list
+          if (_purchaseModes.contains(normalizedMode)) {
+            _selectedPurchaseMode = normalizedMode;
+            // Reset payment breakdown when mode changes
+            _selectedPaymentBreakdown = PaymentBreakdown();
+
+            debugPrint('Set purchase mode to: $normalizedMode');
+          } else {
+            debugPrint('Normalized mode $normalizedMode not in dropdown list');
+          }
+        } else {
+          debugPrint(
+            'No purchaseMode found in bill data. Available keys: ${billData.keys.join(', ')}',
+          );
+        }
+
+        // FIX: Autofill finance type if available with null safety
+        if (financeType != null && financeType.isNotEmpty) {
+          debugPrint('Found financeType in bill: $financeType');
+
+          // Check if finance type is in our list
+          if (_financeCompaniesList.contains(financeType)) {
+            _selectedFinanceType = financeType;
+            debugPrint('Set finance type to: $financeType');
+          } else {
+            // Try to find partial match with null safety
+            try {
+              final String searchTerm = financeType.toLowerCase();
+              final matchedFinance = _financeCompaniesList.firstWhere(
+                (company) => company.toLowerCase().contains(searchTerm),
+                orElse: () => '', // Return empty string if no match
+              );
+              if (matchedFinance.isNotEmpty) {
+                _selectedFinanceType = matchedFinance;
+                debugPrint('Set finance type to (matched): $matchedFinance');
+              } else {
+                _selectedFinanceType =
+                    financeType; // Use original if no match found
+                debugPrint('Set finance type to (original): $financeType');
+              }
+            } catch (e) {
+              _selectedFinanceType = financeType; // Fallback to original
+              debugPrint(
+                'Error matching finance type, using original: $financeType',
+              );
+            }
+          }
+        } else {
+          debugPrint('No financeType found in bill data');
+        }
+
         if (billDate != null) {
           _saleDate = billDate;
         }
@@ -379,7 +513,35 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
       _showMessage('✓ Data autofilled from bill $billNumber', isError: false);
     } catch (e) {
+      debugPrint('Error autofilling data: $e');
       _showMessage('Error autofilling data: $e');
+    }
+  }
+
+  // Fetch shop details from Mobile_house_Shops collection
+  Future<void> _getShopDetails() async {
+    try {
+      if (_shopId == null) return;
+
+      final shopDoc = await _firestore
+          .collection('Mobile_house_Shops')
+          .doc(_shopId)
+          .get();
+
+      if (shopDoc.exists) {
+        final shopData = shopDoc.data() ?? {};
+        setState(() {
+          _shopMobileNumber = shopData['phone']?.toString() ?? '';
+          _shopWhatsAppNumber =
+              shopData['whatsapp']?.toString() ??
+              shopData['phone']?.toString() ??
+              '';
+          _shopAddress = shopData['address']?.toString() ?? '';
+          _shopInstagram = shopData['instagram']?.toString() ?? 'mobile.house_';
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching shop details: $e');
     }
   }
 
@@ -504,16 +666,18 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     setState(() {
       _selectedPurchaseMode = mode;
       _selectedPaymentBreakdown = PaymentBreakdown();
-      _selectedFinanceType = null;
+      if (mode != 'EMI') {
+        _selectedFinanceType = null;
+      }
       _discountController.text = "0";
-      _downPaymentController.text = ""; // REMOVED default "0"
+      _downPaymentController.text = "";
       _upgradeController.text = "0";
       _supportController.text = "0";
       _disbursementAmountController.text = "0";
       _exchangeController.text = "0";
       _customerCreditController.text = "0";
 
-      // EMI fields - NO DEFAULT VALUES
+      // EMI fields
       _numberOfEmiController.text = "";
       _perMonthEmiController.text = "";
       _loanIdController.clear();
@@ -544,6 +708,14 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         _selectedPaymentBreakdown.card =
             effectivePrice - exchange - customerCredit;
       }
+    });
+  }
+
+  // Clear share state when starting new sale
+  void _clearShareState() {
+    setState(() {
+      _showShareButton = false;
+      _lastSaleData = null;
     });
   }
 
@@ -626,7 +798,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         return;
       }
 
-      // Validate EMI fields
       if (_numberOfEmiController.text.isEmpty) {
         _showMessage('Please enter number of EMI');
         return;
@@ -699,6 +870,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         return;
       }
 
+      // Fetch shop details for WhatsApp number
+      await _getShopDetails();
+
       final upgradeValue = _isSamsungBrand
           ? (double.tryParse(_upgradeController.text) ?? 0.0)
           : 0.0;
@@ -730,20 +904,17 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         'downPayment': _selectedPurchaseMode == 'EMI'
             ? double.tryParse(_downPaymentController.text) ?? 0.0
             : 0.0,
-        // EMI fields
         'numberOfEmi': _selectedPurchaseMode == 'EMI'
             ? int.tryParse(_numberOfEmiController.text) ?? 0
             : 0,
         'perMonthEmi': _selectedPurchaseMode == 'EMI'
             ? double.tryParse(_perMonthEmiController.text) ?? 0.0
             : 0.0,
-        // NEW: Loan fields
         'loanId': _selectedPurchaseMode == 'EMI'
             ? _loanIdController.text
             : null,
         'autoDebit': _selectedPurchaseMode == 'EMI' ? _autoDebit : false,
         'insurance': _selectedPurchaseMode == 'EMI' ? _insurance : false,
-        // Enhanced gift fields
         'gifts': _finalGiftValues,
         'giftsCount': _selectedGifts.length,
         'giftsList': _selectedGifts.join(', '),
@@ -761,6 +932,12 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
       await _firestore.collection('phoneSales').add(salesData);
 
+      // Store last sale data for sharing (only for EMI)
+      setState(() {
+        _lastSaleData = salesData;
+        _showShareButton = _selectedPurchaseMode == 'EMI';
+      });
+
       _showMessage('✓ Phone sale uploaded successfully!', isError: false);
       _resetForm();
     } catch (e) {
@@ -768,6 +945,350 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
 
     setState(() => _isLoading = false);
+  }
+
+  // Generate EMI details message for sharing
+  String _generateEmiShareMessage() {
+    if (_lastSaleData == null) return '';
+
+    final sale = _lastSaleData!;
+    final brand = sale['brand']?.toString().toUpperCase() ?? '';
+    final model = sale['productModel']?.toString() ?? '';
+    final price = (sale['price'] as num?)?.toDouble() ?? 0.0;
+    final downPayment = (sale['downPayment'] as num?)?.toDouble() ?? 0.0;
+    final discount = (sale['discount'] as num?)?.toDouble() ?? 0.0;
+    final numberOfEmi = sale['numberOfEmi'] ?? 0;
+    final perMonthEmi = (sale['perMonthEmi'] as num?)?.toDouble() ?? 0.0;
+    final financeType = sale['financeType']?.toString() ?? '';
+    final loanId = sale['loanId']?.toString() ?? '';
+    final autoDebit = sale['autoDebit'] as bool? ?? false;
+    final insurance = sale['insurance'] as bool? ?? false;
+    final saleDate = sale['saleDate'] as DateTime? ?? DateTime.now();
+    final customerName = sale['customerName']?.toString() ?? '';
+    final customerPhone = sale['customerPhone']?.toString() ?? '';
+    final gifts = sale['giftsList']?.toString() ?? '';
+
+    final dateFormat = DateFormat('dd/MM/yyyy');
+    final formattedDate = dateFormat.format(saleDate);
+
+    final shopMobile = _shopMobileNumber ?? '9072430483';
+    final shopWhatsApp = _shopWhatsAppNumber ?? shopMobile;
+    final shopInstagram = _shopInstagram ?? 'mobile.house_';
+    final shopName = sale['shopName']?.toString() ?? 'MOBILE HOUSE';
+
+    final buffer = StringBuffer();
+
+    buffer.writeln('📱 *$shopName*');
+    buffer.writeln('━━━━━━━━━━━━━━━━━━━━━');
+    buffer.writeln();
+    buffer.writeln('✨ *EMI DETAILS* ✨');
+    buffer.writeln();
+    buffer.writeln('🏪 SHOP : $shopName');
+    buffer.writeln('📱 BRAND : $brand');
+    buffer.writeln('📲 MODEL : $model');
+    buffer.writeln('💰 PRICE : ₹${price.toStringAsFixed(0)}');
+    buffer.writeln('💵 DOWN PAYMENT : ₹${downPayment.toStringAsFixed(0)}');
+
+    if (discount > 0) {
+      buffer.writeln('🎯 DISCOUNT : ₹${discount.toStringAsFixed(0)}');
+    }
+
+    buffer.writeln('📆 EMI : ₹${perMonthEmi.toStringAsFixed(0)}*$numberOfEmi');
+    buffer.writeln('🏦 FINANCE : $financeType');
+
+    if (loanId.isNotEmpty) {
+      buffer.writeln('🆔 LOAN ID : $loanId');
+    }
+
+    buffer.writeln('💳 AUTO DEBIT : ${autoDebit ? '✅ YES' : '❌ NO'}');
+    buffer.writeln('🛡️ INSURANCE : ${insurance ? '✅ YES' : '❌ NO'}');
+    buffer.writeln('📅 DATE : $formattedDate');
+    buffer.writeln();
+    buffer.writeln('👤 CUSTOMER : $customerName');
+    buffer.writeln('📞 MOBILE : $customerPhone');
+
+    if (gifts.isNotEmpty) {
+      buffer.writeln();
+      buffer.writeln('🎁 *FREE ACCESSORIES* 🎁');
+      buffer.writeln('🔥 $gifts');
+    }
+
+    buffer.writeln();
+    buffer.writeln('⚠️ *എല്ലാ മാസവും 1 നു മുമ്പ് EMI pay ചെയ്യണം*');
+    buffer.writeln();
+    buffer.writeln('━━━━━━━━━━━━━━━━━━━━━');
+    buffer.writeln();
+    buffer.writeln('✨ *Thanks For Your Visit* ✨');
+    buffer.writeln('🤝 *Keep In Touch With Mobile House* 😍');
+    buffer.writeln();
+    buffer.writeln('🎯 *For Exciting Offers*');
+    buffer.writeln('📸 Follow @${shopInstagram.replaceAll('@', '')}');
+    buffer.writeln();
+    buffer.writeln('📱 MOBILE SALES - SERVICE - EXCHANGE');
+    buffer.writeln();
+    buffer.writeln('🔄 *പഴയ മൊബൈൽ കൊണ്ടു വരൂ*');
+    buffer.writeln('✨ *എക്സ്ചേഞ്ച് ചെയ്തു പുതിയ മൊബൈൽ സ്വന്തമാക്കൂ...*');
+    buffer.writeln();
+    buffer.writeln('📞 *For more info:*');
+    buffer.writeln('📞 Whatsapp : $shopWhatsApp');
+
+    buffer.writeln(
+      '📸 Instagram : https://instagram.com/${shopInstagram.replaceAll('@', '')}',
+    );
+    buffer.writeln('🌐 Website : https://mobilehouse.in/');
+
+    return buffer.toString();
+  }
+
+  // Show share options dialog
+  Future<void> _showShareDialog() async {
+    if (_lastSaleData == null) return;
+
+    final message = _generateEmiShareMessage();
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Share EMI Details',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 20),
+
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _primaryColor.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _primaryColor.withOpacity(0.2)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.emoji_emotions,
+                          color: _primaryColor,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Thanks For Your Visit!',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: _primaryColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'EMI details ready to share with customer',
+                      style: TextStyle(fontSize: 12, color: _secondaryColor),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildShareOption(
+                      icon: Icons.copy,
+                      label: 'Copy',
+                      color: _secondaryColor,
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: message));
+                        Navigator.pop(context);
+                        _showMessage('📋 Copied to clipboard!', isError: false);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildShareOption(
+                      icon: Icons.share,
+                      label: 'Share',
+                      color: _primaryColor,
+                      onTap: () {
+                        _shareViaIntent(message);
+                        Navigator.pop(context);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildShareOption(
+                      icon: Icons.message,
+                      label: 'WhatsApp',
+                      color: _whatsappColor,
+                      onTap: () {
+                        _shareToWhatsApp(message);
+                        Navigator.pop(context);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // Build share option button
+  Widget _buildShareOption({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 24),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Share via intent
+  void _shareViaIntent(String message) async {
+    try {
+      await Share.share(message);
+    } catch (e) {
+      _showMessage('Could not share: $e');
+    }
+  }
+
+  // Share to WhatsApp
+  void _shareToWhatsApp(String message) async {
+    try {
+      final phone = _shopWhatsAppNumber ?? '9072430483';
+      final url = 'https://wa.me/$phone?text=${Uri.encodeComponent(message)}';
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      } else {
+        _shareViaIntent(message);
+      }
+    } catch (e) {
+      _shareViaIntent(message);
+    }
+  }
+
+  // Build success message with share button
+  Widget _buildSuccessMessageWithShare() {
+    if (!_showShareButton || _lastSaleData == null)
+      return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _successColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _successColor.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _successColor,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.check, color: Colors.white, size: 16),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'EMI Sale Uploaded Successfully!',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: _successColor,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Share EMI details with customer',
+                      style: TextStyle(fontSize: 12, color: _secondaryColor),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _showShareDialog,
+              icon: const Icon(Icons.share, size: 18),
+              label: const Text('Share EMI Details'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _primaryColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<bool> _showConfirmationDialog() async {
@@ -1031,20 +1552,17 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       _exchangeController.text = "0";
       _customerCreditController.text = "0";
 
-      // EMI fields - NO DEFAULT VALUES
       _numberOfEmiController.text = "";
       _perMonthEmiController.text = "";
       _loanIdController.clear();
       _autoDebit = false;
       _insurance = false;
 
-      // Gift fields
       _selectedGifts.clear();
       _isOtherGift = false;
       _otherGiftController.clear();
       _showGiftDropdown = false;
 
-      // Payment breakdown controllers
       _rcCashController.text = "";
       _rcGpayController.text = "";
       _rcCardController.text = "";
@@ -1078,6 +1596,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
           if (_shopId != null) {
             _loadBillNumbers();
+            _getShopDetails();
           }
         } else {
           setState(() => _loadingShopInfo = false);
@@ -1140,7 +1659,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  // ENHANCED: Multi-select Gift dropdown widget - FIXED with valid icons
+  // Build gift selection widget
   Widget _buildGiftSelection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1191,7 +1710,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               ),
               const SizedBox(height: 8),
 
-              // Display selected gifts
               if (_selectedGifts.isNotEmpty) ...[
                 Wrap(
                   spacing: 6,
@@ -1237,14 +1755,12 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 const SizedBox(height: 8),
               ],
 
-              // Gift selection buttons - FIXED with valid Flutter icons
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: _giftOptions.map((gift) {
                     final giftName = gift['name'] as String;
                     final isSelected = _selectedGifts.contains(giftName);
-                    final isOther = giftName == 'Other';
 
                     return Padding(
                       padding: const EdgeInsets.only(right: 8),
@@ -1286,7 +1802,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 ),
               ),
 
-              // Custom gift input
               if (_isOtherGift) ...[
                 const SizedBox(height: 10),
                 Row(
@@ -1341,6 +1856,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     );
   }
 
+  // Bill number field with better refresh and autofill button
   Widget _buildBillNumberField() {
     if (_shopId == null) {
       return Container(
@@ -1389,9 +1905,22 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 ),
               ),
             const Spacer(),
-            GestureDetector(
-              onTap: _loadBillNumbers,
-              child: Icon(Icons.refresh, size: 16, color: _primaryColor),
+            Tooltip(
+              message: 'Refresh bill list',
+              child: GestureDetector(
+                onTap: () {
+                  _loadBillNumbers();
+                  _showMessage('Refreshing bills...', isError: false);
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: _primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Icon(Icons.refresh, size: 16, color: _primaryColor),
+                ),
+              ),
             ),
           ],
         ),
@@ -1558,6 +2087,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                                     _selectedBillNumber = billNumber;
                                     _billSearchController.text = billNumber;
                                   });
+                                  // Use microtask to ensure state is updated first
                                   Future.microtask(() {
                                     _autofillFromBill(billNumber);
                                   });
@@ -1610,32 +2140,66 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
               if (_selectedBillNumber != null)
                 Padding(
-                  padding: const EdgeInsets.only(top: 3, left: 2),
+                  padding: const EdgeInsets.only(top: 8, left: 2),
                   child: Row(
                     children: [
-                      Icon(Icons.check_circle, size: 11, color: _primaryColor),
-                      const SizedBox(width: 3),
+                      Icon(Icons.check_circle, size: 14, color: _primaryColor),
+                      const SizedBox(width: 4),
                       Text(
-                        'Bill selected - data autofilled',
+                        'Bill selected',
                         style: TextStyle(
-                          fontSize: 10,
+                          fontSize: 11,
                           color: _primaryColor,
-                          fontStyle: FontStyle.italic,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 8),
+                      Container(
+                        height: 20,
+                        width: 1,
+                        color: _secondaryColor.withOpacity(0.3),
+                      ),
+                      const SizedBox(width: 8),
                       GestureDetector(
                         onTap: () async {
                           if (_selectedBillNumber != null) {
+                            _showMessage(
+                              'Re-autofilling data from bill...',
+                              isError: false,
+                            );
                             await _autofillFromBill(_selectedBillNumber);
                           }
                         },
-                        child: Text(
-                          '(Refresh)',
-                          style: TextStyle(
-                            fontSize: 9,
-                            color: _primaryDarkColor,
-                            decoration: TextDecoration.underline,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _billAutofillColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _billAutofillColor.withOpacity(0.3),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.autorenew,
+                                size: 12,
+                                color: _billAutofillColor,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Autofill Again',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: _billAutofillColor,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -1644,36 +2208,47 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 ),
               if (_billNumbers.isEmpty && !_loadingBills)
                 Padding(
-                  padding: const EdgeInsets.only(top: 3, left: 2),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.warning, size: 11, color: _warningColor),
-                          const SizedBox(width: 3),
-                          Text(
-                            'No bills found for your shop "$_shopName".',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: _warningColor,
-                              fontStyle: FontStyle.italic,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 14),
-                        child: Text(
-                          'Create bills first or use "Without Bill Number" option.',
-                          style: TextStyle(
-                            fontSize: 9,
-                            color: _secondaryColor,
-                            fontStyle: FontStyle.italic,
+                  padding: const EdgeInsets.only(top: 8, left: 2),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _warningColor.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: _warningColor.withOpacity(0.2)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          size: 14,
+                          color: _warningColor,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'No bills found for your shop',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: _warningColor,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Create bills first or use "Without Bill Number" option',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: _secondaryColor,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
             ],
@@ -1684,7 +2259,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     );
   }
 
-  // NEW: Loan ID field
+  // Loan ID field
   Widget _buildLoanIdField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1724,7 +2299,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     );
   }
 
-  // NEW: Auto Debit and Insurance selection
+  // Auto Debit and Insurance selection
   Widget _buildLoanOptions() {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -2330,11 +2905,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               ),
               const SizedBox(height: 10),
 
-              // NEW: Loan ID field
               _buildLoanIdField(),
               const SizedBox(height: 10),
 
-              // NEW: Auto Debit and Insurance options
               _buildLoanOptions(),
               const SizedBox(height: 10),
             ],
@@ -2397,7 +2970,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               ),
               const SizedBox(height: 10),
 
-              // ENHANCED: Multi-select Gift section
               _buildGiftSelection(),
               const SizedBox(height: 10),
 
@@ -2759,7 +3331,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                     ],
                   ),
 
-                // EMI details
                 if ((int.tryParse(_numberOfEmiController.text) ?? 0) > 0)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2797,7 +3368,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                     ],
                   ),
 
-                // Loan details
                 if (_loanIdController.text.isNotEmpty)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -3007,7 +3577,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               ],
             ),
 
-          // Gift summary
           if (_selectedGifts.isNotEmpty)
             Column(
               children: [
@@ -3788,6 +4357,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               const SizedBox(height: 16),
               _buildShopInfo(),
               const SizedBox(height: 16),
+
+              _buildSuccessMessageWithShare(),
+
               Card(
                 elevation: 2,
                 shape: RoundedRectangleBorder(
