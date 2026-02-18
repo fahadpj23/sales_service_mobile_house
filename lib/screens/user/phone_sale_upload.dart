@@ -43,7 +43,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   bool _insurance = false;
 
   // Share functionality fields
-  bool _showShareButton = false;
   Map<String, dynamic>? _lastSaleData;
   String? _shopMobileNumber;
   String? _shopWhatsAppNumber;
@@ -190,6 +189,25 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     super.initState();
     _getUserShopId();
 
+    // Set default zero values
+    _discountController.text = "0";
+    _exchangeController.text = "0";
+    _customerCreditController.text = "0";
+    _upgradeController.text = "0";
+    _supportController.text = "0";
+    _downPaymentController.text = "";
+    _disbursementAmountController.text = ""; // Empty, will be required to fill
+
+    // Set default zero for payment breakdown controllers
+    _rcCashController.text = "0";
+    _rcGpayController.text = "0";
+    _rcCardController.text = "0";
+    _rcCreditController.text = "0";
+    _dpCashController.text = "0";
+    _dpGpayController.text = "0";
+    _dpCardController.text = "0";
+    _dpCreditController.text = "0";
+
     // Add listeners
     _rcCashController.addListener(_updateReadyCashPaymentBreakdown);
     _rcGpayController.addListener(_updateReadyCashPaymentBreakdown);
@@ -208,9 +226,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
     // Initialize with empty values
     _downPaymentController.text = "";
-    _upgradeController.text = "0";
-    _supportController.text = "0";
-    _disbursementAmountController.text = "0";
     _numberOfEmiController.text = "";
     _perMonthEmiController.text = "";
 
@@ -288,7 +303,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   }
 
   // Load bill numbers with proper sorting and debug info
-  // Alternative query that doesn't require a composite index
   Future<void> _loadBillNumbers() async {
     try {
       setState(() => _loadingBills = true);
@@ -310,7 +324,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
       debugPrint('Loading bills for shop: $_shopId');
 
-      // First get all bills for this shop (without ordering)
       final billsSnapshot = await _firestore
           .collection('bills')
           .where('shopId', isEqualTo: _shopId)
@@ -322,14 +335,13 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       final billNumbers = <String>[];
       final billDataMap = <String, Map<String, dynamic>>{};
 
-      // Then sort them in memory
       final sortedDocs = List.from(billsSnapshot.docs);
       sortedDocs.sort((a, b) {
         final aDate =
             (a.data()['billDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
         final bDate =
             (b.data()['billDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
-        return bDate.compareTo(aDate); // descending
+        return bDate.compareTo(aDate);
       });
 
       for (var doc in sortedDocs) {
@@ -363,7 +375,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  // FIXED: Autofill from bill with purchase mode and finance type - NULL SAFE
+  // Autofill from bill with purchase mode and finance type
   Future<void> _autofillFromBill(String? billNumber) async {
     if (billNumber == null || billNumber.isEmpty) {
       _showMessage('No bill number selected');
@@ -386,7 +398,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       final customerPhone = billData['customerMobile']?.toString() ?? '';
       final imei = billData['imei']?.toString() ?? '';
 
-      // Check multiple possible field names for purchase mode
       String? purchaseMode;
       if (billData.containsKey('purchaseMode')) {
         purchaseMode = billData['purchaseMode']?.toString();
@@ -400,7 +411,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         purchaseMode = billData['payment_mode']?.toString();
       }
 
-      // Check multiple possible field names for finance type
       String? financeType;
       if (billData.containsKey('financeType')) {
         financeType = billData['financeType']?.toString();
@@ -439,11 +449,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
           _priceController.text = productPrice.toStringAsFixed(2);
         }
 
-        // Autofill purchase mode if available with debug logging
         if (purchaseMode != null && purchaseMode.isNotEmpty) {
           debugPrint('Found purchaseMode in bill: $purchaseMode');
 
-          // Normalize the purchase mode value to match dropdown options
           String normalizedMode = purchaseMode;
           final lowerMode = purchaseMode.toLowerCase();
 
@@ -455,12 +463,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
             normalizedMode = 'EMI';
           }
 
-          // Check if normalized mode is in our list
           if (_purchaseModes.contains(normalizedMode)) {
             _selectedPurchaseMode = normalizedMode;
-            // Reset payment breakdown when mode changes
             _selectedPaymentBreakdown = PaymentBreakdown();
-
             debugPrint('Set purchase mode to: $normalizedMode');
           } else {
             debugPrint('Normalized mode $normalizedMode not in dropdown list');
@@ -471,32 +476,28 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
           );
         }
 
-        // FIX: Autofill finance type if available with null safety
         if (financeType != null && financeType.isNotEmpty) {
           debugPrint('Found financeType in bill: $financeType');
 
-          // Check if finance type is in our list
           if (_financeCompaniesList.contains(financeType)) {
             _selectedFinanceType = financeType;
             debugPrint('Set finance type to: $financeType');
           } else {
-            // Try to find partial match with null safety
             try {
               final String searchTerm = financeType.toLowerCase();
               final matchedFinance = _financeCompaniesList.firstWhere(
                 (company) => company.toLowerCase().contains(searchTerm),
-                orElse: () => '', // Return empty string if no match
+                orElse: () => '',
               );
               if (matchedFinance.isNotEmpty) {
                 _selectedFinanceType = matchedFinance;
                 debugPrint('Set finance type to (matched): $matchedFinance');
               } else {
-                _selectedFinanceType =
-                    financeType; // Use original if no match found
+                _selectedFinanceType = financeType;
                 debugPrint('Set finance type to (original): $financeType');
               }
             } catch (e) {
-              _selectedFinanceType = financeType; // Fallback to original
+              _selectedFinanceType = financeType;
               debugPrint(
                 'Error matching finance type, using original: $financeType',
               );
@@ -669,13 +670,14 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       if (mode != 'EMI') {
         _selectedFinanceType = null;
       }
+
+      // Keep default zero values
       _discountController.text = "0";
+      _exchangeController.text = "0";
+      _customerCreditController.text = "0";
       _downPaymentController.text = "";
       _upgradeController.text = "0";
       _supportController.text = "0";
-      _disbursementAmountController.text = "0";
-      _exchangeController.text = "0";
-      _customerCreditController.text = "0";
 
       // EMI fields
       _numberOfEmiController.text = "";
@@ -690,15 +692,15 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       _otherGiftController.clear();
       _showGiftDropdown = false;
 
-      // Reset payment breakdown controllers
-      _rcCashController.text = "";
-      _rcGpayController.text = "";
-      _rcCardController.text = "";
-      _rcCreditController.text = "";
-      _dpCashController.text = "";
-      _dpGpayController.text = "";
-      _dpCardController.text = "";
-      _dpCreditController.text = "";
+      // Reset payment breakdown controllers with zero
+      _rcCashController.text = "0";
+      _rcGpayController.text = "0";
+      _rcCardController.text = "0";
+      _rcCreditController.text = "0";
+      _dpCashController.text = "0";
+      _dpGpayController.text = "0";
+      _dpCardController.text = "0";
+      _dpCreditController.text = "0";
 
       if (mode == 'Credit Card') {
         final effectivePrice = _calculateEffectivePrice();
@@ -711,12 +713,214 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     });
   }
 
-  // Clear share state when starting new sale
-  void _clearShareState() {
+  // Clear last sale data
+  void _clearLastSaleData() {
     setState(() {
-      _showShareButton = false;
       _lastSaleData = null;
     });
+  }
+
+  // Show share popup after successful upload
+  void _showSharePopup() {
+    if (_lastSaleData == null) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(15),
+                  decoration: BoxDecoration(
+                    color: _successColor.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.check_circle,
+                    color: _successColor,
+                    size: 40,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'EMI Sale Uploaded!',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: _primaryColor,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Share EMI details with customer',
+                  style: TextStyle(fontSize: 13, color: _secondaryColor),
+                ),
+
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _clearLastSaleData();
+                        },
+                        child: Text(
+                          'Close',
+                          style: TextStyle(color: _secondaryColor),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _showShareOptionsDialog();
+                        },
+                        icon: Icon(Icons.share, size: 16),
+                        label: Text('Share'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _primaryColor,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // Show share options dialog
+  Future<void> _showShareOptionsDialog() async {
+    if (_lastSaleData == null) return;
+
+    final message = _generateEmiShareMessage();
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Share EMI Details',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: _primaryColor,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildShareOption(
+                      icon: Icons.copy,
+                      label: 'Copy',
+                      color: _secondaryColor,
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: message));
+                        Navigator.pop(context);
+                        _showMessage('📋 Copied to clipboard!', isError: false);
+                        _clearLastSaleData();
+                      },
+                    ),
+                    _buildShareOption(
+                      icon: Icons.share,
+                      label: 'Share',
+                      color: _primaryColor,
+                      onTap: () {
+                        _shareViaIntent(message);
+                        Navigator.pop(context);
+                        _clearLastSaleData();
+                      },
+                    ),
+                    _buildShareOption(
+                      icon: Icons.message,
+                      label: 'WhatsApp',
+                      color: _whatsappColor,
+                      onTap: () {
+                        _shareToWhatsApp(message);
+                        Navigator.pop(context);
+                        _clearLastSaleData();
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _clearLastSaleData();
+                  },
+                  child: Text(
+                    'Cancel',
+                    style: TextStyle(color: _secondaryColor),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // Build share option button
+  Widget _buildShareOption({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 24),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _uploadPhoneSale() async {
@@ -766,10 +970,10 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     if (_selectedPurchaseMode == 'Ready Cash') {
       if (balanceReturned > 0) {
         _selectedPaymentBreakdown = PaymentBreakdown();
-        _rcCashController.text = "";
-        _rcGpayController.text = "";
-        _rcCardController.text = "";
-        _rcCreditController.text = "";
+        _rcCashController.text = "0";
+        _rcGpayController.text = "0";
+        _rcCardController.text = "0";
+        _rcCreditController.text = "0";
       } else {
         final paymentTotal = _calculatePaymentTotal(_selectedPaymentBreakdown);
         if (paymentTotal == 0 && amountToPay > 0) {
@@ -815,6 +1019,17 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       final perMonthEmi = double.tryParse(_perMonthEmiController.text) ?? 0.0;
       if (perMonthEmi <= 0) {
         _showMessage('Please enter valid per month EMI amount');
+        return;
+      }
+
+      if (_disbursementAmountController.text.isEmpty) {
+        _showMessage('Please enter disbursement amount');
+        return;
+      }
+      final disbursementAmount =
+          double.tryParse(_disbursementAmountController.text) ?? 0.0;
+      if (disbursementAmount <= 0) {
+        _showMessage('Please enter valid disbursement amount');
         return;
       }
 
@@ -870,6 +1085,11 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         return;
       }
 
+      // STORE ALL NECESSARY DATA BEFORE RESETTING
+      final customerName = _customerNameController.text;
+      final customerPhone = _customerPhoneController.text;
+      final isEmiMode = _selectedPurchaseMode == 'EMI';
+
       // Fetch shop details for WhatsApp number
       await _getShopDetails();
 
@@ -922,8 +1142,8 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         'customerCredit': customerCredit,
         'amountToPay': amountToPay > 0 ? amountToPay : 0.0,
         'balanceReturnedToCustomer': balanceReturned,
-        'customerName': _customerNameController.text,
-        'customerPhone': _customerPhoneController.text,
+        'customerName': customerName,
+        'customerPhone': customerPhone, // Use stored value
         'billNumber': _withoutBillNumber ? null : _selectedBillNumber,
         'addedAt': DateTime.now(),
         'createdAt': FieldValue.serverTimestamp(),
@@ -933,15 +1153,29 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       await _firestore.collection('phoneSales').add(salesData);
 
       // Store last sale data for sharing (only for EMI)
-      setState(() {
-        _lastSaleData = salesData;
-        _showShareButton = _selectedPurchaseMode == 'EMI';
-      });
+      if (isEmiMode) {
+        setState(() {
+          _lastSaleData = {...salesData, 'customerPhone': customerPhone};
+        });
+      }
 
       _showMessage('✓ Phone sale uploaded successfully!', isError: false);
-      _resetForm();
+
+      // Show share popup for EMI sales
+      if (isEmiMode) {
+        // Reset form but keep lastSaleData
+        _resetForm();
+
+        // Show popup after a short delay
+        Future.delayed(const Duration(milliseconds: 500), () {
+          _showSharePopup();
+        });
+      } else {
+        _resetForm();
+      }
     } catch (e) {
       _showMessage('Failed to upload sale: $e');
+      setState(() => _isLoading = false);
     }
 
     setState(() => _isLoading = false);
@@ -957,6 +1191,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     final price = (sale['price'] as num?)?.toDouble() ?? 0.0;
     final downPayment = (sale['downPayment'] as num?)?.toDouble() ?? 0.0;
     final discount = (sale['discount'] as num?)?.toDouble() ?? 0.0;
+    final exchange = (sale['exchangeValue'] as num?)?.toDouble() ?? 0.0;
     final numberOfEmi = sale['numberOfEmi'] ?? 0;
     final perMonthEmi = (sale['perMonthEmi'] as num?)?.toDouble() ?? 0.0;
     final financeType = sale['financeType']?.toString() ?? '';
@@ -965,7 +1200,8 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     final insurance = sale['insurance'] as bool? ?? false;
     final saleDate = sale['saleDate'] as DateTime? ?? DateTime.now();
     final customerName = sale['customerName']?.toString() ?? '';
-    final customerPhone = sale['customerPhone']?.toString() ?? '';
+    final customerPhone =
+        sale['customerPhone']?.toString() ?? ''; // This is used below
     final gifts = sale['giftsList']?.toString() ?? '';
 
     final dateFormat = DateFormat('dd/MM/yyyy');
@@ -981,219 +1217,71 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     buffer.writeln('📱 *$shopName*');
     buffer.writeln('━━━━━━━━━━━━━━━━━━━━━');
     buffer.writeln();
+    buffer.writeln('✨ *Thanks For Your Visit* ✨');
+    buffer.writeln('🤝 *Keep In Touch With Mobile House* 😍');
+    buffer.writeln(
+      '📸 Instagram : https://instagram.com/${shopInstagram.replaceAll('@', '')}',
+    );
     buffer.writeln('✨ *EMI DETAILS* ✨');
     buffer.writeln();
-    buffer.writeln('🏪 SHOP : $shopName');
-    buffer.writeln('📱 BRAND : $brand');
-    buffer.writeln('📲 MODEL : $model');
-    buffer.writeln('💰 PRICE : ₹${price.toStringAsFixed(0)}');
-    buffer.writeln('💵 DOWN PAYMENT : ₹${downPayment.toStringAsFixed(0)}');
+    buffer.writeln(' SHOP : $shopName');
+    buffer.writeln(' BRAND : $brand');
+    buffer.writeln(' MODEL : $model');
+    buffer.writeln(' PRICE : ₹${price.toStringAsFixed(0)}');
+    buffer.writeln(' DOWN PAYMENT : ₹${downPayment.toStringAsFixed(0)}');
 
     if (discount > 0) {
-      buffer.writeln('🎯 DISCOUNT : ₹${discount.toStringAsFixed(0)}');
+      buffer.writeln(' DISCOUNT : ₹${discount.toStringAsFixed(0)}');
+    }
+    if (exchange > 0) {
+      buffer.writeln(' Exchange : ₹${exchange.toStringAsFixed(0)}');
     }
 
-    buffer.writeln('📆 EMI : ₹${perMonthEmi.toStringAsFixed(0)}*$numberOfEmi');
-    buffer.writeln('🏦 FINANCE : $financeType');
+    buffer.writeln(' EMI : ₹${perMonthEmi.toStringAsFixed(0)}*$numberOfEmi');
+    buffer.writeln(' FINANCE : $financeType');
 
     if (loanId.isNotEmpty) {
-      buffer.writeln('🆔 LOAN ID : $loanId');
+      buffer.writeln(' LOAN ID : $loanId');
     }
 
-    buffer.writeln('💳 AUTO DEBIT : ${autoDebit ? '✅ YES' : '❌ NO'}');
-    buffer.writeln('🛡️ INSURANCE : ${insurance ? '✅ YES' : '❌ NO'}');
-    buffer.writeln('📅 DATE : $formattedDate');
+    buffer.writeln(' AUTO DEBIT : ${autoDebit ? ' YES' : ' NO'}');
+    buffer.writeln(' INSURANCE : ${insurance ? ' YES' : ' NO'}');
+    buffer.writeln(' DATE : $formattedDate');
     buffer.writeln();
-    buffer.writeln('👤 CUSTOMER : $customerName');
-    buffer.writeln('📞 MOBILE : $customerPhone');
+    buffer.writeln(' CUSTOMER : $customerName');
+    buffer.writeln(
+      ' MOBILE : $customerPhone',
+    ); // This line includes customer's phone
 
     if (gifts.isNotEmpty) {
       buffer.writeln();
-      buffer.writeln('🎁 *FREE ACCESSORIES* 🎁');
-      buffer.writeln('🔥 $gifts');
+      buffer.writeln('*FREE ACCESSORIES* ');
+      buffer.writeln(' $gifts');
     }
+    buffer.writeln('MOBILE SALES-SERVICE-EXCHANGE');
 
     buffer.writeln();
     buffer.writeln('⚠️ *എല്ലാ മാസവും 1 നു മുമ്പ് EMI pay ചെയ്യണം*');
     buffer.writeln();
     buffer.writeln('━━━━━━━━━━━━━━━━━━━━━');
     buffer.writeln();
-    buffer.writeln('✨ *Thanks For Your Visit* ✨');
-    buffer.writeln('🤝 *Keep In Touch With Mobile House* 😍');
+
     buffer.writeln();
     buffer.writeln('🎯 *For Exciting Offers*');
     buffer.writeln('📸 Follow @${shopInstagram.replaceAll('@', '')}');
     buffer.writeln();
     buffer.writeln('📱 MOBILE SALES - SERVICE - EXCHANGE');
     buffer.writeln();
-    buffer.writeln('🔄 *പഴയ മൊബൈൽ കൊണ്ടു വരൂ*');
-    buffer.writeln('✨ *എക്സ്ചേഞ്ച് ചെയ്തു പുതിയ മൊബൈൽ സ്വന്തമാക്കൂ...*');
+    buffer.writeln(
+      '🔄 *പഴയ മൊബൈൽ കൊണ്ടു വരൂ എക്സ്ചേഞ്ച് ചെയ്തു പുതിയ മൊബൈൽ സ്വന്തമാക്കൂ...*',
+    );
     buffer.writeln();
     buffer.writeln('📞 *For more info:*');
     buffer.writeln('📞 Whatsapp : $shopWhatsApp');
 
-    buffer.writeln(
-      '📸 Instagram : https://instagram.com/${shopInstagram.replaceAll('@', '')}',
-    );
     buffer.writeln('🌐 Website : https://mobilehouse.in/');
 
     return buffer.toString();
-  }
-
-  // Show share options dialog
-  Future<void> _showShareDialog() async {
-    if (_lastSaleData == null) return;
-
-    final message = _generateEmiShareMessage();
-
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                'Share EMI Details',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 20),
-
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: _primaryColor.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: _primaryColor.withOpacity(0.2)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.emoji_emotions,
-                          color: _primaryColor,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Thanks For Your Visit!',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: _primaryColor,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'EMI details ready to share with customer',
-                      style: TextStyle(fontSize: 12, color: _secondaryColor),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildShareOption(
-                      icon: Icons.copy,
-                      label: 'Copy',
-                      color: _secondaryColor,
-                      onTap: () {
-                        Clipboard.setData(ClipboardData(text: message));
-                        Navigator.pop(context);
-                        _showMessage('📋 Copied to clipboard!', isError: false);
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildShareOption(
-                      icon: Icons.share,
-                      label: 'Share',
-                      color: _primaryColor,
-                      onTap: () {
-                        _shareViaIntent(message);
-                        Navigator.pop(context);
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildShareOption(
-                      icon: Icons.message,
-                      label: 'WhatsApp',
-                      color: _whatsappColor,
-                      onTap: () {
-                        _shareToWhatsApp(message);
-                        Navigator.pop(context);
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  // Build share option button
-  Widget _buildShareOption({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: color, size: 24),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: color,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   // Share via intent
@@ -1208,87 +1296,63 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   // Share to WhatsApp
   void _shareToWhatsApp(String message) async {
     try {
-      final phone = _shopWhatsAppNumber ?? '9072430483';
+      // Get customer phone number from lastSaleData (which contains the saved data)
+      String customerPhone = '';
+
+      if (_lastSaleData != null &&
+          _lastSaleData!.containsKey('customerPhone')) {
+        customerPhone = _lastSaleData!['customerPhone']?.toString() ?? '';
+      }
+
+      // Remove any non-digit characters from phone number
+      customerPhone = customerPhone.replaceAll(RegExp(r'[^0-9]'), '');
+
+      // Use customer phone if available and valid, otherwise fallback to shop WhatsApp
+      String phone = '';
+
+      if (customerPhone.isNotEmpty && customerPhone.length >= 10) {
+        // If phone number has country code or not
+        if (customerPhone.startsWith('+')) {
+          phone = customerPhone.substring(1); // Remove + for wa.me
+        } else if (customerPhone.length == 10) {
+          phone = '91$customerPhone'; // Add India country code
+        } else {
+          phone = customerPhone; // Use as is
+        }
+      } else {
+        // Fallback to shop WhatsApp number
+        phone = _shopWhatsAppNumber ?? '9072430483';
+        // Ensure shop number has country code if needed
+        if (!phone.startsWith('+') && phone.length == 10) {
+          phone = '91$phone';
+        } else if (phone.startsWith('+')) {
+          phone = phone.substring(1);
+        }
+      }
+
+      // Clean up phone number - remove any remaining non-digits
+      phone = phone.replaceAll(RegExp(r'[^0-9]'), '');
+
       final url = 'https://wa.me/$phone?text=${Uri.encodeComponent(message)}';
       final uri = Uri.parse(url);
+
+      debugPrint('Sharing to WhatsApp: $url'); // For debugging
+
       if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
       } else {
+        // If WhatsApp URL can't be launched, fallback to regular share
+        _showMessage(
+          'Could not open WhatsApp. Using share instead...',
+          isError: false,
+        );
         _shareViaIntent(message);
       }
     } catch (e) {
+      debugPrint('Error sharing to WhatsApp: $e');
+      // Fallback to regular share
       _shareViaIntent(message);
     }
-  }
-
-  // Build success message with share button
-  Widget _buildSuccessMessageWithShare() {
-    if (!_showShareButton || _lastSaleData == null)
-      return const SizedBox.shrink();
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: _successColor.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _successColor.withOpacity(0.3)),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: _successColor,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.check, color: Colors.white, size: 16),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'EMI Sale Uploaded Successfully!',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: _successColor,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Share EMI details with customer',
-                      style: TextStyle(fontSize: 12, color: _secondaryColor),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _showShareDialog,
-              icon: const Icon(Icons.share, size: 18),
-              label: const Text('Share EMI Details'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _primaryColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<bool> _showConfirmationDialog() async {
@@ -1375,6 +1439,11 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                     const SizedBox(height: 6),
                     Text(
                       'Per Month EMI: ₹${double.tryParse(_perMonthEmiController.text)?.toStringAsFixed(2) ?? "0.00"}',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Disbursement: ₹${double.tryParse(_disbursementAmountController.text)?.toStringAsFixed(2) ?? "0.00"}',
                       style: const TextStyle(fontSize: 13),
                     ),
                     if (_loanIdController.text.isNotEmpty) ...[
@@ -1548,7 +1617,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       _downPaymentController.text = "";
       _upgradeController.text = "0";
       _supportController.text = "0";
-      _disbursementAmountController.text = "0";
+      _disbursementAmountController.text = "";
       _exchangeController.text = "0";
       _customerCreditController.text = "0";
 
@@ -1563,14 +1632,14 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       _otherGiftController.clear();
       _showGiftDropdown = false;
 
-      _rcCashController.text = "";
-      _rcGpayController.text = "";
-      _rcCardController.text = "";
-      _rcCreditController.text = "";
-      _dpCashController.text = "";
-      _dpGpayController.text = "";
-      _dpCardController.text = "";
-      _dpCreditController.text = "";
+      _rcCashController.text = "0";
+      _rcGpayController.text = "0";
+      _rcCardController.text = "0";
+      _rcCreditController.text = "0";
+      _dpCashController.text = "0";
+      _dpGpayController.text = "0";
+      _dpCardController.text = "0";
+      _dpCreditController.text = "0";
     });
   }
 
@@ -2087,7 +2156,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                                     _selectedBillNumber = billNumber;
                                     _billSearchController.text = billNumber;
                                   });
-                                  // Use microtask to ensure state is updated first
                                   Future.microtask(() {
                                     _autofillFromBill(billNumber);
                                   });
@@ -2320,140 +2388,114 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
             ),
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: _autoDebit
-                          ? _autoDebitColor
-                          : _secondaryColor.withOpacity(0.3),
-                    ),
-                  ),
-                  child: Row(
+
+          // Auto Debit - First item
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _autoDebit
+                    ? _autoDebitColor
+                    : _secondaryColor.withOpacity(0.3),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  _autoDebit
+                      ? Icons.check_circle
+                      : Icons.radio_button_unchecked,
+                  color: _autoDebit ? _autoDebitColor : _secondaryColor,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        _autoDebit
-                            ? Icons.check_circle
-                            : Icons.radio_button_unchecked,
-                        color: _autoDebit ? _autoDebitColor : _secondaryColor,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Auto Debit',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: _autoDebit
-                                    ? _autoDebitColor
-                                    : _secondaryColor,
-                              ),
-                            ),
-                            Text(
-                              'Enable auto-debit from bank',
-                              style: TextStyle(
-                                fontSize: 9,
-                                color: _secondaryColor,
-                              ),
-                            ),
-                          ],
+                      Text(
+                        'Auto Debit',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _autoDebit ? _autoDebitColor : _secondaryColor,
                         ),
-                      ),
-                      Switch(
-                        value: _autoDebit,
-                        onChanged: (value) {
-                          setState(() {
-                            _autoDebit = value;
-                          });
-                        },
-                        activeColor: _autoDebitColor,
-                        activeTrackColor: _autoDebitColor.withOpacity(0.3),
-                        inactiveThumbColor: _secondaryColor,
-                        inactiveTrackColor: _secondaryColor.withOpacity(0.3),
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                     ],
                   ),
                 ),
+                Switch(
+                  value: _autoDebit,
+                  onChanged: (value) {
+                    setState(() {
+                      _autoDebit = value;
+                    });
+                  },
+                  activeColor: _autoDebitColor,
+                  activeTrackColor: _autoDebitColor.withOpacity(0.3),
+                  inactiveThumbColor: _secondaryColor,
+                  inactiveTrackColor: _secondaryColor.withOpacity(0.3),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 8), // Space between items
+          // Insurance - Second item
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _insurance
+                    ? _insuranceColor
+                    : _secondaryColor.withOpacity(0.3),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: _insurance
-                          ? _insuranceColor
-                          : _secondaryColor.withOpacity(0.3),
-                    ),
-                  ),
-                  child: Row(
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  _insurance ? Icons.shield : Icons.shield_outlined,
+                  color: _insurance ? _insuranceColor : _secondaryColor,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        _insurance ? Icons.shield : Icons.shield_outlined,
-                        color: _insurance ? _insuranceColor : _secondaryColor,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Insurance',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: _insurance
-                                    ? _insuranceColor
-                                    : _secondaryColor,
-                              ),
-                            ),
-                            Text(
-                              'Device insurance',
-                              style: TextStyle(
-                                fontSize: 9,
-                                color: _secondaryColor,
-                              ),
-                            ),
-                          ],
+                      Text(
+                        'Insurance',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _insurance ? _insuranceColor : _secondaryColor,
                         ),
-                      ),
-                      Switch(
-                        value: _insurance,
-                        onChanged: (value) {
-                          setState(() {
-                            _insurance = value;
-                          });
-                        },
-                        activeColor: _insuranceColor,
-                        activeTrackColor: _insuranceColor.withOpacity(0.3),
-                        inactiveThumbColor: _secondaryColor,
-                        inactiveTrackColor: _secondaryColor.withOpacity(0.3),
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                     ],
                   ),
                 ),
-              ),
-            ],
+                Switch(
+                  value: _insurance,
+                  onChanged: (value) {
+                    setState(() {
+                      _insurance = value;
+                    });
+                  },
+                  activeColor: _insuranceColor,
+                  activeTrackColor: _insuranceColor.withOpacity(0.3),
+                  inactiveThumbColor: _secondaryColor,
+                  inactiveTrackColor: _secondaryColor.withOpacity(0.3),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -2905,6 +2947,17 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               ),
               const SizedBox(height: 10),
 
+              _buildAdditionalField(
+                label: 'Disbursement Amount *',
+                controller: _disbursementAmountController,
+                hint: 'Enter disbursement amount',
+                icon: Icons.monetization_on,
+                iconColor: _primaryColor,
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                onChanged: (value) => setState(() {}),
+              ),
+              const SizedBox(height: 10),
+
               _buildLoanIdField(),
               const SizedBox(height: 10),
 
@@ -2930,7 +2983,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               const SizedBox(height: 10),
 
               _buildAdditionalField(
-                label: 'Exchange Value',
+                label: 'Exchange Value (Default: 0)',
                 controller: _exchangeController,
                 hint: 'Enter exchange value',
                 icon: Icons.swap_horiz,
@@ -2943,7 +2996,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               const SizedBox(height: 10),
 
               _buildAdditionalField(
-                label: 'Customer Credit (Pay Later)',
+                label: 'Customer Credit (Pay Later) (Default: 0)',
                 controller: _customerCreditController,
                 hint: 'Enter credit amount',
                 icon: Icons.credit_score,
@@ -2957,8 +3010,8 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
               _buildAdditionalField(
                 label: _selectedPurchaseMode == 'EMI'
-                    ? 'Discount (Deducted from Down Payment)'
-                    : 'Discount Amount (Deducted from Price)',
+                    ? 'Discount (Deducted from Down Payment) (Default: 0)'
+                    : 'Discount Amount (Deducted from Price) (Default: 0)',
                 controller: _discountController,
                 hint: 'Enter discount amount',
                 icon: Icons.discount,
@@ -2983,7 +3036,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Remaining Down Payment Breakdown *',
+                        'Remaining Down Payment Breakdown (Default: 0)',
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
                           color: _secondaryColor,
@@ -3051,9 +3104,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 if (_isSamsungBrand) ...[
                   const SizedBox(height: 10),
                   _buildAdditionalField(
-                    label: 'Upgrade (Samsung Only)',
+                    label: 'Upgrade (Samsung Only) (Default: 0)',
                     controller: _upgradeController,
-                    hint: 'Enter upgrade amount (default: 0)',
+                    hint: 'Enter upgrade amount',
                     icon: Icons.upgrade,
                     iconColor: _purpleColor,
                     keyboardType: TextInputType.numberWithOptions(
@@ -3063,9 +3116,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                   const SizedBox(height: 10),
 
                   _buildAdditionalField(
-                    label: 'Support (Samsung Only)',
+                    label: 'Support (Samsung Only) (Default: 0)',
                     controller: _supportController,
-                    hint: 'Enter support amount (default: 0)',
+                    hint: 'Enter support amount',
                     icon: Icons.support_agent,
                     iconColor: _pinkColor,
                     keyboardType: TextInputType.numberWithOptions(
@@ -3073,16 +3126,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                     ),
                   ),
                 ],
-
-                const SizedBox(height: 10),
-                _buildAdditionalField(
-                  label: 'Disbursement Amount',
-                  controller: _disbursementAmountController,
-                  hint: 'Enter disbursement amount (default: 0)',
-                  icon: Icons.monetization_on,
-                  iconColor: _primaryColor,
-                  keyboardType: TextInputType.numberWithOptions(decimal: true),
-                ),
               ],
             ],
           ),
@@ -3363,6 +3406,27 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                           color: _tealColor,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                if ((double.tryParse(_disbursementAmountController.text) ??
+                        0.0) >
+                    0)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Disbursement Amount:',
+                        style: TextStyle(fontSize: 11, color: _primaryColor),
+                      ),
+                      Text(
+                        '₹${(double.tryParse(_disbursementAmountController.text) ?? 0.0).toStringAsFixed(2)}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: _primaryColor,
                         ),
                       ),
                     ],
@@ -4357,8 +4421,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               const SizedBox(height: 16),
               _buildShopInfo(),
               const SizedBox(height: 16),
-
-              _buildSuccessMessageWithShare(),
 
               Card(
                 elevation: 2,

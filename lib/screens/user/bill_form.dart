@@ -44,6 +44,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
   bool _isScanning = false;
   bool _sealChecked = false;
   bool _isLoading = false;
+  bool _isSoldSaved = false; // Flag to prevent multiple saves
   String? _selectedShop = 'Peringottukara';
   final List<String> _shopOptions = ['Peringottukara', 'Cherpu'];
 
@@ -167,6 +168,96 @@ class _BillFormScreenState extends State<BillFormScreen> {
   }
 
   // ==================== END BILL NUMBER GENERATION ====================
+
+  // ==================== IMEI VALIDATION ====================
+
+  Future<bool> _isImeiAlreadySold(String imei) async {
+    try {
+      // Check if the IMEI exists in phoneStock collection with status 'sold'
+      final querySnapshot = await _firestore
+          .collection('phoneStock')
+          .where('imei', isEqualTo: imei)
+          .where('status', isEqualTo: 'sold')
+          .limit(1)
+          .get();
+
+      return querySnapshot.docs.isNotEmpty;
+    } catch (e) {
+      print('Error checking IMEI status: $e');
+      return false;
+    }
+  }
+
+  void _showImeiAlreadySoldDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.warning, color: Colors.red, size: 24),
+              SizedBox(width: 8),
+              Text(
+                'Product Already Sold',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('This product with IMEI:', style: TextStyle(fontSize: 14)),
+              SizedBox(height: 4),
+              Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.red[200]!),
+                ),
+                child: Text(
+                  imei1Controller.text,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red[700],
+                  ),
+                ),
+              ),
+              SizedBox(height: 12),
+              Text(
+                'has already been marked as SOLD and cannot be sold again.',
+                style: TextStyle(fontSize: 14),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'Please check the IMEI number or contact administrator.',
+                style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text(
+                'OK',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        );
+      },
+    );
+  }
+
+  // ==================== END IMEI VALIDATION ====================
 
   void _autoFillData() {
     if (widget.phoneData != null) {
@@ -298,6 +389,22 @@ class _BillFormScreenState extends State<BillFormScreen> {
       return;
     }
 
+    // Check if IMEI is already sold
+    final imei = imei1Controller.text.trim();
+    if (imei.isNotEmpty) {
+      setState(() => _isLoading = true);
+
+      final isSold = await _isImeiAlreadySold(imei);
+
+      if (isSold) {
+        setState(() => _isLoading = false);
+
+        // Show error dialog
+        _showImeiAlreadySoldDialog();
+        return;
+      }
+    }
+
     try {
       setState(() => _isLoading = true);
 
@@ -310,6 +417,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
       final pdfFile = File(filePath);
       setState(() {
         _savedPdfFile = pdfFile;
+        _isSoldSaved = true; // Mark as saved to disable button
       });
 
       if (mounted) {
@@ -363,6 +471,16 @@ class _BillFormScreenState extends State<BillFormScreen> {
     };
 
     if (widget.phoneId != null) {
+      // Check if already sold before updating
+      final phoneDoc = await _firestore
+          .collection('phoneStock')
+          .doc(widget.phoneId)
+          .get();
+
+      if (phoneDoc.exists && phoneDoc.data()?['status'] == 'sold') {
+        throw Exception('This product is already marked as sold');
+      }
+
       await _firestore
           .collection('phoneStock')
           .doc(widget.phoneId)
@@ -378,10 +496,27 @@ class _BillFormScreenState extends State<BillFormScreen> {
             .get();
 
         if (querySnapshot.docs.isNotEmpty) {
+          // Check if it's already sold (though we filtered by 'available')
           await _firestore
               .collection('phoneStock')
               .doc(querySnapshot.docs.first.id)
               .update(updateData);
+        } else {
+          // Check if it exists but is sold
+          final soldCheck = await _firestore
+              .collection('phoneStock')
+              .where('imei', isEqualTo: imei)
+              .where('status', isEqualTo: 'sold')
+              .limit(1)
+              .get();
+
+          if (soldCheck.docs.isNotEmpty) {
+            throw Exception('Product with this IMEI is already sold');
+          } else {
+            throw Exception(
+              'Product with this IMEI not found in available stock',
+            );
+          }
         }
       }
     }
@@ -667,7 +802,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
           pw.SizedBox(height: 4),
           _buildMainTable(),
           pw.Container(
-            height: 300,
+            height: 280,
             child: pw.Stack(
               children: [
                 if (_sealImage != null && _sealChecked)
@@ -829,46 +964,30 @@ class _BillFormScreenState extends State<BillFormScreen> {
               style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
             ),
             pw.SizedBox(height: 4),
-            pw.Row(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text('Address     :', style: pw.TextStyle(fontSize: 11)),
-                pw.SizedBox(width: 4),
-                pw.Expanded(
-                  child: pw.Text(
-                    addressController.text.isNotEmpty
-                        ? addressController.text
-                        : "N/A",
-                    style: pw.TextStyle(fontSize: 11),
-                    maxLines: 2,
+            if (addressController.text.isNotEmpty)
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text('Address     :', style: pw.TextStyle(fontSize: 11)),
+                  pw.SizedBox(width: 4),
+                  pw.Expanded(
+                    child: pw.Text(
+                      addressController.text.isNotEmpty
+                          ? addressController.text
+                          : "N/A",
+                      style: pw.TextStyle(fontSize: 11),
+                      maxLines: 2,
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
             pw.SizedBox(height: 4),
             pw.Text(
               'Mobile Tel  : ${mobileNumberController.text}',
               style: pw.TextStyle(fontSize: 11),
             ),
             pw.SizedBox(height: 6),
-            pw.Row(
-              children: [
-                pw.Text(
-                  'Purchase Mode : ',
-                  style: pw.TextStyle(
-                    fontSize: 11,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-                pw.Text(
-                  '${_selectedPurchaseMode ?? "Ready Cash"}',
-                  style: pw.TextStyle(
-                    fontSize: 11,
-                    fontWeight: pw.FontWeight.normal,
-                  ),
-                ),
-              ],
-            ),
+
             if (_selectedPurchaseMode == 'EMI' && _selectedFinanceType != null)
               pw.Row(
                 children: [
@@ -1317,6 +1436,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
   }
 
   Widget _buildForm() {
+    final isButtonDisabled = _isLoading || _isSoldSaved;
+
     return SingleChildScrollView(
       padding: EdgeInsets.all(12),
       child: Form(
@@ -1373,7 +1494,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
             SizedBox(height: 16),
             _buildInputCard(),
             SizedBox(height: 16),
-            _buildActionButton(),
+            _buildActionButton(isButtonDisabled),
             SizedBox(height: 16),
             if (_savedPdfFile != null) _buildShareButton(),
             SizedBox(height: 20),
@@ -1731,13 +1852,15 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  Widget _buildActionButton() {
+  Widget _buildActionButton(bool isButtonDisabled) {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(10),
         boxShadow: [
           BoxShadow(
-            color: Colors.green.withOpacity(0.2),
+            color: isButtonDisabled
+                ? Colors.grey.withOpacity(0.2)
+                : Colors.green.withOpacity(0.2),
             blurRadius: 8,
             offset: Offset(0, 4),
           ),
@@ -1746,7 +1869,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
       child: SizedBox(
         width: double.infinity,
         child: ElevatedButton.icon(
-          onPressed: _isLoading ? null : _markAsSoldAndPrint,
+          onPressed: isButtonDisabled ? null : _markAsSoldAndPrint,
           icon: _isLoading
               ? SizedBox(
                   width: 18,
@@ -1758,11 +1881,15 @@ class _BillFormScreenState extends State<BillFormScreen> {
                 )
               : Icon(Icons.save, size: 22),
           label: Text(
-            _isLoading ? 'Processing...' : 'Save Bill & Mark as Sold',
+            _isLoading
+                ? 'Processing...'
+                : _isSoldSaved
+                ? 'Bill Already Saved'
+                : 'Save Bill & Mark as Sold',
             style: TextStyle(fontSize: 16),
           ),
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.green[700],
+            backgroundColor: isButtonDisabled ? Colors.grey : Colors.green[700],
             foregroundColor: Colors.white,
             padding: EdgeInsets.symmetric(vertical: 16),
             shape: RoundedRectangleBorder(
