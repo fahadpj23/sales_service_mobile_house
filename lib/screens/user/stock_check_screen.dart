@@ -164,7 +164,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
     );
   }
 
-  // FIXED: Smart Search Logic that handles "f17 4/128" searching in "samsung galaxy f17 5g 4/128 violet pop"
+  // FIXED: Smart Search Logic that handles IMEI, model names, and specs
   void _applyFilters() {
     List<PhoneStock> result = _allStock;
 
@@ -172,9 +172,13 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
       final query = _searchQuery.toLowerCase().trim();
 
       result = result.where((item) {
+        // Get all searchable text fields
         final productText = item.productName.toLowerCase();
         final brandText = item.productBrand.toLowerCase();
-        final combinedText = '$productText $brandText';
+        final imeiText = item.imei.toLowerCase(); // Add IMEI to search
+
+        // Combine all text for searching
+        final combinedText = '$productText $brandText $imeiText';
 
         // Split search query into words
         final searchWords = query
@@ -203,6 +207,24 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
           // Handle "gb" variations like "4gb"
           if (word.toLowerCase().endsWith('gb') && word.length > 2) {
             variations.add(word.toLowerCase().replaceAll('gb', ''));
+          }
+
+          // For IMEI search - check exact matches and partial matches
+          if (word.length >= 6) {
+            // Only check IMEI for longer queries
+            // Add IMEI without spaces for comparison
+            final cleanImei = imeiText.replaceAll(' ', '');
+            final cleanWord = word.replaceAll(' ', '');
+
+            // Check if IMEI contains this word
+            if (cleanImei.contains(cleanWord)) {
+              variations.add(cleanWord);
+            }
+
+            // Also check formatted IMEI (with spaces)
+            if (imeiText.contains(word)) {
+              variations.add(word);
+            }
           }
 
           // Check if any variation is found
@@ -291,7 +313,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
       focusNode: _searchFocusNode,
       decoration: InputDecoration(
         hintText:
-            'Search by IMEI, model, specs (e.g., "f17 4/128", "samsung 5g")',
+            'Search by IMEI, model, specs (e.g., "f17 4/128", "samsung 5g", "123456")',
         prefixIcon: const Icon(Icons.search, color: Colors.teal, size: 20),
         suffixIcon: Row(
           mainAxisSize: MainAxisSize.min,
@@ -719,11 +741,15 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                           color: Colors.grey.shade600,
                         ),
                         const SizedBox(width: 4),
-                        Text(
-                          _formatImeiForDisplay(phone.imei),
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey.shade600,
+                        Expanded(
+                          child: Text(
+                            _formatImeiForDisplay(phone.imei),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
@@ -1106,7 +1132,6 @@ class _OptimizedImeiScannerState extends State<OptimizedImeiScanner>
     // Check if all characters are digits
     if (!RegExp(r'^[0-9]+$').hasMatch(imei)) return false;
 
-    // Optional: IMEI validation using Luhn algorithm
     return true;
   }
 

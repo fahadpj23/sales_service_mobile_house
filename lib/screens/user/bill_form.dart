@@ -62,6 +62,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
     'Oppo Finance',
     'Vivo Finance',
     'yoga kshema Finance',
+    'MI Finance',
     'First credit private Finance',
     'ICICI Bank',
     'HDFC Bank',
