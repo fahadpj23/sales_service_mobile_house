@@ -377,6 +377,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   }
 
   // Autofill from bill with purchase mode and finance type
+  // Autofill from bill with purchase mode and finance type
   Future<void> _autofillFromBill(String? billNumber) async {
     if (billNumber == null || billNumber.isEmpty) {
       _showMessage('No bill number selected');
@@ -427,10 +428,16 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         financeType = billData['financer']?.toString();
       }
 
+      // Get product details from originalPhoneData
       final originalPhoneData =
           billData['originalPhoneData'] as Map<String, dynamic>?;
       final productBrand = originalPhoneData?['productBrand']?.toString() ?? '';
       final productName = originalPhoneData?['productName']?.toString() ?? '';
+
+      // Use totalAmount from the bill instead of productPrice from originalPhoneData
+      final totalAmount = (billData['totalAmount'] as num?)?.toDouble() ?? 0.0;
+
+      // Optionally also get productPrice for reference
       final productPrice =
           (originalPhoneData?['productPrice'] as num?)?.toDouble() ?? 0.0;
 
@@ -446,8 +453,18 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         }
         _productModelController.text = productName;
         _imeiController.text = imei;
-        if (productPrice > 0) {
+
+        // Use totalAmount from the bill
+        if (totalAmount > 0) {
+          _priceController.text = totalAmount.toStringAsFixed(2);
+          debugPrint('Using totalAmount from bill: ₹$totalAmount');
+        }
+        // Fallback to productPrice if totalAmount is not available
+        else if (productPrice > 0) {
           _priceController.text = productPrice.toStringAsFixed(2);
+          debugPrint(
+            'totalAmount not found, using productPrice: ₹$productPrice',
+          );
         }
 
         if (purchaseMode != null && purchaseMode.isNotEmpty) {
@@ -513,7 +530,23 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         }
       });
 
-      _showMessage('✓ Data autofilled from bill $billNumber', isError: false);
+      // Show which price source was used
+      if (totalAmount > 0) {
+        _showMessage(
+          '✓ Data autofilled from bill $billNumber using total amount: ₹${totalAmount.toStringAsFixed(2)}',
+          isError: false,
+        );
+      } else if (productPrice > 0) {
+        _showMessage(
+          '✓ Data autofilled from bill $billNumber using product price (totalAmount not found)',
+          isError: false,
+        );
+      } else {
+        _showMessage(
+          '✓ Data autofilled from bill $billNumber (price not found)',
+          isError: false,
+        );
+      }
     } catch (e) {
       debugPrint('Error autofilling data: $e');
       _showMessage('Error autofilling data: $e');

@@ -113,6 +113,14 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
       }
     }
 
+    // Sort by addedAt in DESCENDING order (newest first)
+    _filteredSales.sort((a, b) {
+      // Use addedAt if available, fallback to date if not
+      final DateTime aDateTime = a.addedAt ?? a.date;
+      final DateTime bDateTime = b.addedAt ?? b.date;
+      return bDateTime.compareTo(aDateTime); // DESCENDING order (newest first)
+    });
+
     setState(() {});
   }
 
@@ -193,14 +201,11 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
         children: filters.map((filter) {
           bool isSelected = _selectedFilter == filter['value'];
           return Padding(
-            padding: const EdgeInsets.only(right: 6.0), // Reduced padding
+            padding: const EdgeInsets.only(right: 6.0),
             child: FilterChip(
               label: Text(
                 filter['label']!,
-                style: TextStyle(
-                  fontSize: 12, // Smaller font size
-                  fontWeight: FontWeight.w500,
-                ),
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
               ),
               selected: isSelected,
               backgroundColor: Colors.grey[200],
@@ -211,12 +216,10 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
               ),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(
-                  16,
-                ), // Smaller border radius
+                borderRadius: BorderRadius.circular(16),
                 side: BorderSide(
                   color: isSelected ? secondaryGreen : Colors.grey[300]!,
-                  width: isSelected ? 1.2 : 0.8, // Thinner border
+                  width: isSelected ? 1.2 : 0.8,
                 ),
               ),
               onSelected: (selected) {
@@ -226,11 +229,8 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                   _applyFilter(filter['value']!);
                 }
               },
-              padding: EdgeInsets.symmetric(
-                horizontal: 8, // Reduced horizontal padding
-                vertical: 4, // Reduced vertical padding
-              ),
-              visualDensity: VisualDensity.compact, // Compact visual density
+              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              visualDensity: VisualDensity.compact,
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
           );
@@ -303,21 +303,17 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
           SizedBox(height: 16),
 
           // Filter Chips with reduced size
-          Container(
-            height: 32, // Fixed height for the filter row
-            child: _buildFilterChips(),
-          ),
+          Container(height: 32, child: _buildFilterChips()),
 
           SizedBox(height: 20),
 
-          // Stats Cards - Removed Avg. Benefit
+          // Stats Cards
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _buildStatCard(
                 'Total Benefit',
-                // '₹${widget.formatNumber(_totalBenefit)}',
-                '₹${(_totalBenefit)}',
+                '₹${_totalBenefit.toStringAsFixed(2)}',
                 Icons.monetization_on,
               ),
               _buildStatCard(
@@ -371,6 +367,19 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
     );
   }
 
+  // Helper method to safely get numberOfEmi from sale
+  int? _getNumberOfEmi(Sale sale) {
+    try {
+      final dynamic saleMap = sale as dynamic;
+      if (saleMap.numberOfEmi != null) {
+        return saleMap.numberOfEmi as int?;
+      }
+    } catch (e) {
+      // Field doesn't exist or can't be accessed
+    }
+    return null;
+  }
+
   Widget _buildBenefitList() {
     if (_filteredSales.isEmpty) {
       return Container(
@@ -395,12 +404,7 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
       );
     }
 
-    // Sort by benefit amount (highest first)
-    _filteredSales.sort((a, b) {
-      double benefitA = _calculateDownpaymentBenefit(a);
-      double benefitB = _calculateDownpaymentBenefit(b);
-      return benefitB.compareTo(benefitA);
-    });
+    // Sales are sorted in DESCENDING order by addedAt (newest first)
 
     return ListView.builder(
       shrinkWrap: true,
@@ -413,6 +417,12 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
         final downPayment = sale.downPayment ?? 0.0;
         final disbursementAmount = sale.disbursementAmount ?? 0.0;
         final totalReceived = downPayment + disbursementAmount;
+
+        // Get the timestamp to display (addedAt or date)
+        final displayDateTime = sale.addedAt ?? sale.date;
+
+        // Safely get numberOfEmi
+        final numberOfEmi = _getNumberOfEmi(sale);
 
         return Card(
           margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -480,11 +490,22 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          Text(
-                            DateFormat('dd MMM').format(sale.date),
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey[500],
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[200],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              '#${index + 1}', // Show sequence number (newest first)
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ),
                         ],
@@ -496,6 +517,31 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
+
+                      // Date and Time
+                      SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.access_time,
+                            size: 10,
+                            color: Colors.grey[500],
+                          ),
+                          SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              DateFormat(
+                                'dd MMM yyyy hh:mm a',
+                              ).format(displayDateTime),
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey[500],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+
                       SizedBox(height: 6),
 
                       // Price and Disbursement info
@@ -540,7 +586,7 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                                 ),
                                 SizedBox(height: 2),
                                 Text(
-                                  'Total Received: ₹${(totalReceived)}',
+                                  'Total Received: ₹${widget.formatNumber(totalReceived)}',
                                   style: TextStyle(
                                     fontSize: 11,
                                     color: Colors.grey[700],
@@ -555,28 +601,50 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
 
                       SizedBox(height: 6),
 
-                      // Shop info
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Container(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: secondaryGreen.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            sale.shopName,
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: secondaryGreen,
+                      // Shop info and EMI details
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            decoration: BoxDecoration(
+                              color: secondaryGreen.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              sale.shopName,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: secondaryGreen,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
+
+                          if (numberOfEmi != null && numberOfEmi > 0)
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: benefitColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                '$numberOfEmi EMI',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  color: benefitColor,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ],
                   ),
@@ -610,16 +678,33 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Benefit Transactions',
+                    'Benefit Transactions (Newest First)',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                       color: primaryGreen,
                     ),
                   ),
-                  Text(
-                    'Total: ${_filteredSales.length}',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: benefitColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.timeline, size: 14, color: benefitColor),
+                        SizedBox(width: 4),
+                        Text(
+                          '${_filteredSales.length} transactions',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: benefitColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
