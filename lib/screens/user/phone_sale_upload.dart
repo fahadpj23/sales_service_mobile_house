@@ -1216,6 +1216,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   }
 
   // Generate EMI details message for sharing
+  // Generate EMI details message for sharing
   String _generateEmiShareMessage() {
     if (_lastSaleData == null) return '';
 
@@ -1234,9 +1235,17 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     final insurance = sale['insurance'] as bool? ?? false;
     final saleDate = sale['saleDate'] as DateTime? ?? DateTime.now();
     final customerName = sale['customerName']?.toString() ?? '';
-    final customerPhone =
-        sale['customerPhone']?.toString() ?? ''; // This is used below
+    final customerPhone = sale['customerPhone']?.toString() ?? '';
     final gifts = sale['giftsList']?.toString() ?? '';
+
+    // Get payment breakdown for down payment
+    final paymentBreakdown =
+        sale['paymentBreakdown'] as Map<String, dynamic>? ?? {};
+    final cashAmount = (paymentBreakdown['cash'] as num?)?.toDouble() ?? 0.0;
+    final gpayAmount = (paymentBreakdown['gpay'] as num?)?.toDouble() ?? 0.0;
+    final cardAmount = (paymentBreakdown['card'] as num?)?.toDouble() ?? 0.0;
+    final creditAmount =
+        (paymentBreakdown['credit'] as num?)?.toDouble() ?? 0.0;
 
     final dateFormat = DateFormat('dd/MM/yyyy');
     final formattedDate = dateFormat.format(saleDate);
@@ -1252,47 +1261,59 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     buffer.writeln('━━━━━━━━━━━━━━━━━━━━━');
     buffer.writeln();
     buffer.writeln('✨ *Thanks For Your Visit* ✨');
-    buffer.writeln('🤝 *Keep In Touch With Mobile House* 😍');
+    buffer.writeln('[ Keep In Touch With Mobile House 😍]');
     buffer.writeln(
       '📸 Instagram : https://instagram.com/${shopInstagram.replaceAll('@', '')}',
     );
     buffer.writeln('✨ *EMI DETAILS* ✨');
     buffer.writeln();
-    buffer.writeln(' SHOP : $shopName');
-    buffer.writeln(' BRAND : $brand');
-    buffer.writeln(' MODEL : $model');
-    buffer.writeln(' PRICE : ₹${price.toStringAsFixed(0)}');
-    buffer.writeln(' DOWN PAYMENT : ₹${downPayment.toStringAsFixed(0)}');
+    buffer.writeln(' Shop : $shopName');
+    buffer.writeln(' Brand : $brand');
+    buffer.writeln(' Model : $model');
+    buffer.writeln(' Price : ₹${price.toStringAsFixed(0)}');
+    buffer.writeln(' Down Payment : ₹${downPayment.toStringAsFixed(0)}');
+
+    // Add down payment breakdown if any payment method was used
+    if (cashAmount > 0 ||
+        gpayAmount > 0 ||
+        cardAmount > 0 ||
+        creditAmount > 0) {
+      if (cashAmount > 0)
+        buffer.writeln('    • Cash: ₹${cashAmount.toStringAsFixed(0)}');
+      if (gpayAmount > 0)
+        buffer.writeln('    • GPay: ₹${gpayAmount.toStringAsFixed(0)}');
+      if (cardAmount > 0)
+        buffer.writeln('    • Card: ₹${cardAmount.toStringAsFixed(0)}');
+      if (creditAmount > 0)
+        buffer.writeln('    • Credit: ₹${creditAmount.toStringAsFixed(0)}');
+    }
 
     if (discount > 0) {
-      buffer.writeln(' DISCOUNT : ₹${discount.toStringAsFixed(0)}');
+      buffer.writeln(' Discount : ₹${discount.toStringAsFixed(0)}');
     }
     if (exchange > 0) {
       buffer.writeln(' Exchange : ₹${exchange.toStringAsFixed(0)}');
     }
 
     buffer.writeln(' EMI : ₹${perMonthEmi.toStringAsFixed(0)}*$numberOfEmi');
-    buffer.writeln(' FINANCE : $financeType');
+    buffer.writeln(' Finance : $financeType');
 
     if (loanId.isNotEmpty) {
-      buffer.writeln(' LOAN ID : $loanId');
+      buffer.writeln(' Loan Id : $loanId');
     }
 
-    buffer.writeln(' AUTO DEBIT : ${autoDebit ? ' YES' : ' NO'}');
-    buffer.writeln(' INSURANCE : ${insurance ? ' YES' : ' NO'}');
-    buffer.writeln(' DATE : $formattedDate');
+    buffer.writeln(' Auto Debit : ${autoDebit ? ' YES' : ' NO'}');
+    buffer.writeln(' Insurance : ${insurance ? ' YES' : ' NO'}');
+    buffer.writeln(' Date : $formattedDate');
     buffer.writeln();
-    buffer.writeln(' CUSTOMER : $customerName');
-    buffer.writeln(
-      ' MOBILE : $customerPhone',
-    ); // This line includes customer's phone
+    buffer.writeln(' Customer : $customerName');
+    buffer.writeln(' Mobile : $customerPhone');
 
     if (gifts.isNotEmpty) {
       buffer.writeln();
-      buffer.writeln('*FREE ACCESSORIES* ');
+      buffer.writeln('*Mobile house Special gift🎁* ');
       buffer.writeln(' $gifts');
     }
-    buffer.writeln('MOBILE SALES-SERVICE-EXCHANGE');
 
     buffer.writeln();
     buffer.writeln('⚠️ *എല്ലാ മാസവും 1 നു മുമ്പ് EMI pay ചെയ്യണം*');
@@ -1312,7 +1333,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     buffer.writeln();
     buffer.writeln('📞 *For more info:*');
     buffer.writeln('📞 Whatsapp : $shopWhatsApp');
-
     buffer.writeln('🌐 Website : https://mobilehouse.in/');
 
     return buffer.toString();
