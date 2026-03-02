@@ -29,6 +29,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
     'yesterday',
     'weekly',
     'monthly',
+    'lastmonth', // Added lastmonth option
     'yearly',
     'custom',
   ];
@@ -61,6 +62,10 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
           now.month + 1,
           1,
         ).add(Duration(seconds: -1));
+        break;
+      case 'lastmonth': // Added last month calculation
+        startDate = DateTime(now.year, now.month - 1, 1);
+        endDate = DateTime(now.year, now.month, 1).add(Duration(seconds: -1));
         break;
       case 'yearly':
         startDate = DateTime(now.year, 1, 1);
@@ -134,6 +139,9 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
         return 'This Week (${dateFormat.format(weekStart)} - ${dateFormat.format(weekEnd)})';
       case 'monthly':
         return 'This Month (${DateFormat('MMM yyyy').format(now)})';
+      case 'lastmonth': // Added last month text
+        DateTime lastMonth = DateTime(now.year, now.month - 1, 1);
+        return 'Last Month (${DateFormat('MMM yyyy').format(lastMonth)})';
       case 'yearly':
         return 'This Year (${now.year})';
       case 'custom':
@@ -178,10 +186,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(
-          'Select Custom Date Range',
-          style: TextStyle(fontSize: 16), // Reduced from default
-        ),
+        title: Text('Select Custom Date Range', style: TextStyle(fontSize: 16)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -191,12 +196,12 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                 Text(
                   'Start Date',
                   style: TextStyle(
-                    fontSize: 11, // Reduced from 12
+                    fontSize: 11,
                     fontWeight: FontWeight.w500,
                     color: Colors.grey[700],
                   ),
                 ),
-                SizedBox(height: 3), // Reduced from 4
+                SizedBox(height: 3),
                 GestureDetector(
                   onTap: () async {
                     Navigator.pop(context);
@@ -204,10 +209,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                     _showCustomDatePicker(context);
                   },
                   child: Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
-                    ), // Reduced padding
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     decoration: BoxDecoration(
                       border: Border.all(color: Colors.grey[300]!),
                       borderRadius: BorderRadius.circular(6),
@@ -222,7 +224,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                                 ).format(_customStartDate!)
                               : 'Select start date',
                           style: TextStyle(
-                            fontSize: 12, // Reduced
+                            fontSize: 12,
                             color: _customStartDate != null
                                 ? Colors.black
                                 : Colors.grey,
@@ -230,7 +232,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                         ),
                         Icon(
                           Icons.calendar_today,
-                          size: 16, // Reduced from 18
+                          size: 16,
                           color: Colors.grey[600],
                         ),
                       ],
@@ -239,19 +241,19 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                 ),
               ],
             ),
-            SizedBox(height: 12), // Reduced from 16
+            SizedBox(height: 12),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'End Date',
                   style: TextStyle(
-                    fontSize: 11, // Reduced from 12
+                    fontSize: 11,
                     fontWeight: FontWeight.w500,
                     color: Colors.grey[700],
                   ),
                 ),
-                SizedBox(height: 3), // Reduced from 4
+                SizedBox(height: 3),
                 GestureDetector(
                   onTap: () async {
                     Navigator.pop(context);
@@ -259,10 +261,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                     _showCustomDatePicker(context);
                   },
                   child: Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
-                    ), // Reduced padding
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     decoration: BoxDecoration(
                       border: Border.all(color: Colors.grey[300]!),
                       borderRadius: BorderRadius.circular(6),
@@ -277,7 +276,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                                 ).format(_customEndDate!)
                               : 'Select end date',
                           style: TextStyle(
-                            fontSize: 12, // Reduced
+                            fontSize: 12,
                             color: _customEndDate != null
                                 ? Colors.black
                                 : Colors.grey,
@@ -285,7 +284,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                         ),
                         Icon(
                           Icons.calendar_today,
-                          size: 16, // Reduced from 18
+                          size: 16,
                           color: Colors.grey[600],
                         ),
                       ],
@@ -294,10 +293,10 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                 ),
               ],
             ),
-            SizedBox(height: 12), // Reduced from 16
+            SizedBox(height: 12),
             if (_customStartDate != null && _customEndDate != null)
               Container(
-                padding: EdgeInsets.all(10), // Reduced from 12
+                padding: EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: Color(0xFF0A4D2E).withOpacity(0.1),
                   borderRadius: BorderRadius.circular(6),
@@ -307,15 +306,12 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                   children: [
                     Text(
                       'Selected Range:',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey[600],
-                      ), // Reduced
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
                     Text(
                       '${_customEndDate!.difference(_customStartDate!).inDays + 1} days',
                       style: TextStyle(
-                        fontSize: 11, // Reduced from 12
+                        fontSize: 11,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFF0A4D2E),
                       ),
@@ -330,10 +326,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
             onPressed: () => Navigator.pop(context),
             child: Text(
               'Cancel',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
-              ), // Reduced
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
           ),
           ElevatedButton(
@@ -345,15 +338,9 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Color(0xFF0A4D2E),
-              padding: EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 8,
-              ), // Smaller button
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             ),
-            child: Text(
-              'Apply',
-              style: TextStyle(fontSize: 12), // Reduced
-            ),
+            child: Text('Apply', style: TextStyle(fontSize: 12)),
           ),
         ],
       ),
@@ -364,10 +351,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          'Shop-wise Report',
-          style: TextStyle(fontSize: 18), // Reduced from default
-        ),
+        title: Text('Shop-wise Report', style: TextStyle(fontSize: 18)),
         backgroundColor: Color(0xFF0A4D2E),
         foregroundColor: Colors.white,
       ),
@@ -375,14 +359,14 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
         children: [
           // Filter Section
           Padding(
-            padding: const EdgeInsets.all(12.0), // Reduced from 16
+            padding: const EdgeInsets.all(12.0),
             child: Card(
-              elevation: 3, // Reduced from 4
+              elevation: 3,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10), // Reduced from 12
+                borderRadius: BorderRadius.circular(10),
               ),
               child: Padding(
-                padding: const EdgeInsets.all(12.0), // Reduced from 16
+                padding: const EdgeInsets.all(12.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -392,26 +376,24 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                         Text(
                           'Filters',
                           style: TextStyle(
-                            fontSize: 14, // Reduced from 16
+                            fontSize: 14,
                             fontWeight: FontWeight.w600,
                             color: Color(0xFF0A4D2E),
                           ),
                         ),
                         Container(
                           padding: EdgeInsets.symmetric(
-                            horizontal: 6, // Reduced from 8
-                            vertical: 3, // Reduced from 4
+                            horizontal: 6,
+                            vertical: 3,
                           ),
                           decoration: BoxDecoration(
                             color: Color(0xFF0A4D2E).withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(
-                              6,
-                            ), // Reduced from 8
+                            borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
                             _getSelectedDateRangeText(),
                             style: TextStyle(
-                              fontSize: 10, // Reduced from 12
+                              fontSize: 10,
                               fontWeight: FontWeight.w500,
                               color: Color(0xFF0A4D2E),
                             ),
@@ -419,10 +401,10 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                         ),
                       ],
                     ),
-                    SizedBox(height: 10), // Reduced from 12
+                    SizedBox(height: 10),
                     Wrap(
-                      spacing: 6, // Reduced from 8
-                      runSpacing: 6, // Reduced from 8
+                      spacing: 6,
+                      runSpacing: 6,
                       children: _timePeriods.map((period) {
                         bool isSelected = _selectedTimePeriod == period;
                         String label = period;
@@ -439,8 +421,12 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                             label = 'Weekly';
                             break;
                           case 'monthly':
-                            label = 'Monthly';
+                            label = 'This Month';
                             chipColor = Color(0xFF0A4D2E);
+                            break;
+                          case 'lastmonth': // Added last month label
+                            label = 'Last Month';
+                            chipColor = Color(0xFF1A7D4A);
                             break;
                           case 'yearly':
                             label = 'Yearly';
@@ -456,7 +442,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                               color: isSelected
                                   ? Colors.white
                                   : Colors.grey[700],
-                              fontSize: 11, // Reduced from 12
+                              fontSize: 11,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
@@ -476,13 +462,13 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                           padding: EdgeInsets.symmetric(
                             horizontal: 8,
                             vertical: 4,
-                          ), // Reduced padding
+                          ),
                         );
                       }).toList(),
                     ),
                     if (_selectedTimePeriod == 'custom')
                       Padding(
-                        padding: EdgeInsets.only(top: 12), // Reduced from 16
+                        padding: EdgeInsets.only(top: 12),
                         child: Column(
                           children: [
                             Row(
@@ -495,26 +481,26 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                                       Text(
                                         'Start Date',
                                         style: TextStyle(
-                                          fontSize: 11, // Reduced from 12
+                                          fontSize: 11,
                                           fontWeight: FontWeight.w500,
                                           color: Colors.grey[700],
                                         ),
                                       ),
-                                      SizedBox(height: 3), // Reduced from 4
+                                      SizedBox(height: 3),
                                       GestureDetector(
                                         onTap: () =>
                                             _selectCustomDate(context, true),
                                         child: Container(
                                           padding: EdgeInsets.symmetric(
-                                            horizontal: 10, // Reduced from 12
-                                            vertical: 8, // Reduced from 10
+                                            horizontal: 10,
+                                            vertical: 8,
                                           ),
                                           decoration: BoxDecoration(
                                             border: Border.all(
                                               color: Colors.grey[300]!,
                                             ),
                                             borderRadius: BorderRadius.circular(
-                                              6, // Reduced from 8
+                                              6,
                                             ),
                                           ),
                                           child: Row(
@@ -530,7 +516,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                                                       )
                                                     : 'Select start date',
                                                 style: TextStyle(
-                                                  fontSize: 12, // Reduced
+                                                  fontSize: 12,
                                                   color:
                                                       _customStartDate != null
                                                       ? Colors.black
@@ -539,7 +525,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                                               ),
                                               Icon(
                                                 Icons.calendar_today,
-                                                size: 16, // Reduced from 18
+                                                size: 16,
                                                 color: Colors.grey[600],
                                               ),
                                             ],
@@ -549,7 +535,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                                     ],
                                   ),
                                 ),
-                                SizedBox(width: 10), // Reduced from 12
+                                SizedBox(width: 10),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment:
@@ -558,26 +544,26 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                                       Text(
                                         'End Date',
                                         style: TextStyle(
-                                          fontSize: 11, // Reduced from 12
+                                          fontSize: 11,
                                           fontWeight: FontWeight.w500,
                                           color: Colors.grey[700],
                                         ),
                                       ),
-                                      SizedBox(height: 3), // Reduced from 4
+                                      SizedBox(height: 3),
                                       GestureDetector(
                                         onTap: () =>
                                             _selectCustomDate(context, false),
                                         child: Container(
                                           padding: EdgeInsets.symmetric(
-                                            horizontal: 10, // Reduced from 12
-                                            vertical: 8, // Reduced from 10
+                                            horizontal: 10,
+                                            vertical: 8,
                                           ),
                                           decoration: BoxDecoration(
                                             border: Border.all(
                                               color: Colors.grey[300]!,
                                             ),
                                             borderRadius: BorderRadius.circular(
-                                              6, // Reduced from 8
+                                              6,
                                             ),
                                           ),
                                           child: Row(
@@ -591,7 +577,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                                                       ).format(_customEndDate!)
                                                     : 'Select end date',
                                                 style: TextStyle(
-                                                  fontSize: 12, // Reduced
+                                                  fontSize: 12,
                                                   color: _customEndDate != null
                                                       ? Colors.black
                                                       : Colors.grey,
@@ -599,7 +585,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                                               ),
                                               Icon(
                                                 Icons.calendar_today,
-                                                size: 16, // Reduced from 18
+                                                size: 16,
                                                 color: Colors.grey[600],
                                               ),
                                             ],
@@ -614,9 +600,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                             if (_customStartDate != null &&
                                 _customEndDate != null)
                               Padding(
-                                padding: EdgeInsets.only(
-                                  top: 6,
-                                ), // Reduced from 8
+                                padding: EdgeInsets.only(top: 6),
                                 child: Row(
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceBetween,
@@ -624,14 +608,14 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                                     Text(
                                       'Selected Range:',
                                       style: TextStyle(
-                                        fontSize: 11, // Reduced from 12
+                                        fontSize: 11,
                                         color: Colors.grey[600],
                                       ),
                                     ),
                                     Text(
                                       '${_customEndDate!.difference(_customStartDate!).inDays + 1} days',
                                       style: TextStyle(
-                                        fontSize: 11, // Reduced from 12
+                                        fontSize: 11,
                                         fontWeight: FontWeight.w600,
                                         color: Color(0xFF0A4D2E),
                                       ),
@@ -642,21 +626,17 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                           ],
                         ),
                       ),
-                    SizedBox(height: 8), // Reduced from 10
+                    SizedBox(height: 8),
                     Container(
                       decoration: BoxDecoration(
                         border: Border.all(color: Colors.grey[300]!),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       padding: const EdgeInsets.symmetric(horizontal: 8),
-                      height: 36, // Reduced height
+                      height: 36,
                       child: Row(
                         children: [
-                          Icon(
-                            Icons.store,
-                            size: 16,
-                            color: Colors.grey[600],
-                          ), // Smaller icon
+                          Icon(Icons.store, size: 16, color: Colors.grey[600]),
                           SizedBox(width: 6),
                           Expanded(
                             child: DropdownButtonHideUnderline(
@@ -681,9 +661,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                                       ),
                                       child: Text(
                                         'All Shops',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                        ), // Reduced
+                                        style: TextStyle(fontSize: 12),
                                       ),
                                     ),
                                   ),
@@ -696,9 +674,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                                         ),
                                         child: Text(
                                           shop['name'] as String,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                          ), // Reduced
+                                          style: TextStyle(fontSize: 12),
                                         ),
                                       ),
                                     );
@@ -780,18 +756,11 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.store,
-              size: 48,
-              color: Colors.grey[300],
-            ), // Reduced from 64
-            SizedBox(height: 12), // Reduced from 16
+            Icon(Icons.store, size: 48, color: Colors.grey[300]),
+            SizedBox(height: 12),
             Text(
               'No sales data available',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[600],
-              ), // Reduced
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
             ),
           ],
         ),
@@ -825,13 +794,13 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
             });
 
         return Card(
-          margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6), // Reduced
-          elevation: 1, // Reduced from 2
+          margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          elevation: 1,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10), // Reduced from 12
+            borderRadius: BorderRadius.circular(10),
           ),
           child: Padding(
-            padding: const EdgeInsets.all(12.0), // Reduced from 16
+            padding: const EdgeInsets.all(12.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -842,7 +811,7 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                       child: Text(
                         data['name'] as String,
                         style: TextStyle(
-                          fontSize: 16, // Reduced from 18
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF0A4D2E),
                         ),
@@ -853,92 +822,85 @@ class _ShopWiseReportScreenState extends State<ShopWiseReportScreen> {
                         '${data['transactionCount']} sales',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 10, // Reduced from 12
+                          fontSize: 10,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
                       backgroundColor: Color(0xFF1A7D4A),
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ), // Reduced
+                      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     ),
                   ],
                 ),
-                SizedBox(height: 6), // Reduced from 8
+                SizedBox(height: 6),
                 Text(
                   'Total: ₹${widget.formatNumber(data['total'] as double)}',
                   style: TextStyle(
-                    fontSize: 18, // Reduced from 22
+                    fontSize: 18,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF0A4D2E),
                   ),
                 ),
-                SizedBox(height: 12), // Reduced from 16
+                SizedBox(height: 12),
                 if (sortedCategories.isNotEmpty) ...[
                   Text(
                     'Category Breakdown:',
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
-                      fontSize: 12, // Reduced from 14
+                      fontSize: 12,
                       color: Colors.grey[700],
                     ),
                   ),
-                  SizedBox(height: 6), // Reduced from 8
+                  SizedBox(height: 6),
                   ...sortedCategories.map((categoryEntry) {
                     var categoryName = categoryEntry.key;
                     var categoryData = categoryEntry.value;
 
                     return Padding(
-                      padding: const EdgeInsets.only(
-                        bottom: 6.0,
-                      ), // Reduced from 8
+                      padding: const EdgeInsets.only(bottom: 6.0),
                       child: Row(
                         children: [
                           Container(
-                            width: 10, // Reduced from 12
-                            height: 10, // Reduced from 12
+                            width: 10,
+                            height: 10,
                             decoration: BoxDecoration(
                               color: widget.getCategoryColor(categoryName),
                               shape: BoxShape.circle,
                             ),
                           ),
-                          SizedBox(width: 6), // Reduced from 8
+                          SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               categoryName,
                               style: TextStyle(
                                 fontWeight: FontWeight.w500,
-                                fontSize: 12, // Reduced
+                                fontSize: 12,
                               ),
                             ),
                           ),
                           Container(
                             padding: EdgeInsets.symmetric(
-                              horizontal: 6, // Reduced from 8
-                              vertical: 2, // Reduced from 4
+                              horizontal: 6,
+                              vertical: 2,
                             ),
                             decoration: BoxDecoration(
                               color: Colors.grey[100],
-                              borderRadius: BorderRadius.circular(
-                                4,
-                              ), // Reduced from 6
+                              borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
                               '${categoryData['count']}',
                               style: TextStyle(
-                                fontSize: 10, // Reduced from 12
+                                fontSize: 10,
                                 color: Colors.grey[700],
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
                           ),
-                          SizedBox(width: 8), // Reduced from 12
+                          SizedBox(width: 8),
                           Text(
                             '₹${widget.formatNumber(categoryData['total'] as double)}',
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
-                              fontSize: 12, // Reduced from 14
+                              fontSize: 12,
                               color: Color(0xFF0A4D2E),
                             ),
                           ),

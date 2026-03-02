@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:sales_stock/screens/admin/analysis/customer_discount_screen.dart';
 import 'package:sales_stock/screens/admin/analysis/downpayment_benefit_screen.dart';
 import 'package:sales_stock/screens/admin/analysis/exchange_analysis_screen.dart';
+import 'package:sales_stock/screens/admin/analysis/payment_breakdown_screen.dart';
 import 'package:sales_stock/screens/login_screen.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../services/auth_service.dart';
@@ -1708,6 +1709,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 fontWeight: FontWeight.bold,
               ),
             ),
+          ),
+          _buildDrawerItem(
+            Icons.payment,
+            'Payment Breakdown',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PaymentBreakdownScreen(
+                    allSales: allSales,
+                    shops: shops,
+                    formatNumber: _formatNumber,
+                  ),
+                ),
+              );
+            },
           ),
           _buildDrawerItem(
             Icons.swap_horiz,
