@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class SecondPhoneSaleUpload extends StatefulWidget {
-  const SecondPhoneSaleUpload({super.key});
+  final Map<String, dynamic>? initialData;
+
+  const SecondPhoneSaleUpload({super.key, this.initialData});
 
   @override
   State<SecondPhoneSaleUpload> createState() => _SecondPhoneSaleUploadState();
@@ -19,6 +20,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
   String? _shopId;
   String? _shopName;
   bool _isLoadingUserData = true;
+  String? _modelId; // To track which base model is being sold
 
   // Form controllers
   final TextEditingController _dateController = TextEditingController();
@@ -45,6 +47,42 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
     _selectedDate = DateTime.now();
     _dateController.text =
         "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}";
+
+    // Auto-fill data if provided
+    _autoFillData();
+  }
+
+  void _autoFillData() {
+    if (widget.initialData != null) {
+      setState(() {
+        // Auto-fill product name
+        if (widget.initialData!['productName'] != null) {
+          _productNameController.text = widget.initialData!['productName'];
+        }
+
+        // Auto-fill price
+        if (widget.initialData!['productPrice'] != null) {
+          final price = widget.initialData!['productPrice'];
+          if (price is int) {
+            _priceController.text = price.toString();
+          } else if (price is double) {
+            _priceController.text = price.toStringAsFixed(0);
+          } else {
+            _priceController.text = price.toString();
+          }
+        }
+
+        // Auto-fill IMEI
+        if (widget.initialData!['imei'] != null) {
+          _imeiController.text = widget.initialData!['imei'];
+        }
+
+        // Store model ID
+        if (widget.initialData!['modelId'] != null) {
+          _modelId = widget.initialData!['modelId'];
+        }
+      });
+    }
   }
 
   // Get shopId and shopName from current user's document
@@ -85,6 +123,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
   }
 
   void _showLoginError() {
+    if (!mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       showDialog(
         context: context,
@@ -104,6 +143,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
   }
 
   void _showShopInfoError() {
+    if (!mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       showDialog(
         context: context,
@@ -143,7 +183,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
       lastDate: DateTime(2100),
     );
 
-    if (picked != null) {
+    if (picked != null && mounted) {
       setState(() {
         _selectedDate = picked;
         _dateController.text = "${picked.day}/${picked.month}/${picked.year}";
@@ -241,6 +281,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
           'customerName': _customerNameController.text,
           'customerPhone': _customerPhoneController.text,
           'productName': _productNameController.text,
+          'productBrand': widget.initialData?['productBrand'] ?? '',
           'price': totalPrice,
           'imei': _imeiController.text,
           'defect': _defectController.text.isNotEmpty
@@ -259,31 +300,35 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
           'timestamp': DateTime.now().millisecondsSinceEpoch,
           'uploadedBy': _auth.currentUser?.uid,
           'uploadedByEmail': _auth.currentUser?.email,
+          // Reference to original base model
+          'baseModelId': _modelId,
+          'saleType': 'base_model_sale',
         };
-
-        // Store customer info for success dialog before clearing
-        final customerName = _customerNameController.text;
-        final customerPhone = _customerPhoneController.text;
 
         // Upload to Firebase Firestore
         await _firestore.collection('seconds_phone_sale').add(saleData);
 
-        // Clear the form immediately after successful upload
+        if (!mounted) return;
 
         // Show success dialog
         _showSuccessDialog(
           context,
-          customerName: customerName,
-          customerPhone: customerPhone,
+          customerName: _customerNameController.text,
+          customerPhone: _customerPhoneController.text,
         );
-        _clearForm();
+
+        // Return true to indicate successful sale
+        Navigator.pop(context, true);
       } catch (error) {
+        if (!mounted) return;
         // Show error dialog
         _showErrorDialog(context, error.toString());
       } finally {
-        setState(() {
-          _isUploading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isUploading = false;
+          });
+        }
       }
     }
   }
@@ -295,6 +340,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
   }) {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Container(
@@ -331,7 +377,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Phone sale uploaded to Firebase',
+                  'Phone sale uploaded successfully',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 14,
@@ -346,8 +392,8 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                   style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                 ),
                 // Display customer info in success dialog
-                if (customerName != null && customerName.isNotEmpty ||
-                    customerPhone != null && customerPhone.isNotEmpty)
+                if ((customerName != null && customerName.isNotEmpty) ||
+                    (customerPhone != null && customerPhone.isNotEmpty))
                   Container(
                     margin: const EdgeInsets.only(top: 8),
                     padding: const EdgeInsets.all(8),
@@ -382,7 +428,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () {
-                      Navigator.pop(context);
+                      Navigator.pop(context); // Close dialog
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green[700],
@@ -463,11 +509,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                     error.length > 100
                         ? '${error.substring(0, 100)}...'
                         : error,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey[700],
-                      fontFamily: 'monospace',
-                    ),
+                    style: TextStyle(fontSize: 11, color: Colors.grey[700]),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -485,7 +527,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    child: Text(
+                    child: const Text(
                       'Try Again',
                       style: TextStyle(
                         fontSize: 14,
@@ -526,6 +568,987 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
 
     // Update UI
     setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final priceText = _priceController.text.trim();
+    final totalPrice = priceText.isNotEmpty
+        ? double.tryParse(priceText) ?? 0.0
+        : 0.0;
+    final totalPayment = _calculateTotalPayment();
+    final paymentStatus = _getPaymentStatus(totalPrice);
+    final difference = (totalPrice - totalPayment).abs();
+
+    return WillPopScope(
+      onWillPop: () async {
+        // Return false to indicate sale was cancelled
+        Navigator.pop(context, false);
+        return false;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(
+            widget.initialData != null
+                ? 'Sell Base Model'
+                : 'Phone Sale Upload',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          ),
+          backgroundColor: Colors.green[700],
+          centerTitle: true,
+          elevation: 0,
+          iconTheme: const IconThemeData(color: Colors.white),
+          actions: [
+            IconButton(
+              onPressed: _isUploading ? null : _clearForm,
+              icon: const Icon(Icons.refresh, size: 20),
+              tooltip: 'Clear form',
+            ),
+          ],
+        ),
+        body: Stack(
+          children: [
+            SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: Colors.green.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(
+                              Icons.phone_iphone,
+                              color: Colors.green[700],
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  widget.initialData != null
+                                      ? 'Sell Base Model'
+                                      : 'Phone Sale Record',
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                                Text(
+                                  widget.initialData != null
+                                      ? 'Complete sale details for base model'
+                                      : 'Record a new used phone sale',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // Shop Information Section
+                    if (_isLoadingUserData)
+                      _buildShopLoadingCard()
+                    else if (_shopId != null && _shopName != null)
+                      _buildShopInfoCard()
+                    else
+                      _buildShopErrorCard(),
+
+                    const SizedBox(height: 20),
+
+                    // Phone Information Section
+                    _buildPhoneDetailsCard(),
+
+                    const SizedBox(height: 20),
+
+                    // Payment Breakdown Section
+                    _buildPaymentSection(
+                      totalPrice: totalPrice,
+                      totalPayment: totalPayment,
+                      paymentStatus: paymentStatus,
+                      difference: difference,
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // Action Buttons
+                    _buildActionButtons(),
+
+                    const SizedBox(height: 16),
+                    const Divider(height: 1),
+                    const SizedBox(height: 12),
+                    _buildInfoFooter(),
+                  ],
+                ),
+              ),
+            ),
+
+            // Loading overlay
+            if (_isUploading)
+              Container(
+                color: Colors.black.withOpacity(0.3),
+                child: const Center(
+                  child: CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShopLoadingCard() {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Colors.grey[200]!),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.store, color: Colors.blue, size: 18),
+                SizedBox(width: 6),
+                Text(
+                  'Shop Information',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Center(child: CircularProgressIndicator()),
+            const SizedBox(height: 10),
+            Text(
+              'Loading shop information...',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShopInfoCard() {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Colors.grey[200]!),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.store, color: Colors.blue, size: 18),
+                SizedBox(width: 6),
+                Text(
+                  'Shop Information',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue[50],
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.blue[100]!),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.badge, size: 16, color: Colors.blue[700]),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Shop ID',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            Text(
+                              _shopId!,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.blue[800],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Divider(height: 1),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(Icons.storefront, size: 16, color: Colors.blue[700]),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Shop Name',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            Text(
+                              _shopName!,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.blue[800],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShopErrorCard() {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Colors.red[200]!),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Icon(Icons.error_outline, color: Colors.red[700], size: 18),
+                const SizedBox(width: 6),
+                Text(
+                  'Shop Information',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.red[800],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red[50],
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red[100]!),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.red[700],
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Shop information not found. Please update your profile.',
+                      style: TextStyle(fontSize: 12, color: Colors.red[700]),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPhoneDetailsCard() {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Colors.grey[200]!),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.phone_android, color: Colors.green, size: 18),
+                SizedBox(width: 6),
+                Text(
+                  'Phone Details',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Show Base Model Info if available
+            if (widget.initialData != null) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.green[50],
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.green[200]!),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.inventory, color: Colors.green[700], size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Base Model Details',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.green[700],
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          if (widget.initialData!['productBrand'] != null)
+                            Text(
+                              'Brand: ${widget.initialData!['productBrand']}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.green[600],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            // Date
+            _buildTextField(
+              controller: _dateController,
+              label: 'Sale Date',
+              prefixIcon: Icons.calendar_today,
+              suffixIcon: IconButton(
+                icon: const Icon(Icons.calendar_month, size: 20),
+                onPressed: () => _selectDate(context),
+              ),
+              readOnly: true,
+              onTap: () => _selectDate(context),
+              validator: (value) {
+                if (_selectedDate == null) {
+                  return 'Please select a date';
+                }
+                return null;
+              },
+              isRequired: true,
+            ),
+            const SizedBox(height: 12),
+
+            // Customer Name
+            _buildTextField(
+              controller: _customerNameController,
+              label: 'Customer Name',
+              prefixIcon: Icons.person,
+              hintText: 'Enter customer name',
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Please enter customer name';
+                }
+                if (value.trim().length < 2) {
+                  return 'Name must be at least 2 characters';
+                }
+                return null;
+              },
+              isRequired: true,
+            ),
+            const SizedBox(height: 12),
+
+            // Customer Phone
+            _buildTextField(
+              controller: _customerPhoneController,
+              label: 'Customer Phone Number',
+              prefixIcon: Icons.phone,
+              keyboardType: TextInputType.phone,
+              hintText: 'Enter phone number (e.g., 9876543210)',
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Please enter phone number';
+                }
+                // Remove any non-digit characters for validation
+                final digitsOnly = value.replaceAll(RegExp(r'\D'), '');
+                if (digitsOnly.length < 10) {
+                  return 'Phone number must be at least 10 digits';
+                }
+                return null;
+              },
+              isRequired: true,
+            ),
+            const SizedBox(height: 12),
+
+            // Product Name (auto-filled if from base model)
+            _buildTextField(
+              controller: _productNameController,
+              label: 'Product Name',
+              prefixIcon: Icons.devices,
+              hintText: 'e.g., iPhone 13 Pro, Samsung Galaxy S22',
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Please enter product name';
+                }
+                return null;
+              },
+              isRequired: true,
+            ),
+            const SizedBox(height: 12),
+
+            // Price (auto-filled if from base model)
+            _buildTextField(
+              controller: _priceController,
+              label: 'Sale Price',
+              prefixIcon: Icons.attach_money,
+              keyboardType: TextInputType.number,
+              hintText: 'Enter total sale price',
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Please enter sale price';
+                }
+                final parsed = double.tryParse(value);
+                if (parsed == null) {
+                  return 'Please enter a valid number';
+                }
+                if (parsed <= 0) {
+                  return 'Price must be greater than 0';
+                }
+                return null;
+              },
+              isRequired: true,
+              onChanged: _updatePaymentSummary,
+            ),
+            const SizedBox(height: 12),
+
+            // IMEI (auto-filled if from base model)
+            _buildTextField(
+              controller: _imeiController,
+              label: 'IMEI Number',
+              prefixIcon: Icons.qr_code_scanner,
+              hintText: 'Enter 15-digit IMEI number',
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Please enter IMEI number';
+                }
+                if (value.replaceAll(RegExp(r'\s+'), '').length < 15) {
+                  return 'IMEI must be at least 15 digits';
+                }
+                return null;
+              },
+              isRequired: true,
+            ),
+            const SizedBox(height: 12),
+
+            // Defects
+            _buildTextField(
+              controller: _defectController,
+              label: 'Defects / Notes (Optional)',
+              prefixIcon: Icons.note_add,
+              hintText: 'Describe any defects or additional notes...',
+              maxLines: 3,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaymentSection({
+    required double totalPrice,
+    required double totalPayment,
+    required String paymentStatus,
+    required double difference,
+  }) {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Colors.grey[200]!),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.payments, color: Colors.green, size: 18),
+                SizedBox(width: 6),
+                Text(
+                  'Payment Breakdown',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Padding(
+              padding: EdgeInsets.only(left: 24),
+              child: Text(
+                'Split payment across different methods',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Payment Methods Grid
+            Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildPaymentCard(
+                        title: 'Cash',
+                        icon: Icons.money,
+                        color: Colors.green,
+                        controller: _cashController,
+                        hintText: 'Cash amount',
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _buildPaymentCard(
+                        title: 'Card',
+                        icon: Icons.credit_card,
+                        color: Colors.blue,
+                        controller: _cardController,
+                        hintText: 'Card amount',
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildPaymentCard(
+                        title: 'GPay',
+                        icon: Icons.payment,
+                        color: Colors.purple,
+                        controller: _gpayController,
+                        hintText: 'GPay amount',
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _buildPaymentCard(
+                        title: 'Pay Later',
+                        icon: Icons.schedule,
+                        color: Colors.orange,
+                        controller: _payLaterController,
+                        hintText: 'Pay later amount',
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+            // Payment Summary
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: paymentStatus == 'balanced'
+                    ? Colors.green[50]
+                    : paymentStatus == 'short'
+                    ? Colors.orange[50]
+                    : Colors.red[50],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: paymentStatus == 'balanced'
+                      ? Colors.green[200]!
+                      : paymentStatus == 'short'
+                      ? Colors.orange[200]!
+                      : Colors.red[200]!,
+                  width: 1.5,
+                ),
+              ),
+              child: Column(
+                children: [
+                  // Sale Price
+                  _buildSummaryRow(
+                    label: 'Sale Price',
+                    value: '\$${totalPrice.toStringAsFixed(2)}',
+                    icon: Icons.price_check,
+                    color: Colors.green,
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Total Payment
+                  _buildSummaryRow(
+                    label: 'Total Payment',
+                    value: '\$${totalPayment.toStringAsFixed(2)}',
+                    icon: Icons.payments,
+                    color: paymentStatus == 'balanced'
+                        ? Colors.green
+                        : Colors.orange,
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Customer Info Summary
+                  if (_customerNameController.text.isNotEmpty ||
+                      _customerPhoneController.text.isNotEmpty)
+                    Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.blue[50],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.blue[100]!),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.person,
+                                color: Colors.blue[700],
+                                size: 18,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (_customerNameController.text.isNotEmpty)
+                                      Text(
+                                        'Customer: ${_customerNameController.text}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.blue[800],
+                                        ),
+                                      ),
+                                    if (_customerPhoneController
+                                        .text
+                                        .isNotEmpty)
+                                      Text(
+                                        'Phone: ${_customerPhoneController.text}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.blue[700],
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                    ),
+
+                  // Status Row
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: paymentStatus == 'balanced'
+                          ? Colors.green[100]
+                          : paymentStatus == 'short'
+                          ? Colors.orange[100]
+                          : Colors.red[100],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          paymentStatus == 'balanced'
+                              ? Icons.check_circle
+                              : paymentStatus == 'short'
+                              ? Icons.warning
+                              : Icons.error,
+                          color: paymentStatus == 'balanced'
+                              ? Colors.green
+                              : paymentStatus == 'short'
+                              ? Colors.orange
+                              : Colors.red,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                paymentStatus == 'balanced'
+                                    ? 'Payment Complete'
+                                    : paymentStatus == 'short'
+                                    ? 'Payment Incomplete'
+                                    : 'Payment Error',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: paymentStatus == 'balanced'
+                                      ? Colors.green[800]
+                                      : paymentStatus == 'short'
+                                      ? Colors.orange[800]
+                                      : Colors.red[800],
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                paymentStatus == 'balanced'
+                                    ? 'All payments match sale price'
+                                    : paymentStatus == 'short'
+                                    ? 'Short by \$${difference.toStringAsFixed(2)}'
+                                    : 'Exceeds by \$${difference.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: paymentStatus == 'balanced'
+                                      ? Colors.green[700]
+                                      : paymentStatus == 'short'
+                                      ? Colors.orange[700]
+                                      : Colors.red[700],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Progress Indicator
+                  if (paymentStatus != 'balanced')
+                    Padding(
+                      padding: const EdgeInsets.only(top: 14),
+                      child: Column(
+                        children: [
+                          LinearProgressIndicator(
+                            value: totalPrice > 0
+                                ? totalPayment / totalPrice
+                                : 0,
+                            backgroundColor: Colors.grey[200],
+                            color: paymentStatus == 'short'
+                                ? Colors.orange
+                                : Colors.red,
+                            minHeight: 6,
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Paid: \$${totalPayment.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              Text(
+                                'Remaining: \$${(totalPrice - totalPayment).abs().toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: paymentStatus == 'short'
+                                      ? Colors.orange[700]
+                                      : Colors.red[700],
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionButtons() {
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton(
+            onPressed: _isUploading ? null : _clearForm,
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              side: BorderSide(color: Colors.grey[300]!),
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.refresh, size: 18),
+                SizedBox(width: 6),
+                Text(
+                  'Clear All',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: ElevatedButton(
+            onPressed:
+                (_isUploading ||
+                    _shopId == null ||
+                    _shopName == null ||
+                    _shopId!.isEmpty ||
+                    _shopName!.isEmpty)
+                ? null
+                : _uploadSale,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green[700],
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              elevation: 1,
+              shadowColor: Colors.green.withOpacity(0.2),
+            ),
+            child: _isUploading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.cloud_upload_outlined, size: 18),
+                      SizedBox(width: 6),
+                      Text(
+                        'Upload',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInfoFooter() {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.info_outline, size: 12, color: Colors.grey[500]),
+            const SizedBox(width: 4),
+            Text(
+              'Uploads to Firebase collection: seconds_phone_sale',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Center(
+          child: Text(
+            'Cash + Card + GPay + Pay Later = Sale Price',
+            style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+          ),
+        ),
+        const SizedBox(height: 4),
+        if (_shopName != null)
+          Center(
+            child: Text(
+              'Shop: $_shopName',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.green[700],
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+      ],
+    );
   }
 
   Widget _buildTextField({
@@ -715,961 +1738,6 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final priceText = _priceController.text.trim();
-    final totalPrice = priceText.isNotEmpty
-        ? double.tryParse(priceText) ?? 0.0
-        : 0.0;
-    final totalPayment = _calculateTotalPayment();
-    final paymentStatus = _getPaymentStatus(totalPrice);
-    final difference = (totalPrice - totalPayment).abs();
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Phone Sale Upload',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-        ),
-        backgroundColor: Colors.green[700],
-        centerTitle: true,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-        actions: [
-          IconButton(
-            onPressed: _isUploading ? null : _clearForm,
-            icon: const Icon(Icons.refresh, size: 20),
-            tooltip: 'Clear form',
-          ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 4),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                color: Colors.green.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Icon(
-                                Icons.phone_iphone,
-                                color: Colors.green[700],
-                                size: 22,
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Phone Sale Record',
-                                    style: TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.black87,
-                                    ),
-                                  ),
-                                  Text(
-                                    'Record a new used phone sale',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  // Shop Information Section
-                  if (_isLoadingUserData)
-                    Card(
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        side: BorderSide(color: Colors.grey[200]!),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: [
-                            const Row(
-                              children: [
-                                Icon(Icons.store, color: Colors.blue, size: 18),
-                                SizedBox(width: 6),
-                                Text(
-                                  'Shop Information',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Center(
-                              child: Column(
-                                children: [
-                                  CircularProgressIndicator(
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.green[700]!,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  Text(
-                                    'Loading shop information...',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  else if (_shopId != null && _shopName != null)
-                    Card(
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        side: BorderSide(color: Colors.grey[200]!),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: [
-                            const Row(
-                              children: [
-                                Icon(Icons.store, color: Colors.blue, size: 18),
-                                SizedBox(width: 6),
-                                Text(
-                                  'Shop Information',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.blue[50],
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: Colors.blue[100]!),
-                              ),
-                              child: Column(
-                                children: [
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        Icons.badge,
-                                        size: 16,
-                                        color: Colors.blue[700],
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Shop ID',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey[600],
-                                              ),
-                                            ),
-                                            Text(
-                                              _shopId!,
-                                              style: TextStyle(
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w600,
-                                                color: Colors.blue[800],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  const Divider(height: 1),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        Icons.storefront,
-                                        size: 16,
-                                        color: Colors.blue[700],
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Shop Name',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey[600],
-                                              ),
-                                            ),
-                                            Text(
-                                              _shopName!,
-                                              style: TextStyle(
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w600,
-                                                color: Colors.blue[800],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  else
-                    Card(
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        side: BorderSide(color: Colors.red[200]!),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.error_outline,
-                                  color: Colors.red[700],
-                                  size: 18,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'Shop Information',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.red[800],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.red[50],
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: Colors.red[100]!),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Icons.warning_amber_rounded,
-                                    color: Colors.red[700],
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Text(
-                                      'Shop information not found. Please update your profile.',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.red[700],
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                  const SizedBox(height: 20),
-
-                  // Phone Information Section
-                  Card(
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      side: BorderSide(color: Colors.grey[200]!),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: [
-                          const Row(
-                            children: [
-                              Icon(
-                                Icons.phone_android,
-                                color: Colors.green,
-                                size: 18,
-                              ),
-                              SizedBox(width: 6),
-                              Text(
-                                'Phone Details',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.black87,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-
-                          // Date
-                          _buildTextField(
-                            controller: _dateController,
-                            label: 'Sale Date',
-                            prefixIcon: Icons.calendar_today,
-                            suffixIcon: IconButton(
-                              icon: const Icon(Icons.calendar_month, size: 20),
-                              onPressed: () => _selectDate(context),
-                            ),
-                            readOnly: true,
-                            onTap: () => _selectDate(context),
-                            validator: (value) {
-                              if (_selectedDate == null) {
-                                return 'Please select a date';
-                              }
-                              return null;
-                            },
-                            isRequired: true,
-                          ),
-                          const SizedBox(height: 12),
-
-                          // Customer Name (NEW)
-                          _buildTextField(
-                            controller: _customerNameController,
-                            label: 'Customer Name',
-                            prefixIcon: Icons.person,
-                            hintText: 'Enter customer name',
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please enter customer name';
-                              }
-                              if (value.trim().length < 2) {
-                                return 'Name must be at least 2 characters';
-                              }
-                              return null;
-                            },
-                            isRequired: true,
-                          ),
-                          const SizedBox(height: 12),
-
-                          // Customer Phone (NEW)
-                          _buildTextField(
-                            controller: _customerPhoneController,
-                            label: 'Customer Phone Number',
-                            prefixIcon: Icons.phone,
-                            keyboardType: TextInputType.phone,
-                            hintText: 'Enter phone number (e.g., 9876543210)',
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please enter phone number';
-                              }
-                              // Remove any non-digit characters for validation
-                              final digitsOnly = value.replaceAll(
-                                RegExp(r'\D'),
-                                '',
-                              );
-                              if (digitsOnly.length < 10) {
-                                return 'Phone number must be at least 10 digits';
-                              }
-                              return null;
-                            },
-                            isRequired: true,
-                          ),
-                          const SizedBox(height: 12),
-
-                          // Product Name
-                          _buildTextField(
-                            controller: _productNameController,
-                            label: 'Product Name',
-                            prefixIcon: Icons.devices,
-                            hintText: 'e.g., iPhone 13 Pro, Samsung Galaxy S22',
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please enter product name';
-                              }
-                              return null;
-                            },
-                            isRequired: true,
-                          ),
-                          const SizedBox(height: 12),
-
-                          // Price
-                          _buildTextField(
-                            controller: _priceController,
-                            label: 'Sale Price',
-                            prefixIcon: Icons.attach_money,
-                            keyboardType: TextInputType.number,
-                            hintText: 'Enter total sale price',
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Please enter sale price';
-                              }
-                              final parsed = double.tryParse(value);
-                              if (parsed == null) {
-                                return 'Please enter a valid number';
-                              }
-                              if (parsed <= 0) {
-                                return 'Price must be greater than 0';
-                              }
-                              return null;
-                            },
-                            isRequired: true,
-                            onChanged: _updatePaymentSummary,
-                          ),
-                          const SizedBox(height: 12),
-
-                          // IMEI
-                          _buildTextField(
-                            controller: _imeiController,
-                            label: 'IMEI Number',
-                            prefixIcon: Icons.qr_code_scanner,
-                            hintText: 'Enter 15-digit IMEI number',
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please enter IMEI number';
-                              }
-                              if (value.replaceAll(RegExp(r'\s+'), '').length <
-                                  15) {
-                                return 'IMEI must be at least 15 digits';
-                              }
-                              return null;
-                            },
-                            isRequired: true,
-                          ),
-                          const SizedBox(height: 12),
-
-                          // Defects
-                          _buildTextField(
-                            controller: _defectController,
-                            label: 'Defects / Notes (Optional)',
-                            prefixIcon: Icons.note_add,
-                            hintText:
-                                'Describe any defects or additional notes...',
-                            maxLines: 3,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  // Payment Breakdown Section
-                  Card(
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      side: BorderSide(color: Colors.grey[200]!),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Row(
-                            children: [
-                              Icon(
-                                Icons.payments,
-                                color: Colors.green,
-                                size: 18,
-                              ),
-                              SizedBox(width: 6),
-                              Text(
-                                'Payment Breakdown',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.black87,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          const Padding(
-                            padding: EdgeInsets.only(left: 24),
-                            child: Text(
-                              'Split payment across different methods',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-
-                          // Payment Methods Grid
-                          Column(
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: _buildPaymentCard(
-                                      title: 'Cash',
-                                      icon: Icons.money,
-                                      color: Colors.green,
-                                      controller: _cashController,
-                                      hintText: 'Cash amount',
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: _buildPaymentCard(
-                                      title: 'Card',
-                                      icon: Icons.credit_card,
-                                      color: Colors.blue,
-                                      controller: _cardController,
-                                      hintText: 'Card amount',
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: _buildPaymentCard(
-                                      title: 'GPay',
-                                      icon: Icons.payment,
-                                      color: Colors.purple,
-                                      controller: _gpayController,
-                                      hintText: 'GPay amount',
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: _buildPaymentCard(
-                                      title: 'Pay Later',
-                                      icon: Icons.schedule,
-                                      color: Colors.orange,
-                                      controller: _payLaterController,
-                                      hintText: 'Pay later amount',
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-
-                          const SizedBox(height: 20),
-
-                          // Payment Summary
-                          Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: paymentStatus == 'balanced'
-                                  ? Colors.green[50]
-                                  : paymentStatus == 'short'
-                                  ? Colors.orange[50]
-                                  : Colors.red[50],
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: paymentStatus == 'balanced'
-                                    ? Colors.green[200]!
-                                    : paymentStatus == 'short'
-                                    ? Colors.orange[200]!
-                                    : Colors.red[200]!,
-                                width: 1.5,
-                              ),
-                            ),
-                            child: Column(
-                              children: [
-                                // Sale Price
-                                _buildSummaryRow(
-                                  label: 'Sale Price',
-                                  value: '\$${totalPrice.toStringAsFixed(2)}',
-                                  icon: Icons.price_check,
-                                  color: Colors.green,
-                                ),
-                                const SizedBox(height: 10),
-
-                                // Total Payment
-                                _buildSummaryRow(
-                                  label: 'Total Payment',
-                                  value: '\$${totalPayment.toStringAsFixed(2)}',
-                                  icon: Icons.payments,
-                                  color: paymentStatus == 'balanced'
-                                      ? Colors.green
-                                      : Colors.orange,
-                                ),
-                                const SizedBox(height: 10),
-
-                                // Customer Info Summary (NEW)
-                                if (_customerNameController.text.isNotEmpty ||
-                                    _customerPhoneController.text.isNotEmpty)
-                                  Column(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(10),
-                                        decoration: BoxDecoration(
-                                          color: Colors.blue[50],
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                          border: Border.all(
-                                            color: Colors.blue[100]!,
-                                          ),
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            Icon(
-                                              Icons.person,
-                                              color: Colors.blue[700],
-                                              size: 18,
-                                            ),
-                                            const SizedBox(width: 10),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  if (_customerNameController
-                                                      .text
-                                                      .isNotEmpty)
-                                                    Text(
-                                                      'Customer: ${_customerNameController.text}',
-                                                      style: TextStyle(
-                                                        fontSize: 12,
-                                                        fontWeight:
-                                                            FontWeight.w600,
-                                                        color: Colors.blue[800],
-                                                      ),
-                                                    ),
-                                                  if (_customerPhoneController
-                                                      .text
-                                                      .isNotEmpty)
-                                                    Text(
-                                                      'Phone: ${_customerPhoneController.text}',
-                                                      style: TextStyle(
-                                                        fontSize: 12,
-                                                        color: Colors.blue[700],
-                                                      ),
-                                                    ),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(height: 10),
-                                    ],
-                                  ),
-
-                                // Status Row
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: paymentStatus == 'balanced'
-                                        ? Colors.green[100]
-                                        : paymentStatus == 'short'
-                                        ? Colors.orange[100]
-                                        : Colors.red[100],
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        paymentStatus == 'balanced'
-                                            ? Icons.check_circle
-                                            : paymentStatus == 'short'
-                                            ? Icons.warning
-                                            : Icons.error,
-                                        color: paymentStatus == 'balanced'
-                                            ? Colors.green
-                                            : paymentStatus == 'short'
-                                            ? Colors.orange
-                                            : Colors.red,
-                                        size: 20,
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              paymentStatus == 'balanced'
-                                                  ? 'Payment Complete'
-                                                  : paymentStatus == 'short'
-                                                  ? 'Payment Incomplete'
-                                                  : 'Payment Error',
-                                              style: TextStyle(
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w700,
-                                                color:
-                                                    paymentStatus == 'balanced'
-                                                    ? Colors.green[800]
-                                                    : paymentStatus == 'short'
-                                                    ? Colors.orange[800]
-                                                    : Colors.red[800],
-                                              ),
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              paymentStatus == 'balanced'
-                                                  ? 'All payments match sale price'
-                                                  : paymentStatus == 'short'
-                                                  ? 'Short by \$${difference.toStringAsFixed(2)}'
-                                                  : 'Exceeds by \$${difference.toStringAsFixed(2)}',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color:
-                                                    paymentStatus == 'balanced'
-                                                    ? Colors.green[700]
-                                                    : paymentStatus == 'short'
-                                                    ? Colors.orange[700]
-                                                    : Colors.red[700],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-
-                                // Progress Indicator
-                                if (paymentStatus != 'balanced')
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 14),
-                                    child: Column(
-                                      children: [
-                                        LinearProgressIndicator(
-                                          value: totalPrice > 0
-                                              ? totalPayment / totalPrice
-                                              : 0,
-                                          backgroundColor: Colors.grey[200],
-                                          color: paymentStatus == 'short'
-                                              ? Colors.orange
-                                              : Colors.red,
-                                          minHeight: 6,
-                                          borderRadius: BorderRadius.circular(
-                                            3,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Text(
-                                              'Paid: \$${totalPayment.toStringAsFixed(2)}',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey[600],
-                                              ),
-                                            ),
-                                            Text(
-                                              'Remaining: \$${(totalPrice - totalPayment).abs().toStringAsFixed(2)}',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: paymentStatus == 'short'
-                                                    ? Colors.orange[700]
-                                                    : Colors.red[700],
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // Action Buttons
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _isUploading ? null : _clearForm,
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            side: BorderSide(color: Colors.grey[300]!),
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.refresh, size: 18),
-                              SizedBox(width: 6),
-                              Text(
-                                'Clear All',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed:
-                              (_isUploading ||
-                                  _shopId == null ||
-                                  _shopName == null ||
-                                  _shopId!.isEmpty ||
-                                  _shopName!.isEmpty)
-                              ? null
-                              : _uploadSale,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green[700],
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            elevation: 1,
-                            shadowColor: Colors.green.withOpacity(0.2),
-                          ),
-                          child: _isUploading
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.cloud_upload_outlined, size: 18),
-                                    SizedBox(width: 6),
-                                    Text(
-                                      'Upload ',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-                  const Divider(height: 1),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        size: 12,
-                        color: Colors.grey[500],
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Uploads to Firebase collection: seconds_phone_sale',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Center(
-                    child: Text(
-                      'Cash + Card + GPay + Pay Later = Sale Price',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  if (_shopName != null)
-                    Center(
-                      child: Text(
-                        'Shop: $_shopName',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.green[700],
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-
-          // Loading overlay
-          if (_isUploading)
-            Container(
-              color: Colors.black.withOpacity(0.3),
-              child: const Center(
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildSummaryRow({
     required String label,
     required String value,
@@ -1712,7 +1780,6 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
 
   @override
   void dispose() {
-    // Clean up controllers
     _dateController.dispose();
     _customerNameController.dispose();
     _customerPhoneController.dispose();

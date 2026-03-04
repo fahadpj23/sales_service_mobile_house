@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:sales_stock/screens/user/inventory/add_stock_modal.dart';
 import 'package:sales_stock/screens/user/inventory/imei_scanner.dart';
+import 'package:sales_stock/screens/user/sale/second_phone_sale_upload.dart';
 import '../../../providers/auth_provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'dart:async';
@@ -715,6 +716,9 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
     });
   }
 
+  // Update this method in BaseModelStockScreen
+  // In BaseModelStockScreen, replace the _markAsSold method with this:
+
   Future<void> _markAsSold(
     String modelId,
     Map<String, dynamic> modelData,
@@ -725,20 +729,52 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final user = authProvider.user;
 
-      await _firestore.collection('baseModelStock').doc(modelId).update({
-        'status': 'sold',
-        'soldAt': FieldValue.serverTimestamp(),
-        'soldBy': user?.email ?? user?.name ?? 'Unknown',
-        'soldById': user?.uid ?? '',
-      });
+      // Navigate to SecondPhoneSaleUpload with model data
+      if (mounted) {
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => SecondPhoneSaleUpload(
+              initialData: {
+                'productName': modelData['productName'],
+                'productPrice': modelData['productPrice'],
+                'imei': modelData['imei'],
+                'productBrand': modelData['productBrand'],
+                'modelId': modelId,
+              },
+            ),
+          ),
+        );
 
-      setState(() {
-        _selectedModelForAction = null;
-      });
+        // If sale was completed successfully, update the status
+        if (result == true) {
+          await _firestore.collection('baseModelStock').doc(modelId).update({
+            'status': 'sold',
+            'soldAt': FieldValue.serverTimestamp(),
+            'soldBy': user?.email ?? user?.name ?? 'Unknown',
+            'soldById': user?.uid ?? '',
+          });
 
-      _showSuccess('Base model marked as sold successfully!');
+          if (mounted) {
+            _showSuccess('Base model marked as sold successfully!');
+            setState(() {
+              _selectedModelForAction = null;
+            });
+          }
+        } else {
+          // If user cancelled or upload failed
+          setState(() {
+            _selectedModelForAction = null;
+          });
+        }
+      }
     } catch (e) {
-      _showError('Failed to mark as sold: $e');
+      if (mounted) {
+        _showError('Failed to process sale: $e');
+        setState(() {
+          _selectedModelForAction = null;
+        });
+      }
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
