@@ -7,13 +7,13 @@ import 'dart:async';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/services.dart';
 
-// Phone Stock Model
-class PhoneStock {
+// Base Stock Item Model
+class StockItem {
   final String id;
-  final String imei;
-  final String productBrand;
-  final String productName;
-  final double productPrice;
+  final String identifier; // IMEI or Serial Number
+  final String brand;
+  final String model;
+  final double price;
   final String shopId;
   final String shopName;
   final String status;
@@ -21,13 +21,14 @@ class PhoneStock {
   final String uploadedBy;
   final String uploadedById;
   final DateTime createdAt;
+  final String type; // 'phone', 'base_model', 'tv'
 
-  PhoneStock({
+  StockItem({
     required this.id,
-    required this.imei,
-    required this.productBrand,
-    required this.productName,
-    required this.productPrice,
+    required this.identifier,
+    required this.brand,
+    required this.model,
+    required this.price,
     required this.shopId,
     required this.shopName,
     required this.status,
@@ -35,15 +36,16 @@ class PhoneStock {
     required this.uploadedBy,
     required this.uploadedById,
     required this.createdAt,
+    required this.type,
   });
 
-  factory PhoneStock.fromFirestore(String id, Map<String, dynamic> data) {
-    return PhoneStock(
+  factory StockItem.fromPhoneFirestore(String id, Map<String, dynamic> data) {
+    return StockItem(
       id: id,
-      imei: data['imei'] ?? '',
-      productBrand: data['productBrand'] ?? '',
-      productName: data['productName'] ?? '',
-      productPrice: (data['productPrice'] ?? 0).toDouble(),
+      identifier: data['imei'] ?? '',
+      brand: data['productBrand'] ?? '',
+      model: data['productName'] ?? '',
+      price: (data['productPrice'] ?? 0).toDouble(),
       shopId: data['shopId'] ?? '',
       shopName: data['shopName'] ?? '',
       status: data['status'] ?? 'available',
@@ -51,6 +53,48 @@ class PhoneStock {
       uploadedBy: data['uploadedBy'] ?? '',
       uploadedById: data['uploadedById'] ?? '',
       createdAt: (data['createdAt'] as Timestamp).toDate(),
+      type: 'phone',
+    );
+  }
+
+  factory StockItem.fromBaseModelFirestore(
+    String id,
+    Map<String, dynamic> data,
+  ) {
+    return StockItem(
+      id: id,
+      identifier: data['imei'] ?? data['serialNumber'] ?? '',
+      brand: data['brand'] ?? '',
+      model: data['modelName'] ?? data['productName'] ?? '',
+      price: (data['price'] ?? 0).toDouble(),
+      shopId: data['shopId'] ?? '',
+      shopName: data['shopName'] ?? '',
+      status: data['status'] ?? 'available',
+      uploadedAt:
+          (data['uploadedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      uploadedBy: data['uploadedBy'] ?? '',
+      uploadedById: data['uploadedById'] ?? '',
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      type: 'base_model',
+    );
+  }
+
+  factory StockItem.fromTvFirestore(String id, Map<String, dynamic> data) {
+    return StockItem(
+      id: id,
+      identifier: data['serialNumber'] ?? '',
+      brand: data['modelBrand'] ?? '',
+      model: data['modelName'] ?? '',
+      price: (data['modelPrice'] ?? 0).toDouble(),
+      shopId: data['shopId'] ?? '',
+      shopName: data['shopName'] ?? '',
+      status: data['status'] ?? 'available',
+      uploadedAt:
+          (data['uploadedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      uploadedBy: data['uploadedBy'] ?? '',
+      uploadedById: data['uploadedById'] ?? '',
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      type: 'tv',
     );
   }
 }
@@ -59,7 +103,7 @@ class PhoneStock {
 class StockService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  Future<List<PhoneStock>> getAllPhoneStock() async {
+  Future<List<StockItem>> getAllPhoneStock() async {
     try {
       final snapshot = await _firestore
           .collection('phoneStock')
@@ -67,7 +111,7 @@ class StockService {
           .get();
 
       return snapshot.docs
-          .map((doc) => PhoneStock.fromFirestore(doc.id, doc.data()))
+          .map((doc) => StockItem.fromPhoneFirestore(doc.id, doc.data()))
           .toList();
     } catch (e) {
       print('Error fetching phone stock: $e');
@@ -75,9 +119,56 @@ class StockService {
     }
   }
 
-  Future<Map<String, int>> getStockCount() async {
+  Future<List<StockItem>> getAllBaseModelStock() async {
     try {
-      final allStock = await getAllPhoneStock();
+      final snapshot = await _firestore
+          .collection('baseModelStock')
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      return snapshot.docs
+          .map((doc) => StockItem.fromBaseModelFirestore(doc.id, doc.data()))
+          .toList();
+    } catch (e) {
+      print('Error fetching base model stock: $e');
+      return [];
+    }
+  }
+
+  Future<List<StockItem>> getAllTvStock() async {
+    try {
+      final snapshot = await _firestore
+          .collection('tvStock')
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      return snapshot.docs
+          .map((doc) => StockItem.fromTvFirestore(doc.id, doc.data()))
+          .toList();
+    } catch (e) {
+      print('Error fetching TV stock: $e');
+      return [];
+    }
+  }
+
+  Future<Map<String, int>> getStockCount(String type) async {
+    try {
+      List<StockItem> allStock = [];
+
+      switch (type) {
+        case 'phone':
+          allStock = await getAllPhoneStock();
+          break;
+        case 'base_model':
+          allStock = await getAllBaseModelStock();
+          break;
+        case 'tv':
+          allStock = await getAllTvStock();
+          break;
+        default:
+          return {'total': 0, 'available': 0, 'sold': 0};
+      }
+
       final available = allStock
           .where((item) => item.status == 'available')
           .length;
@@ -88,9 +179,22 @@ class StockService {
       return {'total': 0, 'available': 0, 'sold': 0};
     }
   }
+
+  Future<List<StockItem>> getAllStockByType(String type) async {
+    switch (type) {
+      case 'phone':
+        return getAllPhoneStock();
+      case 'base_model':
+        return getAllBaseModelStock();
+      case 'tv':
+        return getAllTvStock();
+      default:
+        return [];
+    }
+  }
 }
 
-// Main Stock Check Screen
+// Main Stock Check Screen with Tabs
 class StockCheckScreen extends StatefulWidget {
   const StockCheckScreen({super.key});
 
@@ -98,50 +202,101 @@ class StockCheckScreen extends StatefulWidget {
   State<StockCheckScreen> createState() => _StockCheckScreenState();
 }
 
-class _StockCheckScreenState extends State<StockCheckScreen> {
+class _StockCheckScreenState extends State<StockCheckScreen>
+    with SingleTickerProviderStateMixin {
   final StockService _stockService = StockService();
-  List<PhoneStock> _allStock = [];
-  List<PhoneStock> _filteredStock = [];
+
+  late TabController _tabController;
+
+  // Separate lists for each type
+  List<StockItem> _phoneStock = [];
+  List<StockItem> _baseModelStock = [];
+  List<StockItem> _tvStock = [];
+
+  // Filtered lists
+  List<StockItem> _filteredPhoneStock = [];
+  List<StockItem> _filteredBaseModelStock = [];
+  List<StockItem> _filteredTvStock = [];
+
   bool _isLoading = true;
   String _searchQuery = '';
   String _statusFilter = 'all';
+  int _currentTabIndex = 0;
 
   // Statistics
-  int _totalCount = 0;
-  int _availableCount = 0;
-  int _soldCount = 0;
+  Map<String, Map<String, int>> _stats = {
+    'phone': {'total': 0, 'available': 0, 'sold': 0},
+    'base_model': {'total': 0, 'available': 0, 'sold': 0},
+    'tv': {'total': 0, 'available': 0, 'sold': 0},
+  };
 
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
 
+  final List<String> _tabTitles = ['Phones', 'Base Models', 'TVs'];
+
   @override
   void initState() {
     super.initState();
-    _loadStockData();
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(_handleTabChange);
+    _loadAllStockData();
+  }
+
+  void _handleTabChange() {
+    if (_tabController.index != _currentTabIndex) {
+      setState(() {
+        _currentTabIndex = _tabController.index;
+        _applyFilters();
+      });
+    }
   }
 
   @override
   void dispose() {
+    _tabController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
   }
 
-  Future<void> _loadStockData() async {
+  Future<void> _loadAllStockData() async {
     setState(() => _isLoading = true);
 
     try {
-      _allStock = await _stockService.getAllPhoneStock();
-      final stats = await _stockService.getStockCount();
-      _totalCount = stats['total'] ?? 0;
-      _availableCount = stats['available'] ?? 0;
-      _soldCount = stats['sold'] ?? 0;
-      _filteredStock = _allStock;
+      // Load all stock types in parallel
+      final results = await Future.wait([
+        _stockService.getAllPhoneStock(),
+        _stockService.getAllBaseModelStock(),
+        _stockService.getAllTvStock(),
+      ]);
+
+      _phoneStock = results[0];
+      _baseModelStock = results[1];
+      _tvStock = results[2];
+
+      // Load statistics for each type
+      await Future.wait([
+        _loadStatsForType('phone'),
+        _loadStatsForType('base_model'),
+        _loadStatsForType('tv'),
+      ]);
+
+      _filteredPhoneStock = _phoneStock;
+      _filteredBaseModelStock = _baseModelStock;
+      _filteredTvStock = _tvStock;
     } catch (e) {
       _showErrorSnackbar('Failed to load stock data');
     } finally {
       setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _loadStatsForType(String type) async {
+    final stats = await _stockService.getStockCount(type);
+    setState(() {
+      _stats[type] = stats;
+    });
   }
 
   void _showErrorSnackbar(String message) {
@@ -164,39 +319,75 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
     );
   }
 
-  // FIXED: Smart Search Logic that handles IMEI, model names, and specs
+  // Get current stock list based on tab
+  List<StockItem> _getCurrentStock() {
+    switch (_currentTabIndex) {
+      case 0:
+        return _phoneStock;
+      case 1:
+        return _baseModelStock;
+      case 2:
+        return _tvStock;
+      default:
+        return [];
+    }
+  }
+
+  // Get current filtered list based on tab
+  List<StockItem> _getCurrentFilteredStock() {
+    switch (_currentTabIndex) {
+      case 0:
+        return _filteredPhoneStock;
+      case 1:
+        return _filteredBaseModelStock;
+      case 2:
+        return _filteredTvStock;
+      default:
+        return [];
+    }
+  }
+
+  // Update filtered list based on tab
+  void _updateFilteredList(List<StockItem> filtered) {
+    switch (_currentTabIndex) {
+      case 0:
+        _filteredPhoneStock = filtered;
+        break;
+      case 1:
+        _filteredBaseModelStock = filtered;
+        break;
+      case 2:
+        _filteredTvStock = filtered;
+        break;
+    }
+  }
+
+  // Smart Search Logic
   void _applyFilters() {
-    List<PhoneStock> result = _allStock;
+    List<StockItem> source = _getCurrentStock();
+    List<StockItem> result = List.from(source);
 
     if (_searchQuery.isNotEmpty) {
       final query = _searchQuery.toLowerCase().trim();
 
       result = result.where((item) {
-        // Get all searchable text fields
-        final productText = item.productName.toLowerCase();
-        final brandText = item.productBrand.toLowerCase();
-        final imeiText = item.imei.toLowerCase(); // Add IMEI to search
+        final modelText = item.model.toLowerCase();
+        final brandText = item.brand.toLowerCase();
+        final identifierText = item.identifier.toLowerCase();
 
-        // Combine all text for searching
-        final combinedText = '$productText $brandText $imeiText';
-
-        // Split search query into words
+        final combinedText = '$modelText $brandText $identifierText';
         final searchWords = query
             .split(' ')
             .where((w) => w.isNotEmpty)
             .toList();
 
-        // Check if ALL search words are found (case-insensitive)
         for (final word in searchWords) {
-          // Create variations for the word
           final variations = <String>[word];
 
           // Handle slash variations like "4/128"
           if (word.contains('/')) {
             variations.add(word.replaceAll('/', ' '));
             variations.add(word.replaceAll('/', ''));
-            variations.add(word.replaceAll('/', 'gb/'));
-            variations.add(word.replaceAll('/', '/gb'));
           }
 
           // Handle "g" variations like "5g"
@@ -204,30 +395,29 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
             variations.add(word.substring(0, word.length - 1));
           }
 
-          // Handle "gb" variations like "4gb"
+          // Handle "gb" variations
           if (word.toLowerCase().endsWith('gb') && word.length > 2) {
             variations.add(word.toLowerCase().replaceAll('gb', ''));
           }
 
-          // For IMEI search - check exact matches and partial matches
+          // Handle "inch" for TVs
+          if (word.endsWith('inch') && word.length > 4) {
+            variations.add(word.substring(0, word.length - 4));
+          }
+
+          // For identifier search (IMEI/Serial)
           if (word.length >= 6) {
-            // Only check IMEI for longer queries
-            // Add IMEI without spaces for comparison
-            final cleanImei = imeiText.replaceAll(' ', '');
+            final cleanIdentifier = identifierText.replaceAll(' ', '');
             final cleanWord = word.replaceAll(' ', '');
 
-            // Check if IMEI contains this word
-            if (cleanImei.contains(cleanWord)) {
+            if (cleanIdentifier.contains(cleanWord)) {
               variations.add(cleanWord);
             }
-
-            // Also check formatted IMEI (with spaces)
-            if (imeiText.contains(word)) {
+            if (identifierText.contains(word)) {
               variations.add(word);
             }
           }
 
-          // Check if any variation is found
           bool wordFound = false;
           for (final variation in variations) {
             if (combinedText.contains(variation)) {
@@ -236,9 +426,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
             }
           }
 
-          if (!wordFound) {
-            return false;
-          }
+          if (!wordFound) return false;
         }
 
         return true;
@@ -249,25 +437,52 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
       result = result.where((item) => item.status == _statusFilter).toList();
     }
 
-    setState(() => _filteredStock = result);
+    _updateFilteredList(result);
+    setState(() {});
   }
 
-  // IMEI Helper Methods
-  String _formatImeiForDisplay(String imei) {
-    if (imei.isEmpty) return '';
-    if (imei.length == 15) {
-      return '${imei.substring(0, 6)} ${imei.substring(6, 12)} ${imei.substring(12)}';
-    } else if (imei.length == 16) {
-      return '${imei.substring(0, 8)} ${imei.substring(8)}';
+  // Format identifier based on type
+  String _formatIdentifierForDisplay(String identifier, String type) {
+    if (identifier.isEmpty) return '';
+
+    if (type == 'phone') {
+      // Format IMEI
+      if (identifier.length == 15) {
+        return '${identifier.substring(0, 6)} ${identifier.substring(6, 12)} ${identifier.substring(12)}';
+      } else if (identifier.length == 16) {
+        return '${identifier.substring(0, 8)} ${identifier.substring(8)}';
+      }
+    } else if (type == 'tv') {
+      // Format Serial Number for TV
+      if (identifier.length >= 12) {
+        return '${identifier.substring(0, 4)}-${identifier.substring(4, 8)}-${identifier.substring(8)}';
+      } else if (identifier.length >= 8) {
+        return '${identifier.substring(0, 4)}-${identifier.substring(4)}';
+      }
     }
-    return imei;
+    // Base model or default
+    return identifier;
   }
 
-  bool _isValidImei(String imei) {
-    if (imei.isEmpty) return false;
-    if (imei.length != 15 && imei.length != 16) return false;
-    if (!RegExp(r'^[0-9]+$').hasMatch(imei)) return false;
-    return true;
+  // Validate identifier based on type
+  bool _isValidIdentifier(String identifier, String type) {
+    if (identifier.isEmpty) return false;
+
+    switch (type) {
+      case 'phone':
+        return (identifier.length == 15 || identifier.length == 16) &&
+            RegExp(r'^[0-9]+$').hasMatch(identifier);
+      case 'tv':
+        return identifier.length >= 8 &&
+            identifier.length <= 20 &&
+            RegExp(r'^[A-Za-z0-9]+$').hasMatch(identifier);
+      case 'base_model':
+        return identifier.length >= 8 &&
+            identifier.length <= 20 &&
+            RegExp(r'^[A-Za-z0-9]+$').hasMatch(identifier);
+      default:
+        return false;
+    }
   }
 
   // Scanner Methods
@@ -291,15 +506,19 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
       return;
     }
 
+    final currentType = _getTypeFromIndex(_currentTabIndex);
+
     showDialog(
       context: context,
-      builder: (context) => OptimizedImeiScanner(
-        title: 'Search IMEI',
-        description: 'Scan IMEI to search in stock',
-        onScanComplete: (imei) {
+      builder: (context) => OptimizedIdentifierScanner(
+        title: 'Search ${currentType == 'phone' ? 'IMEI' : 'Serial'}',
+        description:
+            'Scan ${currentType == 'phone' ? 'IMEI' : 'serial number'} to search',
+        type: currentType,
+        onScanComplete: (identifier) {
           setState(() {
-            _searchController.text = imei;
-            _searchQuery = imei.toLowerCase();
+            _searchController.text = identifier;
+            _searchQuery = identifier.toLowerCase();
             _applyFilters();
           });
         },
@@ -307,13 +526,28 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
     );
   }
 
+  String _getTypeFromIndex(int index) {
+    switch (index) {
+      case 0:
+        return 'phone';
+      case 1:
+        return 'base_model';
+      case 2:
+        return 'tv';
+      default:
+        return 'phone';
+    }
+  }
+
   Widget _buildSearchField() {
+    final currentType = _getTypeFromIndex(_currentTabIndex);
+    final identifierLabel = currentType == 'phone' ? 'IMEI' : 'Serial Number';
+
     return TextField(
       controller: _searchController,
       focusNode: _searchFocusNode,
       decoration: InputDecoration(
-        hintText:
-            'Search by IMEI, model, specs (e.g., "f17 4/128", "samsung 5g", "123456")',
+        hintText: 'Search by $identifierLabel, model, brand...',
         prefixIcon: const Icon(Icons.search, color: Colors.teal, size: 20),
         suffixIcon: Row(
           mainAxisSize: MainAxisSize.min,
@@ -332,7 +566,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
             IconButton(
               icon: const Icon(Icons.qr_code_scanner, size: 22),
               onPressed: _openScannerForSearch,
-              tooltip: 'Scan IMEI to search',
+              tooltip: 'Scan to search',
               color: Colors.teal,
             ),
           ],
@@ -363,18 +597,20 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
     );
   }
 
-  void _showPhoneDetails(PhoneStock phone) {
+  void _showItemDetails(StockItem item) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => _buildPhoneDetailsSheet(phone),
+      builder: (context) => _buildItemDetailsSheet(item),
     );
   }
 
-  Widget _buildPhoneDetailsSheet(PhoneStock phone) {
+  Widget _buildItemDetailsSheet(StockItem item) {
+    final identifierLabel = item.type == 'phone' ? 'IMEI' : 'Serial Number';
+
     return SingleChildScrollView(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -402,12 +638,16 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                   width: 50,
                   height: 50,
                   decoration: BoxDecoration(
-                    color: _getStatusColor(phone.status).withOpacity(0.1),
+                    color: _getStatusColor(item.status).withOpacity(0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(
-                    Icons.phone_iphone,
-                    color: _getStatusColor(phone.status),
+                    item.type == 'phone'
+                        ? Icons.phone_iphone
+                        : item.type == 'tv'
+                        ? Icons.tv
+                        : Icons.devices,
+                    color: _getStatusColor(item.status),
                     size: 30,
                   ),
                 ),
@@ -417,7 +657,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        phone.productName,
+                        item.model,
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -427,7 +667,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        phone.productBrand,
+                        item.brand,
                         style: TextStyle(
                           fontSize: 14,
                           color: Colors.grey.shade600,
@@ -436,7 +676,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                     ],
                   ),
                 ),
-                _buildStatusChip(phone.status),
+                _buildStatusChip(item.status),
               ],
             ),
 
@@ -451,7 +691,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                   child: ElevatedButton.icon(
                     onPressed: () {
                       Navigator.pop(context);
-                      _searchByImei(phone.imei);
+                      _searchByIdentifier(item.identifier);
                     },
                     icon: const Icon(Icons.search, size: 16),
                     label: const Text('Search Similar'),
@@ -469,10 +709,13 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: () {
-                      _copyImeiToClipboard(phone.imei);
+                      _copyIdentifierToClipboard(
+                        item.identifier,
+                        identifierLabel,
+                      );
                     },
                     icon: const Icon(Icons.content_copy, size: 16),
-                    label: const Text('Copy IMEI'),
+                    label: Text('Copy $identifierLabel'),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
@@ -489,43 +732,43 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
             // Details Sections
             _buildDetailSection('Product Information', [
               _buildDetailRow(
-                'IMEI',
-                _formatImeiForDisplay(phone.imei),
+                identifierLabel,
+                _formatIdentifierForDisplay(item.identifier, item.type),
                 canCopy: true,
-                onCopy: () => _copyImeiToClipboard(phone.imei),
+                onCopy: () => _copyIdentifierToClipboard(
+                  item.identifier,
+                  identifierLabel,
+                ),
               ),
-              _buildDetailRow('Model', phone.productName),
-              _buildDetailRow('Brand', phone.productBrand),
-              _buildDetailRow(
-                'Price',
-                '₹${phone.productPrice.toStringAsFixed(0)}',
-              ),
+              _buildDetailRow('Model', item.model),
+              _buildDetailRow('Brand', item.brand),
+              _buildDetailRow('Price', '₹${item.price.toStringAsFixed(0)}'),
             ]),
 
             _buildDetailSection('Status & Location', [
               _buildDetailRow(
                 'Status',
-                phone.status.toUpperCase(),
-                color: _getStatusColor(phone.status),
+                item.status.toUpperCase(),
+                color: _getStatusColor(item.status),
               ),
-              _buildDetailRow('Shop', phone.shopName),
-              _buildDetailRow('Shop ID', phone.shopId),
+              _buildDetailRow('Shop', item.shopName),
+              _buildDetailRow('Shop ID', item.shopId),
             ]),
 
             _buildDetailSection('Timestamps', [
               _buildDetailRow(
                 'Created',
-                DateFormat('dd MMM yyyy, HH:mm').format(phone.createdAt),
+                DateFormat('dd MMM yyyy, HH:mm').format(item.createdAt),
               ),
               _buildDetailRow(
                 'Uploaded',
-                DateFormat('dd MMM yyyy, HH:mm').format(phone.uploadedAt),
+                DateFormat('dd MMM yyyy, HH:mm').format(item.uploadedAt),
               ),
             ]),
 
             _buildDetailSection('Uploaded By', [
-              _buildDetailRow('Name', phone.uploadedBy),
-              _buildDetailRow('ID', phone.uploadedById),
+              _buildDetailRow('Name', item.uploadedBy),
+              _buildDetailRow('ID', item.uploadedById),
             ]),
 
             const SizedBox(height: 20),
@@ -539,7 +782,9 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                   _openScannerForSearch();
                 },
                 icon: const Icon(Icons.qr_code_scanner, size: 18),
-                label: const Text('Scan Another IMEI'),
+                label: Text(
+                  'Scan Another ${item.type == 'phone' ? 'IMEI' : 'Serial'}',
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.teal,
                   foregroundColor: Colors.white,
@@ -695,13 +940,48 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
     );
   }
 
-  Widget _buildPhoneItem(PhoneStock phone) {
+  Widget _buildStatsRow(String type) {
+    final stats = _stats[type] ?? {'total': 0, 'available': 0, 'sold': 0};
+
+    return Row(
+      children: [
+        Expanded(
+          child: _buildStatItem(
+            'Total',
+            stats['total'] ?? 0,
+            Colors.teal,
+            Icons.inventory,
+          ),
+        ),
+        Expanded(
+          child: _buildStatItem(
+            'Available',
+            stats['available'] ?? 0,
+            Colors.green,
+            Icons.check_circle,
+          ),
+        ),
+        Expanded(
+          child: _buildStatItem(
+            'Sold',
+            stats['sold'] ?? 0,
+            Colors.red,
+            Icons.shopping_cart,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStockItem(StockItem item) {
+    final identifierLabel = item.type == 'phone' ? 'IMEI' : 'Serial';
+
     return Card(
       elevation: 1,
       margin: const EdgeInsets.symmetric(vertical: 4),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       child: InkWell(
-        onTap: () => _showPhoneDetails(phone),
+        onTap: () => _showItemDetails(item),
         borderRadius: BorderRadius.circular(10),
         child: Padding(
           padding: const EdgeInsets.all(12),
@@ -712,7 +992,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                 width: 4,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: _getStatusColor(phone.status),
+                  color: _getStatusColor(item.status),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -724,7 +1004,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      phone.productName,
+                      item.model,
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -736,14 +1016,16 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                     Row(
                       children: [
                         Icon(
-                          Icons.confirmation_number,
+                          item.type == 'phone'
+                              ? Icons.confirmation_number
+                              : Icons.qr_code,
                           size: 12,
                           color: Colors.grey.shade600,
                         ),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            _formatImeiForDisplay(phone.imei),
+                            '$identifierLabel: ${_formatIdentifierForDisplay(item.identifier, item.type)}',
                             style: TextStyle(
                               fontSize: 11,
                               color: Colors.grey.shade600,
@@ -756,7 +1038,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      phone.shopName,
+                      '${item.brand} • ${item.shopName}',
                       style: TextStyle(
                         fontSize: 11,
                         color: Colors.grey.shade500,
@@ -775,7 +1057,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    '₹${phone.productPrice.toStringAsFixed(0)}',
+                    '₹${item.price.toStringAsFixed(0)}',
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.bold,
@@ -783,7 +1065,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                     ),
                   ),
                   const SizedBox(height: 6),
-                  _buildStatusChip(phone.status),
+                  _buildStatusChip(item.status),
                 ],
               ),
             ],
@@ -793,17 +1075,17 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
     );
   }
 
-  void _searchByImei(String imei) {
+  void _searchByIdentifier(String identifier) {
     setState(() {
-      _searchQuery = imei;
-      _searchController.text = imei;
+      _searchQuery = identifier;
+      _searchController.text = identifier;
       _applyFilters();
     });
   }
 
-  void _copyImeiToClipboard(String imei) {
-    Clipboard.setData(ClipboardData(text: imei));
-    _showSuccessSnackbar('IMEI copied to clipboard');
+  void _copyIdentifierToClipboard(String identifier, String label) {
+    Clipboard.setData(ClipboardData(text: identifier));
+    _showSuccessSnackbar('$label copied to clipboard');
   }
 
   void _clearSearch() {
@@ -818,6 +1100,11 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final currentType = _getTypeFromIndex(_currentTabIndex);
+    final currentStats =
+        _stats[currentType] ?? {'total': 0, 'available': 0, 'sold': 0};
+    final currentFilteredList = _getCurrentFilteredStock();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Stock Check'),
@@ -825,10 +1112,21 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
         foregroundColor: Colors.white,
         centerTitle: true,
         elevation: 1,
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          tabs: const [
+            Tab(text: 'Phones'),
+            Tab(text: 'Base Models'),
+            Tab(text: 'TVs'),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _isLoading ? null : _loadStockData,
+            onPressed: _isLoading ? null : _loadAllStockData,
             tooltip: 'Refresh',
           ),
         ],
@@ -859,19 +1157,32 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                       _buildSearchField(),
 
                       const SizedBox(height: 12),
+
+                      // Stats Row
+                      _buildStatsRow(currentType),
+
+                      const SizedBox(height: 12),
+
                       // Status Filter Row
-                      Row(
-                        children: [
-                          _buildFilterChip('All', 'all', Icons.all_inclusive),
-                          const SizedBox(width: 8),
-                          _buildFilterChip(
-                            'Available',
-                            'available',
-                            Icons.check_circle,
-                          ),
-                          const SizedBox(width: 8),
-                          _buildFilterChip('Sold', 'sold', Icons.shopping_cart),
-                        ],
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            _buildFilterChip('All', 'all', Icons.all_inclusive),
+                            const SizedBox(width: 8),
+                            _buildFilterChip(
+                              'Available',
+                              'available',
+                              Icons.check_circle,
+                            ),
+                            const SizedBox(width: 8),
+                            _buildFilterChip(
+                              'Sold',
+                              'sold',
+                              Icons.shopping_cart,
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -886,7 +1197,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                   child: Row(
                     children: [
                       Text(
-                        '${_filteredStock.length} items',
+                        '${currentFilteredList.length} items',
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
@@ -918,7 +1229,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
 
                 // Stock List
                 Expanded(
-                  child: _filteredStock.isEmpty
+                  child: currentFilteredList.isEmpty
                       ? Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -932,7 +1243,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                               Text(
                                 _searchQuery.isNotEmpty
                                     ? 'No matching items found'
-                                    : 'No inventory items',
+                                    : 'No ${_tabTitles[_currentTabIndex].toLowerCase()} available',
                                 style: const TextStyle(
                                   fontSize: 16,
                                   color: Colors.grey,
@@ -941,7 +1252,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                               const SizedBox(height: 8),
                               if (_searchQuery.isEmpty)
                                 ElevatedButton.icon(
-                                  onPressed: _loadStockData,
+                                  onPressed: _loadAllStockData,
                                   icon: const Icon(Icons.refresh, size: 16),
                                   label: const Text('Refresh'),
                                   style: ElevatedButton.styleFrom(
@@ -951,9 +1262,7 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                                 ),
                               if (_searchQuery.isNotEmpty)
                                 ElevatedButton.icon(
-                                  onPressed: () {
-                                    _openScannerForSearch();
-                                  },
+                                  onPressed: _openScannerForSearch,
                                   icon: const Icon(
                                     Icons.qr_code_scanner,
                                     size: 16,
@@ -968,18 +1277,18 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
                           ),
                         )
                       : RefreshIndicator(
-                          onRefresh: _loadStockData,
+                          onRefresh: _loadAllStockData,
                           color: Colors.teal,
                           child: ListView.separated(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 16,
                               vertical: 8,
                             ),
-                            itemCount: _filteredStock.length,
+                            itemCount: currentFilteredList.length,
                             separatorBuilder: (context, index) =>
                                 const SizedBox(height: 8),
                             itemBuilder: (context, index) =>
-                                _buildPhoneItem(_filteredStock[index]),
+                                _buildStockItem(currentFilteredList[index]),
                           ),
                         ),
                 ),
@@ -1018,28 +1327,29 @@ class _StockCheckScreenState extends State<StockCheckScreen> {
   }
 }
 
-// Optimized IMEI Scanner Widget
-class OptimizedImeiScanner extends StatefulWidget {
+// Optimized Identifier Scanner Widget (Works for IMEI and Serial Numbers)
+class OptimizedIdentifierScanner extends StatefulWidget {
   final Function(String) onScanComplete;
-  final String? initialImei;
   final String title;
   final String description;
+  final String type; // 'phone', 'base_model', 'tv'
   final bool autoCloseAfterScan;
 
-  const OptimizedImeiScanner({
+  const OptimizedIdentifierScanner({
     super.key,
     required this.onScanComplete,
-    this.initialImei,
-    this.title = 'Scan IMEI',
+    required this.type,
+    this.title = 'Scan Identifier',
     this.description = 'Align the barcode within the frame',
     this.autoCloseAfterScan = true,
   });
 
   @override
-  State<OptimizedImeiScanner> createState() => _OptimizedImeiScannerState();
+  State<OptimizedIdentifierScanner> createState() =>
+      _OptimizedIdentifierScannerState();
 }
 
-class _OptimizedImeiScannerState extends State<OptimizedImeiScanner>
+class _OptimizedIdentifierScannerState extends State<OptimizedIdentifierScanner>
     with SingleTickerProviderStateMixin {
   MobileScannerController? _scannerController;
   bool _isScanning = true;
@@ -1094,12 +1404,10 @@ class _OptimizedImeiScannerState extends State<OptimizedImeiScanner>
 
     final scannedData = barcodes.first.rawValue ?? '';
 
-    // Prevent multiple scans in quick succession
     if (_scanDebounceTimer != null && _scanDebounceTimer!.isActive) {
       return;
     }
 
-    // Set debounce timer
     _scanDebounceTimer = Timer(const Duration(milliseconds: 500), () {
       if (mounted) {
         setState(() => _isScanning = true);
@@ -1110,39 +1418,67 @@ class _OptimizedImeiScannerState extends State<OptimizedImeiScanner>
       _isScanning = false;
     });
 
-    // Clean and validate IMEI
-    final cleanImei = _cleanImei(scannedData);
+    // Clean and validate based on type
+    final cleanIdentifier = _cleanIdentifier(scannedData);
 
-    if (_isValidImei(cleanImei)) {
-      _processValidImei(cleanImei);
+    if (_isValidIdentifier(cleanIdentifier)) {
+      _processValidIdentifier(cleanIdentifier);
     } else {
-      _showError('Invalid IMEI: ${cleanImei.length} digits');
+      _showError(
+        'Invalid ${widget.type == 'phone' ? 'IMEI' : 'serial number'}',
+      );
     }
   }
 
-  String _cleanImei(String rawImei) {
-    // Remove all non-numeric characters
-    return rawImei.replaceAll(RegExp(r'[^0-9]'), '');
+  String _cleanIdentifier(String rawData) {
+    if (widget.type == 'phone') {
+      // For IMEI: remove all non-numeric characters
+      return rawData.replaceAll(RegExp(r'[^0-9]'), '');
+    } else {
+      // For serial numbers: allow alphanumeric
+      return rawData.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
+    }
   }
 
-  bool _isValidImei(String imei) {
-    // Standard IMEI length is 15 digits, some devices have 16
-    if (imei.length < 15 || imei.length > 16) return false;
+  bool _isValidIdentifier(String identifier) {
+    if (identifier.isEmpty) return false;
 
-    // Check if all characters are digits
-    if (!RegExp(r'^[0-9]+$').hasMatch(imei)) return false;
-
-    return true;
+    switch (widget.type) {
+      case 'phone':
+        return (identifier.length == 15 || identifier.length == 16) &&
+            RegExp(r'^[0-9]+$').hasMatch(identifier);
+      case 'tv':
+      case 'base_model':
+        return identifier.length >= 8 &&
+            identifier.length <= 20 &&
+            RegExp(r'^[A-Za-z0-9]+$').hasMatch(identifier);
+      default:
+        return false;
+    }
   }
 
-  void _processValidImei(String imei) {
+  void _processValidIdentifier(String identifier) {
+    String displayIdentifier = identifier;
+    if (widget.type == 'phone' && identifier.length == 15) {
+      displayIdentifier =
+          '${identifier.substring(0, 6)} ${identifier.substring(6, 12)} ${identifier.substring(12)}';
+    } else if (widget.type == 'phone' && identifier.length == 16) {
+      displayIdentifier =
+          '${identifier.substring(0, 8)} ${identifier.substring(8)}';
+    } else if (widget.type == 'tv' && identifier.length >= 12) {
+      displayIdentifier =
+          '${identifier.substring(0, 4)}-${identifier.substring(4, 8)}-${identifier.substring(8)}';
+    } else if (widget.type == 'tv' && identifier.length >= 8) {
+      displayIdentifier =
+          '${identifier.substring(0, 4)}-${identifier.substring(4)}';
+    }
+
     setState(() {
-      _lastScannedData = '✓ Scanned: ${_formatImeiForDisplay(imei)}';
+      _lastScannedData = '✓ Scanned: $displayIdentifier';
     });
 
-    // Wait a moment to show success feedback
     Future.delayed(const Duration(milliseconds: 800), () {
-      widget.onScanComplete(imei);
+      widget.onScanComplete(identifier);
 
       if (widget.autoCloseAfterScan && mounted) {
         Navigator.of(context).pop();
@@ -1150,21 +1486,11 @@ class _OptimizedImeiScannerState extends State<OptimizedImeiScanner>
     });
   }
 
-  String _formatImeiForDisplay(String imei) {
-    if (imei.length == 15) {
-      return '${imei.substring(0, 6)} ${imei.substring(6, 12)} ${imei.substring(12)}';
-    } else if (imei.length == 16) {
-      return '${imei.substring(0, 8)} ${imei.substring(8)}';
-    }
-    return imei;
-  }
-
   void _showError(String message) {
     setState(() {
       _lastScannedData = '✗ $message';
     });
 
-    // Reset after showing error
     Future.delayed(const Duration(milliseconds: 1500), () {
       if (mounted) {
         setState(() {
@@ -1177,18 +1503,24 @@ class _OptimizedImeiScannerState extends State<OptimizedImeiScanner>
 
   void _showManualEntryDialog() {
     final controller = TextEditingController();
+    final identifierLabel = widget.type == 'phone' ? 'IMEI' : 'Serial Number';
+
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Enter IMEI Manually'),
+          title: Text('Enter $identifierLabel Manually'),
           content: TextField(
             controller: controller,
-            keyboardType: TextInputType.number,
-            maxLength: 16,
-            decoration: const InputDecoration(
-              hintText: 'Enter 15-16 digit IMEI',
-              border: OutlineInputBorder(),
+            keyboardType: widget.type == 'phone'
+                ? TextInputType.number
+                : TextInputType.text,
+            maxLength: widget.type == 'phone' ? 16 : 20,
+            decoration: InputDecoration(
+              hintText: widget.type == 'phone'
+                  ? 'Enter 15-16 digit IMEI'
+                  : 'Enter 8-20 character serial number',
+              border: const OutlineInputBorder(),
             ),
           ),
           actions: [
@@ -1198,14 +1530,14 @@ class _OptimizedImeiScannerState extends State<OptimizedImeiScanner>
             ),
             ElevatedButton(
               onPressed: () {
-                final imei = controller.text.trim();
-                if (_isValidImei(imei)) {
-                  widget.onScanComplete(imei);
+                final identifier = controller.text.trim();
+                if (_isValidIdentifier(_cleanIdentifier(identifier))) {
+                  widget.onScanComplete(identifier);
                   Navigator.of(context).pop();
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please enter a valid IMEI (15-16 digits)'),
+                    SnackBar(
+                      content: Text('Please enter a valid $identifierLabel'),
                     ),
                   );
                 }
@@ -1228,6 +1560,8 @@ class _OptimizedImeiScannerState extends State<OptimizedImeiScanner>
 
   @override
   Widget build(BuildContext context) {
+    final identifierLabel = widget.type == 'phone' ? 'IMEI' : 'Serial Number';
+
     return Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.all(20),
@@ -1301,7 +1635,6 @@ class _OptimizedImeiScannerState extends State<OptimizedImeiScanner>
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  // Scanner Preview
                   if (_isScannerReady && _scannerController != null)
                     MobileScanner(
                       controller: _scannerController!,
@@ -1326,7 +1659,7 @@ class _OptimizedImeiScannerState extends State<OptimizedImeiScanner>
                       ),
                     ),
 
-                  // Scanner Frame with overlay
+                  // Scanner Frame
                   Container(
                     decoration: BoxDecoration(
                       border: Border.all(color: Colors.white, width: 2),
@@ -1420,9 +1753,12 @@ class _OptimizedImeiScannerState extends State<OptimizedImeiScanner>
                             color: Colors.black.withOpacity(0.7),
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          child: const Text(
-                            'Point camera at IMEI barcode',
-                            style: TextStyle(color: Colors.white, fontSize: 12),
+                          child: Text(
+                            'Point camera at $identifierLabel barcode',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -1447,7 +1783,6 @@ class _OptimizedImeiScannerState extends State<OptimizedImeiScanner>
                     child: OutlinedButton.icon(
                       onPressed: () {
                         Navigator.of(context).pop();
-                        // Show manual entry dialog
                         _showManualEntryDialog();
                       },
                       icon: const Icon(Icons.keyboard),

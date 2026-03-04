@@ -11,21 +11,26 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import '../../providers/auth_provider.dart';
+import '../../../providers/auth_provider.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 
-class BillFormScreen extends StatefulWidget {
-  final Map<String, dynamic>? phoneData;
-  final String? imei;
-  final String? phoneId;
+class BillFormTvScreen extends StatefulWidget {
+  final Map<String, dynamic>? tvData;
+  final String? serialNumber;
+  final String? tvId;
 
-  const BillFormScreen({super.key, this.phoneData, this.imei, this.phoneId});
+  const BillFormTvScreen({
+    super.key,
+    this.tvData,
+    this.serialNumber,
+    this.tvId,
+  });
 
   @override
-  _BillFormScreenState createState() => _BillFormScreenState();
+  _BillFormTvScreenState createState() => _BillFormTvScreenState();
 }
 
-class _BillFormScreenState extends State<BillFormScreen> {
+class _BillFormTvScreenState extends State<BillFormTvScreen> {
   final _formKey = GlobalKey<FormState>();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -33,8 +38,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
   late TextEditingController billNoController;
   late TextEditingController customerNameController;
   late TextEditingController mobileNumberController;
-  late TextEditingController phoneModelController;
-  late TextEditingController imei1Controller;
+  late TextEditingController tvModelController;
+  late TextEditingController serialNumberController;
   late TextEditingController addressController;
   late TextEditingController totalAmountController;
   late TextEditingController taxableAmountController;
@@ -44,7 +49,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
   bool _isScanning = false;
   bool _sealChecked = false;
   bool _isLoading = false;
-  bool _isSoldSaved = false; // Flag to prevent multiple saves
+  bool _isSoldSaved = false;
   String? _selectedShop = 'Peringottukara';
   final List<String> _shopOptions = ['Peringottukara', 'Cherpu'];
 
@@ -59,8 +64,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
     'TVS Credit',
     'HDB Financial',
     'Samsung Finance',
-    'Oppo Finance',
-    'Vivo Finance',
+    'LG Finance',
+    'Sony Finance',
     'yoga kshema Finance',
     'MI Finance',
     'First credit private Finance',
@@ -82,8 +87,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
     billNoController = TextEditingController();
     customerNameController = TextEditingController();
     mobileNumberController = TextEditingController();
-    phoneModelController = TextEditingController();
-    imei1Controller = TextEditingController();
+    tvModelController = TextEditingController();
+    serialNumberController = TextEditingController();
     addressController = TextEditingController();
     totalAmountController = TextEditingController();
     taxableAmountController = TextEditingController();
@@ -109,9 +114,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
   Future<String> _generateBillNumber() async {
     try {
-      // Query the last bill to get the highest sequence number
       final billsQuery = await _firestore
-          .collection('bills')
+          .collection('tvBills')
           .orderBy('createdAt', descending: true)
           .limit(1)
           .get();
@@ -122,19 +126,16 @@ class _BillFormScreenState extends State<BillFormScreen> {
         final lastBill = billsQuery.docs.first;
         final lastBillNumber = lastBill['billNumber'] as String? ?? '';
 
-        // Parse the last bill number (e.g., "MH-372")
-        if (lastBillNumber.startsWith('MH-')) {
-          final lastSequenceStr = lastBillNumber.substring(3); // Remove "MH-"
+        if (lastBillNumber.startsWith('TV-')) {
+          final lastSequenceStr = lastBillNumber.substring(3);
           final lastSequence = int.tryParse(lastSequenceStr) ?? 0;
           nextSequenceNumber = lastSequence + 1;
         }
       }
 
-      // Format: MH-372 (simple sequential)
       return nextSequenceNumber.toString();
     } catch (e) {
       print('Error generating bill number: $e');
-      // Fallback to timestamp-based number
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       return timestamp.toString().substring(timestamp.toString().length - 6);
     }
@@ -163,33 +164,32 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Bill number regenerated: MH-$newBillNumber')),
+        SnackBar(content: Text('Bill number regenerated: TV-$newBillNumber')),
       );
     }
   }
 
   // ==================== END BILL NUMBER GENERATION ====================
 
-  // ==================== IMEI VALIDATION ====================
+  // ==================== SERIAL NUMBER VALIDATION ====================
 
-  Future<bool> _isImeiAlreadySold(String imei) async {
+  Future<bool> _isSerialAlreadySold(String serial) async {
     try {
-      // Check if the IMEI exists in phoneStock collection with status 'sold'
       final querySnapshot = await _firestore
-          .collection('phoneStock')
-          .where('imei', isEqualTo: imei)
+          .collection('tvStock')
+          .where('serialNumber', isEqualTo: serial)
           .where('status', isEqualTo: 'sold')
           .limit(1)
           .get();
 
       return querySnapshot.docs.isNotEmpty;
     } catch (e) {
-      print('Error checking IMEI status: $e');
+      print('Error checking serial status: $e');
       return false;
     }
   }
 
-  void _showImeiAlreadySoldDialog() {
+  void _showSerialAlreadySoldDialog() {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -209,7 +209,10 @@ class _BillFormScreenState extends State<BillFormScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('This product with IMEI:', style: TextStyle(fontSize: 14)),
+              Text(
+                'This TV with Serial Number:',
+                style: TextStyle(fontSize: 14),
+              ),
               SizedBox(height: 4),
               Container(
                 padding: EdgeInsets.all(8),
@@ -219,7 +222,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
                   border: Border.all(color: Colors.red[200]!),
                 ),
                 child: Text(
-                  imei1Controller.text,
+                  serialNumberController.text,
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -234,7 +237,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
               ),
               SizedBox(height: 8),
               Text(
-                'Please check the IMEI number or contact administrator.',
+                'Please check the serial number or contact administrator.',
                 style: TextStyle(fontSize: 13, color: Colors.grey[600]),
               ),
             ],
@@ -258,21 +261,21 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  // ==================== END IMEI VALIDATION ====================
+  // ==================== END SERIAL NUMBER VALIDATION ====================
 
   void _autoFillData() {
-    if (widget.phoneData != null) {
+    if (widget.tvData != null) {
       setState(() {
-        phoneModelController.text = widget.phoneData!['productName'] ?? '';
-        final price = widget.phoneData!['productPrice'];
+        tvModelController.text = widget.tvData!['modelName'] ?? '';
+        final price = widget.tvData!['modelPrice'];
         if (price != null) {
           totalAmountController.text = price.toString();
           _calculateGST();
         }
-        if (widget.imei != null) {
-          imei1Controller.text = widget.imei!;
+        if (widget.serialNumber != null) {
+          serialNumberController.text = widget.serialNumber!;
         } else {
-          imei1Controller.text = widget.phoneData!['imei'] ?? '';
+          serialNumberController.text = widget.tvData!['serialNumber'] ?? '';
         }
       });
     }
@@ -331,7 +334,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
     }
   }
 
-  void _startScanningIMEI() {
+  void _startScanningSerial() {
     setState(() {
       _isScanning = true;
     });
@@ -347,12 +350,12 @@ class _BillFormScreenState extends State<BillFormScreen> {
     if (barcodes.barcodes.isNotEmpty && mounted) {
       final String barcode = barcodes.barcodes.first.rawValue ?? '';
       setState(() {
-        imei1Controller.text = barcode;
+        serialNumberController.text = barcode;
         _isScanning = false;
       });
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Scanned IMEI: $barcode')));
+      ).showSnackBar(SnackBar(content: Text('Scanned Serial: $barcode')));
     }
   }
 
@@ -390,18 +393,16 @@ class _BillFormScreenState extends State<BillFormScreen> {
       return;
     }
 
-    // Check if IMEI is already sold
-    final imei = imei1Controller.text.trim();
-    if (imei.isNotEmpty) {
+    // Check if serial is already sold
+    final serial = serialNumberController.text.trim();
+    if (serial.isNotEmpty) {
       setState(() => _isLoading = true);
 
-      final isSold = await _isImeiAlreadySold(imei);
+      final isSold = await _isSerialAlreadySold(serial);
 
       if (isSold) {
         setState(() => _isLoading = false);
-
-        // Show error dialog
-        _showImeiAlreadySoldDialog();
+        _showSerialAlreadySoldDialog();
         return;
       }
     }
@@ -409,7 +410,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
     try {
       setState(() => _isLoading = true);
 
-      await _markPhoneAsSold();
+      await _markTvAsSold();
       await _saveBillRecord();
 
       final pdfBytes = await _generatePdf();
@@ -418,7 +419,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
       final pdfFile = File(filePath);
       setState(() {
         _savedPdfFile = pdfFile;
-        _isSoldSaved = true; // Mark as saved to disable button
+        _isSoldSaved = true;
       });
 
       if (mounted) {
@@ -449,14 +450,13 @@ class _BillFormScreenState extends State<BillFormScreen> {
     }
   }
 
-  Future<void> _markPhoneAsSold() async {
+  Future<void> _markTvAsSold() async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final user = authProvider.user;
 
-    // Get the bill number without adding another "MH-" prefix
-    final billNumber = billNoController.text.startsWith('MH-')
+    final billNumber = billNoController.text.startsWith('TV-')
         ? billNoController.text
-        : 'MH-${billNoController.text}';
+        : 'TV-${billNoController.text}';
 
     final updateData = {
       'status': 'sold',
@@ -471,51 +471,48 @@ class _BillFormScreenState extends State<BillFormScreen> {
       'updatedAt': FieldValue.serverTimestamp(),
     };
 
-    if (widget.phoneId != null) {
-      // Check if already sold before updating
-      final phoneDoc = await _firestore
-          .collection('phoneStock')
-          .doc(widget.phoneId)
+    if (widget.tvId != null) {
+      final tvDoc = await _firestore
+          .collection('tvStock')
+          .doc(widget.tvId)
           .get();
 
-      if (phoneDoc.exists && phoneDoc.data()?['status'] == 'sold') {
+      if (tvDoc.exists && tvDoc.data()?['status'] == 'sold') {
         throw Exception('This product is already marked as sold');
       }
 
       await _firestore
-          .collection('phoneStock')
-          .doc(widget.phoneId)
+          .collection('tvStock')
+          .doc(widget.tvId)
           .update(updateData);
     } else {
-      final imei = imei1Controller.text.trim();
-      if (imei.isNotEmpty) {
+      final serial = serialNumberController.text.trim();
+      if (serial.isNotEmpty) {
         final querySnapshot = await _firestore
-            .collection('phoneStock')
-            .where('imei', isEqualTo: imei)
+            .collection('tvStock')
+            .where('serialNumber', isEqualTo: serial)
             .where('status', isEqualTo: 'available')
             .limit(1)
             .get();
 
         if (querySnapshot.docs.isNotEmpty) {
-          // Check if it's already sold (though we filtered by 'available')
           await _firestore
-              .collection('phoneStock')
+              .collection('tvStock')
               .doc(querySnapshot.docs.first.id)
               .update(updateData);
         } else {
-          // Check if it exists but is sold
           final soldCheck = await _firestore
-              .collection('phoneStock')
-              .where('imei', isEqualTo: imei)
+              .collection('tvStock')
+              .where('serialNumber', isEqualTo: serial)
               .where('status', isEqualTo: 'sold')
               .limit(1)
               .get();
 
           if (soldCheck.docs.isNotEmpty) {
-            throw Exception('Product with this IMEI is already sold');
+            throw Exception('Product with this serial number is already sold');
           } else {
             throw Exception(
-              'Product with this IMEI not found in available stock',
+              'Product with this serial number not found in available stock',
             );
           }
         }
@@ -527,10 +524,9 @@ class _BillFormScreenState extends State<BillFormScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final user = authProvider.user;
 
-    // Use the generated bill number from controller with MH- prefix
-    final billNumber = billNoController.text.startsWith('MH-')
+    final billNumber = billNoController.text.startsWith('TV-')
         ? billNoController.text
-        : 'MH-${billNoController.text}';
+        : 'TV-${billNoController.text}';
 
     final billData = {
       'billNumber': billNumber,
@@ -538,8 +534,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
       'customerName': customerNameController.text,
       'customerMobile': mobileNumberController.text,
       'customerAddress': addressController.text,
-      'productName': phoneModelController.text,
-      'imei': imei1Controller.text,
+      'modelName': tvModelController.text,
+      'serialNumber': serialNumberController.text,
       'totalAmount': double.parse(totalAmountController.text),
       'taxableAmount': double.parse(taxableAmountController.text),
       'gstAmount': double.parse(gstAmountController.text),
@@ -549,13 +545,13 @@ class _BillFormScreenState extends State<BillFormScreen> {
       'createdById': user?.uid,
       'sealApplied': _sealChecked,
       'createdAt': FieldValue.serverTimestamp(),
-      'phoneStockId': widget.phoneId,
-      'originalPhoneData': widget.phoneData,
+      'tvStockId': widget.tvId,
+      'originalTvData': widget.tvData,
       'purchaseMode': _selectedPurchaseMode,
       'financeType': _selectedFinanceType,
     };
 
-    await _firestore.collection('bills').add(billData);
+    await _firestore.collection('tvBills').add(billData);
   }
 
   Future<String> _savePdfToStorage(Uint8List pdfBytes) async {
@@ -600,7 +596,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
         directory = await getApplicationDocumentsDirectory();
       }
 
-      final mobileHouseDir = Directory('${directory.path}/MobileHouse');
+      final mobileHouseDir = Directory('${directory.path}/MobileHouse_TV');
       if (!await mobileHouseDir.exists()) {
         await mobileHouseDir.create(recursive: true);
       }
@@ -609,7 +605,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
       final customerName = customerNameController.text
           .replaceAll(RegExp(r'[^\w\s-]'), '_')
           .replaceAll(' ', '_');
-      final fileName = 'MH_${billNo}_${customerName}.pdf';
+      final fileName = 'TV_${billNo}_${customerName}.pdf';
 
       final filePath = '${mobileHouseDir.path}/$fileName';
       final file = File(filePath);
@@ -622,7 +618,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
       print('Error saving PDF: $e');
       try {
         final appDir = await getApplicationDocumentsDirectory();
-        final fileName = 'MH_${billNoController.text}.pdf';
+        final fileName = 'TV_${billNoController.text}.pdf';
         final filePath = '${appDir.path}/$fileName';
         final file = File(filePath);
         await file.writeAsBytes(pdfBytes, flush: true);
@@ -643,8 +639,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
       await Share.shareXFiles(
         [XFile(pdfFile.path, mimeType: 'application/pdf', name: fileName)],
-        text: 'Mobile House Bill - ${customerNameController.text}',
-        subject: 'Mobile House Bill - MH-${billNoController.text}',
+        text: 'Mobile House TV Bill - ${customerNameController.text}',
+        subject: 'Mobile House TV Bill - TV-${billNoController.text}',
       );
     } catch (e) {
       print('Error sharing PDF: $e');
@@ -833,10 +829,9 @@ class _BillFormScreenState extends State<BillFormScreen> {
   }
 
   pw.Widget _buildHeader(String currentDate) {
-    // Get the full bill number with MH- prefix
-    final fullBillNumber = billNoController.text.startsWith('MH-')
+    final fullBillNumber = billNoController.text.startsWith('TV-')
         ? billNoController.text
-        : 'MH-${billNoController.text}';
+        : 'TV-${billNoController.text}';
 
     return pw.Column(
       children: [
@@ -1047,12 +1042,12 @@ class _BillFormScreenState extends State<BillFormScreen> {
           children: [
             _buildTableCell('1'),
             _buildTableCell(
-              '${phoneModelController.text.isNotEmpty ? phoneModelController.text : ""}\nIMEI: ${imei1Controller.text.isNotEmpty ? imei1Controller.text : ""}',
+              '${tvModelController.text.isNotEmpty ? tvModelController.text : ""}\nSerial: ${serialNumberController.text.isNotEmpty ? serialNumberController.text : ""}',
               textAlign: pw.TextAlign.left,
               fontSize: 11,
               maxLines: 3,
             ),
-            _buildTableCell('85171300'),
+            _buildTableCell('85287200'), // TV HSN Code
             _buildTableCell('1'),
             _buildTableCell(
               taxableAmountController.text.isNotEmpty
@@ -1348,21 +1343,20 @@ class _BillFormScreenState extends State<BillFormScreen> {
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: Text(
-          'Sales Bill',
+          'TV Sales Bill',
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 18,
             color: Colors.white,
           ),
         ),
-        backgroundColor: Colors.green[700],
+        backgroundColor: Colors.blue[700],
         elevation: 1,
         leading: IconButton(
           icon: Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          // Regenerate bill number button
           IconButton(
             icon: Icon(Icons.refresh, color: Colors.white),
             onPressed: _isLoading ? null : () => _regenerateBillNumber(),
@@ -1394,7 +1388,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
         Column(
           children: [
             AppBar(
-              title: Text('Scan IMEI Barcode'),
+              title: Text('Scan Serial Number'),
               leading: IconButton(
                 icon: Icon(Icons.arrow_back),
                 onPressed: _stopScanning,
@@ -1446,7 +1440,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Bill Number Display
             Container(
               padding: EdgeInsets.symmetric(vertical: 8, horizontal: 12),
               margin: EdgeInsets.only(bottom: 8),
@@ -1468,7 +1461,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
                     ),
                   ),
                   Text(
-                    'MH-${billNoController.text}',
+                    'TV-${billNoController.text}',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -1523,7 +1516,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
               'Bill No *',
               Icons.receipt,
               validator: _validateRequired,
-              readOnly: true, // Make it read-only since it's auto-generated
+              readOnly: true,
             ),
             SizedBox(height: 12),
             _buildTextField(
@@ -1542,14 +1535,14 @@ class _BillFormScreenState extends State<BillFormScreen> {
             ),
             SizedBox(height: 12),
             _buildTextField(
-              phoneModelController,
-              'Phone Model *',
-              Icons.phone_android,
-              readOnly: widget.phoneData != null,
+              tvModelController,
+              'TV Model *',
+              Icons.tv,
+              readOnly: widget.tvData != null,
               validator: _validateRequired,
             ),
             SizedBox(height: 12),
-            _buildImeiField(),
+            _buildSerialField(),
             SizedBox(height: 12),
             _buildTextField(
               addressController,
@@ -1587,14 +1580,14 @@ class _BillFormScreenState extends State<BillFormScreen> {
     return Container(
       padding: EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.green[50],
-        border: Border.all(color: Colors.green[100]!),
+        color: Colors.blue[50],
+        border: Border.all(color: Colors.blue[100]!),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         children: [
           SizedBox(width: 10),
-          Icon(Icons.store, color: Colors.green[700]),
+          Icon(Icons.store, color: Colors.blue[700]),
           SizedBox(width: 10),
           Text(
             'Shop:',
@@ -1606,7 +1599,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
               child: DropdownButton<String>(
                 value: _selectedShop,
                 isExpanded: true,
-                style: TextStyle(fontSize: 14, color: Colors.green[800]),
+                style: TextStyle(fontSize: 14, color: Colors.blue[800]),
                 items: _shopOptions.map((String value) {
                   return DropdownMenuItem<String>(
                     value: value,
@@ -1615,7 +1608,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
                 }).toList(),
                 onChanged: (String? newValue) =>
                     setState(() => _selectedShop = newValue),
-                icon: Icon(Icons.arrow_drop_down, color: Colors.green[700]),
+                icon: Icon(Icons.arrow_drop_down, color: Colors.blue[700]),
               ),
             ),
           ),
@@ -1636,7 +1629,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
       child: Row(
         children: [
           SizedBox(width: 10),
-          Icon(Icons.shopping_cart, color: Colors.green[700]),
+          Icon(Icons.shopping_cart, color: Colors.blue[700]),
           SizedBox(width: 10),
           Text(
             'Purchase Mode:',
@@ -1733,7 +1726,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
       decoration: InputDecoration(
         labelText: label,
         labelStyle: TextStyle(fontSize: 14),
-        prefixIcon: Icon(icon, color: Colors.green),
+        prefixIcon: Icon(icon, color: Colors.blue),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: Colors.grey[300]!),
@@ -1744,7 +1737,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: Colors.green),
+          borderSide: BorderSide(color: Colors.blue),
         ),
         filled: readOnly,
         fillColor: readOnly ? Colors.grey[50] : null,
@@ -1753,29 +1746,29 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  Widget _buildImeiField() {
+  Widget _buildSerialField() {
     return Row(
       children: [
         Expanded(
           child: _buildTextField(
-            imei1Controller,
-            'IMEI *',
+            serialNumberController,
+            'Serial Number *',
             Icons.qr_code,
-            readOnly: widget.phoneData != null,
-            validator: _validateImei,
+            readOnly: widget.tvData != null,
+            validator: _validateSerial,
           ),
         ),
         SizedBox(width: 8),
-        if (widget.phoneData == null)
+        if (widget.tvData == null)
           Container(
             decoration: BoxDecoration(
-              color: Colors.green,
+              color: Colors.blue,
               borderRadius: BorderRadius.circular(8),
             ),
             child: IconButton(
-              onPressed: _startScanningIMEI,
+              onPressed: _startScanningSerial,
               icon: Icon(Icons.qr_code_scanner, color: Colors.white),
-              tooltip: 'Scan IMEI',
+              tooltip: 'Scan Serial',
               padding: EdgeInsets.all(10),
             ),
           ),
@@ -1787,9 +1780,9 @@ class _BillFormScreenState extends State<BillFormScreen> {
     return Container(
       padding: EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.green[50],
+        color: Colors.blue[50],
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.green[100]!),
+        border: Border.all(color: Colors.blue[100]!),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1798,7 +1791,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
             'GST Calculation (18%)',
             style: TextStyle(
               fontWeight: FontWeight.bold,
-              color: Colors.green[800],
+              color: Colors.blue[800],
               fontSize: 13,
             ),
           ),
@@ -1842,7 +1835,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
           Checkbox(
             value: _sealChecked,
             onChanged: (value) => setState(() => _sealChecked = value ?? false),
-            activeColor: Colors.green,
+            activeColor: Colors.blue,
           ),
           SizedBox(width: 4),
           Expanded(
@@ -1861,7 +1854,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
           BoxShadow(
             color: isButtonDisabled
                 ? Colors.grey.withOpacity(0.2)
-                : Colors.green.withOpacity(0.2),
+                : Colors.blue.withOpacity(0.2),
             blurRadius: 8,
             offset: Offset(0, 4),
           ),
@@ -1890,7 +1883,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
             style: TextStyle(fontSize: 16),
           ),
           style: ElevatedButton.styleFrom(
-            backgroundColor: isButtonDisabled ? Colors.grey : Colors.green[700],
+            backgroundColor: isButtonDisabled ? Colors.grey : Colors.blue[700],
             foregroundColor: Colors.white,
             padding: EdgeInsets.symmetric(vertical: 16),
             shape: RoundedRectangleBorder(
@@ -1947,9 +1940,13 @@ class _BillFormScreenState extends State<BillFormScreen> {
     return null;
   }
 
-  String? _validateImei(String? value) {
-    if (value == null || value.isEmpty) return 'IMEI is required';
-    if (value.length < 15) return 'IMEI must be at least 15 digits';
+  String? _validateSerial(String? value) {
+    if (value == null || value.isEmpty) return 'Serial number is required';
+    if (value.length < 8) return 'Serial must be at least 8 characters';
+    if (value.length > 20) return 'Serial must be at most 20 characters';
+    if (!RegExp(r'^[A-Za-z0-9]+$').hasMatch(value)) {
+      return 'Use only letters and numbers';
+    }
     return null;
   }
 
@@ -1964,8 +1961,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
     billNoController.dispose();
     customerNameController.dispose();
     mobileNumberController.dispose();
-    phoneModelController.dispose();
-    imei1Controller.dispose();
+    tvModelController.dispose();
+    serialNumberController.dispose();
     addressController.dispose();
     totalAmountController.dispose();
     taxableAmountController.dispose();

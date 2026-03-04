@@ -2,14 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import 'package:sales_stock/screens/user/bill_form.dart';
-import 'package:sales_stock/screens/user/stock_check_screen.dart';
-import '../../providers/auth_provider.dart';
+import 'package:sales_stock/screens/user/inventory/bill_form.dart';
+import 'package:sales_stock/screens/user/inventory/imei_scanner.dart';
+import 'package:sales_stock/screens/user/inventory/stock_check_screen.dart';
+import '../../../providers/auth_provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'dart:async';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/services.dart';
-import './add_stock_modal.dart';
+import 'add_stock_modal.dart';
 
 class PhoneStockScreen extends StatefulWidget {
   const PhoneStockScreen({super.key});
