@@ -5,12 +5,12 @@ import 'package:intl/intl.dart';
 import 'package:sales_stock/screens/user/inventory/add_stock_modal.dart';
 import 'package:sales_stock/screens/user/inventory/imei_scanner.dart';
 import 'package:sales_stock/screens/user/sale/second_phone_sale_upload.dart';
+import 'package:sales_stock/screens/user/sale/base_model_sale_upload.dart'; // ADD THIS IMPORT
 import '../../../providers/auth_provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'dart:async';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/services.dart';
-// import './add_stock_modal.dart';
 
 class BaseModelStockScreen extends StatefulWidget {
   const BaseModelStockScreen({super.key});
@@ -716,9 +716,7 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
     });
   }
 
-  // Update this method in BaseModelStockScreen
-  // In BaseModelStockScreen, replace the _markAsSold method with this:
-
+  // Updated _markAsSold method that connects to BaseModelSaleUpload
   Future<void> _markAsSold(
     String modelId,
     Map<String, dynamic> modelData,
@@ -729,12 +727,12 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final user = authProvider.user;
 
-      // Navigate to SecondPhoneSaleUpload with model data
+      // Navigate to BaseModelSaleUpload with model data
       if (mounted) {
         final result = await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => SecondPhoneSaleUpload(
+            builder: (context) => BaseModelSaleUpload(
               initialData: {
                 'productName': modelData['productName'],
                 'productPrice': modelData['productPrice'],
@@ -748,6 +746,7 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
 
         // If sale was completed successfully, update the status
         if (result == true) {
+          // Update the stock status to sold
           await _firestore.collection('baseModelStock').doc(modelId).update({
             'status': 'sold',
             'soldAt': FieldValue.serverTimestamp(),
@@ -756,16 +755,18 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
           });
 
           if (mounted) {
-            _showSuccess('Base model marked as sold successfully!');
+            _showSuccess('Base model sold successfully!');
             setState(() {
               _selectedModelForAction = null;
             });
           }
         } else {
           // If user cancelled or upload failed
-          setState(() {
-            _selectedModelForAction = null;
-          });
+          if (mounted) {
+            setState(() {
+              _selectedModelForAction = null;
+            });
+          }
         }
       }
     } catch (e) {

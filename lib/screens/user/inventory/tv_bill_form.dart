@@ -12,7 +12,6 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../providers/auth_provider.dart';
-import 'package:device_info_plus/device_info_plus.dart';
 
 class BillFormTvScreen extends StatefulWidget {
   final Map<String, dynamic>? tvData;
@@ -111,11 +110,13 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
   }
 
   // ==================== BILL NUMBER AUTO-GENERATION ====================
+  // FIXED: Properly sorted by createdAt and using billNumber field
 
   Future<String> _generateBillNumber() async {
     try {
+      // Query the last bill to get the highest sequence number
       final billsQuery = await _firestore
-          .collection('tvBills')
+          .collection('bills')
           .orderBy('createdAt', descending: true)
           .limit(1)
           .get();
@@ -126,16 +127,19 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
         final lastBill = billsQuery.docs.first;
         final lastBillNumber = lastBill['billNumber'] as String? ?? '';
 
-        if (lastBillNumber.startsWith('TV-')) {
-          final lastSequenceStr = lastBillNumber.substring(3);
+        // Parse the last bill number (e.g., "MH-372")
+        if (lastBillNumber.startsWith('MH-')) {
+          final lastSequenceStr = lastBillNumber.substring(3); // Remove "MH-"
           final lastSequence = int.tryParse(lastSequenceStr) ?? 0;
           nextSequenceNumber = lastSequence + 1;
         }
       }
 
+      // Format: MH-372 (simple sequential)
       return nextSequenceNumber.toString();
     } catch (e) {
       print('Error generating bill number: $e');
+      // Fallback to timestamp-based number
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       return timestamp.toString().substring(timestamp.toString().length - 6);
     }
@@ -164,12 +168,10 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Bill number regenerated: TV-$newBillNumber')),
+        SnackBar(content: Text('Bill number regenerated: MH-$newBillNumber')),
       );
     }
   }
-
-  // ==================== END BILL NUMBER GENERATION ====================
 
   // ==================== SERIAL NUMBER VALIDATION ====================
 
@@ -528,9 +530,14 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
         ? billNoController.text
         : 'TV-${billNoController.text}';
 
+    final now = DateTime.now();
+
     final billData = {
       'billNumber': billNumber,
-      'billDate': FieldValue.serverTimestamp(),
+      'type': 'tv',
+      'billDate': Timestamp.fromDate(now),
+      'createdAt':
+          FieldValue.serverTimestamp(), // This will be used for sorting
       'customerName': customerNameController.text,
       'customerMobile': mobileNumberController.text,
       'customerAddress': addressController.text,
@@ -544,57 +551,19 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
       'createdBy': user?.email,
       'createdById': user?.uid,
       'sealApplied': _sealChecked,
-      'createdAt': FieldValue.serverTimestamp(),
       'tvStockId': widget.tvId,
       'originalTvData': widget.tvData,
       'purchaseMode': _selectedPurchaseMode,
       'financeType': _selectedFinanceType,
     };
 
-    await _firestore.collection('tvBills').add(billData);
+    // Save to bills collection
+    await _firestore.collection('bills').add(billData);
   }
 
   Future<String> _savePdfToStorage(Uint8List pdfBytes) async {
     try {
-      if (Platform.isAndroid) {
-        Map<Permission, PermissionStatus> statuses = await [
-          Permission.storage,
-          Permission.manageExternalStorage,
-        ].request();
-
-        if (await Permission.storage.isGranted == false) {
-          await Permission.storage.request();
-        }
-
-        if (Platform.isAndroid &&
-            await DeviceInfoPlugin().androidInfo.then(
-                  (info) => info.version.sdkInt,
-                ) >=
-                30) {
-          if (await Permission.manageExternalStorage.isGranted == false) {
-            await Permission.manageExternalStorage.request();
-          }
-        }
-      }
-
-      Directory directory;
-      if (Platform.isAndroid) {
-        try {
-          directory = Directory('/storage/emulated/0/Download');
-          if (!await directory.exists()) {
-            directory = Directory('/storage/emulated/0/Downloads');
-            if (!await directory.exists()) {
-              directory =
-                  await getExternalStorageDirectory() ??
-                  await getApplicationDocumentsDirectory();
-            }
-          }
-        } catch (e) {
-          directory = await getApplicationDocumentsDirectory();
-        }
-      } else {
-        directory = await getApplicationDocumentsDirectory();
-      }
+      final directory = await getApplicationDocumentsDirectory();
 
       final mobileHouseDir = Directory('${directory.path}/MobileHouse_TV');
       if (!await mobileHouseDir.exists()) {
@@ -617,9 +586,9 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
     } catch (e) {
       print('Error saving PDF: $e');
       try {
-        final appDir = await getApplicationDocumentsDirectory();
+        final tempDir = await getTemporaryDirectory();
         final fileName = 'TV_${billNoController.text}.pdf';
-        final filePath = '${appDir.path}/$fileName';
+        final filePath = '${tempDir.path}/$fileName';
         final file = File(filePath);
         await file.writeAsBytes(pdfBytes, flush: true);
         return filePath;
@@ -637,11 +606,9 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
 
       final fileName = pdfFile.path.split('/').last;
 
-      await Share.shareXFiles(
-        [XFile(pdfFile.path, mimeType: 'application/pdf', name: fileName)],
-        text: 'Mobile House TV Bill - ${customerNameController.text}',
-        subject: 'Mobile House TV Bill - TV-${billNoController.text}',
-      );
+      await Share.shareXFiles([
+        XFile(pdfFile.path, mimeType: 'application/pdf', name: fileName),
+      ], text: 'Mobile House TV Bill - ${customerNameController.text}');
     } catch (e) {
       print('Error sharing PDF: $e');
       if (mounted) {
@@ -1047,7 +1014,7 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
               fontSize: 11,
               maxLines: 3,
             ),
-            _buildTableCell('85287200'), // TV HSN Code
+            _buildTableCell('85287200'),
             _buildTableCell('1'),
             _buildTableCell(
               taxableAmountController.text.isNotEmpty
@@ -1944,8 +1911,10 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
     if (value == null || value.isEmpty) return 'Serial number is required';
     if (value.length < 8) return 'Serial must be at least 8 characters';
     if (value.length > 20) return 'Serial must be at most 20 characters';
-    if (!RegExp(r'^[A-Za-z0-9]+$').hasMatch(value)) {
-      return 'Use only letters and numbers';
+
+    // Updated regex to allow forward slash
+    if (!RegExp(r'^[A-Za-z0-9/]+$').hasMatch(value)) {
+      return 'Use only letters, numbers, and forward slash (/)';
     }
     return null;
   }

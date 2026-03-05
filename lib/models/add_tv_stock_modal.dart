@@ -456,6 +456,7 @@ class AddTvStockModal extends StatelessWidget {
             controller: newModelNameController,
             decoration: const InputDecoration(
               labelText: 'Model Name *',
+              labelStyle: const TextStyle(fontSize: 12),
               border: OutlineInputBorder(),
               contentPadding: EdgeInsets.symmetric(
                 horizontal: 12,
@@ -469,6 +470,7 @@ class AddTvStockModal extends StatelessWidget {
             controller: newModelPriceController,
             decoration: const InputDecoration(
               labelText: 'Price *',
+              labelStyle: const TextStyle(fontSize: 12),
               prefixText: '₹ ',
               border: OutlineInputBorder(),
               contentPadding: EdgeInsets.symmetric(
@@ -659,16 +661,47 @@ class AddTvStockModal extends StatelessWidget {
                       if (value == null || value.trim().isEmpty) {
                         return 'Please enter serial number';
                       }
+
                       final trimmedValue = value.trim();
+                      print('=== Serial Validation Debug ===');
+                      print('Raw value: "$value"');
+                      print('Trimmed value: "$trimmedValue"');
+                      print('Length: ${trimmedValue.length}');
+
+                      // Check each character
+                      for (int i = 0; i < trimmedValue.length; i++) {
+                        final char = trimmedValue[i];
+                        final code = char.codeUnitAt(0);
+                        print('Char $i: "$char" (ASCII: $code)');
+                      }
+
                       if (trimmedValue.length < 8) {
+                        print('Failed: too short');
                         return 'Serial must be at least 8 characters';
                       }
+
                       if (trimmedValue.length > 20) {
+                        print('Failed: too long');
                         return 'Serial must be at most 20 characters';
                       }
-                      if (!RegExp(r'^[A-Za-z0-9]+$').hasMatch(trimmedValue)) {
-                        return 'Use only letters and numbers';
+
+                      // More permissive pattern that explicitly includes forward slash
+                      // This pattern allows letters (both cases), numbers, and forward slash
+                      if (!RegExp(r'^[A-Za-z0-9/]+$').hasMatch(trimmedValue)) {
+                        print('Failed: invalid characters');
+
+                        // Find which character is invalid
+                        for (int i = 0; i < trimmedValue.length; i++) {
+                          final char = trimmedValue[i];
+                          if (!RegExp(r'[A-Za-z0-9/]').hasMatch(char)) {
+                            print('Invalid character at position $i: "$char"');
+                          }
+                        }
+
+                        return 'Use only letters, numbers, and forward slash (/)';
                       }
+
+                      print('Validation passed!');
                       return null;
                     },
                   ),

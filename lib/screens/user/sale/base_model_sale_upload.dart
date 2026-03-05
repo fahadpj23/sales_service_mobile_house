@@ -4,7 +4,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class BaseModelSaleUpload extends StatefulWidget {
-  const BaseModelSaleUpload({super.key});
+  final Map<String, dynamic>? initialData;
+
+  const BaseModelSaleUpload({super.key, this.initialData});
 
   @override
   State<BaseModelSaleUpload> createState() => _BaseModelSaleUploadState();
@@ -53,6 +55,10 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
     'Other',
   ];
 
+  // Track if this is a quick sale from stock
+  bool _isQuickSale = false;
+  String? _stockModelId;
+
   @override
   void initState() {
     super.initState();
@@ -61,6 +67,30 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
     _selectedDate = DateTime.now();
     _dateController.text =
         "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}";
+
+    // Check if we have initial data
+    _initializeWithInitialData();
+  }
+
+  void _initializeWithInitialData() {
+    if (widget.initialData != null) {
+      setState(() {
+        _isQuickSale = true;
+        _stockModelId = widget.initialData!['modelId'];
+
+        // Pre-fill form with stock data
+        _selectedBrand = widget.initialData!['productBrand'];
+        _modelNameController.text = widget.initialData!['productName'] ?? '';
+
+        final price = widget.initialData!['productPrice'];
+        if (price != null) {
+          _priceController.text = price.toString();
+        }
+
+        // You can also pre-fill other fields if needed
+        // For example, you might want to set the IMEI in a note field
+      });
+    }
   }
 
   // Get shop data from current user's document
@@ -68,25 +98,35 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
     try {
       final User? user = _auth.currentUser;
       if (user != null) {
+        print('Current user UID: ${user.uid}'); // Debug log
+
         final userDoc = await _firestore
             .collection('users')
             .doc(user.uid)
             .get();
 
-        if (userDoc.exists && userDoc.data() != null) {
+        if (userDoc.exists) {
           final userData = userDoc.data()!;
+          print('User data retrieved: $userData'); // Debug log
+
           setState(() {
-            _shopId = userData['shopId'] ?? '';
-            _shopName = userData['shopName'] ?? '';
+            _shopId = userData['shopId']?.toString() ?? '';
+            _shopName = userData['shopName']?.toString() ?? '';
             _isLoadingShopData = false;
           });
+
+          print('Shop ID: $_shopId, Shop Name: $_shopName'); // Debug log
         } else {
+          print('User document does not exist');
           setState(() {
             _isLoadingShopData = false;
           });
-          _showShopDataError('User profile not found');
+          _showShopDataError(
+            'User profile not found. Please complete your profile first.',
+          );
         }
       } else {
+        print('No user logged in');
         setState(() {
           _isLoadingShopData = false;
         });
@@ -97,26 +137,28 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
       setState(() {
         _isLoadingShopData = false;
       });
-      _showShopDataError('Failed to load shop information');
+      _showShopDataError('Failed to load shop information: $e');
     }
   }
 
   void _showShopDataError(String message) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Shop Information Error'),
-          content: Text(message),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-    });
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Shop Information Error'),
+            content: Text(message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      });
+    }
   }
 
   // Safe parsing helper method
@@ -127,13 +169,6 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
 
   // Auto-calculate payments when price changes
   void _autoCalculatePayments() {
-    final priceText = _priceController.text.trim();
-    if (priceText.isEmpty) return;
-
-    final totalPrice = _safeParse(priceText);
-    if (totalPrice <= 0) return;
-
-    // Removed auto-fill cash logic - user must manually enter payment breakdown
     setState(() {});
   }
 
@@ -146,7 +181,7 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
       lastDate: DateTime(2100),
     );
 
-    if (picked != null) {
+    if (picked != null && mounted) {
       setState(() {
         _selectedDate = picked;
         _dateController.text = "${picked.day}/${picked.month}/${picked.year}";
@@ -181,99 +216,157 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
 
   // Upload function to Firebase
   Future<void> _uploadSale() async {
+    print('=== Starting upload process ===');
+    print('Shop ID: $_shopId');
+    print('Shop Name: $_shopName');
+
+    // Check if user is logged in
+    final User? currentUser = _auth.currentUser;
+    if (currentUser == null) {
+      print('ERROR: No user logged in');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please log in to upload sales'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Check shop information
     if (_shopId == null ||
         _shopName == null ||
         _shopId!.isEmpty ||
         _shopName!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Shop information is required. Please update your profile.',
+      print('ERROR: Shop information missing');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Shop information is required. Please update your profile.',
+            ),
+            backgroundColor: Colors.red,
           ),
-          backgroundColor: Colors.red,
-          duration: Duration(seconds: 3),
-        ),
-      );
+        );
+      }
       return;
     }
 
-    if (_formKey.currentState!.validate()) {
-      // Validate date is selected
-      if (_selectedDate == null) {
+    // Validate form
+    if (!_formKey.currentState!.validate()) {
+      print('Form validation failed');
+      return;
+    }
+
+    // Validate date
+    if (_selectedDate == null) {
+      print('ERROR: No date selected');
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Please select a date'),
             backgroundColor: Colors.red,
-            duration: Duration(seconds: 3),
           ),
         );
-        return;
       }
+      return;
+    }
 
-      final totalPrice = _safeParse(_priceController.text);
+    final totalPrice = _safeParse(_priceController.text);
+    print('Total Price: $totalPrice');
 
-      if (!_validatePaymentBreakdown(totalPrice)) {
-        final totalPayment = _calculateTotalPayment();
-        final difference = (totalPrice - totalPayment).abs();
+    // Validate payment breakdown
+    if (!_validatePaymentBreakdown(totalPrice)) {
+      final totalPayment = _calculateTotalPayment();
+      final difference = (totalPrice - totalPayment).abs();
+      final message = totalPayment < totalPrice
+          ? 'Payment is short by \$${difference.toStringAsFixed(2)}'
+          : 'Payment exceeds by \$${difference.toStringAsFixed(2)}';
 
+      print('Payment validation failed: $message');
+
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              totalPayment < totalPrice
-                  ? 'Payment is short by \$${difference.toStringAsFixed(2)}'
-                  : 'Payment exceeds by \$${difference.toStringAsFixed(2)}',
-              style: const TextStyle(color: Colors.white, fontSize: 13),
-            ),
+            content: Text(message),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 3),
           ),
         );
-        return;
       }
+      return;
+    }
 
+    // Start upload
+    if (mounted) {
       setState(() {
         _isUploading = true;
       });
+    }
 
-      try {
-        // Prepare sale data for Firebase
-        final saleData = {
-          'date': Timestamp.fromDate(_selectedDate!), // Store as Timestamp
-          'dateString': _dateController.text, // Keep string format for display
-          'customerName': _customerNameController.text.trim(),
-          'customerPhone': _customerPhoneController.text.trim(),
-          'brand': _selectedBrand,
-          'modelName': _modelNameController.text,
-          'price': totalPrice,
-          'cash': _safeParse(_cashController.text),
-          'card': _safeParse(_cardController.text),
-          'gpay': _safeParse(_gpayController.text),
-          'payLater': _safeParse(_payLaterController.text),
-          'totalPayment': _calculateTotalPayment(),
-          'paymentStatus': _getPaymentStatus(totalPrice),
-          // User information
-          'salesPersonId': _auth.currentUser?.uid,
-          'salesPersonEmail': _auth.currentUser?.email,
-          'salesPersonName':
-              _auth.currentUser?.displayName ??
-              _auth.currentUser?.email?.split('@')[0] ??
-              '',
-          // Shop information
-          'shopId': _shopId,
-          'shopName': _shopName,
-          'uploadedAt': FieldValue.serverTimestamp(),
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-        };
+    try {
+      // Prepare sale data for Firebase
+      final saleData = {
+        'date': Timestamp.fromDate(_selectedDate!),
+        'dateString': _dateController.text,
+        'customerName': _customerNameController.text.trim(),
+        'customerPhone': _customerPhoneController.text.trim(),
+        'brand': _selectedBrand,
+        'modelName': _modelNameController.text.trim(),
+        'price': totalPrice,
+        'cash': _safeParse(_cashController.text),
+        'card': _safeParse(_cardController.text),
+        'gpay': _safeParse(_gpayController.text),
+        'payLater': _safeParse(_payLaterController.text),
+        'totalPayment': _calculateTotalPayment(),
+        'paymentStatus': _getPaymentStatus(totalPrice),
+        // User information
+        'salesPersonId': currentUser.uid,
+        'salesPersonEmail': currentUser.email,
+        'salesPersonName':
+            currentUser.displayName ?? currentUser.email?.split('@')[0] ?? '',
+        // Shop information
+        'shopId': _shopId,
+        'shopName': _shopName,
+        'uploadedAt': FieldValue.serverTimestamp(),
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      };
 
-        // Upload to Firebase Firestore
-        await _firestore.collection('base_model_sale').add(saleData);
+      // Add stock reference if this is a quick sale
+      if (_isQuickSale && _stockModelId != null) {
+        saleData['stockModelId'] = _stockModelId;
+        saleData['imei'] = widget.initialData!['imei'];
+      }
 
-        // Store customer info for success dialog before clearing
-        final customerName = _customerNameController.text;
-        final customerPhone = _customerPhoneController.text;
+      print('Preparing to upload data: $saleData');
 
-        // Clear the form immediately after successful upload
+      // Upload to Firebase Firestore
+      DocumentReference docRef = await _firestore
+          .collection('base_model_sale')
+          .add(saleData);
+      print('Document uploaded successfully with ID: ${docRef.id}');
+
+      // If this is a quick sale, update the stock status to 'sold'
+      if (_isQuickSale && _stockModelId != null) {
+        await _firestore.collection('baseModelStock').doc(_stockModelId).update(
+          {
+            'status': 'sold',
+            'soldAt': FieldValue.serverTimestamp(),
+            'soldBy': currentUser.email ?? currentUser.displayName ?? 'Unknown',
+            'soldById': currentUser.uid,
+            'saleRecordId': docRef.id,
+          },
+        );
+      }
+
+      // Store customer info for success dialog before clearing
+      final customerName = _customerNameController.text;
+      final customerPhone = _customerPhoneController.text;
+
+      // Clear the form immediately after successful upload
+      if (mounted) {
         _clearForm();
 
         // Show success dialog
@@ -281,11 +374,18 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
           context,
           customerName: customerName,
           customerPhone: customerPhone,
+          documentId: docRef.id,
         );
-      } catch (error) {
-        // Show error dialog
+      }
+    } catch (error) {
+      print('Error uploading to Firebase: $error');
+
+      // Show error dialog
+      if (mounted) {
         _showErrorDialog(context, error.toString());
-      } finally {
+      }
+    } finally {
+      if (mounted) {
         setState(() {
           _isUploading = false;
         });
@@ -297,9 +397,11 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
     BuildContext context, {
     String? customerName,
     String? customerPhone,
+    String? documentId,
   }) {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Container(
@@ -336,7 +438,9 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Base model sale uploaded to Firebase',
+                  _isQuickSale
+                      ? 'Base model sold and stock updated!'
+                      : 'Base model sale uploaded to Firebase',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 14,
@@ -350,11 +454,18 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                 ),
-                Text(
-                  'Collection: base_model_sale',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                ),
+                if (documentId != null)
+                  Text(
+                    'Sale ID: ${documentId.substring(0, 8)}...',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                  ),
+                if (_isQuickSale && _stockModelId != null)
+                  Text(
+                    'Stock updated successfully',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: Colors.green[700]),
+                  ),
 
                 // Show customer info in success dialog if available
                 if (customerName != null && customerName.isNotEmpty ||
@@ -395,6 +506,8 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                   child: ElevatedButton(
                     onPressed: () {
                       Navigator.pop(context);
+                      // Return true to indicate success
+                      Navigator.pop(context, true);
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.purple[700],
@@ -588,7 +701,9 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
           validator: validator,
           maxLines: maxLines,
           onChanged: (value) {
-            onChanged?.call();
+            if (onChanged != null) {
+              onChanged();
+            }
             setState(() {});
           },
           decoration: InputDecoration(
@@ -609,6 +724,14 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: const BorderSide(color: Colors.purple, width: 1.5),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Colors.red, width: 1),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Colors.red, width: 1.5),
             ),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 14,
@@ -705,6 +828,14 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                 borderRadius: BorderRadius.circular(8),
                 borderSide: BorderSide(color: color, width: 1.5),
               ),
+              errorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: Colors.red, width: 1),
+              ),
+              focusedErrorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: Colors.red, width: 1.5),
+              ),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 10,
                 vertical: 10,
@@ -772,7 +903,7 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                       height: 14,
                       child: CircularProgressIndicator(
                         strokeWidth: 1.5,
-                        valueColor: AlwaysStoppedAnimation(
+                        valueColor: AlwaysStoppedAnimation<Color>(
                           Colors.blue.shade700,
                         ),
                       ),
@@ -785,7 +916,10 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                   ],
                 ),
               )
-            else if (_shopId != null && _shopName != null)
+            else if (_shopId != null &&
+                _shopName != null &&
+                _shopId!.isNotEmpty &&
+                _shopName!.isNotEmpty)
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -921,8 +1055,8 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Base Model Sale Upload',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          _isQuickSale ? 'Quick Sale - Base Model' : 'Base Model Sale Upload',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
         backgroundColor: Colors.purple[700],
         centerTitle: true,
@@ -972,15 +1106,19 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Base Model Sale Record',
-                                    style: TextStyle(
+                                    _isQuickSale
+                                        ? 'Quick Sale from Stock'
+                                        : 'Base Model Sale Record',
+                                    style: const TextStyle(
                                       fontSize: 20,
                                       fontWeight: FontWeight.w700,
                                       color: Colors.black87,
                                     ),
                                   ),
                                   Text(
-                                    'Record base/keypad phone sales',
+                                    _isQuickSale
+                                        ? 'Selling pre-added base model'
+                                        : 'Record base/keypad phone sales',
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: Colors.grey[600],
@@ -991,6 +1129,53 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                             ),
                           ],
                         ),
+
+                        // Show quick sale info if applicable
+                        if (_isQuickSale && widget.initialData != null) ...[
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.green.shade50,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.green.shade200),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.info,
+                                  color: Colors.green.shade700,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Quick Sale Mode',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.green,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'IMEI: ${widget.initialData!['imei'] ?? 'N/A'}',
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -1082,12 +1267,11 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                                 return 'Please enter phone number';
                               }
                               // Simple phone validation (at least 10 digits)
-                              final phoneRegex = RegExp(r'^[0-9]{10,}$');
                               final digitsOnly = value.replaceAll(
                                 RegExp(r'\D'),
                                 '',
                               );
-                              if (!phoneRegex.hasMatch(digitsOnly)) {
+                              if (digitsOnly.length < 10) {
                                 return 'Please enter a valid phone number';
                               }
                               return null;
@@ -1130,6 +1314,20 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                                     borderRadius: BorderRadius.circular(10),
                                     borderSide: const BorderSide(
                                       color: Colors.purple,
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  errorBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: const BorderSide(
+                                      color: Colors.red,
+                                      width: 1,
+                                    ),
+                                  ),
+                                  focusedErrorBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: const BorderSide(
+                                      color: Colors.red,
                                       width: 1.5,
                                     ),
                                   ),
@@ -1425,13 +1623,13 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                                           ),
                                         ],
                                       ),
-                                      const SizedBox(height: 12),
                                     ],
                                   ),
                                 ),
 
                                 // Progress Indicator
-                                if (paymentStatus != 'balanced')
+                                if (paymentStatus != 'balanced' &&
+                                    paymentStatus != 'pending')
                                   Padding(
                                     padding: const EdgeInsets.only(top: 16),
                                     child: Column(
@@ -1545,14 +1743,21 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Row(
+                              : Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Icon(Icons.cloud_upload_outlined, size: 18),
-                                    SizedBox(width: 6),
+                                    Icon(
+                                      _isQuickSale
+                                          ? Icons.sell_outlined
+                                          : Icons.cloud_upload_outlined,
+                                      size: 18,
+                                    ),
+                                    const SizedBox(width: 6),
                                     Text(
-                                      'Upload',
-                                      style: TextStyle(
+                                      _isQuickSale
+                                          ? 'Sell & Update Stock'
+                                          : 'Upload',
+                                      style: const TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -1594,7 +1799,7 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  if (_shopName != null)
+                  if (_shopName != null && _shopName!.isNotEmpty)
                     Center(
                       child: Text(
                         'Shop: $_shopName',

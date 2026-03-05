@@ -36,21 +36,14 @@ class _TvStockScreenState extends State<TvStockScreen>
   final List<TextEditingController> _serialControllers = [];
 
   final List<String> _brands = [
+    'Mi',
     'Samsung',
     'LG',
     'Sony',
-    'Panasonic',
     'TCL',
-    'Mi',
     'OnePlus',
     'Realme',
-    'Toshiba',
-    'Hisense',
-    'Philips',
-    'Videocon',
-    'Vu',
-    'Thomson',
-    'Nokia',
+    'Other',
   ];
   final Map<String, List<Map<String, dynamic>>> _modelsByBrand = {};
   bool _isLoading = false;
@@ -587,9 +580,10 @@ class _TvStockScreenState extends State<TvStockScreen>
           return;
         }
 
-        if (!RegExp(r'^[A-Za-z0-9]+$').hasMatch(serial)) {
+        // UPDATED: Allow forward slash in serial numbers
+        if (!RegExp(r'^[A-Za-z0-9/]+$').hasMatch(serial)) {
           _showModalError(
-            'Serial ${i + 1} contains invalid characters. Use letters and numbers only.',
+            'Serial ${i + 1} contains invalid characters. Use only letters, numbers, and forward slash (/)',
           );
           return;
         }
@@ -959,6 +953,13 @@ class _TvStockScreenState extends State<TvStockScreen>
 
   String _formatSerialForDisplay(String serial) {
     if (serial.isEmpty) return '';
+
+    // Check if serial contains forward slash
+    if (serial.contains('/')) {
+      // Keep the original format with slash
+      return serial;
+    }
+
     if (serial.length >= 12) {
       return '${serial.substring(0, 4)}-${serial.substring(4, 8)}-${serial.substring(8)}';
     } else if (serial.length >= 8) {
@@ -970,7 +971,8 @@ class _TvStockScreenState extends State<TvStockScreen>
   bool _isValidSerial(String serial) {
     if (serial.isEmpty) return false;
     if (serial.length < 8 || serial.length > 20) return false;
-    if (!RegExp(r'^[A-Za-z0-9]+$').hasMatch(serial)) return false;
+    // UPDATED: Allow forward slash in validation
+    if (!RegExp(r'^[A-Za-z0-9/]+$').hasMatch(serial)) return false;
     return true;
   }
 
@@ -1547,6 +1549,7 @@ class _TvStockScreenState extends State<TvStockScreen>
                   });
                 }
               },
+              // UPDATED: Validator now accepts forward slash
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
                   return 'Please enter serial number';
@@ -1558,8 +1561,9 @@ class _TvStockScreenState extends State<TvStockScreen>
                 if (trimmedValue.length > 20) {
                   return 'Serial must be at most 20 characters';
                 }
-                if (!RegExp(r'^[A-Za-z0-9]+$').hasMatch(trimmedValue)) {
-                  return 'Use only letters and numbers';
+                // Updated regex to allow forward slash
+                if (!RegExp(r'^[A-Za-z0-9/]+$').hasMatch(trimmedValue)) {
+                  return 'Use only letters, numbers, and forward slash (/)';
                 }
                 return null;
               },
@@ -3536,8 +3540,7 @@ class _OptimizedSerialScannerState extends State<OptimizedSerialScanner>
         );
       });
 
-      // FIXED: Remove torchAvailable listener and use a simpler approach
-      // Just set flash as available by default, it will be disabled if not supported
+      // Set flash as available by default
       _isFlashAvailable = true;
     } catch (e) {
       print('Scanner init error: $e');
@@ -3717,7 +3720,9 @@ class _OptimizedSerialScannerState extends State<OptimizedSerialScanner>
                           right: 0,
                           child: Center(
                             child: FloatingActionButton(
-                              onPressed: _toggleFlash,
+                              onPressed: _isFlashAvailable
+                                  ? _toggleFlash
+                                  : null,
                               backgroundColor: _isFlashAvailable
                                   ? (_isFlashOn ? Colors.amber : Colors.blue)
                                   : Colors.grey,
