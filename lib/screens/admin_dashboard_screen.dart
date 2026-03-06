@@ -6,6 +6,8 @@ import 'package:sales_stock/screens/admin/analysis/customer_discount_screen.dart
 import 'package:sales_stock/screens/admin/analysis/downpayment_benefit_screen.dart';
 import 'package:sales_stock/screens/admin/analysis/exchange_analysis_screen.dart';
 import 'package:sales_stock/screens/admin/analysis/payment_breakdown_screen.dart';
+import 'package:sales_stock/screens/admin/inventory/base_model_stock_screen.dart';
+import 'package:sales_stock/screens/admin/inventory/tv_stock_screen.dart';
 import 'package:sales_stock/screens/login_screen.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../services/auth_service.dart';
@@ -1555,6 +1557,37 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               );
             },
           ),
+          _buildDrawerItem(
+            Icons.phone_android,
+            'Base Model Stock',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => BaseModelStockScreen(
+                    formatNumber: _formatNumber,
+                    shops: shops,
+                  ),
+                ),
+              );
+            },
+          ),
+          _buildDrawerItem(
+            Icons.tv,
+            'TV Stock',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      TvStockScreen(formatNumber: _formatNumber, shops: shops),
+                ),
+              );
+            },
+          ),
+
           Padding(
             padding: EdgeInsets.only(left: 16, top: 12, bottom: 6),
             child: Text(
