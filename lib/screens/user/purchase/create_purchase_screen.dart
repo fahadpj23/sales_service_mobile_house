@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:sales_stock/models/purchase_item.dart';
-import 'package:sales_stock/screens/purchase/purchase_history_screen.dart';
+import 'package:sales_stock/screens/user/purchase/purchase_history_screen.dart';
 import 'package:sales_stock/services/firestore_service.dart';
-import 'package:sales_stock/screens/purchase/create_purchase_form.dart';
-import 'package:sales_stock/screens/purchase/create_purchase_preview.dart';
-import 'package:sales_stock/screens/purchase/create_purchase_scanner.dart';
+import 'package:sales_stock/screens/user/purchase/create_purchase_form.dart';
+import 'package:sales_stock/screens/user/purchase/create_purchase_preview.dart';
+import 'package:sales_stock/screens/user/purchase/create_purchase_scanner.dart';
+import 'package:provider/provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:math' as math;
+import '../../../providers/auth_provider.dart';
+import '../../../models/user_model.dart';
 
 class CreatePurchaseScreen extends StatefulWidget {
   final Map<String, dynamic>? supplier;
@@ -261,7 +265,11 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _backgroundColor,
-
+      appBar: AppBar(
+        title: const Text('Create Purchase'),
+        backgroundColor: _primaryGreen,
+        foregroundColor: Colors.white,
+      ),
       body: Stack(
         children: [
           CreatePurchaseForm(
@@ -1828,6 +1836,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     _togglePreview();
   }
 
+  // UPDATED: Added user tracking to purchase data
   Future<void> _confirmAndSavePurchase() async {
     if (_formKey.currentState!.validate() &&
         _selectedSupplier != null &&
@@ -1867,6 +1876,9 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
       }
 
       try {
+        // Get current user for tracking
+        final user = Provider.of<AuthProvider>(context, listen: false).user;
+
         final purchaseData = {
           'supplierId': _selectedSupplier!['id'],
           'supplierName': _selectedSupplier!['name'],
@@ -1885,6 +1897,12 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
             itemMap['imeis'] = _itemImeis[index] ?? [];
             return itemMap;
           }).toList(),
+          // Add user tracking fields - Using uid instead of id
+          'userId': user?.uid,
+          'userName': user?.name ?? user?.email,
+          'shopId': user?.shopId,
+          'shopName': user?.shopName,
+          'createdAt': FieldValue.serverTimestamp(),
         };
 
         await _firestoreService.createPurchase(purchaseData);

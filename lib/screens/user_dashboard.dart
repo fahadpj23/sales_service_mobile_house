@@ -2,21 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:sales_stock/screens/user/inventory/base_model_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/tv_stock_screen.dart';
+import 'package:sales_stock/screens/user/purchase/create_purchase_screen.dart';
+import 'package:sales_stock/screens/user/purchase/supplier_form_screen.dart';
 import 'package:sales_stock/screens/user/sale/gst_accessories_sale_upload.dart';
 import 'package:sales_stock/screens/user/inventory/phone_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/stock_check_screen.dart';
 import 'package:sales_stock/screens/user/purchase/purchase_history_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import '../../providers/auth_provider.dart';
-import '../../services/auth_service.dart';
+import '../providers/auth_provider.dart';
+import '../services/auth_service.dart';
 import 'user/sale/accessories_sale_upload.dart';
 import 'user/sale/phone_sale_upload.dart';
 import 'user/sale/second_phone_sale_upload.dart';
 import 'user/sale/base_model_sale_upload.dart';
-import 'user/purchase/purchase_upload_screen.dart';
-import 'user/purchase/supplier_list_screen.dart';
-import 'user/purchase/add_supplier_screen.dart';
 import 'user/sale/sales_history.dart';
 
 class UserDashboard extends StatefulWidget {
@@ -532,6 +531,16 @@ class _UserDashboardState extends State<UserDashboard> {
     Navigator.push(context, MaterialPageRoute(builder: (context) => screen));
   }
 
+  // Enhanced navigation method for CreatePurchaseScreen that can accept a supplier
+  void _navigateToCreatePurchase({Map<String, dynamic>? supplier}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CreatePurchaseScreen(supplier: supplier),
+      ),
+    );
+  }
+
   Widget _buildDashboardHome() {
     final authService = AuthService();
     final user = Provider.of<AuthProvider>(context).user;
@@ -576,7 +585,7 @@ class _UserDashboardState extends State<UserDashboard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Welcome Section (Reduced size)
+            // Welcome Section
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(14),
@@ -686,7 +695,115 @@ class _UserDashboardState extends State<UserDashboard> {
               ),
             ),
 
-            // Total Sales Card (with reduced text)
+            // QUICK ACTIONS SECTION - Direct connection to Purchase screens
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.grey.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+                border: Border.all(color: Colors.grey.shade200, width: 1),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Quick Actions',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.brown.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          'Purchase Module',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.brown.shade700,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // First row - Purchase actions
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildQuickActionButton(
+                          icon: Icons.upload_file,
+                          label: 'New Purchase',
+                          color: Colors.brown.shade700,
+                          onTap: () {
+                            _navigateToCreatePurchase();
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildQuickActionButton(
+                          icon: Icons.history,
+                          label: 'History',
+                          color: Colors.brown.shade600,
+                          onTap: () {
+                            _navigateToScreen(const PurchaseHistoryScreen());
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  // Second row - More purchase actions
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildQuickActionButton(
+                          icon: Icons.person_add,
+                          label: 'Add Supplier',
+                          color: Colors.brown.shade500,
+                          onTap: () {
+                            _navigateToScreen(const SupplierFormScreen());
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildQuickActionButton(
+                          icon: Icons.inventory,
+                          label: 'Stock',
+                          color: Colors.brown.shade400,
+                          onTap: () {
+                            _navigateToScreen(const PhoneStockScreen());
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // Total Sales Card
             Container(
               margin: const EdgeInsets.only(bottom: 12),
               padding: const EdgeInsets.all(14),
@@ -743,7 +860,7 @@ class _UserDashboardState extends State<UserDashboard> {
               ),
             ),
 
-            // Recent Sales Section (with reduced text)
+            // Recent Sales Section
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -802,6 +919,44 @@ class _UserDashboardState extends State<UserDashboard> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  // Helper method for quick action buttons
+  Widget _buildQuickActionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withOpacity(0.2)),
+          ),
+          child: Column(
+            children: [
+              Icon(icon, color: color, size: 24),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1483,7 +1638,6 @@ class _UserDashboardState extends State<UserDashboard> {
                                     _navigateToScreen(const PhoneStockScreen());
                                   },
                                 ),
-
                                 _buildDrawerTile(
                                   icon: Icons.tv,
                                   title: 'TV Stock',
@@ -1576,9 +1730,50 @@ class _UserDashboardState extends State<UserDashboard> {
                               ],
                             ),
 
-                            // History Section
+                            // PURCHASE SECTION
                             _buildDrawerSection(
-                              title: 'HISTORY',
+                              title: 'PURCHASE',
+                              children: [
+                                // Purchase Upload
+                                _buildDrawerTile(
+                                  icon: Icons.upload_file,
+                                  title: 'Purchase Upload',
+                                  color: Colors.brown.shade700,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToCreatePurchase();
+                                  },
+                                ),
+                                // Add Supplier
+                                _buildDrawerTile(
+                                  icon: Icons.person_add,
+                                  title: 'Add Supplier',
+                                  color: Colors.brown.shade600,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(
+                                      const SupplierFormScreen(),
+                                    );
+                                  },
+                                ),
+                                // Purchase History
+                                _buildDrawerTile(
+                                  icon: Icons.history,
+                                  title: 'Purchase History',
+                                  color: Colors.brown.shade400,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(
+                                      const PurchaseHistoryScreen(),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+
+                            // History Section (Sales History only)
+                            _buildDrawerSection(
+                              title: 'SALES HISTORY',
                               children: [
                                 _buildDrawerTile(
                                   icon: Icons.history,
@@ -1613,16 +1808,6 @@ class _UserDashboardState extends State<UserDashboard> {
                                     }
                                   },
                                 ),
-                                // Commented out as per your code
-                                // _buildDrawerTile(
-                                //   icon: Icons.inventory,
-                                //   title: 'Purchase History',
-                                //   color: Colors.brown,
-                                //   onTap: () {
-                                //     _scaffoldKey.currentState?.closeDrawer();
-                                //     _navigateToScreen(const PurchaseHistoryScreen());
-                                //   },
-                                // ),
                               ],
                             ),
 
