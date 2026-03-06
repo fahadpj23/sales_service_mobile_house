@@ -238,8 +238,6 @@ class FirestoreService {
     }
   }
 
-  // Add this method to your FirestoreService class
-
   Future<List<Map<String, dynamic>>> getPurchasesByDateRange(
     DateTime startDate,
     DateTime endDate,
@@ -491,6 +489,84 @@ class FirestoreService {
   }
 
   // ========== PHONE STOCK METHODS ==========
+
+  /// Add a single phone stock entry
+  Future<DocumentReference> addPhoneStock(
+    Map<String, dynamic> phoneStockData,
+  ) async {
+    try {
+      return await _firestore.collection('phoneStock').add({
+        ...phoneStockData,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('Error adding phone stock: $e');
+      rethrow;
+    }
+  }
+
+  /// Add multiple phone stock entries in a batch
+  Future<void> addMultiplePhoneStock(
+    List<Map<String, dynamic>> phoneStockList,
+  ) async {
+    try {
+      final batch = _firestore.batch();
+
+      for (var phoneData in phoneStockList) {
+        final docRef = _firestore.collection('phoneStock').doc();
+        batch.set(docRef, {
+          ...phoneData,
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      await batch.commit();
+    } catch (e) {
+      print('Error adding multiple phone stock: $e');
+      rethrow;
+    }
+  }
+
+  /// Update a phone stock entry
+  Future<void> updatePhoneStock(
+    String docId,
+    Map<String, dynamic> updateData,
+  ) async {
+    try {
+      await _firestore.collection('phoneStock').doc(docId).update({
+        ...updateData,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('Error updating phone stock: $e');
+      rethrow;
+    }
+  }
+
+  /// Get phone stock by IMEI
+  Future<Map<String, dynamic>?> getPhoneStockByImei(String imei) async {
+    try {
+      final snapshot = await _firestore
+          .collection('phoneStock')
+          .where('imei', isEqualTo: imei)
+          .limit(1)
+          .get();
+
+      if (snapshot.docs.isNotEmpty) {
+        final doc = snapshot.docs.first;
+        final data = doc.data() as Map<String, dynamic>;
+        return {'id': doc.id, ...data};
+      }
+      return null;
+    } catch (e) {
+      print('Error getting phone stock by IMEI: $e');
+      return null;
+    }
+  }
+
+  /// Get all phone stock
   Future<List<Map<String, dynamic>>> getPhoneStock() async {
     try {
       final snapshot = await _firestore
@@ -507,6 +583,7 @@ class FirestoreService {
     }
   }
 
+  /// Get phone stock by shop
   Future<List<Map<String, dynamic>>> getPhoneStockByShop(String shopId) async {
     try {
       final snapshot = await _firestore
@@ -524,6 +601,64 @@ class FirestoreService {
     }
   }
 
+  /// Get phone stock by status
+  Future<List<Map<String, dynamic>>> getPhoneStockByStatus(
+    String status,
+  ) async {
+    try {
+      final snapshot = await _firestore
+          .collection('phoneStock')
+          .where('status', isEqualTo: status)
+          .orderBy('createdAt', descending: true)
+          .get();
+      return snapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return {'id': doc.id, ...data};
+      }).toList();
+    } catch (e) {
+      print('Error fetching phone stock by status: $e');
+      return [];
+    }
+  }
+
+  /// Get phone stock by shop and status
+  Future<List<Map<String, dynamic>>> getPhoneStockByShopAndStatus(
+    String shopId,
+    String status,
+  ) async {
+    try {
+      final snapshot = await _firestore
+          .collection('phoneStock')
+          .where('shopId', isEqualTo: shopId)
+          .where('status', isEqualTo: status)
+          .orderBy('createdAt', descending: true)
+          .get();
+      return snapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return {'id': doc.id, ...data};
+      }).toList();
+    } catch (e) {
+      print('Error fetching phone stock by shop and status: $e');
+      return [];
+    }
+  }
+
+  /// Get available phone stock count by shop - FIXED
+  Future<int> getAvailablePhoneStockCount(String shopId) async {
+    try {
+      final snapshot = await _firestore
+          .collection('phoneStock')
+          .where('shopId', isEqualTo: shopId)
+          .where('status', isEqualTo: 'available')
+          .get();
+      return snapshot.docs.length;
+    } catch (e) {
+      print('Error getting available phone stock count: $e');
+      return 0;
+    }
+  }
+
+  /// Legacy method for backward compatibility
   Future<void> addToPhoneStock(Map<String, dynamic> phoneData) async {
     try {
       await _firestore.collection('phoneStock').add({
@@ -537,6 +672,7 @@ class FirestoreService {
     }
   }
 
+  /// Check if IMEI exists
   Future<bool> checkIMEIExists(String imei) async {
     try {
       final snapshot = await _firestore
@@ -552,6 +688,7 @@ class FirestoreService {
     }
   }
 
+  /// Delete phone stock by purchase ID
   Future<void> deletePhoneStockByPurchaseId(String purchaseId) async {
     try {
       final snapshot = await _firestore
@@ -571,6 +708,7 @@ class FirestoreService {
     }
   }
 
+  /// Get phone stock count by shop (legacy method)
   Future<int> getPhoneStockCountByShop(String shopId) async {
     try {
       final snapshot = await _firestore
@@ -611,7 +749,7 @@ class FirestoreService {
 
   Future<Map<String, dynamic>> getShopStatistics(String shopId) async {
     try {
-      final phoneStockCount = await getPhoneStockCountByShop(shopId);
+      final phoneStockCount = await getAvailablePhoneStockCount(shopId);
       final totalPurchaseValue = await getTotalPurchaseValueByShop(shopId);
 
       final recentPurchases = await _firestore
@@ -638,8 +776,17 @@ class FirestoreService {
         }
       }
 
+      // Get sold count
+      final soldSnapshot = await _firestore
+          .collection('phoneStock')
+          .where('shopId', isEqualTo: shopId)
+          .where('status', isEqualTo: 'sold')
+          .get();
+      final soldCount = soldSnapshot.docs.length;
+
       return {
         'phoneStockCount': phoneStockCount,
+        'soldCount': soldCount,
         'totalPurchaseValue': totalPurchaseValue,
         'monthlyPurchaseValue': monthlyTotal,
         'recentPurchases': recentPurchases.docs.map((doc) {
@@ -652,6 +799,7 @@ class FirestoreService {
       print('Error getting shop statistics: $e');
       return {
         'phoneStockCount': 0,
+        'soldCount': 0,
         'totalPurchaseValue': 0.0,
         'monthlyPurchaseValue': 0.0,
         'recentPurchases': [],
@@ -725,6 +873,7 @@ class FirestoreService {
     String? shopId,
     String? imei,
     String? productName,
+    String? productBrand,
     String? status,
   }) async {
     try {
@@ -742,9 +891,15 @@ class FirestoreService {
         query = query.where('productName', isEqualTo: productName);
       }
 
+      if (productBrand != null && productBrand.isNotEmpty) {
+        query = query.where('productBrand', isEqualTo: productBrand);
+      }
+
       if (status != null && status.isNotEmpty) {
         query = query.where('status', isEqualTo: status);
       }
+
+      query = query.orderBy('createdAt', descending: true);
 
       final snapshot = await query.get();
 
@@ -782,22 +937,47 @@ class FirestoreService {
 
   Future<void> updatePhoneStockStatus(
     List<String> phoneIds,
-    String newStatus,
-  ) async {
+    String newStatus, {
+    Map<String, dynamic>? additionalData,
+  }) async {
     try {
       final batch = _firestore.batch();
 
       for (var phoneId in phoneIds) {
         final phoneRef = _firestore.collection('phoneStock').doc(phoneId);
-        batch.update(phoneRef, {
+        final updates = {
           'status': newStatus,
           'updatedAt': FieldValue.serverTimestamp(),
-        });
+          ...?additionalData,
+        };
+        batch.update(phoneRef, updates);
       }
 
       await batch.commit();
     } catch (e) {
       print('Error updating phone stock status: $e');
+      rethrow;
+    }
+  }
+
+  // ========== SALE OPERATIONS ==========
+  Future<void> markPhoneAsSold(
+    String phoneId,
+    Map<String, dynamic> saleData,
+  ) async {
+    try {
+      await _firestore.collection('phoneStock').doc(phoneId).update({
+        'status': 'sold',
+        'soldAmount': saleData['soldAmount'],
+        'soldAt': saleData['soldAt'] ?? FieldValue.serverTimestamp(),
+        'soldBillNo': saleData['soldBillNo'],
+        'soldBy': saleData['soldBy'],
+        'soldShop': saleData['soldShop'],
+        'soldTo': saleData['soldTo'],
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('Error marking phone as sold: $e');
       rethrow;
     }
   }
@@ -827,17 +1007,20 @@ class FirestoreService {
   // ========== DASHBOARD DATA ==========
   Future<Map<String, dynamic>> getDashboardData(String shopId) async {
     try {
-      final phoneStockCount = await getPhoneStockCountByShop(shopId);
+      final phoneStockCount = await getAvailablePhoneStockCount(shopId);
 
-      final productsSnapshot = await _firestore
-          .collection('phones')
-          .count()
+      final soldSnapshot = await _firestore
+          .collection('phoneStock')
+          .where('shopId', isEqualTo: shopId)
+          .where('status', isEqualTo: 'sold')
           .get();
+      final soldCount = soldSnapshot.docs.length;
 
-      final suppliersSnapshot = await _firestore
-          .collection('suppliers')
-          .count()
-          .get();
+      final productsSnapshot = await _firestore.collection('phones').get();
+      final productCount = productsSnapshot.docs.length;
+
+      final suppliersSnapshot = await _firestore.collection('suppliers').get();
+      final supplierCount = suppliersSnapshot.docs.length;
 
       final recentPurchases = await getRecentPurchases(5);
 
@@ -854,8 +1037,9 @@ class FirestoreService {
 
       return {
         'phoneStockCount': phoneStockCount,
-        'productCount': productsSnapshot.count,
-        'supplierCount': suppliersSnapshot.count,
+        'soldCount': soldCount,
+        'productCount': productCount,
+        'supplierCount': supplierCount,
         'recentPurchases': recentPurchases,
         'lowStockProducts': lowStockProducts,
         'lastUpdated': DateTime.now(),
@@ -864,6 +1048,7 @@ class FirestoreService {
       print('Error getting dashboard data: $e');
       return {
         'phoneStockCount': 0,
+        'soldCount': 0,
         'productCount': 0,
         'supplierCount': 0,
         'recentPurchases': [],
@@ -876,15 +1061,18 @@ class FirestoreService {
   // ========== TRANSACTION METHODS ==========
   Future<void> createPurchaseWithTransaction(
     Map<String, dynamic> purchaseData,
+    List<Map<String, dynamic>> phoneStockList,
   ) async {
     try {
       await _firestore.runTransaction((transaction) async {
+        // Create purchase
         final purchaseRef = _firestore.collection('purchases').doc();
         transaction.set(purchaseRef, {
           ...purchaseData,
           'createdAt': FieldValue.serverTimestamp(),
         });
 
+        // Update product stock
         final items = purchaseData['items'] as List<dynamic>;
         for (var item in items) {
           final productId = item['productId'] as String;
@@ -893,6 +1081,17 @@ class FirestoreService {
           final productRef = _firestore.collection('phones').doc(productId);
           transaction.update(productRef, {
             'stockQuantity': FieldValue.increment(quantity),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+
+        // Add phone stock entries
+        for (var phoneData in phoneStockList) {
+          final phoneRef = _firestore.collection('phoneStock').doc();
+          transaction.set(phoneRef, {
+            ...phoneData,
+            'purchaseId': purchaseRef.id,
+            'createdAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           });
         }
@@ -988,7 +1187,7 @@ class FirestoreService {
   // ========== UTILITY METHODS ==========
   Future<void> clearTestData() async {
     try {
-      final collections = ['purchases', 'phoneStock', 'products', 'suppliers'];
+      final collections = ['purchases', 'phoneStock', 'phones', 'suppliers'];
       for (var collection in collections) {
         final snapshot = await _firestore.collection(collection).get();
         final batch = _firestore.batch();
@@ -1002,11 +1201,16 @@ class FirestoreService {
     }
   }
 
-  Stream<QuerySnapshot> getPurchasesStream() {
-    return _firestore
+  Stream<QuerySnapshot> getPurchasesStream({String? shopId}) {
+    Query query = _firestore
         .collection('purchases')
-        .orderBy('createdAt', descending: true)
-        .snapshots();
+        .orderBy('createdAt', descending: true);
+
+    if (shopId != null) {
+      query = query.where('shopId', isEqualTo: shopId);
+    }
+
+    return query.snapshots();
   }
 
   Stream<QuerySnapshot> getProductsStream() {
@@ -1017,13 +1221,17 @@ class FirestoreService {
     return _firestore.collection('suppliers').orderBy('name').snapshots();
   }
 
-  Stream<QuerySnapshot> getPhoneStockStream({String? shopId}) {
+  Stream<QuerySnapshot> getPhoneStockStream({String? shopId, String? status}) {
     Query query = _firestore
         .collection('phoneStock')
         .orderBy('createdAt', descending: true);
 
     if (shopId != null) {
       query = query.where('shopId', isEqualTo: shopId);
+    }
+
+    if (status != null) {
+      query = query.where('status', isEqualTo: status);
     }
 
     return query.snapshots();

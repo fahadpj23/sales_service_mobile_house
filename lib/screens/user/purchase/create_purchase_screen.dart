@@ -1836,11 +1836,12 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     _togglePreview();
   }
 
-  // UPDATED: Added user tracking to purchase data
+  // UPDATED: Complete method with phone stock creation
   Future<void> _confirmAndSavePurchase() async {
     if (_formKey.currentState!.validate() &&
         _selectedSupplier != null &&
         _purchaseItems.isNotEmpty) {
+      // Validate all items
       for (var i = 0; i < _purchaseItems.length; i++) {
         final item = _purchaseItems[i];
 
@@ -1879,6 +1880,12 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         // Get current user for tracking
         final user = Provider.of<AuthProvider>(context, listen: false).user;
 
+        if (user == null) {
+          _showErrorSnackbar('User not authenticated');
+          return;
+        }
+
+        // Create purchase data
         final purchaseData = {
           'supplierId': _selectedSupplier!['id'],
           'supplierName': _selectedSupplier!['name'],
@@ -1897,16 +1904,57 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
             itemMap['imeis'] = _itemImeis[index] ?? [];
             return itemMap;
           }).toList(),
-          // Add user tracking fields - Using uid instead of id
-          'userId': user?.uid,
-          'userName': user?.name ?? user?.email,
-          'shopId': user?.shopId,
-          'shopName': user?.shopName,
+          // User tracking fields
+          'userId': user.uid,
+          'userName': user.name ?? user.email,
+          'shopId': user.shopId,
+          'shopName': user.shopName,
           'createdAt': FieldValue.serverTimestamp(),
         };
 
-        await _firestoreService.createPurchase(purchaseData);
+        // Create the purchase record
+        final purchaseId = await _firestoreService.createPurchase(purchaseData);
 
+        // Create phone stock entries for each IMEI/serial number
+        final List<Map<String, dynamic>> phoneStockList = [];
+
+        for (var i = 0; i < _purchaseItems.length; i++) {
+          final item = _purchaseItems[i];
+          final itemImeis = _itemImeis[i] ?? [];
+
+          for (var j = 0; j < itemImeis.length; j++) {
+            final imei = itemImeis[j];
+
+            final phoneStockData = {
+              'createdAt': FieldValue.serverTimestamp(),
+              'imei': imei,
+              'productBrand': item.brand ?? '',
+              'productName': item.productName ?? '',
+              'productPrice': item.rate ?? 0,
+              'shopId': user.shopId,
+              'shopName': user.shopName,
+              'status': 'available',
+              'uploadedAt': FieldValue.serverTimestamp(),
+              'uploadedBy': user.email,
+              'uploadedById': user.uid,
+              'purchaseId': purchaseId,
+              'purchaseInvoice': _invoiceController.text.trim(),
+              'supplierId': _selectedSupplier!['id'],
+              'supplierName': _selectedSupplier!['name'],
+              'productId': item.productId,
+              'hsnCode': item.hsnCode,
+            };
+
+            phoneStockList.add(phoneStockData);
+          }
+        }
+
+        // Add all phone stock entries in batch
+        if (phoneStockList.isNotEmpty) {
+          await _firestoreService.addMultiplePhoneStock(phoneStockList);
+        }
+
+        // Update product stock counts
         for (var i = 0; i < _purchaseItems.length; i++) {
           final item = _purchaseItems[i];
           if (item.productId != null) {
@@ -1929,7 +1977,9 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
           }
         }
 
-        _showSuccessSnackbar('Purchase saved successfully');
+        _showSuccessSnackbar(
+          'Purchase saved successfully with ${phoneStockList.length} items',
+        );
 
         // Navigate to PurchaseHistoryScreen after successful save
         Navigator.pushAndRemoveUntil(
