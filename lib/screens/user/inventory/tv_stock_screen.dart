@@ -37,12 +37,12 @@ class _TvStockScreenState extends State<TvStockScreen>
 
   final List<String> _brands = [
     'Mi',
+    'gadza',
+    'Mr.plus',
     'Samsung',
     'LG',
     'Sony',
     'TCL',
-    'OnePlus',
-    'Realme',
     'Other',
   ];
   final Map<String, List<Map<String, dynamic>>> _modelsByBrand = {};
