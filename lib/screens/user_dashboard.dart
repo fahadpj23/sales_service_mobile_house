@@ -4,6 +4,7 @@ import 'package:sales_stock/screens/user/inventory/base_model_stock_screen.dart'
 import 'package:sales_stock/screens/user/inventory/tv_stock_screen.dart';
 import 'package:sales_stock/screens/user/purchase/create_purchase_screen.dart';
 import 'package:sales_stock/screens/user/purchase/supplier_form_screen.dart';
+import 'package:sales_stock/screens/user/purchase/tv_purchase_screen.dart';
 import 'package:sales_stock/screens/user/sale/gst_accessories_sale_upload.dart';
 import 'package:sales_stock/screens/user/inventory/phone_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/stock_check_screen.dart';
@@ -529,16 +530,6 @@ class _UserDashboardState extends State<UserDashboard> {
 
   void _navigateToScreen(Widget screen) {
     Navigator.push(context, MaterialPageRoute(builder: (context) => screen));
-  }
-
-  // Enhanced navigation method for CreatePurchaseScreen that can accept a supplier
-  void _navigateToCreatePurchase({Map<String, dynamic>? supplier}) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => CreatePurchaseScreen(supplier: supplier),
-      ),
-    );
   }
 
   Widget _buildDashboardHome() {
@@ -1626,21 +1617,50 @@ class _UserDashboardState extends State<UserDashboard> {
                             _buildDrawerSection(
                               title: 'PURCHASE',
                               children: [
-                                // Purchase Upload
+                                // Phone Purchase Upload
                                 _buildDrawerTile(
-                                  icon: Icons.upload_file,
-                                  title: 'Purchase Upload',
-                                  color: Colors.brown.shade700,
+                                  icon: Icons
+                                      .phone_android, // Changed to phone icon
+                                  title: 'Phone Purchase Upload',
+                                  color:
+                                      Colors.blue.shade700, // Changed to blue
                                   onTap: () {
                                     _scaffoldKey.currentState?.closeDrawer();
-                                    _navigateToCreatePurchase();
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            const CreatePurchaseScreen(),
+                                      ),
+                                    );
                                   },
                                 ),
+
+                                // TV Purchase Upload
+                                _buildDrawerTile(
+                                  icon: Icons.tv, // Changed to TV icon
+                                  title: 'TV Purchase Upload',
+                                  color: Colors
+                                      .purple
+                                      .shade700, // Changed to purple
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            const CreateTvPurchaseScreen(),
+                                      ),
+                                    );
+                                  },
+                                ),
+
                                 // Add Supplier
                                 _buildDrawerTile(
                                   icon: Icons.person_add,
                                   title: 'Add Supplier',
-                                  color: Colors.brown.shade600,
+                                  color:
+                                      Colors.green.shade700, // Changed to green
                                   onTap: () {
                                     _scaffoldKey.currentState?.closeDrawer();
                                     _navigateToScreen(
@@ -1648,11 +1668,14 @@ class _UserDashboardState extends State<UserDashboard> {
                                     );
                                   },
                                 ),
+
                                 // Purchase History
                                 _buildDrawerTile(
                                   icon: Icons.history,
                                   title: 'Purchase History',
-                                  color: Colors.brown.shade400,
+                                  color: Colors
+                                      .orange
+                                      .shade700, // Changed to orange
                                   onTap: () {
                                     _scaffoldKey.currentState?.closeDrawer();
                                     _navigateToScreen(
@@ -1662,7 +1685,6 @@ class _UserDashboardState extends State<UserDashboard> {
                                 ),
                               ],
                             ),
-
                             // History Section (Sales History only)
                             _buildDrawerSection(
                               title: 'SALES HISTORY',

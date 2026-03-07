@@ -11,17 +11,16 @@ import 'dart:math' as math;
 import '../../../providers/auth_provider.dart';
 import '../../../models/user_model.dart';
 
-class CreatePurchaseScreen extends StatefulWidget {
-  // Keep the supplier parameter but make it optional
+class CreateTvPurchaseScreen extends StatefulWidget {
   final Map<String, dynamic>? supplier;
 
-  const CreatePurchaseScreen({Key? key, this.supplier}) : super(key: key);
+  const CreateTvPurchaseScreen({Key? key, this.supplier}) : super(key: key);
 
   @override
-  State<CreatePurchaseScreen> createState() => _CreatePurchaseScreenState();
+  State<CreateTvPurchaseScreen> createState() => _CreateTvPurchaseScreenState();
 }
 
-class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
+class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
   final FirestoreService _firestoreService = FirestoreService();
   final Color _primaryGreen = const Color(0xFF2E7D32);
   final Color _lightGreen = const Color(0xFF4CAF50);
@@ -31,12 +30,12 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   final _supplierController = TextEditingController();
   final _invoiceController = TextEditingController();
   final _notesController = TextEditingController();
-  final _productSearchController = TextEditingController();
+  final _tvSearchController = TextEditingController();
 
   DateTime _selectedDate = DateTime.now();
   List<Map<String, dynamic>> _suppliers = [];
-  List<Map<String, dynamic>> _products = [];
-  List<Map<String, dynamic>> _filteredProducts = [];
+  List<Map<String, dynamic>> _tvModels = [];
+  List<Map<String, dynamic>> _filteredTvModels = [];
   Map<String, dynamic>? _selectedSupplier;
   List<PurchaseItem> _purchaseItems = [];
 
@@ -47,17 +46,16 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   double _roundOff = 0.0;
   bool _isSearching = false;
   int? _currentScanItemIndex;
-  int? _currentScanImeiIndex;
+  int? _currentScanSerialIndex;
   Map<int, bool> _showEditSections = {};
   bool _showPreview = false;
-  Map<int, List<String>> _itemImeis = {};
+  Map<int, List<String>> _itemSerials = {};
 
   @override
   void initState() {
     super.initState();
     _fetchSuppliers();
-    _fetchProducts();
-    // Check if supplier was passed from previous screen
+    _fetchTvModels();
     if (widget.supplier != null) {
       _selectedSupplier = widget.supplier;
       _supplierController.text = widget.supplier!['name'] ?? '';
@@ -68,7 +66,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
 
   @override
   void dispose() {
-    _productSearchController.dispose();
+    _tvSearchController.dispose();
     super.dispose();
   }
 
@@ -77,25 +75,40 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     setState(() {});
   }
 
-  Future<void> _fetchProducts() async {
-    _products = await _firestoreService.getProducts();
-    _filteredProducts = List.from(_products);
+  Future<void> _fetchTvModels() async {
+    try {
+      // Fetch TV models from the "tvModels" collection
+      final snapshot = await FirebaseFirestore.instance
+          .collection('tvModels')
+          .orderBy('modelName')
+          .get();
+
+      _tvModels = snapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+
+      _filteredTvModels = List.from(_tvModels);
+    } catch (e) {
+      print('Error fetching TV models: $e');
+      _tvModels = [];
+      _filteredTvModels = [];
+    }
     setState(() {});
   }
 
-  void _filterProducts(String query) {
+  void _filterTvModels(String query) {
     if (query.isEmpty) {
-      _filteredProducts = List.from(_products);
+      _filteredTvModels = List.from(_tvModels);
     } else {
       final searchQuery = query.toLowerCase().trim();
       final searchWords = searchQuery.split(' ');
 
-      _filteredProducts = _products.where((product) {
-        final productName = (product['productName'] ?? '')
-            .toString()
-            .toLowerCase();
-        final brand = (product['brand'] ?? '').toString().toLowerCase();
-        final combinedText = '$productName $brand';
+      _filteredTvModels = _tvModels.where((tvModel) {
+        final modelName = (tvModel['modelName'] ?? '').toString().toLowerCase();
+        final brand = (tvModel['brand'] ?? '').toString().toLowerCase();
+        final combinedText = '$modelName $brand';
 
         return searchWords.every((word) {
           if (word.isEmpty) return true;
@@ -172,7 +185,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
           quantity: 1.0, // Default quantity to 1
         ),
       );
-      _itemImeis[newIndex] = [];
+      _itemSerials[newIndex] = [];
 
       // Collapse ALL existing items
       for (var key in _showEditSections.keys) {
@@ -192,23 +205,23 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         // Create new maps to reindex everything properly
         final newPurchaseItems = <PurchaseItem>[];
         final newShowEditSections = <int, bool>{};
-        final newItemImeis = <int, List<String>>{};
+        final newItemSerials = <int, List<String>>{};
 
         for (int i = 0; i < _purchaseItems.length; i++) {
           newPurchaseItems.add(_purchaseItems[i]);
 
           if (i < index) {
             newShowEditSections[i] = _showEditSections[i] ?? false;
-            newItemImeis[i] = _itemImeis[i] ?? [];
+            newItemSerials[i] = _itemSerials[i] ?? [];
           } else {
             newShowEditSections[i] = _showEditSections[i + 1] ?? false;
-            newItemImeis[i] = _itemImeis[i + 1] ?? [];
+            newItemSerials[i] = _itemSerials[i + 1] ?? [];
           }
         }
 
         _purchaseItems = newPurchaseItems;
         _showEditSections = newShowEditSections;
-        _itemImeis = newItemImeis;
+        _itemSerials = newItemSerials;
 
         _calculateTotals();
       });
@@ -232,10 +245,10 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   }
 
   bool _isValidSerialNumber(String serial) {
-    // Remove 15-digit restriction, allow various serial formats
-    // Minimum 3 characters, maximum 30 for most products
+    // Serial number validation - allow various formats
+    // Minimum 3 characters, maximum 50 for TVs
     final trimmed = serial.trim();
-    return trimmed.isNotEmpty && trimmed.length >= 3 && trimmed.length <= 30;
+    return trimmed.isNotEmpty && trimmed.length >= 3 && trimmed.length <= 50;
   }
 
   void _togglePreview() {
@@ -268,7 +281,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     return Scaffold(
       backgroundColor: _backgroundColor,
       appBar: AppBar(
-        title: const Text('Create Purchase'),
+        title: const Text('Create TV Purchase'),
         backgroundColor: _primaryGreen,
         foregroundColor: Colors.white,
       ),
@@ -287,7 +300,8 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
             invoiceController: _invoiceController,
             notesController: _notesController,
             purchaseItems: _purchaseItems,
-            itemImeis: _itemImeis,
+            itemImeis:
+                _itemSerials, // Reusing the same structure but for serials
             showEditSections: _showEditSections,
             subtotal: _subtotal,
             totalDiscount: _totalDiscount,
@@ -297,7 +311,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
             addNewItem: _addNewItem,
             toggleEditSection: _toggleEditSection,
             removeItem: _removeItem,
-            showProductSelection: _showProductSelection,
+            showProductSelection: _showTvSelection,
             showScannerDialog: _showScannerDialog,
             showManualSerialEntry: _showManualSerialEntry,
             onSerialScanned: _onScanComplete,
@@ -319,7 +333,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                 selectedSupplier: _selectedSupplier,
                 invoiceController: _invoiceController,
                 purchaseItems: _purchaseItems,
-                itemImeis: _itemImeis,
+                itemImeis: _itemSerials,
                 subtotal: _subtotal,
                 totalDiscount: _totalDiscount,
                 gstAmount: _gstAmount,
@@ -341,13 +355,13 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     if (quantity != null && quantity > 0) {
       setState(() {
         _purchaseItems[index].quantity = quantity;
-        // Check if we need to adjust IMEIs
-        final currentImeis = _itemImeis[index] ?? [];
+        // Check if we need to adjust serials
+        final currentSerials = _itemSerials[index] ?? [];
         final requiredCount = quantity.toInt();
 
-        if (currentImeis.length > requiredCount) {
-          // Remove excess IMEIs
-          _itemImeis[index] = currentImeis.sublist(0, requiredCount);
+        if (currentSerials.length > requiredCount) {
+          // Remove excess serials
+          _itemSerials[index] = currentSerials.sublist(0, requiredCount);
         }
       });
       _calculateTotals();
@@ -531,8 +545,8 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     );
   }
 
-  Future<void> _showProductSelection(int itemIndex) async {
-    final selectedProduct = await showModalBottomSheet<Map<String, dynamic>>(
+  Future<void> _showTvSelection(int itemIndex) async {
+    final selectedTv = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.only(
@@ -564,7 +578,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Select Product',
+                          'Select TV Model',
                           style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
@@ -578,8 +592,8 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                             size: 20,
                           ),
                           onPressed: () {
-                            _productSearchController.clear();
-                            _filterProducts('');
+                            _tvSearchController.clear();
+                            _filterTvModels('');
                             Navigator.pop(context);
                           },
                         ),
@@ -601,10 +615,10 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                         ],
                       ),
                       child: TextField(
-                        controller: _productSearchController,
+                        controller: _tvSearchController,
                         style: const TextStyle(fontSize: 12),
                         decoration: InputDecoration(
-                          hintText: 'Search by product name or brand...',
+                          hintText: 'Search by TV model or brand...',
                           hintStyle: const TextStyle(fontSize: 11),
                           prefixIcon: Icon(
                             Icons.search,
@@ -616,7 +630,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                             horizontal: 14,
                             vertical: 12,
                           ),
-                          suffixIcon: _productSearchController.text.isNotEmpty
+                          suffixIcon: _tvSearchController.text.isNotEmpty
                               ? IconButton(
                                   icon: const Icon(
                                     Icons.clear,
@@ -624,24 +638,24 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                                     size: 16,
                                   ),
                                   onPressed: () {
-                                    _productSearchController.clear();
-                                    _filterProducts('');
+                                    _tvSearchController.clear();
+                                    _filterTvModels('');
                                     setSheetState(() {});
                                   },
                                 )
                               : null,
                         ),
                         onChanged: (value) {
-                          _filterProducts(value);
+                          _filterTvModels(value);
                           setSheetState(() {});
                         },
                       ),
                     ),
                   ),
                   Expanded(
-                    child: _filteredProducts.isEmpty
-                        ? _buildEmptyProductState(setSheetState)
-                        : _buildProductList(setSheetState),
+                    child: _filteredTvModels.isEmpty
+                        ? _buildEmptyTvState(setSheetState)
+                        : _buildTvList(setSheetState),
                   ),
                 ],
               ),
@@ -651,30 +665,28 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
       ),
     );
 
-    if (selectedProduct != null) {
-      _handleProductSelection(itemIndex, selectedProduct);
+    if (selectedTv != null) {
+      _handleTvSelection(itemIndex, selectedTv);
     } else {
-      _productSearchController.clear();
-      _filterProducts('');
+      _tvSearchController.clear();
+      _filterTvModels('');
     }
   }
 
-  Widget _buildEmptyProductState(StateSetter setSheetState) {
+  Widget _buildEmptyTvState(StateSetter setSheetState) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Icon(
-          _productSearchController.text.isEmpty
-              ? Icons.inventory_2_outlined
-              : Icons.search_off,
+          _tvSearchController.text.isEmpty ? Icons.tv_off : Icons.search_off,
           size: 60,
           color: Colors.grey.shade300,
         ),
         const SizedBox(height: 16),
         Text(
-          _productSearchController.text.isEmpty
-              ? 'No products available'
-              : 'Product not found',
+          _tvSearchController.text.isEmpty
+              ? 'No TV models available'
+              : 'TV model not found',
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
@@ -683,9 +695,9 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          _productSearchController.text.isEmpty
-              ? 'Add your first product to continue'
-              : 'Add "${_productSearchController.text}" as new product',
+          _tvSearchController.text.isEmpty
+              ? 'Add your first TV model to continue'
+              : 'Add "${_tvSearchController.text}" as new TV model',
           style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
           textAlign: TextAlign.center,
         ),
@@ -694,12 +706,12 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 40),
           child: ElevatedButton.icon(
             onPressed: () async {
-              final searchText = _productSearchController.text;
+              final searchText = _tvSearchController.text;
               Navigator.pop(context);
-              await _showAddProductDialog(preFilledSearch: searchText);
+              await _showAddTvDialog(preFilledSearch: searchText);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: _productSearchController.text.isEmpty
+              backgroundColor: _tvSearchController.text.isEmpty
                   ? _lightGreen
                   : const Color(0xFFFF9800),
               foregroundColor: Colors.white,
@@ -710,7 +722,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
             ),
             icon: const Icon(Icons.add, size: 16),
             label: const Text(
-              'Add New Product',
+              'Add New TV Model',
               style: TextStyle(fontSize: 12),
             ),
           ),
@@ -719,7 +731,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     );
   }
 
-  Widget _buildProductList(StateSetter setSheetState) {
+  Widget _buildTvList(StateSetter setSheetState) {
     return Column(
       children: [
         Padding(
@@ -728,14 +740,14 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Found ${_filteredProducts.length} product${_filteredProducts.length != 1 ? 's' : ''}',
+                'Found ${_filteredTvModels.length} TV model${_filteredTvModels.length != 1 ? 's' : ''}',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
               ),
               TextButton.icon(
                 onPressed: () async {
-                  final searchText = _productSearchController.text;
+                  final searchText = _tvSearchController.text;
                   Navigator.pop(context);
-                  await _showAddProductDialog(preFilledSearch: searchText);
+                  await _showAddTvDialog(preFilledSearch: searchText);
                 },
                 style: TextButton.styleFrom(
                   foregroundColor: const Color(0xFF2196F3),
@@ -748,11 +760,11 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         ),
         Expanded(
           child: ListView.separated(
-            itemCount: _filteredProducts.length,
+            itemCount: _filteredTvModels.length,
             separatorBuilder: (context, index) => const Divider(height: 1),
             itemBuilder: (context, index) {
-              final product = _filteredProducts[index];
-              return _buildProductListItem(product, setSheetState);
+              final tvModel = _filteredTvModels[index];
+              return _buildTvListItem(tvModel, setSheetState);
             },
           ),
         ),
@@ -760,19 +772,13 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     );
   }
 
-  Widget _buildProductListItem(
-    Map<String, dynamic> product,
+  Widget _buildTvListItem(
+    Map<String, dynamic> tvModel,
     StateSetter setSheetState,
   ) {
-    final hasPurchaseRate =
-        product['purchaseRate'] != null &&
-        (product['purchaseRate'] is num) &&
-        product['purchaseRate'] > 0;
-    final productName = product['productName'] ?? 'Unnamed Product';
-    final brand = product['brand'] ?? '';
-    final hsnCode = product['hsnCode'] ?? '';
-    final purchaseRate = product['purchaseRate'] ?? 0.0;
-    final price = product['price'] ?? 0.0;
+    final modelName = tvModel['modelName'] ?? 'Unnamed TV';
+    final brand = tvModel['brand'] ?? '';
+    final price = tvModel['price'] ?? 0.0;
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -780,19 +786,13 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: hasPurchaseRate
-              ? _lightGreen.withOpacity(0.1)
-              : const Color(0xFFFFB300).withOpacity(0.1),
+          color: _lightGreen.withOpacity(0.1),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Icon(
-          Icons.phone_android,
-          size: 20,
-          color: hasPurchaseRate ? _lightGreen : const Color(0xFFFFB300),
-        ),
+        child: Icon(Icons.tv, size: 20, color: _lightGreen),
       ),
       title: Text(
-        productName,
+        modelName,
         style: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w600,
@@ -811,7 +811,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
           Row(
             children: [
               Text(
-                '₹${(purchaseRate as num).toStringAsFixed(2)}',
+                '₹${price.toStringAsFixed(2)}',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
@@ -819,25 +819,21 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                 ),
               ),
               const SizedBox(width: 6),
-              if (price > 0)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 4,
-                    vertical: 1,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2196F3).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: Text(
-                    'Sell: ₹${price.toStringAsFixed(2)}',
-                    style: TextStyle(
-                      fontSize: 9,
-                      color: const Color(0xFF2196F3),
-                      fontWeight: FontWeight.w500,
-                    ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2196F3).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+                child: Text(
+                  'GST: 18%',
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: const Color(0xFF2196F3),
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
+              ),
             ],
           ),
         ],
@@ -850,45 +846,24 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         ),
         child: const Icon(Icons.add, size: 16, color: Colors.green),
       ),
-      onTap: () async {
-        if (!hasPurchaseRate) {
-          final newRate = await _showSetPurchaseRateDialog(productName);
-          if (newRate != null) {
-            await _firestoreService.updateProductPurchaseRate(
-              product['id'] ?? '',
-              newRate,
-            );
-            product['purchaseRate'] = newRate;
-            await _fetchProducts();
-            _productSearchController.clear();
-            _filterProducts('');
-            Navigator.pop(context, product);
-          }
-        } else {
-          _productSearchController.clear();
-          _filterProducts('');
-          Navigator.pop(context, product);
-        }
+      onTap: () {
+        _tvSearchController.clear();
+        _filterTvModels('');
+        Navigator.pop(context, tvModel);
       },
     );
   }
 
-  void _handleProductSelection(int itemIndex, Map<String, dynamic> product) {
-    _productSearchController.clear();
-    _filterProducts('');
+  void _handleTvSelection(int itemIndex, Map<String, dynamic> tvModel) {
+    _tvSearchController.clear();
+    _filterTvModels('');
 
     setState(() {
-      _purchaseItems[itemIndex].productId = product['id'] ?? '';
+      _purchaseItems[itemIndex].productId = tvModel['id'] ?? '';
       _purchaseItems[itemIndex].productName =
-          product['productName'] ?? 'Unnamed Product';
-      _purchaseItems[itemIndex].brand = product['brand'];
-      _purchaseItems[itemIndex].hsnCode = product['hsnCode'] ?? '';
-
-      final purchaseRate = product['purchaseRate'];
-      if (purchaseRate != null && purchaseRate is num && purchaseRate > 0) {
-        _purchaseItems[itemIndex].rate = purchaseRate.toDouble();
-        _purchaseItems[itemIndex].gstAmount = purchaseRate.toDouble() * 0.18;
-      }
+          tvModel['modelName'] ?? 'Unnamed TV';
+      _purchaseItems[itemIndex].brand = tvModel['brand'] ?? '';
+      _purchaseItems[itemIndex].rate = (tvModel['price'] ?? 0).toDouble();
 
       // Collapse all other items and expand only this one
       for (var key in _showEditSections.keys) {
@@ -900,198 +875,32 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     });
   }
 
-  Future<double?> _showSetPurchaseRateDialog(String productName) async {
-    final rateController = TextEditingController();
-    double? purchaseRate;
-
-    return await showDialog<double>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) {
-          purchaseRate = double.tryParse(rateController.text);
-
-          return AlertDialog(
-            title: Text(
-              'Set Purchase Rate',
-              style: TextStyle(color: _primaryGreen, fontSize: 14),
-            ),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    productName,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade800,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Enter the purchase rate (cost price):',
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: rateController,
-                    style: const TextStyle(fontSize: 12),
-                    keyboardType: TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: InputDecoration(
-                      labelText: 'Purchase Rate',
-                      labelStyle: const TextStyle(fontSize: 11),
-                      hintText: 'Enter purchase rate...',
-                      hintStyle: const TextStyle(fontSize: 11),
-                      prefixText: '₹ ',
-                      border: const OutlineInputBorder(),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 10,
-                      ),
-                    ),
-                    autofocus: true,
-                    onChanged: (value) => setState(() {}),
-                  ),
-                  if (purchaseRate != null && purchaseRate! > 0)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.green.shade50,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Column(
-                          children: [
-                            _buildPriceCalculationRow(
-                              'Cost Price:',
-                              '₹${purchaseRate!.toStringAsFixed(2)}',
-                            ),
-                            _buildPriceCalculationRow(
-                              'GST (18%):',
-                              '₹${(purchaseRate! * 0.18).toStringAsFixed(2)}',
-                            ),
-                            const Divider(height: 12),
-                            _buildPriceCalculationRow(
-                              'Total Cost:',
-                              '₹${(purchaseRate! * 1.18).toStringAsFixed(2)}',
-                              isBold: true,
-                              color: _primaryGreen,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _productSearchController.clear();
-                  _filterProducts('');
-                },
-                child: const Text('Cancel', style: TextStyle(fontSize: 12)),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  if (purchaseRate != null && purchaseRate! > 0) {
-                    Navigator.pop(context, purchaseRate);
-                    _productSearchController.clear();
-                    _filterProducts('');
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Please enter a valid purchase rate',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _lightGreen,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                ),
-                child: const Text(
-                  'Set Purchase Rate',
-                  style: TextStyle(color: Colors.white, fontSize: 12),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildPriceCalculationRow(
-    String label,
-    String value, {
-    bool isBold = false,
-    Color? color,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
-          ),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: isBold ? FontWeight.w600 : FontWeight.normal,
-              color: color ?? Colors.grey.shade800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showAddProductDialog({String preFilledSearch = ''}) async {
+  Future<void> _showAddTvDialog({String preFilledSearch = ''}) async {
     final brandController = TextEditingController();
-    final productNameController = TextEditingController();
-    final purchaseRateController = TextEditingController();
+    final modelNameController = TextEditingController();
     final priceController = TextEditingController();
-    final hsnController = TextEditingController();
 
     final List<String> brandList = [
       'Samsung',
-      'Apple',
-      'OnePlus',
-      'Xiaomi',
-      'Oppo',
-      'Vivo',
-      'Realme',
-      'Nokia',
-      'Motorola',
-      'Google',
-      'Nothing',
-      'Asus',
       'LG',
       'Sony',
-      'Huawei',
+      'Mi',
+      'OnePlus',
+      'Realme',
+      'TCL',
+      'Thomson',
+      'Panasonic',
+      'Haier',
+      'VU',
+      'Motorola',
+      'Nokia',
+      'Hisense',
+      'Toshiba',
     ];
     String selectedBrand = '';
 
     if (preFilledSearch.isNotEmpty) {
-      productNameController.text = preFilledSearch;
+      modelNameController.text = preFilledSearch;
     }
 
     await showModalBottomSheet(
@@ -1124,11 +933,11 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.add_circle, color: Colors.white, size: 20),
+                        Icon(Icons.tv, color: Colors.white, size: 20),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'Add New Product',
+                            'Add New TV Model',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -1238,18 +1047,18 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                         ),
                         const SizedBox(height: 12),
                         _buildFormSection(
-                          label: 'Product Name *',
+                          label: 'Model Name *',
                           child: TextField(
-                            controller: productNameController,
+                            controller: modelNameController,
                             style: const TextStyle(fontSize: 12),
                             decoration: InputDecoration(
-                              hintText: 'e.g., Galaxy S23 5G',
+                              hintText: 'e.g., Mi TV 5X 55" 4K',
                               hintStyle: const TextStyle(fontSize: 11),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               prefixIcon: Icon(
-                                Icons.phone_android,
+                                Icons.tv,
                                 color: _primaryGreen,
                                 size: 18,
                               ),
@@ -1258,145 +1067,61 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                         ),
                         const SizedBox(height: 12),
                         _buildFormSection(
-                          label: 'HSN Code *',
+                          label: 'Price *',
                           child: TextField(
-                            controller: hsnController,
+                            controller: priceController,
                             style: const TextStyle(fontSize: 12),
-                            keyboardType: TextInputType.number,
+                            keyboardType: TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
                             decoration: InputDecoration(
-                              hintText: 'e.g., 85171300',
+                              hintText: 'Enter price',
                               hintStyle: const TextStyle(fontSize: 11),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
+                              prefixText: '₹ ',
                               prefixIcon: Icon(
-                                Icons.tag,
+                                Icons.currency_rupee,
                                 color: _primaryGreen,
                                 size: 18,
                               ),
                             ),
                           ),
                         ),
-                        const SizedBox(height: 6),
-                        Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF3F51B5).withOpacity(0.05),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.info_outline,
-                                size: 14,
-                                color: const Color(0xFF3F51B5),
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  'Common HSN for mobiles: 85171300 (18% GST)',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: const Color(0xFF3F51B5),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
                         const SizedBox(height: 12),
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.green.shade50,
+                            color: Colors.blue.shade50,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: _lightGreen.withOpacity(0.3),
+                              color: Colors.blue.withOpacity(0.3),
                             ),
                           ),
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                'Pricing Information',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: _primaryGreen,
-                                ),
+                              _buildPriceInfoRow(
+                                'Price:',
+                                priceController.text.isNotEmpty
+                                    ? '₹${double.tryParse(priceController.text)?.toStringAsFixed(2) ?? '0.00'}'
+                                    : '₹0.00',
                               ),
-                              const SizedBox(height: 12),
-                              _buildFormSection(
-                                label: 'Purchase Rate (Cost Price) *',
-                                child: TextField(
-                                  controller: purchaseRateController,
-                                  style: const TextStyle(fontSize: 12),
-                                  keyboardType: TextInputType.numberWithOptions(
-                                    decimal: true,
-                                  ),
-                                  decoration: InputDecoration(
-                                    hintText: 'Enter purchase rate',
-                                    hintStyle: const TextStyle(fontSize: 11),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    prefixText: '₹ ',
-                                  ),
-                                  onChanged: (value) => setState(() {}),
-                                ),
+                              _buildPriceInfoRow(
+                                'GST (18%):',
+                                priceController.text.isNotEmpty
+                                    ? '₹${(double.tryParse(priceController.text)! * 0.18).toStringAsFixed(2)}'
+                                    : '₹0.00',
                               ),
-                              const SizedBox(height: 12),
-                              _buildFormSection(
-                                label: 'Selling Price *',
-                                child: TextField(
-                                  controller: priceController,
-                                  style: const TextStyle(fontSize: 12),
-                                  keyboardType: TextInputType.numberWithOptions(
-                                    decimal: true,
-                                  ),
-                                  decoration: InputDecoration(
-                                    hintText: 'Enter selling price',
-                                    hintStyle: const TextStyle(fontSize: 11),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    prefixText: '₹ ',
-                                  ),
-                                  onChanged: (value) => setState(() {}),
-                                ),
+                              const Divider(height: 12),
+                              _buildPriceInfoRow(
+                                'Total with GST:',
+                                priceController.text.isNotEmpty
+                                    ? '₹${(double.tryParse(priceController.text)! * 1.18).toStringAsFixed(2)}'
+                                    : '₹0.00',
+                                isBold: true,
+                                color: _primaryGreen,
                               ),
-                              if (purchaseRateController.text.isNotEmpty &&
-                                  priceController.text.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 12),
-                                  child: Container(
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: Column(
-                                      children: [
-                                        _buildPriceRow(
-                                          'Cost:',
-                                          purchaseRateController.text,
-                                        ),
-                                        _buildPriceRow(
-                                          'Selling:',
-                                          priceController.text,
-                                        ),
-                                        const Divider(height: 10),
-                                        _buildPriceRow(
-                                          'Margin:',
-                                          '₹${(double.tryParse(priceController.text) ?? 0 - (double.tryParse(purchaseRateController.text) ?? 0)).toStringAsFixed(2)} '
-                                              '(${(((double.tryParse(priceController.text) ?? 0) - (double.tryParse(purchaseRateController.text) ?? 0)) / (double.tryParse(purchaseRateController.text) ?? 1) * 100).toStringAsFixed(1)}%)',
-                                          color: _lightGreen,
-                                          isBold: true,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
                             ],
                           ),
                         ),
@@ -1432,24 +1157,20 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                         Expanded(
                           child: ElevatedButton(
                             onPressed: () async {
-                              if (_validateProductForm(
+                              if (_validateTvForm(
                                 selectedBrand,
-                                productNameController,
-                                hsnController,
-                                purchaseRateController,
+                                modelNameController,
                                 priceController,
                               )) {
                                 try {
-                                  await _saveProduct(
+                                  await _saveTvModel(
                                     selectedBrand,
-                                    productNameController,
-                                    hsnController,
-                                    purchaseRateController,
+                                    modelNameController,
                                     priceController,
                                   );
                                   Navigator.pop(context);
                                 } catch (e) {
-                                  // Error handled in _saveProduct
+                                  // Error handled in _saveTvModel
                                 }
                               }
                             },
@@ -1462,7 +1183,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                               ),
                             ),
                             child: const Text(
-                              'Save Product',
+                              'Save TV Model',
                               style: TextStyle(fontSize: 12),
                             ),
                           ),
@@ -1477,83 +1198,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         },
       ),
     );
-  }
-
-  bool _validateProductForm(
-    String selectedBrand,
-    TextEditingController productNameController,
-    TextEditingController hsnController,
-    TextEditingController purchaseRateController,
-    TextEditingController priceController,
-  ) {
-    if (selectedBrand.isEmpty) {
-      _showErrorSnackbar('Please select a brand');
-      return false;
-    }
-    if (productNameController.text.isEmpty) {
-      _showErrorSnackbar('Please enter product name');
-      return false;
-    }
-    if (hsnController.text.isEmpty) {
-      _showErrorSnackbar('Please enter HSN code');
-      return false;
-    }
-    if (purchaseRateController.text.isEmpty) {
-      _showErrorSnackbar('Please enter purchase rate');
-      return false;
-    }
-    if (priceController.text.isEmpty) {
-      _showErrorSnackbar('Please enter selling price');
-      return false;
-    }
-
-    final purchaseRate = double.tryParse(purchaseRateController.text);
-    final price = double.tryParse(priceController.text);
-
-    if (purchaseRate == null || purchaseRate <= 0) {
-      _showErrorSnackbar('Please enter a valid purchase rate');
-      return false;
-    }
-    if (price == null || price <= 0) {
-      _showErrorSnackbar('Please enter a valid selling price');
-      return false;
-    }
-    if (price <= purchaseRate) {
-      _showErrorSnackbar('Selling price must be greater than purchase rate');
-      return false;
-    }
-
-    return true;
-  }
-
-  Future<void> _saveProduct(
-    String selectedBrand,
-    TextEditingController productNameController,
-    TextEditingController hsnController,
-    TextEditingController purchaseRateController,
-    TextEditingController priceController,
-  ) async {
-    try {
-      final productData = {
-        'brand': selectedBrand,
-        'productName': productNameController.text.trim(),
-        'hsnCode': hsnController.text.trim(),
-        'purchaseRate': double.parse(purchaseRateController.text),
-        'price': double.parse(priceController.text),
-        'stockQuantity': 0,
-        'createdAt': DateTime.now(),
-      };
-
-      await _firestoreService.addProduct(productData);
-      await _fetchProducts();
-
-      _productSearchController.clear();
-      _filterProducts('');
-
-      _showSuccessSnackbar('Product added successfully');
-    } catch (e) {
-      _showErrorSnackbar('Error adding product: $e');
-    }
   }
 
   Widget _buildFormSection({required String label, required Widget child}) {
@@ -1574,11 +1218,11 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     );
   }
 
-  Widget _buildPriceRow(
+  Widget _buildPriceInfoRow(
     String label,
     String value, {
-    Color? color,
     bool isBold = false,
+    Color? color,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
@@ -1593,13 +1237,67 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
             value,
             style: TextStyle(
               fontSize: 11,
-              color: color ?? Colors.grey.shade800,
               fontWeight: isBold ? FontWeight.w600 : FontWeight.normal,
+              color: color ?? Colors.grey.shade800,
             ),
           ),
         ],
       ),
     );
+  }
+
+  bool _validateTvForm(
+    String selectedBrand,
+    TextEditingController modelNameController,
+    TextEditingController priceController,
+  ) {
+    if (selectedBrand.isEmpty) {
+      _showErrorSnackbar('Please select a brand');
+      return false;
+    }
+    if (modelNameController.text.isEmpty) {
+      _showErrorSnackbar('Please enter model name');
+      return false;
+    }
+    if (priceController.text.isEmpty) {
+      _showErrorSnackbar('Please enter price');
+      return false;
+    }
+
+    final price = double.tryParse(priceController.text);
+    if (price == null || price <= 0) {
+      _showErrorSnackbar('Please enter a valid price');
+      return false;
+    }
+
+    return true;
+  }
+
+  Future<void> _saveTvModel(
+    String selectedBrand,
+    TextEditingController modelNameController,
+    TextEditingController priceController,
+  ) async {
+    try {
+      final tvModelData = {
+        'brand': selectedBrand,
+        'modelName': modelNameController.text.trim(),
+        'price': double.parse(priceController.text),
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      await FirebaseFirestore.instance.collection('tvModels').add(tvModelData);
+
+      await _fetchTvModels();
+
+      _tvSearchController.clear();
+      _filterTvModels('');
+
+      _showSuccessSnackbar('TV model added successfully');
+    } catch (e) {
+      _showErrorSnackbar('Error adding TV model: $e');
+    }
   }
 
   Future<String?> _showAddBrandDialog() async {
@@ -1647,19 +1345,20 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     );
   }
 
+  // FIXED: Changed parameter name from serialIndex to imeiIndex to match CreatePurchaseForm expectations
   Future<void> _showScannerDialog(int itemIndex, {int? imeiIndex}) async {
     _currentScanItemIndex = itemIndex;
-    _currentScanImeiIndex = imeiIndex;
+    _currentScanSerialIndex = imeiIndex; // Map imeiIndex to serialIndex
 
     final result = await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => CreatePurchaseScanner(
           itemIndex: itemIndex,
-          imeiIndex: imeiIndex,
+          imeiIndex: imeiIndex, // Keep as imeiIndex for the scanner
           currentSerial:
               imeiIndex != null &&
-                  (_itemImeis[itemIndex]?.length ?? 0) > imeiIndex
-              ? _itemImeis[itemIndex]![imeiIndex]
+                  (_itemSerials[itemIndex]?.length ?? 0) > imeiIndex
+              ? _itemSerials[itemIndex]![imeiIndex]
               : null,
         ),
       ),
@@ -1670,11 +1369,13 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     }
   }
 
+  // FIXED: Changed parameter name from serialIndex to imeiIndex to match CreatePurchaseForm expectations
   Future<void> _showManualSerialEntry(int itemIndex, {int? imeiIndex}) async {
     final serialController = TextEditingController(
       text:
-          imeiIndex != null && (_itemImeis[itemIndex]?.length ?? 0) > imeiIndex
-          ? _itemImeis[itemIndex]![imeiIndex]
+          imeiIndex != null &&
+              (_itemSerials[itemIndex]?.length ?? 0) > imeiIndex
+          ? _itemSerials[itemIndex]![imeiIndex]
           : '',
     );
 
@@ -1691,21 +1392,21 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Enter IMEI or Serial Number for inventory tracking',
+              'Enter Serial Number for TV inventory tracking',
               style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
             ),
             const SizedBox(height: 10),
             TextField(
               controller: serialController,
-              maxLength: 30,
+              maxLength: 50,
               style: const TextStyle(fontSize: 12),
               decoration: InputDecoration(
-                hintText: 'Enter IMEI/Serial number...',
+                hintText: 'Enter Serial number...',
                 hintStyle: const TextStyle(fontSize: 11),
                 border: const OutlineInputBorder(),
                 counterText: '',
                 prefixIcon: Icon(
-                  Icons.smartphone,
+                  Icons.confirmation_number,
                   color: _primaryGreen,
                   size: 18,
                 ),
@@ -1723,7 +1424,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'For mobile phones: IMEI (15 digits). For other products: Serial Number (3-30 characters)',
+                    'TV Serial Number (3-50 characters)',
                     style: TextStyle(fontSize: 9, color: Colors.grey.shade600),
                   ),
                 ),
@@ -1736,8 +1437,8 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
             TextButton(
               onPressed: () {
                 setState(() {
-                  if ((_itemImeis[itemIndex]?.length ?? 0) > imeiIndex) {
-                    _itemImeis[itemIndex]!.removeAt(imeiIndex);
+                  if ((_itemSerials[itemIndex]?.length ?? 0) > imeiIndex) {
+                    _itemSerials[itemIndex]!.removeAt(imeiIndex);
                   }
                 });
                 Navigator.pop(context);
@@ -1769,13 +1470,13 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                 setState(() {
                   if (imeiIndex != null) {
                     // Edit existing serial
-                    if ((_itemImeis[itemIndex]?.length ?? 0) > imeiIndex) {
-                      _itemImeis[itemIndex]![imeiIndex] = serial;
+                    if ((_itemSerials[itemIndex]?.length ?? 0) > imeiIndex) {
+                      _itemSerials[itemIndex]![imeiIndex] = serial;
                     }
                   } else {
                     // Add new serial
-                    _itemImeis[itemIndex] ??= [];
-                    _itemImeis[itemIndex]!.add(serial);
+                    _itemSerials[itemIndex] ??= [];
+                    _itemSerials[itemIndex]!.add(serial);
                   }
                 });
                 _showSuccessSnackbar(
@@ -1783,7 +1484,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                 );
               } else {
                 _showErrorSnackbar(
-                  'Serial must be 3-30 characters (${serial.length}/30)',
+                  'Serial must be 3-50 characters (${serial.length}/50)',
                 );
               }
             },
@@ -1807,30 +1508,30 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
 
       if (!_isValidSerialNumber(trimmedValue)) {
         _showErrorSnackbar(
-          'Invalid Serial. Must be 3-30 characters. Scanned: ${trimmedValue.substring(0, math.min(trimmedValue.length, 20))}...',
+          'Invalid Serial. Must be 3-50 characters. Scanned: ${trimmedValue.substring(0, math.min(trimmedValue.length, 20))}...',
         );
         return;
       }
 
       setState(() {
-        if (_currentScanImeiIndex != null) {
+        if (_currentScanSerialIndex != null) {
           // Update specific serial
-          if ((_itemImeis[_currentScanItemIndex!]?.length ?? 0) >
-              _currentScanImeiIndex!) {
-            _itemImeis[_currentScanItemIndex!]![_currentScanImeiIndex!] =
+          if ((_itemSerials[_currentScanItemIndex!]?.length ?? 0) >
+              _currentScanSerialIndex!) {
+            _itemSerials[_currentScanItemIndex!]![_currentScanSerialIndex!] =
                 trimmedValue;
           }
         } else {
           // Add new serial
-          _itemImeis[_currentScanItemIndex!] ??= [];
-          _itemImeis[_currentScanItemIndex!]!.add(trimmedValue);
+          _itemSerials[_currentScanItemIndex!] ??= [];
+          _itemSerials[_currentScanItemIndex!]!.add(trimmedValue);
         }
       });
 
       _showSuccessSnackbar('Serial scanned successfully ✓');
     }
     _currentScanItemIndex = null;
-    _currentScanImeiIndex = null;
+    _currentScanSerialIndex = null;
   }
 
   Future<void> _savePurchase() async {
@@ -1838,7 +1539,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     _togglePreview();
   }
 
-  // UPDATED: Complete method with phone stock creation
+  // Updated method for TV purchase with tvStock creation
   Future<void> _confirmAndSavePurchase() async {
     if (_formKey.currentState!.validate() &&
         _selectedSupplier != null &&
@@ -1856,22 +1557,22 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
           return;
         }
 
-        final requiredImeiCount = item.quantity!.toInt();
-        final itemImeis = _itemImeis[i] ?? [];
+        final requiredSerialCount = item.quantity!.toInt();
+        final itemSerials = _itemSerials[i] ?? [];
 
-        // Check if IMEI count matches quantity
-        if (itemImeis.length != requiredImeiCount) {
+        // Check if serial count matches quantity
+        if (itemSerials.length != requiredSerialCount) {
           _showErrorSnackbar(
-            'Item ${i + 1}: Quantity is $requiredImeiCount, but you have ${itemImeis.length} Serial Numbers. Please add ${requiredImeiCount - itemImeis.length} more.',
+            'Item ${i + 1}: Quantity is $requiredSerialCount, but you have ${itemSerials.length} Serial Numbers. Please add ${requiredSerialCount - itemSerials.length} more.',
           );
           return;
         }
 
-        for (var j = 0; j < requiredImeiCount; j++) {
-          final serial = itemImeis[j];
+        for (var j = 0; j < requiredSerialCount; j++) {
+          final serial = itemSerials[j];
           if (serial.isEmpty || !_isValidSerialNumber(serial)) {
             _showErrorSnackbar(
-              'Item ${i + 1}, Serial ${j + 1}: Invalid serial number (must be 3-30 characters)',
+              'Item ${i + 1}, Serial ${j + 1}: Invalid serial number (must be 3-50 characters)',
             );
             return;
           }
@@ -1887,7 +1588,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
           return;
         }
 
-        // Create purchase data
+        // Create purchase data for tvPurchase collection
         final purchaseData = {
           'supplierId': _selectedSupplier!['id'],
           'supplierName': _selectedSupplier!['name'],
@@ -1903,7 +1604,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
             final index = entry.key;
             final item = entry.value;
             final itemMap = item.toMap();
-            itemMap['imeis'] = _itemImeis[index] ?? [];
+            itemMap['serials'] = _itemSerials[index] ?? [];
             return itemMap;
           }).toList(),
           // User tracking fields
@@ -1914,25 +1615,28 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
           'createdAt': FieldValue.serverTimestamp(),
         };
 
-        // Create the purchase record
-        final purchaseId = await _firestoreService.createPurchase(purchaseData);
+        // Create the purchase record in tvPurchase collection
+        final purchaseRef = await FirebaseFirestore.instance
+            .collection('tvPurchase')
+            .add(purchaseData);
+        final purchaseId = purchaseRef.id;
 
-        // Create phone stock entries for each IMEI/serial number
-        final List<Map<String, dynamic>> phoneStockList = [];
+        // Create TV stock entries for each serial number in tvStock collection
+        final List<Map<String, dynamic>> tvStockList = [];
 
         for (var i = 0; i < _purchaseItems.length; i++) {
           final item = _purchaseItems[i];
-          final itemImeis = _itemImeis[i] ?? [];
+          final itemSerials = _itemSerials[i] ?? [];
 
-          for (var j = 0; j < itemImeis.length; j++) {
-            final imei = itemImeis[j];
+          for (var j = 0; j < itemSerials.length; j++) {
+            final serial = itemSerials[j];
 
-            final phoneStockData = {
+            final tvStockData = {
               'createdAt': FieldValue.serverTimestamp(),
-              'imei': imei,
-              'productBrand': item.brand ?? '',
-              'productName': item.productName ?? '',
-              'productPrice': item.rate ?? 0,
+              'serialNumber': serial,
+              'modelBrand': item.brand ?? '',
+              'modelName': item.productName ?? '',
+              'modelPrice': item.rate ?? 0,
               'shopId': user.shopId,
               'shopName': user.shopName,
               'status': 'available',
@@ -1944,43 +1648,42 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
               'supplierId': _selectedSupplier!['id'],
               'supplierName': _selectedSupplier!['name'],
               'productId': item.productId,
-              'hsnCode': item.hsnCode,
             };
 
-            phoneStockList.add(phoneStockData);
+            tvStockList.add(tvStockData);
           }
         }
 
-        // Add all phone stock entries in batch
-        if (phoneStockList.isNotEmpty) {
-          await _firestoreService.addMultiplePhoneStock(phoneStockList);
+        // Add all TV stock entries in batch
+        if (tvStockList.isNotEmpty) {
+          final batch = FirebaseFirestore.instance.batch();
+          for (var tvStock in tvStockList) {
+            final docRef = FirebaseFirestore.instance
+                .collection('tvStock')
+                .doc();
+            batch.set(docRef, tvStock);
+          }
+          await batch.commit();
         }
 
-        // Update product stock counts
+        // Update TV model if needed (optional)
         for (var i = 0; i < _purchaseItems.length; i++) {
           final item = _purchaseItems[i];
           if (item.productId != null) {
-            if (item.rate != null) {
-              await _firestoreService.updateProductPurchaseRate(
-                item.productId!,
-                item.rate!,
-              );
-            }
-            if (item.hsnCode != null && item.hsnCode!.isNotEmpty) {
-              await _firestoreService.updateProductHsnCode(
-                item.productId!,
-                item.hsnCode!,
-              );
-            }
-            await _firestoreService.updateProductStock(
-              item.productId!,
-              item.quantity!.toInt(),
-            );
+            // Optionally update last purchase price or increment stock count
+            await FirebaseFirestore.instance
+                .collection('tvModels')
+                .doc(item.productId)
+                .update({
+                  'updatedAt': FieldValue.serverTimestamp(),
+                  // You could add a 'stock' field if you want to track total stock in the model
+                  // 'stock': FieldValue.increment(item.quantity!.toInt()),
+                });
           }
         }
 
         _showSuccessSnackbar(
-          'Purchase saved successfully with ${phoneStockList.length} items',
+          'TV Purchase saved successfully with ${tvStockList.length} items',
         );
 
         // Navigate to PurchaseHistoryScreen after successful save

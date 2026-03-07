@@ -37,7 +37,7 @@ class _TvStockScreenState extends State<TvStockScreen>
 
   final List<String> _brands = [
     'Mi',
-    'gadza',
+    'gadzo',
     'Mr.plus',
     'Samsung',
     'LG',
