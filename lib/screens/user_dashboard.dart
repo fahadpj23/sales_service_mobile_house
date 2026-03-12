@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:sales_stock/screens/user/inventory/base_model_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/tv_stock_screen.dart';
-import 'package:sales_stock/screens/user/purchase/create_purchase_screen.dart';
+import 'package:sales_stock/screens/user/purchase/accessories_purchase_Screen.dart';
+import 'package:sales_stock/screens/user/purchase/phone_purchase_screen.dart';
 import 'package:sales_stock/screens/user/purchase/supplier_form_screen.dart';
 import 'package:sales_stock/screens/user/purchase/tv_purchase_screen.dart';
 import 'package:sales_stock/screens/user/sale/gst_accessories_sale_upload.dart';
@@ -1630,7 +1631,7 @@ class _UserDashboardState extends State<UserDashboard> {
                                       context,
                                       MaterialPageRoute(
                                         builder: (context) =>
-                                            const CreatePurchaseScreen(),
+                                            const PhonePurchaseScreen(),
                                       ),
                                     );
                                   },
@@ -1654,7 +1655,24 @@ class _UserDashboardState extends State<UserDashboard> {
                                     );
                                   },
                                 ),
-
+                                _buildDrawerTile(
+                                  icon: Icons
+                                      .headphones, // or Icons.watch, Icons.cases, etc.
+                                  title: 'Accessories Purchase Upload',
+                                  color: Colors
+                                      .teal
+                                      .shade700, // Using teal color for distinction
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            const CreateAccessoryPurchaseScreen(),
+                                      ),
+                                    );
+                                  },
+                                ),
                                 // Add Supplier
                                 _buildDrawerTile(
                                   icon: Icons.person_add,

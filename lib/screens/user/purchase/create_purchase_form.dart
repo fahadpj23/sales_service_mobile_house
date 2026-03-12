@@ -35,7 +35,6 @@ class CreatePurchaseForm extends StatelessWidget {
   final void Function(int, String) updateItemQuantity;
   final void Function(int, String) updateItemRate;
   final void Function(int, String) updateItemDiscount;
-  final void Function(int, String) updateItemHsnCode;
 
   const CreatePurchaseForm({
     Key? key,
@@ -71,7 +70,6 @@ class CreatePurchaseForm extends StatelessWidget {
     required this.updateItemQuantity,
     required this.updateItemRate,
     required this.updateItemDiscount,
-    required this.updateItemHsnCode,
   }) : super(key: key);
 
   Widget _buildPurchaseItemCard(int index) {
@@ -109,6 +107,7 @@ class CreatePurchaseForm extends StatelessWidget {
       ),
       child: Column(
         children: [
+          // Header Section - Shows product name and price (always visible)
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -140,30 +139,89 @@ class CreatePurchaseForm extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        item.productName ?? 'No Product Selected',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: item.productName != null
-                              ? Colors.grey.shade800
-                              : Colors.grey.shade400,
+                      if (item.productId != null) ...[
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                item.productName ?? 'No Product Selected',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey.shade800,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: primaryGreen.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                '₹${item.rate?.toStringAsFixed(2) ?? "0.00"}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: primaryGreen,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (item.brand != null)
-                        Text(
-                          item.brand!,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey.shade600,
+                      ] else
+                        // Show select product button only when no product is selected
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () => showProductSelection(index),
+                            borderRadius: BorderRadius.circular(6),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: primaryGreen.withOpacity(0.05),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: primaryGreen.withOpacity(0.3),
+                                  width: 1,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.add_circle_outline,
+                                    size: 16,
+                                    color: primaryGreen,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Tap to select product *',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: primaryGreen,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                     ],
                   ),
                 ),
-                if (item.productId != null)
+                // Only show expand/collapse and delete buttons when product is selected
+                if (item.productId != null) ...[
                   IconButton(
                     onPressed: () => toggleEditSection(index),
                     icon: Icon(
@@ -171,587 +229,436 @@ class CreatePurchaseForm extends StatelessWidget {
                       color: primaryGreen,
                       size: 18,
                     ),
-                    padding: EdgeInsets.zero,
+                    padding: const EdgeInsets.all(8),
                     constraints: const BoxConstraints(),
                   ),
-                if (purchaseItems.length > 1)
-                  IconButton(
-                    onPressed: () => removeItem(index),
-                    icon: const Icon(
-                      Icons.delete_outline,
-                      color: Colors.red,
-                      size: 18,
+                  if (purchaseItems.length > 1)
+                    IconButton(
+                      onPressed: () => removeItem(index),
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.red,
+                        size: 18,
+                      ),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
                     ),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
+                ],
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              children: [
-                GestureDetector(
-                  onTap: () => showProductSelection(index),
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: item.productId != null
-                            ? lightGreen
-                            : Colors.grey.shade300,
-                        width: 1.5,
+
+          // Content Section - Only show when product is selected
+          if (item.productId != null)
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  // Quick Summary when collapsed
+                  if (!showEditSection) ...[
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey.shade200),
                       ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.phone_android,
-                          color: item.productId != null
-                              ? lightGreen
-                              : Colors.grey.shade400,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                item.productName ?? 'Tap to select product *',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                  color: item.productId != null
-                                      ? Colors.grey.shade800
-                                      : Colors.grey.shade500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Icon(
-                          Icons.arrow_forward_ios,
-                          size: 14,
-                          color: Colors.grey,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                if (item.productId != null && !showEditSection) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey.shade200),
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Quantity:',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.grey.shade700,
-                              ),
-                            ),
-                            Text(
-                              '${item.quantity ?? 0}',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: primaryGreen,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Rate:',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.grey.shade700,
-                              ),
-                            ),
-                            Text(
-                              '₹${item.rate?.toStringAsFixed(2) ?? "0.00"}',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: primaryGreen,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        if (item.discountPercentage != null &&
-                            item.discountPercentage! > 0)
+                      child: Column(
+                        children: [
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
-                                'Discount:',
+                                'Quantity:',
                                 style: TextStyle(
                                   fontSize: 10,
                                   color: Colors.grey.shade700,
                                 ),
                               ),
                               Text(
-                                '${item.discountPercentage!.toStringAsFixed(1)}%',
+                                '${item.quantity ?? 0}',
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w600,
-                                  color: Colors.orange,
+                                  color: primaryGreen,
                                 ),
                               ),
                             ],
                           ),
-                        const SizedBox(height: 6),
-                        Divider(height: 1, color: Colors.grey.shade300),
-                        const SizedBox(height: 6),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Item Total:',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.grey.shade800,
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Rate:',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey.shade700,
+                                ),
                               ),
-                            ),
-                            Text(
-                              '₹${itemTotal.toStringAsFixed(2)}',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: primaryGreen,
+                              Text(
+                                '₹${item.rate?.toStringAsFixed(2) ?? "0.00"}',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: primaryGreen,
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Serials:',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.grey.shade700,
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Divider(height: 1, color: Colors.grey.shade300),
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Item Total:',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey.shade800,
+                                ),
                               ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
+                              Text(
+                                '₹${itemTotal.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: primaryGreen,
+                                ),
                               ),
-                              decoration: BoxDecoration(
-                                color: currentImeiCount == requiredImeiCount
-                                    ? lightGreen.withOpacity(0.1)
-                                    : Colors.amber.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(4),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Serials:',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey.shade700,
+                                ),
                               ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: currentImeiCount == requiredImeiCount
+                                      ? lightGreen.withOpacity(0.1)
+                                      : Colors.amber.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  '$currentImeiCount/$requiredImeiCount',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w600,
+                                    color: currentImeiCount == requiredImeiCount
+                                        ? lightGreen
+                                        : Colors.amber,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (currentImeiCount != requiredImeiCount)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
                               child: Text(
-                                '$currentImeiCount/$requiredImeiCount',
+                                currentImeiCount < requiredImeiCount
+                                    ? 'Need ${requiredImeiCount - currentImeiCount} more serial${requiredImeiCount - currentImeiCount > 1 ? 's' : ''}'
+                                    : 'Too many serials (remove ${currentImeiCount - requiredImeiCount})',
                                 style: TextStyle(
                                   fontSize: 9,
-                                  fontWeight: FontWeight.w600,
-                                  color: currentImeiCount == requiredImeiCount
-                                      ? lightGreen
-                                      : Colors.amber,
+                                  color: Colors.amber.shade700,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                        if (currentImeiCount != requiredImeiCount)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              currentImeiCount < requiredImeiCount
-                                  ? 'Need ${requiredImeiCount - currentImeiCount} more serial${requiredImeiCount - currentImeiCount > 1 ? 's' : ''}'
-                                  : 'Too many serials (remove ${currentImeiCount - requiredImeiCount})',
-                              style: TextStyle(
-                                fontSize: 9,
-                                color: Colors.amber.shade700,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  // Edit Section
+                  if (showEditSection) ...[
+                    const SizedBox(height: 12),
+                    // Quantity and Rate fields only (removed discount)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildInputField(
+                            label: 'Quantity *',
+                            value: item.quantity?.toString(),
+                            onChanged: (value) =>
+                                updateItemQuantity(index, value),
+                            keyboardType: TextInputType.number,
                           ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _buildInputField(
+                            label: 'Rate *',
+                            value: item.rate?.toStringAsFixed(2),
+                            onChanged: (value) => updateItemRate(index, value),
+                            keyboardType: TextInputType.number,
+                            prefix: '₹',
+                          ),
+                        ),
                       ],
                     ),
-                  ),
-                ],
-                if (showEditSection && item.productId != null) ...[
-                  const SizedBox(height: 12),
-                  GridView.count(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 8,
-                    mainAxisSpacing: 8,
-                    childAspectRatio: 2,
-                    children: [
-                      _buildInputField(
-                        label: 'Quantity *',
-                        value: item.quantity?.toString(),
-                        onChanged: (value) => updateItemQuantity(index, value),
-                        keyboardType: TextInputType.number,
-                      ),
-                      _buildInputField(
-                        label: 'Rate *',
-                        value: item.rate?.toStringAsFixed(2),
-                        onChanged: (value) => updateItemRate(index, value),
-                        keyboardType: TextInputType.number,
-                        prefix: '₹',
-                      ),
-                      _buildInputField(
-                        label: 'Discount %',
-                        value: item.discountPercentage?.toStringAsFixed(1),
-                        onChanged: (value) => updateItemDiscount(index, value),
-                        keyboardType: TextInputType.number,
-                        suffix: '%',
-                      ),
-                      _buildInputField(
-                        label: 'HSN Code',
-                        value: item.hsnCode,
-                        onChanged: (value) => updateItemHsnCode(index, value),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.pink.withOpacity(0.05),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.pink.withOpacity(0.2)),
-                    ),
-                    child: Column(
+                    const SizedBox(height: 12),
+
+                    // Serial Number Section with Scan Option
+                    Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Icon(
-                              Icons.smartphone,
-                              color: Colors.pink,
-                              size: 16,
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                'Serial/IMEI Numbers *',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.pink,
-                                ),
+                            const Text(
+                              'Serial/IMEI Numbers',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
+                                horizontal: 8,
+                                vertical: 4,
                               ),
                               decoration: BoxDecoration(
-                                color: currentImeiCount == requiredImeiCount
-                                    ? lightGreen
-                                    : Colors.amber,
-                                borderRadius: BorderRadius.circular(10),
+                                color: hasAllImeis ? lightGreen : Colors.amber,
+                                borderRadius: BorderRadius.circular(12),
                               ),
                               child: Text(
                                 '$currentImeiCount/$requiredImeiCount',
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 10,
+                                  fontSize: 11,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Required: $requiredImeiCount Serial${requiredImeiCount > 1 ? 's' : ''} (1 per unit)',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        if (itemImeisList.isNotEmpty)
-                          ...List.generate(itemImeisList.length, (imeiIndex) {
-                            final imei = itemImeisList[imeiIndex];
-                            final isValid =
-                                imei.isNotEmpty && isValidSerialNumber(imei);
+                        const SizedBox(height: 8),
 
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 6),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 20,
-                                    height: 20,
-                                    decoration: BoxDecoration(
-                                      color: isValid
-                                          ? lightGreen.withOpacity(0.1)
-                                          : Colors.grey.shade200,
-                                      borderRadius: BorderRadius.circular(5),
-                                    ),
-                                    child: Center(
-                                      child: Text(
-                                        '${imeiIndex + 1}',
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          fontWeight: FontWeight.w600,
-                                          color: isValid
-                                              ? lightGreen
-                                              : Colors.grey.shade500,
+                        // Individual serial number text fields with scan button
+                        ...List.generate(requiredImeiCount, (imeiIndex) {
+                          final currentSerial = imeiIndex < itemImeisList.length
+                              ? itemImeisList[imeiIndex]
+                              : '';
+
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: TextFormField(
+                                    initialValue: currentSerial,
+                                    style: const TextStyle(fontSize: 13),
+                                    decoration: InputDecoration(
+                                      hintText: 'Serial/IMEI #${imeiIndex + 1}',
+                                      hintStyle: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade400,
+                                      ),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide(
+                                          color: Colors.grey.shade300,
                                         ),
                                       ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: InkWell(
-                                      onTap: () => showManualSerialEntry(
-                                        index,
-                                        imeiIndex: imeiIndex,
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide(
+                                          color: Colors.grey.shade300,
+                                        ),
                                       ),
-                                      child: Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: isValid
-                                              ? lightGreen.withOpacity(0.05)
-                                              : Colors.white,
-                                          borderRadius: BorderRadius.circular(
-                                            6,
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide(
+                                          color: primaryGreen,
+                                          width: 2,
+                                        ),
+                                      ),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 12,
                                           ),
-                                          border: Border.all(
-                                            color: isValid
-                                                ? lightGreen
-                                                : Colors.grey.shade300,
-                                            width: 1.5,
-                                          ),
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                imei.isEmpty
-                                                    ? 'Tap to enter Serial'
-                                                    : imei,
-                                                style: TextStyle(
-                                                  fontSize: 10,
-                                                  color: imei.isEmpty
-                                                      ? Colors.grey.shade500
-                                                      : Colors.grey.shade800,
-                                                  fontWeight: isValid
-                                                      ? FontWeight.w500
-                                                      : FontWeight.normal,
-                                                ),
-                                              ),
-                                            ),
-                                            Icon(
-                                              isValid
-                                                  ? Icons.check_circle
-                                                  : Icons.edit,
-                                              size: 14,
-                                              color: isValid
-                                                  ? lightGreen
-                                                  : primaryGreen,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
                                     ),
+                                    onChanged: (value) {
+                                      // Update the serial in the list
+                                      final updatedSerials = List<String>.from(
+                                        itemImeisList,
+                                      );
+                                      while (updatedSerials.length <=
+                                          imeiIndex) {
+                                        updatedSerials.add('');
+                                      }
+                                      updatedSerials[imeiIndex] = value;
+                                      // This needs to be handled by the parent widget
+                                      // You'll need to implement a method to update serials
+                                    },
                                   ),
-                                  const SizedBox(width: 6),
-                                  IconButton(
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: lightGreen.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: IconButton(
                                     onPressed: () => showScannerDialog(
                                       index,
                                       imeiIndex: imeiIndex,
                                     ),
                                     icon: Icon(
                                       Icons.qr_code_scanner,
-                                      size: 16,
                                       color: primaryGreen,
+                                      size: 22,
                                     ),
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }),
-                        if (currentImeiCount < requiredImeiCount)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                onPressed: () => showScannerDialog(index),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.pink.withOpacity(0.1),
-                                  foregroundColor: Colors.pink,
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 6,
-                                  ),
-                                ),
-                                icon: const Icon(Icons.add, size: 14),
-                                label: const Text(
-                                  'Add Serial/IMEI',
-                                  style: TextStyle(fontSize: 11),
-                                ),
-                              ),
-                            ),
-                          ),
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: Text(
-                            currentImeiCount == requiredImeiCount &&
-                                    itemImeisList.every(
-                                      (imei) => isValidSerialNumber(imei),
-                                    )
-                                ? '✅ All Serial Numbers are valid'
-                                : '⚠️ ${requiredImeiCount - currentImeiCount} Serial${requiredImeiCount - currentImeiCount > 1 ? 's' : ''} remaining',
-                            style: TextStyle(
-                              fontSize: 9,
-                              color: currentImeiCount == requiredImeiCount
-                                  ? lightGreen
-                                  : Colors.amber,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (item.rate != null && item.quantity != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.indigo.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: Colors.indigo.withOpacity(0.2),
-                          ),
-                        ),
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  'Item Total:',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.grey.shade700,
-                                  ),
-                                ),
-                                Text(
-                                  '₹${(item.quantity! * item.rate!).toStringAsFixed(2)}',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: primaryGreen,
+                                    tooltip: 'Scan IMEI/Serial',
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 4),
-                            if (item.discountPercentage != null &&
-                                item.discountPercentage! > 0)
+                          );
+                        }),
+
+                        const SizedBox(height: 8),
+
+                        // Progress indicator
+                        LinearProgressIndicator(
+                          value: currentImeiCount / requiredImeiCount,
+                          backgroundColor: Colors.grey.shade200,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            hasAllImeis ? lightGreen : Colors.amber,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    // Item Total Summary
+                    if (item.rate != null && item.quantity != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.indigo.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: Colors.indigo.withOpacity(0.2),
+                            ),
+                          ),
+                          child: Column(
+                            children: [
                               Row(
                                 mainAxisAlignment:
                                     MainAxisAlignment.spaceBetween,
                                 children: [
                                   Text(
-                                    'Discount:',
+                                    'Subtotal:',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                  Text(
+                                    '₹${(item.quantity! * item.rate!).toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: primaryGreen,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              if (item.discountPercentage != null &&
+                                  item.discountPercentage! > 0)
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      'Discount:',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                    Text(
+                                      '-₹${((item.quantity! * item.rate!) * (item.discountPercentage! / 100)).toStringAsFixed(2)}',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.orange,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'GST (18%):',
                                     style: TextStyle(
                                       fontSize: 10,
                                       color: Colors.grey.shade600,
                                     ),
                                   ),
                                   Text(
-                                    '-₹${((item.quantity! * item.rate!) * (item.discountPercentage! / 100)).toStringAsFixed(2)}',
+                                    '₹${itemGst.toStringAsFixed(2)}',
                                     style: TextStyle(
                                       fontSize: 10,
-                                      color: Colors.orange,
+                                      color: Colors.indigo,
                                     ),
                                   ),
                                 ],
                               ),
-                            const SizedBox(height: 4),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  'GST (18%):',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.grey.shade600,
+                              const SizedBox(height: 6),
+                              Divider(height: 1, color: Colors.grey.shade300),
+                              const SizedBox(height: 6),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Total with GST:',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey.shade800,
+                                    ),
                                   ),
-                                ),
-                                Text(
-                                  '₹${itemGst.toStringAsFixed(2)}',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.indigo,
+                                  Text(
+                                    '₹${(itemTotal + itemGst).toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: primaryGreen,
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Divider(height: 1, color: Colors.grey.shade300),
-                            const SizedBox(height: 6),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  'Total with GST:',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.grey.shade800,
-                                  ),
-                                ),
-                                Text(
-                                  '₹${(itemTotal + itemGst).toStringAsFixed(2)}',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: primaryGreen,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -887,6 +794,7 @@ class CreatePurchaseForm extends StatelessWidget {
         key: formKey,
         child: Column(
           children: [
+            // Date Section
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -945,6 +853,8 @@ class CreatePurchaseForm extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
+
+            // Supplier Field
             GestureDetector(
               onTap: showSupplierSelection,
               child: AbsorbPointer(
@@ -968,6 +878,8 @@ class CreatePurchaseForm extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 10),
+
+            // Invoice Field
             _buildFormField(
               label: 'Invoice Number *',
               controller: invoiceController,
@@ -980,6 +892,8 @@ class CreatePurchaseForm extends StatelessWidget {
               },
             ),
             const SizedBox(height: 20),
+
+            // Items Header
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -1000,9 +914,13 @@ class CreatePurchaseForm extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
+
+            // Purchase Items List
             ...purchaseItems.asMap().entries.map((entry) {
               return _buildPurchaseItemCard(entry.key);
             }),
+
+            // Add Item Button
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 12),
               child: SizedBox(
@@ -1025,6 +943,8 @@ class CreatePurchaseForm extends StatelessWidget {
                 ),
               ),
             ),
+
+            // Order Summary
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -1079,12 +999,16 @@ class CreatePurchaseForm extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
+
+            // Notes Field
             _buildFormField(
               label: 'Notes',
               controller: notesController,
               maxLines: 2,
             ),
             const SizedBox(height: 20),
+
+            // Action Buttons
             Row(
               children: [
                 Expanded(

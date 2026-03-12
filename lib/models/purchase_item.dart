@@ -2,21 +2,25 @@ class PurchaseItem {
   String? productId;
   String? productName;
   String? brand;
+  String? hsnCode;
+  String? category; // Add this field
   double? quantity;
   double? rate;
   double? discountPercentage;
-  String? hsnCode;
   double? gstAmount;
+  List<String>? imeiNumbers;
 
   PurchaseItem({
     this.productId,
     this.productName,
     this.brand,
+    this.hsnCode,
+    this.category, // Add this
     this.quantity,
     this.rate,
     this.discountPercentage,
-    this.hsnCode,
     this.gstAmount,
+    this.imeiNumbers,
   });
 
   Map<String, dynamic> toMap() {
@@ -24,11 +28,13 @@ class PurchaseItem {
       'productId': productId,
       'productName': productName,
       'brand': brand,
+      'hsnCode': hsnCode,
+      'category': category, // Add this
       'quantity': quantity,
       'rate': rate,
       'discountPercentage': discountPercentage,
-      'hsnCode': hsnCode,
       'gstAmount': gstAmount,
+      'imeiNumbers': imeiNumbers,
     };
   }
 
@@ -37,11 +43,15 @@ class PurchaseItem {
       productId: map['productId'],
       productName: map['productName'],
       brand: map['brand'],
+      hsnCode: map['hsnCode'],
+      category: map['category'], // Add this
       quantity: map['quantity']?.toDouble(),
       rate: map['rate']?.toDouble(),
       discountPercentage: map['discountPercentage']?.toDouble(),
-      hsnCode: map['hsnCode'],
       gstAmount: map['gstAmount']?.toDouble(),
+      imeiNumbers: map['imeiNumbers'] != null
+          ? List<String>.from(map['imeiNumbers'])
+          : null,
     );
   }
 }

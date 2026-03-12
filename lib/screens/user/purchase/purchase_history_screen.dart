@@ -1,7 +1,7 @@
 // purchase_history_screen.dart
 import 'package:flutter/material.dart';
 import 'package:sales_stock/services/firestore_service.dart';
-import 'package:sales_stock/screens/user/purchase/create_purchase_screen.dart';
+import 'package:sales_stock/screens/user/purchase/phone_purchase_screen.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -288,8 +288,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (context) =>
-                                        CreatePurchaseScreen(),
+                                    builder: (context) => PhonePurchaseScreen(),
                                   ),
                                 ).then((_) => _refreshPurchases());
                               },
@@ -322,7 +321,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
         onPressed: () {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (context) => CreatePurchaseScreen()),
+            MaterialPageRoute(builder: (context) => PhonePurchaseScreen()),
           ).then((_) => _refreshPurchases());
         },
         backgroundColor: _primaryGreen,

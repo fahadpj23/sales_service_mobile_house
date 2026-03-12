@@ -11,17 +11,17 @@ import 'dart:math' as math;
 import '../../../providers/auth_provider.dart';
 import '../../../models/user_model.dart';
 
-class CreatePurchaseScreen extends StatefulWidget {
+class PhonePurchaseScreen extends StatefulWidget {
   // Keep the supplier parameter but make it optional
   final Map<String, dynamic>? supplier;
 
-  const CreatePurchaseScreen({Key? key, this.supplier}) : super(key: key);
+  const PhonePurchaseScreen({Key? key, this.supplier}) : super(key: key);
 
   @override
-  State<CreatePurchaseScreen> createState() => _CreatePurchaseScreenState();
+  State<PhonePurchaseScreen> createState() => _PhonePurchaseScreenState();
 }
 
-class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
+class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
   final FirestoreService _firestoreService = FirestoreService();
   final Color _primaryGreen = const Color(0xFF2E7D32);
   final Color _lightGreen = const Color(0xFF4CAF50);
@@ -170,6 +170,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         PurchaseItem(
           discountPercentage: 0.0,
           quantity: 1.0, // Default quantity to 1
+          hsnCode: '85171300', // Set default HSN code for mobiles
         ),
       );
       _itemImeis[newIndex] = [];
@@ -268,7 +269,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     return Scaffold(
       backgroundColor: _backgroundColor,
       appBar: AppBar(
-        title: const Text('Create Purchase'),
+        title: const Text('Phone Purchase'),
         backgroundColor: _primaryGreen,
         foregroundColor: Colors.white,
       ),
@@ -307,7 +308,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
             updateItemQuantity: _updateItemQuantity,
             updateItemRate: _updateItemRate,
             updateItemDiscount: _updateItemDiscount,
-            updateItemHsnCode: _updateItemHsnCode,
           ),
           if (_showPreview)
             Container(
@@ -372,12 +372,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
       });
       _calculateTotals();
     }
-  }
-
-  void _updateItemHsnCode(int index, String value) {
-    setState(() {
-      _purchaseItems[index].hsnCode = value;
-    });
   }
 
   // Methods that need to be accessible from child widgets
@@ -770,7 +764,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         product['purchaseRate'] > 0;
     final productName = product['productName'] ?? 'Unnamed Product';
     final brand = product['brand'] ?? '';
-    final hsnCode = product['hsnCode'] ?? '';
     final purchaseRate = product['purchaseRate'] ?? 0.0;
     final price = product['price'] ?? 0.0;
 
@@ -882,7 +875,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
       _purchaseItems[itemIndex].productName =
           product['productName'] ?? 'Unnamed Product';
       _purchaseItems[itemIndex].brand = product['brand'];
-      _purchaseItems[itemIndex].hsnCode = product['hsnCode'] ?? '';
+      _purchaseItems[itemIndex].hsnCode = '85171300'; // Set fixed HSN code
 
       final purchaseRate = product['purchaseRate'];
       if (purchaseRate != null && purchaseRate is num && purchaseRate > 0) {
@@ -1069,7 +1062,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     final productNameController = TextEditingController();
     final purchaseRateController = TextEditingController();
     final priceController = TextEditingController();
-    final hsnController = TextEditingController();
+    // HSN controller removed as we'll use fixed value
 
     final List<String> brandList = [
       'Samsung',
@@ -1257,29 +1250,9 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        _buildFormSection(
-                          label: 'HSN Code *',
-                          child: TextField(
-                            controller: hsnController,
-                            style: const TextStyle(fontSize: 12),
-                            keyboardType: TextInputType.number,
-                            decoration: InputDecoration(
-                              hintText: 'e.g., 85171300',
-                              hintStyle: const TextStyle(fontSize: 11),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              prefixIcon: Icon(
-                                Icons.tag,
-                                color: _primaryGreen,
-                                size: 18,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
+                        // HSN code info - showing fixed value
                         Container(
-                          padding: const EdgeInsets.all(6),
+                          padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
                             color: const Color(0xFF3F51B5).withOpacity(0.05),
                             borderRadius: BorderRadius.circular(6),
@@ -1293,11 +1266,22 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                               ),
                               const SizedBox(width: 6),
                               Expanded(
-                                child: Text(
-                                  'Common HSN for mobiles: 85171300 (18% GST)',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: const Color(0xFF3F51B5),
+                                child: RichText(
+                                  text: TextSpan(
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: const Color(0xFF3F51B5),
+                                    ),
+                                    children: const [
+                                      TextSpan(text: 'HSN Code: '),
+                                      TextSpan(
+                                        text: '85171300',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      TextSpan(text: ' (18% GST for mobiles)'),
+                                    ],
                                   ),
                                 ),
                               ),
@@ -1435,7 +1419,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                               if (_validateProductForm(
                                 selectedBrand,
                                 productNameController,
-                                hsnController,
                                 purchaseRateController,
                                 priceController,
                               )) {
@@ -1443,7 +1426,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                                   await _saveProduct(
                                     selectedBrand,
                                     productNameController,
-                                    hsnController,
                                     purchaseRateController,
                                     priceController,
                                   );
@@ -1482,7 +1464,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   bool _validateProductForm(
     String selectedBrand,
     TextEditingController productNameController,
-    TextEditingController hsnController,
     TextEditingController purchaseRateController,
     TextEditingController priceController,
   ) {
@@ -1492,10 +1473,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     }
     if (productNameController.text.isEmpty) {
       _showErrorSnackbar('Please enter product name');
-      return false;
-    }
-    if (hsnController.text.isEmpty) {
-      _showErrorSnackbar('Please enter HSN code');
       return false;
     }
     if (purchaseRateController.text.isEmpty) {
@@ -1529,7 +1506,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   Future<void> _saveProduct(
     String selectedBrand,
     TextEditingController productNameController,
-    TextEditingController hsnController,
     TextEditingController purchaseRateController,
     TextEditingController priceController,
   ) async {
@@ -1537,7 +1513,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
       final productData = {
         'brand': selectedBrand,
         'productName': productNameController.text.trim(),
-        'hsnCode': hsnController.text.trim(),
+        'hsnCode': '85171300', // Fixed HSN code for mobiles
         'purchaseRate': double.parse(purchaseRateController.text),
         'price': double.parse(priceController.text),
         'stockQuantity': 0,
@@ -1944,7 +1920,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
               'supplierId': _selectedSupplier!['id'],
               'supplierName': _selectedSupplier!['name'],
               'productId': item.productId,
-              'hsnCode': item.hsnCode,
+              'hsnCode': '85171300', // Fixed HSN code
             };
 
             phoneStockList.add(phoneStockData);
@@ -1966,12 +1942,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                 item.rate!,
               );
             }
-            if (item.hsnCode != null && item.hsnCode!.isNotEmpty) {
-              await _firestoreService.updateProductHsnCode(
-                item.productId!,
-                item.hsnCode!,
-              );
-            }
+            // No need to update HSN code as it's fixed
             await _firestoreService.updateProductStock(
               item.productId!,
               item.quantity!.toInt(),
@@ -1987,7 +1958,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (context) => PurchaseHistoryScreen()),
-          (route) => false, // Remove all previous routes from stack
+          (route) => false,
         );
       } catch (e) {
         _showErrorSnackbar('Error saving purchase: $e');

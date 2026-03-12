@@ -2,40 +2,43 @@ import 'package:flutter/material.dart';
 import 'package:sales_stock/models/purchase_item.dart';
 import 'package:sales_stock/screens/user/purchase/purchase_history_screen.dart';
 import 'package:sales_stock/services/firestore_service.dart';
-import 'package:sales_stock/screens/user/purchase/create_purchase_form.dart';
 import 'package:sales_stock/screens/user/purchase/create_purchase_preview.dart';
-import 'package:sales_stock/screens/user/purchase/create_purchase_scanner.dart';
+import 'package:sales_stock/screens/user/purchase/create_accessory_purchase_form.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'dart:math' as math;
 import '../../../providers/auth_provider.dart';
-import '../../../models/user_model.dart';
 
-class CreateTvPurchaseScreen extends StatefulWidget {
+class CreateAccessoryPurchaseScreen extends StatefulWidget {
   final Map<String, dynamic>? supplier;
 
-  const CreateTvPurchaseScreen({Key? key, this.supplier}) : super(key: key);
+  const CreateAccessoryPurchaseScreen({Key? key, this.supplier})
+    : super(key: key);
 
   @override
-  State<CreateTvPurchaseScreen> createState() => _CreateTvPurchaseScreenState();
+  State<CreateAccessoryPurchaseScreen> createState() =>
+      _CreateAccessoryPurchaseScreenState();
 }
 
-class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
+class _CreateAccessoryPurchaseScreenState
+    extends State<CreateAccessoryPurchaseScreen> {
   final FirestoreService _firestoreService = FirestoreService();
   final Color _primaryGreen = const Color(0xFF2E7D32);
   final Color _lightGreen = const Color(0xFF4CAF50);
   final Color _backgroundColor = const Color(0xFFF5F9F5);
+  final Color _accessoryColor = const Color(
+    0xFF9C27B0,
+  ); // Purple for accessories
 
   final _formKey = GlobalKey<FormState>();
   final _supplierController = TextEditingController();
   final _invoiceController = TextEditingController();
   final _notesController = TextEditingController();
-  final _tvSearchController = TextEditingController();
+  final _productSearchController = TextEditingController();
 
   DateTime _selectedDate = DateTime.now();
   List<Map<String, dynamic>> _suppliers = [];
-  List<Map<String, dynamic>> _tvModels = [];
-  List<Map<String, dynamic>> _filteredTvModels = [];
+  List<Map<String, dynamic>> _accessories = [];
+  List<Map<String, dynamic>> _filteredAccessories = [];
   Map<String, dynamic>? _selectedSupplier;
   List<PurchaseItem> _purchaseItems = [];
 
@@ -44,29 +47,27 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
   double _totalAmount = 0.0;
   double _totalDiscount = 0.0;
   double _roundOff = 0.0;
-  bool _isSearching = false;
-  int? _currentScanItemIndex;
-  int? _currentScanSerialIndex;
   Map<int, bool> _showEditSections = {};
   bool _showPreview = false;
-  Map<int, List<String>> _itemSerials = {};
 
   @override
   void initState() {
     super.initState();
     _fetchSuppliers();
-    _fetchTvModels();
+    _fetchAccessories();
     if (widget.supplier != null) {
       _selectedSupplier = widget.supplier;
       _supplierController.text = widget.supplier!['name'] ?? '';
     }
-    // Add one empty item initially
     _addNewItem();
   }
 
   @override
   void dispose() {
-    _tvSearchController.dispose();
+    _supplierController.dispose();
+    _invoiceController.dispose();
+    _notesController.dispose();
+    _productSearchController.dispose();
     super.dispose();
   }
 
@@ -75,40 +76,24 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
     setState(() {});
   }
 
-  Future<void> _fetchTvModels() async {
-    try {
-      // Fetch TV models from the "tvModels" collection
-      final snapshot = await FirebaseFirestore.instance
-          .collection('tvModels')
-          .orderBy('modelName')
-          .get();
-
-      _tvModels = snapshot.docs.map((doc) {
-        final data = doc.data();
-        data['id'] = doc.id;
-        return data;
-      }).toList();
-
-      _filteredTvModels = List.from(_tvModels);
-    } catch (e) {
-      print('Error fetching TV models: $e');
-      _tvModels = [];
-      _filteredTvModels = [];
-    }
+  Future<void> _fetchAccessories() async {
+    _accessories = await _firestoreService.getAccessories();
+    _filteredAccessories = List.from(_accessories);
     setState(() {});
   }
 
-  void _filterTvModels(String query) {
+  void _filterAccessories(String query) {
     if (query.isEmpty) {
-      _filteredTvModels = List.from(_tvModels);
+      _filteredAccessories = List.from(_accessories);
     } else {
       final searchQuery = query.toLowerCase().trim();
       final searchWords = searchQuery.split(' ');
 
-      _filteredTvModels = _tvModels.where((tvModel) {
-        final modelName = (tvModel['modelName'] ?? '').toString().toLowerCase();
-        final brand = (tvModel['brand'] ?? '').toString().toLowerCase();
-        final combinedText = '$modelName $brand';
+      _filteredAccessories = _accessories.where((accessory) {
+        final accessoryName = (accessory['accessoryName'] ?? '')
+            .toString()
+            .toLowerCase();
+        final combinedText = accessoryName;
 
         return searchWords.every((word) {
           if (word.isEmpty) return true;
@@ -129,12 +114,12 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: ColorScheme.light(
-              primary: _primaryGreen,
+              primary: _accessoryColor,
               onPrimary: Colors.white,
               onSurface: Colors.grey.shade800,
             ),
             textButtonTheme: TextButtonThemeData(
-              style: TextButton.styleFrom(foregroundColor: _primaryGreen),
+              style: TextButton.styleFrom(foregroundColor: _accessoryColor),
             ),
           ),
           child: child!,
@@ -179,20 +164,11 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
   void _addNewItem() {
     setState(() {
       final newIndex = _purchaseItems.length;
-      _purchaseItems.add(
-        PurchaseItem(
-          discountPercentage: 0.0,
-          quantity: 1.0, // Default quantity to 1
-        ),
-      );
-      _itemSerials[newIndex] = [];
+      _purchaseItems.add(PurchaseItem(discountPercentage: 0.0, quantity: 1.0));
 
-      // Collapse ALL existing items
       for (var key in _showEditSections.keys) {
         _showEditSections[key] = false;
       }
-
-      // Expand ONLY the new item
       _showEditSections[newIndex] = true;
     });
   }
@@ -202,26 +178,22 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
       setState(() {
         _purchaseItems.removeAt(index);
 
-        // Create new maps to reindex everything properly
+        // Rebuild indices for remaining items
         final newPurchaseItems = <PurchaseItem>[];
         final newShowEditSections = <int, bool>{};
-        final newItemSerials = <int, List<String>>{};
 
         for (int i = 0; i < _purchaseItems.length; i++) {
           newPurchaseItems.add(_purchaseItems[i]);
 
           if (i < index) {
             newShowEditSections[i] = _showEditSections[i] ?? false;
-            newItemSerials[i] = _itemSerials[i] ?? [];
           } else {
             newShowEditSections[i] = _showEditSections[i + 1] ?? false;
-            newItemSerials[i] = _itemSerials[i + 1] ?? [];
           }
         }
 
         _purchaseItems = newPurchaseItems;
         _showEditSections = newShowEditSections;
-        _itemSerials = newItemSerials;
 
         _calculateTotals();
       });
@@ -233,22 +205,12 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
       final currentState = _showEditSections[index] ?? false;
 
       if (!currentState) {
-        // If we're expanding this item, collapse all others first
         for (var key in _showEditSections.keys) {
           _showEditSections[key] = false;
         }
       }
-
-      // Toggle the current item
       _showEditSections[index] = !currentState;
     });
-  }
-
-  bool _isValidSerialNumber(String serial) {
-    // Serial number validation - allow various formats
-    // Minimum 3 characters, maximum 50 for TVs
-    final trimmed = serial.trim();
-    return trimmed.isNotEmpty && trimmed.length >= 3 && trimmed.length <= 50;
   }
 
   void _togglePreview() {
@@ -281,14 +243,15 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
     return Scaffold(
       backgroundColor: _backgroundColor,
       appBar: AppBar(
-        title: const Text('Create TV Purchase'),
-        backgroundColor: _primaryGreen,
+        title: const Text('Purchase Accessories'),
+        backgroundColor: _accessoryColor,
         foregroundColor: Colors.white,
+        elevation: 0,
       ),
       body: Stack(
         children: [
-          CreatePurchaseForm(
-            primaryGreen: _primaryGreen,
+          CreateAccessoryPurchaseForm(
+            primaryGreen: _accessoryColor,
             lightGreen: _lightGreen,
             formKey: _formKey,
             selectedDate: _selectedDate,
@@ -300,8 +263,6 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
             invoiceController: _invoiceController,
             notesController: _notesController,
             purchaseItems: _purchaseItems,
-            itemImeis:
-                _itemSerials, // Reusing the same structure but for serials
             showEditSections: _showEditSections,
             subtotal: _subtotal,
             totalDiscount: _totalDiscount,
@@ -311,28 +272,25 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
             addNewItem: _addNewItem,
             toggleEditSection: _toggleEditSection,
             removeItem: _removeItem,
-            showProductSelection: _showTvSelection,
-            showScannerDialog: _showScannerDialog,
-            showManualSerialEntry: _showManualSerialEntry,
-            onSerialScanned: _onScanComplete,
-            isValidSerialNumber: _isValidSerialNumber,
+            showProductSelection: _showAccessorySelection,
             togglePreview: _togglePreview,
             savePurchase: _savePurchase,
             updateItemQuantity: _updateItemQuantity,
             updateItemRate: _updateItemRate,
             updateItemDiscount: _updateItemDiscount,
+            // Removed updateItemHsnCode
           ),
           if (_showPreview)
             Container(
               color: Colors.black.withOpacity(0.5),
               child: CreatePurchasePreview(
-                primaryGreen: _primaryGreen,
+                primaryGreen: _accessoryColor,
                 lightGreen: _lightGreen,
                 selectedDate: _selectedDate,
                 selectedSupplier: _selectedSupplier,
                 invoiceController: _invoiceController,
                 purchaseItems: _purchaseItems,
-                itemImeis: _itemSerials,
+                itemImeis: {}, // Empty map since accessories don't need IMEI
                 subtotal: _subtotal,
                 totalDiscount: _totalDiscount,
                 gstAmount: _gstAmount,
@@ -340,7 +298,8 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
                 totalAmount: _totalAmount,
                 togglePreview: _togglePreview,
                 confirmAndSavePurchase: _confirmAndSavePurchase,
-                isValidSerialNumber: _isValidSerialNumber,
+                isValidSerialNumber: (s) => true,
+                hideSerialInfo: true, // Hide serial info in preview
               ),
             ),
         ],
@@ -348,20 +307,11 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
     );
   }
 
-  // Methods for form updates
   void _updateItemQuantity(int index, String value) {
     final quantity = double.tryParse(value);
     if (quantity != null && quantity > 0) {
       setState(() {
         _purchaseItems[index].quantity = quantity;
-        // Check if we need to adjust serials
-        final currentSerials = _itemSerials[index] ?? [];
-        final requiredCount = quantity.toInt();
-
-        if (currentSerials.length > requiredCount) {
-          // Remove excess serials
-          _itemSerials[index] = currentSerials.sublist(0, requiredCount);
-        }
       });
       _calculateTotals();
     }
@@ -387,13 +337,8 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
     }
   }
 
-  void _updateItemHsnCode(int index, String value) {
-    setState(() {
-      _purchaseItems[index].hsnCode = value;
-    });
-  }
+  // Removed _updateItemHsnCode method
 
-  // Methods that need to be accessible from child widgets
   void _showSupplierSelection() {
     showModalBottomSheet(
       context: context,
@@ -410,7 +355,7 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: _primaryGreen,
+                color: _accessoryColor,
                 borderRadius: const BorderRadius.only(
                   topLeft: Radius.circular(16),
                   topRight: Radius.circular(16),
@@ -544,8 +489,8 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
     );
   }
 
-  Future<void> _showTvSelection(int itemIndex) async {
-    final selectedTv = await showModalBottomSheet<Map<String, dynamic>>(
+  Future<void> _showAccessorySelection(int itemIndex) async {
+    final selectedAccessory = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.only(
@@ -567,7 +512,7 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
                       vertical: 10,
                     ),
                     decoration: BoxDecoration(
-                      color: _primaryGreen,
+                      color: _accessoryColor,
                       borderRadius: const BorderRadius.only(
                         topLeft: Radius.circular(16),
                         topRight: Radius.circular(16),
@@ -577,7 +522,7 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Select TV Model',
+                          'Select Accessory',
                           style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
@@ -591,8 +536,8 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
                             size: 20,
                           ),
                           onPressed: () {
-                            _tvSearchController.clear();
-                            _filterTvModels('');
+                            _productSearchController.clear();
+                            _filterAccessories('');
                             Navigator.pop(context);
                           },
                         ),
@@ -614,14 +559,14 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
                         ],
                       ),
                       child: TextField(
-                        controller: _tvSearchController,
+                        controller: _productSearchController,
                         style: const TextStyle(fontSize: 12),
                         decoration: InputDecoration(
-                          hintText: 'Search by TV model or brand...',
+                          hintText: 'Search by name...',
                           hintStyle: const TextStyle(fontSize: 11),
                           prefixIcon: Icon(
                             Icons.search,
-                            color: _primaryGreen,
+                            color: _accessoryColor,
                             size: 18,
                           ),
                           border: InputBorder.none,
@@ -629,7 +574,7 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
                             horizontal: 14,
                             vertical: 12,
                           ),
-                          suffixIcon: _tvSearchController.text.isNotEmpty
+                          suffixIcon: _productSearchController.text.isNotEmpty
                               ? IconButton(
                                   icon: const Icon(
                                     Icons.clear,
@@ -637,24 +582,24 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
                                     size: 16,
                                   ),
                                   onPressed: () {
-                                    _tvSearchController.clear();
-                                    _filterTvModels('');
+                                    _productSearchController.clear();
+                                    _filterAccessories('');
                                     setSheetState(() {});
                                   },
                                 )
                               : null,
                         ),
                         onChanged: (value) {
-                          _filterTvModels(value);
+                          _filterAccessories(value);
                           setSheetState(() {});
                         },
                       ),
                     ),
                   ),
                   Expanded(
-                    child: _filteredTvModels.isEmpty
-                        ? _buildEmptyTvState(setSheetState)
-                        : _buildTvList(setSheetState),
+                    child: _filteredAccessories.isEmpty
+                        ? _buildEmptyAccessoryState(setSheetState)
+                        : _buildAccessoryList(setSheetState),
                   ),
                 ],
               ),
@@ -664,28 +609,30 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
       ),
     );
 
-    if (selectedTv != null) {
-      _handleTvSelection(itemIndex, selectedTv);
+    if (selectedAccessory != null) {
+      _handleAccessorySelection(itemIndex, selectedAccessory);
     } else {
-      _tvSearchController.clear();
-      _filterTvModels('');
+      _productSearchController.clear();
+      _filterAccessories('');
     }
   }
 
-  Widget _buildEmptyTvState(StateSetter setSheetState) {
+  Widget _buildEmptyAccessoryState(StateSetter setSheetState) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Icon(
-          _tvSearchController.text.isEmpty ? Icons.tv_off : Icons.search_off,
+          _productSearchController.text.isEmpty
+              ? Icons.headphones_outlined
+              : Icons.search_off,
           size: 60,
           color: Colors.grey.shade300,
         ),
         const SizedBox(height: 16),
         Text(
-          _tvSearchController.text.isEmpty
-              ? 'No TV models available'
-              : 'TV model not found',
+          _productSearchController.text.isEmpty
+              ? 'No accessories available'
+              : 'Accessory not found',
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
@@ -694,9 +641,9 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          _tvSearchController.text.isEmpty
-              ? 'Add your first TV model to continue'
-              : 'Add "${_tvSearchController.text}" as new TV model',
+          _productSearchController.text.isEmpty
+              ? 'Add your first accessory to continue'
+              : 'Add "${_productSearchController.text}" as new accessory',
           style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
           textAlign: TextAlign.center,
         ),
@@ -705,12 +652,12 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 40),
           child: ElevatedButton.icon(
             onPressed: () async {
-              final searchText = _tvSearchController.text;
+              final searchText = _productSearchController.text;
               Navigator.pop(context);
-              await _showAddTvDialog(preFilledSearch: searchText);
+              await _showAddAccessoryDialog(preFilledSearch: searchText);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: _tvSearchController.text.isEmpty
+              backgroundColor: _productSearchController.text.isEmpty
                   ? _lightGreen
                   : const Color(0xFFFF9800),
               foregroundColor: Colors.white,
@@ -721,7 +668,7 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
             ),
             icon: const Icon(Icons.add, size: 16),
             label: const Text(
-              'Add New TV Model',
+              'Add New Accessory',
               style: TextStyle(fontSize: 12),
             ),
           ),
@@ -730,7 +677,7 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
     );
   }
 
-  Widget _buildTvList(StateSetter setSheetState) {
+  Widget _buildAccessoryList(StateSetter setSheetState) {
     return Column(
       children: [
         Padding(
@@ -739,14 +686,14 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Found ${_filteredTvModels.length} TV model${_filteredTvModels.length != 1 ? 's' : ''}',
+                'Found ${_filteredAccessories.length} accessory${_filteredAccessories.length != 1 ? 's' : ''}',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
               ),
               TextButton.icon(
                 onPressed: () async {
-                  final searchText = _tvSearchController.text;
+                  final searchText = _productSearchController.text;
                   Navigator.pop(context);
-                  await _showAddTvDialog(preFilledSearch: searchText);
+                  await _showAddAccessoryDialog(preFilledSearch: searchText);
                 },
                 style: TextButton.styleFrom(
                   foregroundColor: const Color(0xFF2196F3),
@@ -759,11 +706,11 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
         ),
         Expanded(
           child: ListView.separated(
-            itemCount: _filteredTvModels.length,
+            itemCount: _filteredAccessories.length,
             separatorBuilder: (context, index) => const Divider(height: 1),
             itemBuilder: (context, index) {
-              final tvModel = _filteredTvModels[index];
-              return _buildTvListItem(tvModel, setSheetState);
+              final accessory = _filteredAccessories[index];
+              return _buildAccessoryListItem(accessory, setSheetState);
             },
           ),
         ),
@@ -771,13 +718,16 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
     );
   }
 
-  Widget _buildTvListItem(
-    Map<String, dynamic> tvModel,
+  Widget _buildAccessoryListItem(
+    Map<String, dynamic> accessory,
     StateSetter setSheetState,
   ) {
-    final modelName = tvModel['modelName'] ?? 'Unnamed TV';
-    final brand = tvModel['brand'] ?? '';
-    final price = tvModel['price'] ?? 0.0;
+    final hasPurchaseRate =
+        accessory['purchaseRate'] != null &&
+        (accessory['purchaseRate'] is num) &&
+        accessory['purchaseRate'] > 0;
+    final accessoryName = accessory['accessoryName'] ?? 'Unnamed Accessory';
+    final purchaseRate = accessory['purchaseRate'] ?? 0.0;
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -785,13 +735,19 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: _lightGreen.withOpacity(0.1),
+          color: hasPurchaseRate
+              ? _accessoryColor.withOpacity(0.1)
+              : const Color(0xFFFFB300).withOpacity(0.1),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Icon(Icons.tv, size: 20, color: _lightGreen),
+        child: Icon(
+          Icons.headphones,
+          size: 20,
+          color: hasPurchaseRate ? _accessoryColor : const Color(0xFFFFB300),
+        ),
       ),
       title: Text(
-        modelName,
+        accessoryName,
         style: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w600,
@@ -801,36 +757,14 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (brand.isNotEmpty)
-            Text(
-              brand,
-              style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
-            ),
-          const SizedBox(height: 2),
           Row(
             children: [
               Text(
-                '₹${price.toStringAsFixed(2)}',
+                '₹${(purchaseRate as num).toStringAsFixed(2)}',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
-                  color: _primaryGreen,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2196F3).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(3),
-                ),
-                child: Text(
-                  'GST: 18%',
-                  style: TextStyle(
-                    fontSize: 9,
-                    color: const Color(0xFF2196F3),
-                    fontWeight: FontWeight.w500,
-                  ),
+                  color: _accessoryColor,
                 ),
               ),
             ],
@@ -840,31 +774,53 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
       trailing: Container(
         padding: const EdgeInsets.all(4),
         decoration: BoxDecoration(
-          color: _lightGreen.withOpacity(0.1),
+          color: _accessoryColor.withOpacity(0.1),
           borderRadius: BorderRadius.circular(6),
         ),
-        child: const Icon(Icons.add, size: 16, color: Colors.green),
+        child: Icon(Icons.add, size: 16, color: _accessoryColor),
       ),
-      onTap: () {
-        _tvSearchController.clear();
-        _filterTvModels('');
-        Navigator.pop(context, tvModel);
+      onTap: () async {
+        if (!hasPurchaseRate) {
+          final newRate = await _showSetPurchaseRateDialog(accessoryName);
+          if (newRate != null) {
+            await _firestoreService.updateAccessoryPurchaseRate(
+              accessory['id'] ?? '',
+              newRate,
+            );
+            accessory['purchaseRate'] = newRate;
+            await _fetchAccessories();
+            _productSearchController.clear();
+            _filterAccessories('');
+            Navigator.pop(context, accessory);
+          }
+        } else {
+          _productSearchController.clear();
+          _filterAccessories('');
+          Navigator.pop(context, accessory);
+        }
       },
     );
   }
 
-  void _handleTvSelection(int itemIndex, Map<String, dynamic> tvModel) {
-    _tvSearchController.clear();
-    _filterTvModels('');
+  void _handleAccessorySelection(
+    int itemIndex,
+    Map<String, dynamic> accessory,
+  ) {
+    _productSearchController.clear();
+    _filterAccessories('');
 
     setState(() {
-      _purchaseItems[itemIndex].productId = tvModel['id'] ?? '';
+      _purchaseItems[itemIndex].productId = accessory['id'] ?? '';
       _purchaseItems[itemIndex].productName =
-          tvModel['modelName'] ?? 'Unnamed TV';
-      _purchaseItems[itemIndex].brand = tvModel['brand'] ?? '';
-      _purchaseItems[itemIndex].rate = (tvModel['price'] ?? 0).toDouble();
+          accessory['accessoryName'] ?? 'Unnamed Accessory';
+      // Removed HSN code assignment
 
-      // Collapse all other items and expand only this one
+      final purchaseRate = accessory['purchaseRate'];
+      if (purchaseRate != null && purchaseRate is num && purchaseRate > 0) {
+        _purchaseItems[itemIndex].rate = purchaseRate.toDouble();
+        _purchaseItems[itemIndex].gstAmount = purchaseRate.toDouble() * 0.18;
+      }
+
       for (var key in _showEditSections.keys) {
         _showEditSections[key] = false;
       }
@@ -874,32 +830,177 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
     });
   }
 
-  Future<void> _showAddTvDialog({String preFilledSearch = ''}) async {
-    final brandController = TextEditingController();
-    final modelNameController = TextEditingController();
-    final priceController = TextEditingController();
+  Future<double?> _showSetPurchaseRateDialog(String accessoryName) async {
+    final rateController = TextEditingController();
+    double? purchaseRate;
 
-    final List<String> brandList = [
-      'Samsung',
-      'LG',
-      'Sony',
-      'Mi',
-      'OnePlus',
-      'Realme',
-      'TCL',
-      'Thomson',
-      'Panasonic',
-      'Haier',
-      'VU',
-      'Motorola',
-      'Nokia',
-      'Hisense',
-      'Toshiba',
-    ];
-    String selectedBrand = '';
+    return await showDialog<double>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          purchaseRate = double.tryParse(rateController.text);
+
+          return AlertDialog(
+            title: Text(
+              'Set Purchase Rate',
+              style: TextStyle(color: _accessoryColor, fontSize: 14),
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    accessoryName,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade800,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Enter the purchase rate (cost price):',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: rateController,
+                    style: const TextStyle(fontSize: 12),
+                    keyboardType: TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'Purchase Rate',
+                      labelStyle: const TextStyle(fontSize: 11),
+                      hintText: 'Enter purchase rate...',
+                      hintStyle: const TextStyle(fontSize: 11),
+                      prefixText: '₹ ',
+                      border: const OutlineInputBorder(),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 10,
+                      ),
+                    ),
+                    autofocus: true,
+                    onChanged: (value) => setState(() {}),
+                  ),
+                  if (purchaseRate != null && purchaseRate! > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: _accessoryColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Column(
+                          children: [
+                            _buildPriceCalculationRow(
+                              'Cost Price:',
+                              '₹${purchaseRate!.toStringAsFixed(2)}',
+                            ),
+                            _buildPriceCalculationRow(
+                              'GST (18%):',
+                              '₹${(purchaseRate! * 0.18).toStringAsFixed(2)}',
+                            ),
+                            const Divider(height: 12),
+                            _buildPriceCalculationRow(
+                              'Total Cost:',
+                              '₹${(purchaseRate! * 1.18).toStringAsFixed(2)}',
+                              isBold: true,
+                              color: _accessoryColor,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _productSearchController.clear();
+                  _filterAccessories('');
+                },
+                child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  if (purchaseRate != null && purchaseRate! > 0) {
+                    Navigator.pop(context, purchaseRate);
+                    _productSearchController.clear();
+                    _filterAccessories('');
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Please enter a valid purchase rate',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _lightGreen,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                ),
+                child: const Text(
+                  'Set Purchase Rate',
+                  style: TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPriceCalculationRow(
+    String label,
+    String value, {
+    bool isBold = false,
+    Color? color,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: isBold ? FontWeight.w600 : FontWeight.normal,
+              color: color ?? Colors.grey.shade800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showAddAccessoryDialog({String preFilledSearch = ''}) async {
+    final accessoryNameController = TextEditingController();
+    final purchaseRateController = TextEditingController();
+    // Removed hsnController
 
     if (preFilledSearch.isNotEmpty) {
-      modelNameController.text = preFilledSearch;
+      accessoryNameController.text = preFilledSearch;
     }
 
     await showModalBottomSheet(
@@ -924,7 +1025,7 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: _primaryGreen,
+                      color: _accessoryColor,
                       borderRadius: const BorderRadius.only(
                         topLeft: Radius.circular(16),
                         topRight: Radius.circular(16),
@@ -932,11 +1033,11 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.tv, color: Colors.white, size: 20),
+                        Icon(Icons.headphones, color: Colors.white, size: 20),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'Add New TV Model',
+                            'Add New Accessory',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -959,168 +1060,101 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
                     padding: const EdgeInsets.all(12),
                     child: Column(
                       children: [
+                        // Accessory Name
                         _buildFormSection(
-                          label: 'Brand *',
-                          child: Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.grey.shade300),
-                            ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: selectedBrand.isNotEmpty
-                                    ? selectedBrand
-                                    : null,
-                                hint: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                  ),
-                                  child: Text(
-                                    'Select Brand',
-                                    style: TextStyle(
-                                      color: Colors.grey.shade500,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
-                                icon: Icon(
-                                  Icons.arrow_drop_down,
-                                  color: _primaryGreen,
-                                  size: 18,
-                                ),
-                                isExpanded: true,
-                                items: [
-                                  ...brandList.map((brand) {
-                                    return DropdownMenuItem(
-                                      value: brand,
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                        ),
-                                        child: Text(
-                                          brand,
-                                          style: const TextStyle(fontSize: 12),
-                                        ),
-                                      ),
-                                    );
-                                  }).toList(),
-                                  const DropdownMenuItem(
-                                    value: 'other',
-                                    child: Padding(
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Icon(Icons.add, size: 14),
-                                          SizedBox(width: 6),
-                                          Text(
-                                            'Add New Brand',
-                                            style: TextStyle(fontSize: 12),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                                onChanged: (String? newValue) {
-                                  if (newValue == 'other') {
-                                    _showAddBrandDialog().then((newBrand) {
-                                      if (newBrand != null &&
-                                          newBrand.isNotEmpty) {
-                                        setState(() {
-                                          brandList.add(newBrand);
-                                          selectedBrand = newBrand;
-                                        });
-                                      }
-                                    });
-                                  } else {
-                                    setState(() {
-                                      selectedBrand = newValue ?? '';
-                                    });
-                                  }
-                                },
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        _buildFormSection(
-                          label: 'Model Name *',
+                          label: 'Accessory Name *',
                           child: TextField(
-                            controller: modelNameController,
+                            controller: accessoryNameController,
                             style: const TextStyle(fontSize: 12),
                             decoration: InputDecoration(
-                              hintText: 'e.g., Mi TV 5X 55" 4K',
+                              hintText: 'e.g., Fast Charger, USB Cable',
                               hintStyle: const TextStyle(fontSize: 11),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               prefixIcon: Icon(
-                                Icons.tv,
-                                color: _primaryGreen,
+                                Icons.headphones,
+                                color: _accessoryColor,
                                 size: 18,
                               ),
                             ),
                           ),
                         ),
                         const SizedBox(height: 12),
-                        _buildFormSection(
-                          label: 'Price *',
-                          child: TextField(
-                            controller: priceController,
-                            style: const TextStyle(fontSize: 12),
-                            keyboardType: TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            decoration: InputDecoration(
-                              hintText: 'Enter price',
-                              hintStyle: const TextStyle(fontSize: 11),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              prefixText: '₹ ',
-                              prefixIcon: Icon(
-                                Icons.currency_rupee,
-                                color: _primaryGreen,
-                                size: 18,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
+
+                        // Removed HSN Code section
+
+                        // Purchase Rate Only
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.blue.shade50,
+                            color: _accessoryColor.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: Colors.blue.withOpacity(0.3),
+                              color: _accessoryColor.withOpacity(0.3),
                             ),
                           ),
                           child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _buildPriceInfoRow(
-                                'Price:',
-                                priceController.text.isNotEmpty
-                                    ? '₹${double.tryParse(priceController.text)?.toStringAsFixed(2) ?? '0.00'}'
-                                    : '₹0.00',
+                              Text(
+                                'Pricing Information',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: _accessoryColor,
+                                ),
                               ),
-                              _buildPriceInfoRow(
-                                'GST (18%):',
-                                priceController.text.isNotEmpty
-                                    ? '₹${(double.tryParse(priceController.text)! * 0.18).toStringAsFixed(2)}'
-                                    : '₹0.00',
+                              const SizedBox(height: 12),
+                              _buildFormSection(
+                                label: 'Purchase Rate (Cost Price) *',
+                                child: TextField(
+                                  controller: purchaseRateController,
+                                  style: const TextStyle(fontSize: 12),
+                                  keyboardType: TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                                  decoration: InputDecoration(
+                                    hintText: 'Enter purchase rate',
+                                    hintStyle: const TextStyle(fontSize: 11),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    prefixText: '₹ ',
+                                  ),
+                                  onChanged: (value) => setState(() {}),
+                                ),
                               ),
-                              const Divider(height: 12),
-                              _buildPriceInfoRow(
-                                'Total with GST:',
-                                priceController.text.isNotEmpty
-                                    ? '₹${(double.tryParse(priceController.text)! * 1.18).toStringAsFixed(2)}'
-                                    : '₹0.00',
-                                isBold: true,
-                                color: _primaryGreen,
-                              ),
+                              if (purchaseRateController.text.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 12),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        _buildPriceRow(
+                                          'Cost Price:',
+                                          '₹${double.tryParse(purchaseRateController.text)?.toStringAsFixed(2) ?? '0.00'}',
+                                        ),
+                                        _buildPriceRow(
+                                          'GST (18%):',
+                                          '₹${(double.tryParse(purchaseRateController.text) ?? 0 * 0.18).toStringAsFixed(2)}',
+                                        ),
+                                        const Divider(height: 10),
+                                        _buildPriceRow(
+                                          'Total Cost:',
+                                          '₹${(double.tryParse(purchaseRateController.text) ?? 0 * 1.18).toStringAsFixed(2)}',
+                                          color: _lightGreen,
+                                          isBold: true,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
                         ),
@@ -1156,25 +1190,23 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
                         Expanded(
                           child: ElevatedButton(
                             onPressed: () async {
-                              if (_validateTvForm(
-                                selectedBrand,
-                                modelNameController,
-                                priceController,
+                              if (_validateAccessoryForm(
+                                accessoryNameController,
+                                purchaseRateController, // Removed hsnController
                               )) {
                                 try {
-                                  await _saveTvModel(
-                                    selectedBrand,
-                                    modelNameController,
-                                    priceController,
+                                  await _saveAccessory(
+                                    accessoryNameController,
+                                    purchaseRateController, // Removed hsnController
                                   );
                                   Navigator.pop(context);
                                 } catch (e) {
-                                  // Error handled in _saveTvModel
+                                  // Error handled in _saveAccessory
                                 }
                               }
                             },
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: _primaryGreen,
+                              backgroundColor: _accessoryColor,
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 10),
                               shape: RoundedRectangleBorder(
@@ -1182,7 +1214,7 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
                               ),
                             ),
                             child: const Text(
-                              'Save TV Model',
+                              'Save Accessory',
                               style: TextStyle(fontSize: 12),
                             ),
                           ),
@@ -1197,6 +1229,55 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
         },
       ),
     );
+  }
+
+  bool _validateAccessoryForm(
+    TextEditingController accessoryNameController,
+    TextEditingController purchaseRateController, // Removed hsnController
+  ) {
+    if (accessoryNameController.text.isEmpty) {
+      _showErrorSnackbar('Please enter accessory name');
+      return false;
+    }
+    // Removed HSN validation
+    if (purchaseRateController.text.isEmpty) {
+      _showErrorSnackbar('Please enter purchase rate');
+      return false;
+    }
+
+    final purchaseRate = double.tryParse(purchaseRateController.text);
+
+    if (purchaseRate == null || purchaseRate <= 0) {
+      _showErrorSnackbar('Please enter a valid purchase rate');
+      return false;
+    }
+
+    return true;
+  }
+
+  Future<void> _saveAccessory(
+    TextEditingController accessoryNameController,
+    TextEditingController purchaseRateController, // Removed hsnController
+  ) async {
+    try {
+      final accessoryData = {
+        'accessoryName': accessoryNameController.text.trim(),
+        // Removed hsnCode
+        'purchaseRate': double.parse(purchaseRateController.text),
+        'stockQuantity': 0,
+        'createdAt': DateTime.now(),
+      };
+
+      await _firestoreService.addAccessory(accessoryData);
+      await _fetchAccessories();
+
+      _productSearchController.clear();
+      _filterAccessories('');
+
+      _showSuccessSnackbar('Accessory added successfully');
+    } catch (e) {
+      _showErrorSnackbar('Error adding accessory: $e');
+    }
   }
 
   Widget _buildFormSection({required String label, required Widget child}) {
@@ -1217,11 +1298,11 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
     );
   }
 
-  Widget _buildPriceInfoRow(
+  Widget _buildPriceRow(
     String label,
     String value, {
-    bool isBold = false,
     Color? color,
+    bool isBold = false,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
@@ -1236,314 +1317,24 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
             value,
             style: TextStyle(
               fontSize: 11,
-              fontWeight: isBold ? FontWeight.w600 : FontWeight.normal,
               color: color ?? Colors.grey.shade800,
+              fontWeight: isBold ? FontWeight.w600 : FontWeight.normal,
             ),
           ),
         ],
       ),
     );
-  }
-
-  bool _validateTvForm(
-    String selectedBrand,
-    TextEditingController modelNameController,
-    TextEditingController priceController,
-  ) {
-    if (selectedBrand.isEmpty) {
-      _showErrorSnackbar('Please select a brand');
-      return false;
-    }
-    if (modelNameController.text.isEmpty) {
-      _showErrorSnackbar('Please enter model name');
-      return false;
-    }
-    if (priceController.text.isEmpty) {
-      _showErrorSnackbar('Please enter price');
-      return false;
-    }
-
-    final price = double.tryParse(priceController.text);
-    if (price == null || price <= 0) {
-      _showErrorSnackbar('Please enter a valid price');
-      return false;
-    }
-
-    return true;
-  }
-
-  Future<void> _saveTvModel(
-    String selectedBrand,
-    TextEditingController modelNameController,
-    TextEditingController priceController,
-  ) async {
-    try {
-      final tvModelData = {
-        'brand': selectedBrand,
-        'modelName': modelNameController.text.trim(),
-        'price': double.parse(priceController.text),
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-
-      await FirebaseFirestore.instance.collection('tvModels').add(tvModelData);
-
-      await _fetchTvModels();
-
-      _tvSearchController.clear();
-      _filterTvModels('');
-
-      _showSuccessSnackbar('TV model added successfully');
-    } catch (e) {
-      _showErrorSnackbar('Error adding TV model: $e');
-    }
-  }
-
-  Future<String?> _showAddBrandDialog() async {
-    final brandController = TextEditingController();
-
-    return await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          'Add New Brand',
-          style: TextStyle(color: _primaryGreen, fontSize: 14),
-        ),
-        content: TextField(
-          controller: brandController,
-          style: const TextStyle(fontSize: 12),
-          decoration: const InputDecoration(
-            hintText: 'Enter brand name',
-            border: OutlineInputBorder(),
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(fontSize: 12)),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final brand = brandController.text.trim();
-              if (brand.isNotEmpty) {
-                Navigator.pop(context, brand);
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _primaryGreen,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            ),
-            child: const Text(
-              'Add',
-              style: TextStyle(color: Colors.white, fontSize: 12),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // FIXED: Changed parameter name from serialIndex to imeiIndex to match CreatePurchaseForm expectations
-  Future<void> _showScannerDialog(int itemIndex, {int? imeiIndex}) async {
-    _currentScanItemIndex = itemIndex;
-    _currentScanSerialIndex = imeiIndex; // Map imeiIndex to serialIndex
-
-    final result = await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => CreatePurchaseScanner(
-          itemIndex: itemIndex,
-          imeiIndex: imeiIndex, // Keep as imeiIndex for the scanner
-          currentSerial:
-              imeiIndex != null &&
-                  (_itemSerials[itemIndex]?.length ?? 0) > imeiIndex
-              ? _itemSerials[itemIndex]![imeiIndex]
-              : null,
-        ),
-      ),
-    );
-
-    if (result != null) {
-      _onScanComplete(result);
-    }
-  }
-
-  // FIXED: Changed parameter name from serialIndex to imeiIndex to match CreatePurchaseForm expectations
-  Future<void> _showManualSerialEntry(int itemIndex, {int? imeiIndex}) async {
-    final serialController = TextEditingController(
-      text:
-          imeiIndex != null &&
-              (_itemSerials[itemIndex]?.length ?? 0) > imeiIndex
-          ? _itemSerials[itemIndex]![imeiIndex]
-          : '',
-    );
-
-    await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          imeiIndex != null
-              ? 'Edit Serial ${imeiIndex + 1}'
-              : 'Enter Serial Number',
-          style: TextStyle(color: const Color(0xFFE91E63), fontSize: 14),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Enter Serial Number for TV inventory tracking',
-              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: serialController,
-              maxLength: 50,
-              style: const TextStyle(fontSize: 12),
-              decoration: InputDecoration(
-                hintText: 'Enter Serial number...',
-                hintStyle: const TextStyle(fontSize: 11),
-                border: const OutlineInputBorder(),
-                counterText: '',
-                prefixIcon: Icon(
-                  Icons.confirmation_number,
-                  color: _primaryGreen,
-                  size: 18,
-                ),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.clear, size: 16),
-                  onPressed: () => serialController.clear(),
-                ),
-              ),
-              autofocus: true,
-            ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Icon(Icons.info_outline, size: 12, color: _primaryGreen),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'TV Serial Number (3-50 characters)',
-                    style: TextStyle(fontSize: 9, color: Colors.grey.shade600),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          if (imeiIndex != null)
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  if ((_itemSerials[itemIndex]?.length ?? 0) > imeiIndex) {
-                    _itemSerials[itemIndex]!.removeAt(imeiIndex);
-                  }
-                });
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text(
-                      'Serial removed',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                    backgroundColor: const Color(0xFFFFB300),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              },
-              style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFFE53935),
-              ),
-              child: const Text('Remove', style: TextStyle(fontSize: 12)),
-            ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(fontSize: 12)),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final serial = serialController.text.trim();
-              if (_isValidSerialNumber(serial)) {
-                Navigator.pop(context);
-                setState(() {
-                  if (imeiIndex != null) {
-                    // Edit existing serial
-                    if ((_itemSerials[itemIndex]?.length ?? 0) > imeiIndex) {
-                      _itemSerials[itemIndex]![imeiIndex] = serial;
-                    }
-                  } else {
-                    // Add new serial
-                    _itemSerials[itemIndex] ??= [];
-                    _itemSerials[itemIndex]!.add(serial);
-                  }
-                });
-                _showSuccessSnackbar(
-                  'Serial saved: ${serial.substring(0, math.min(serial.length, 12))}...',
-                );
-              } else {
-                _showErrorSnackbar(
-                  'Serial must be 3-50 characters (${serial.length}/50)',
-                );
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFE91E63),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            ),
-            child: Text(
-              imeiIndex != null ? 'Update Serial' : 'Save Serial',
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _onScanComplete(String scannedValue) {
-    if (_currentScanItemIndex != null) {
-      final trimmedValue = scannedValue.trim();
-
-      if (!_isValidSerialNumber(trimmedValue)) {
-        _showErrorSnackbar(
-          'Invalid Serial. Must be 3-50 characters. Scanned: ${trimmedValue.substring(0, math.min(trimmedValue.length, 20))}...',
-        );
-        return;
-      }
-
-      setState(() {
-        if (_currentScanSerialIndex != null) {
-          // Update specific serial
-          if ((_itemSerials[_currentScanItemIndex!]?.length ?? 0) >
-              _currentScanSerialIndex!) {
-            _itemSerials[_currentScanItemIndex!]![_currentScanSerialIndex!] =
-                trimmedValue;
-          }
-        } else {
-          // Add new serial
-          _itemSerials[_currentScanItemIndex!] ??= [];
-          _itemSerials[_currentScanItemIndex!]!.add(trimmedValue);
-        }
-      });
-
-      _showSuccessSnackbar('Serial scanned successfully ✓');
-    }
-    _currentScanItemIndex = null;
-    _currentScanSerialIndex = null;
   }
 
   Future<void> _savePurchase() async {
-    // Instead of directly saving, show preview first
     _togglePreview();
   }
 
-  // Updated method for TV purchase with tvStock creation
+  // Simplified stock creation for accessories (no serial numbers)
   Future<void> _confirmAndSavePurchase() async {
     if (_formKey.currentState!.validate() &&
         _selectedSupplier != null &&
         _purchaseItems.isNotEmpty) {
-      // Validate all items
       for (var i = 0; i < _purchaseItems.length; i++) {
         final item = _purchaseItems[i];
 
@@ -1555,31 +1346,9 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
           );
           return;
         }
-
-        final requiredSerialCount = item.quantity!.toInt();
-        final itemSerials = _itemSerials[i] ?? [];
-
-        // Check if serial count matches quantity
-        if (itemSerials.length != requiredSerialCount) {
-          _showErrorSnackbar(
-            'Item ${i + 1}: Quantity is $requiredSerialCount, but you have ${itemSerials.length} Serial Numbers. Please add ${requiredSerialCount - itemSerials.length} more.',
-          );
-          return;
-        }
-
-        for (var j = 0; j < requiredSerialCount; j++) {
-          final serial = itemSerials[j];
-          if (serial.isEmpty || !_isValidSerialNumber(serial)) {
-            _showErrorSnackbar(
-              'Item ${i + 1}, Serial ${j + 1}: Invalid serial number (must be 3-50 characters)',
-            );
-            return;
-          }
-        }
       }
 
       try {
-        // Get current user for tracking
         final user = Provider.of<AuthProvider>(context, listen: false).user;
 
         if (user == null) {
@@ -1587,7 +1356,7 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
           return;
         }
 
-        // Create purchase data for tvPurchase collection
+        // Create purchase data
         final purchaseData = {
           'supplierId': _selectedSupplier!['id'],
           'supplierName': _selectedSupplier!['name'],
@@ -1599,97 +1368,81 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
           'roundOff': _roundOff,
           'totalAmount': _totalAmount,
           'notes': _notesController.text.trim(),
-          'items': _purchaseItems.asMap().entries.map((entry) {
-            final index = entry.key;
-            final item = entry.value;
-            final itemMap = item.toMap();
-            itemMap['serials'] = _itemSerials[index] ?? [];
-            return itemMap;
-          }).toList(),
-          // User tracking fields
+          'items': _purchaseItems.map((item) => item.toMap()).toList(),
           'userId': user.uid,
           'userName': user.name ?? user.email,
           'shopId': user.shopId,
           'shopName': user.shopName,
           'createdAt': FieldValue.serverTimestamp(),
+          'purchaseType': 'accessory',
         };
 
-        // Create the purchase record in tvPurchase collection
-        final purchaseRef = await FirebaseFirestore.instance
-            .collection('tvPurchase')
-            .add(purchaseData);
-        final purchaseId = purchaseRef.id;
+        final purchaseId = await _firestoreService.createPurchase(purchaseData);
 
-        // Create TV stock entries for each serial number in tvStock collection
-        final List<Map<String, dynamic>> tvStockList = [];
+        // Create accessory stock entries (simplified - no serial numbers)
+        final List<Map<String, dynamic>> accessoryStockList = [];
 
         for (var i = 0; i < _purchaseItems.length; i++) {
           final item = _purchaseItems[i];
-          final itemSerials = _itemSerials[i] ?? [];
 
-          for (var j = 0; j < itemSerials.length; j++) {
-            final serial = itemSerials[j];
-
-            final tvStockData = {
-              'createdAt': FieldValue.serverTimestamp(),
-              'serialNumber': serial,
-              'modelBrand': item.brand ?? '',
-              'modelName': item.productName ?? '',
-              'modelPrice': item.rate ?? 0,
-              'shopId': user.shopId,
-              'shopName': user.shopName,
-              'status': 'available',
-              'uploadedAt': FieldValue.serverTimestamp(),
-              'uploadedBy': user.email,
-              'uploadedById': user.uid,
-              'purchaseId': purchaseId,
-              'purchaseInvoice': _invoiceController.text.trim(),
-              'supplierId': _selectedSupplier!['id'],
-              'supplierName': _selectedSupplier!['name'],
-              'productId': item.productId,
-            };
-
-            tvStockList.add(tvStockData);
-          }
+          // Create ONE stock entry with quantity (accessories don't need serial numbers)
+          final accessoryStockData = {
+            'createdAt': FieldValue.serverTimestamp(),
+            'productName': item.productName ?? '',
+            'productPrice': item.rate ?? 0,
+            'shopId': user.shopId,
+            'shopName': user.shopName,
+            'status': 'available',
+            'uploadedAt': FieldValue.serverTimestamp(),
+            'uploadedBy': user.email,
+            'uploadedById': user.uid,
+            'purchaseId': purchaseId,
+            'purchaseInvoice': _invoiceController.text.trim(),
+            'supplierId': _selectedSupplier!['id'],
+            'supplierName': _selectedSupplier!['name'],
+            'productId': item.productId,
+            // Removed hsnCode
+            'quantity': item.quantity!.toInt(),
+          };
+          accessoryStockList.add(accessoryStockData);
         }
 
-        // Add all TV stock entries in batch
-        if (tvStockList.isNotEmpty) {
-          final batch = FirebaseFirestore.instance.batch();
-          for (var tvStock in tvStockList) {
-            final docRef = FirebaseFirestore.instance
-                .collection('tvStock')
-                .doc();
-            batch.set(docRef, tvStock);
-          }
-          await batch.commit();
+        // Add all accessory stock entries in batch
+        if (accessoryStockList.isNotEmpty) {
+          await _firestoreService.addMultipleAccessoryStock(accessoryStockList);
         }
 
-        // Update TV model if needed (optional)
+        // Update accessory master records with new stock counts
         for (var i = 0; i < _purchaseItems.length; i++) {
           final item = _purchaseItems[i];
           if (item.productId != null) {
-            // Optionally update last purchase price or increment stock count
-            await FirebaseFirestore.instance
-                .collection('tvModels')
-                .doc(item.productId)
-                .update({
-                  'updatedAt': FieldValue.serverTimestamp(),
-                  // You could add a 'stock' field if you want to track total stock in the model
-                  // 'stock': FieldValue.increment(item.quantity!.toInt()),
-                });
+            // Update purchase rate if changed
+            if (item.rate != null) {
+              await _firestoreService.updateAccessoryPurchaseRate(
+                item.productId!,
+                item.rate!,
+              );
+            }
+
+            // Removed HSN code update
+
+            // Update total stock quantity in accessory master record
+            await _firestoreService.updateAccessoryStock(
+              item.productId!,
+              item.quantity!.toInt(),
+            );
           }
         }
 
         _showSuccessSnackbar(
-          'TV Purchase saved successfully with ${tvStockList.length} items',
+          'Purchase saved successfully with ${accessoryStockList.length} item(s)',
         );
 
-        // Navigate to PurchaseHistoryScreen after successful save
+        // Navigate to purchase history
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (context) => PurchaseHistoryScreen()),
-          (route) => false, // Remove all previous routes from stack
+          (route) => false,
         );
       } catch (e) {
         _showErrorSnackbar('Error saving purchase: $e');

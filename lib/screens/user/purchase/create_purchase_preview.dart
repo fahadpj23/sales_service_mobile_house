@@ -18,6 +18,7 @@ class CreatePurchasePreview extends StatelessWidget {
   final void Function() togglePreview;
   final Future<void> Function() confirmAndSavePurchase;
   final bool Function(String) isValidSerialNumber;
+  final bool hideSerialInfo; // New parameter to hide serial info
 
   const CreatePurchasePreview({
     Key? key,
@@ -36,6 +37,7 @@ class CreatePurchasePreview extends StatelessWidget {
     required this.togglePreview,
     required this.confirmAndSavePurchase,
     required this.isValidSerialNumber,
+    this.hideSerialInfo = false, // Default to false for backward compatibility
   }) : super(key: key);
 
   Widget _buildPreviewSection({
@@ -203,7 +205,11 @@ class CreatePurchasePreview extends StatelessWidget {
                         color: Colors.grey.shade50,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: hasAllImeis ? lightGreen : Colors.amber,
+                          color: hideSerialInfo
+                              ? Colors
+                                    .grey
+                                    .shade300 // Simple border for accessories
+                              : (hasAllImeis ? lightGreen : Colors.amber),
                           width: 1,
                         ),
                       ),
@@ -247,90 +253,129 @@ class CreatePurchasePreview extends StatelessWidget {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 6),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Serials:',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: hasAllImeis
-                                      ? lightGreen.withOpacity(0.1)
-                                      : Colors.amber.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  '${itemImeisList.length}/${requiredImeiCount}',
+
+                          // Only show serial/IMEI info if not hidden
+                          if (!hideSerialInfo) ...[
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Serials:',
                                   style: TextStyle(
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.w600,
-                                    color: hasAllImeis
-                                        ? lightGreen
-                                        : Colors.amber,
+                                    fontSize: 10,
+                                    color: Colors.grey.shade600,
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          if (itemImeisList.isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  ...itemImeisList.take(3).map((imei) {
-                                    final isValid = isValidSerialNumber(imei);
-                                    return Padding(
-                                      padding: const EdgeInsets.only(bottom: 2),
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            isValid
-                                                ? Icons.check_circle
-                                                : Icons.warning,
-                                            size: 10,
-                                            color: isValid
-                                                ? lightGreen
-                                                : Colors.amber,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Expanded(
-                                            child: Text(
-                                              '${imei.substring(0, math.min(imei.length, 12))}...',
-                                              style: TextStyle(
-                                                fontSize: 9,
-                                                color: Colors.grey.shade500,
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: hasAllImeis
+                                        ? lightGreen.withOpacity(0.1)
+                                        : Colors.amber.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    '${itemImeisList.length}/$requiredImeiCount',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w600,
+                                      color: hasAllImeis
+                                          ? lightGreen
+                                          : Colors.amber,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (itemImeisList.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    ...itemImeisList.take(3).map((imei) {
+                                      final isValid = isValidSerialNumber(imei);
+                                      return Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 2,
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              isValid
+                                                  ? Icons.check_circle
+                                                  : Icons.warning,
+                                              size: 10,
+                                              color: isValid
+                                                  ? lightGreen
+                                                  : Colors.amber,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(
+                                                imei.length > 12
+                                                    ? '${imei.substring(0, 12)}...'
+                                                    : imei,
+                                                style: TextStyle(
+                                                  fontSize: 9,
+                                                  color: Colors.grey.shade500,
+                                                ),
                                               ),
                                             ),
+                                          ],
+                                        ),
+                                      );
+                                    }),
+                                    if (itemImeisList.length > 3)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 2),
+                                        child: Text(
+                                          '+ ${itemImeisList.length - 3} more',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            color: Colors.grey.shade500,
                                           ),
-                                        ],
-                                      ),
-                                    );
-                                  }),
-                                  if (itemImeisList.length > 3)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 2),
-                                      child: Text(
-                                        '+ ${itemImeisList.length - 3} more',
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          color: Colors.grey.shade500,
                                         ),
                                       ),
+                                  ],
+                                ),
+                              ),
+                          ] else ...[
+                            // For accessories, show simple quantity summary
+                            const SizedBox(height: 6),
+                            Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: primaryGreen.withOpacity(0.05),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Total Quantity:',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey.shade600,
                                     ),
+                                  ),
+                                  Text(
+                                    '${item.quantity?.toInt() ?? 0} units',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: primaryGreen,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
+                          ],
                         ],
                       ),
                     );
