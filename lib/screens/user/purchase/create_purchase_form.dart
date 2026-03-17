@@ -1,8 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:sales_stock/models/purchase_item.dart';
-import 'dart:math' as math;
+import 'dart:async';
+import 'create_purchase_scanner.dart';
 
-class CreatePurchaseForm extends StatelessWidget {
+class Debouncer {
+  final int milliseconds;
+  Timer? _timer;
+
+  Debouncer({required this.milliseconds});
+
+  void run(VoidCallback action) {
+    _timer?.cancel();
+    _timer = Timer(Duration(milliseconds: milliseconds), action);
+  }
+
+  void dispose() {
+    _timer?.cancel();
+  }
+}
+
+class CreatePurchaseForm extends StatefulWidget {
   final Color primaryGreen;
   final Color lightGreen;
   final GlobalKey<FormState> formKey;
@@ -35,6 +52,7 @@ class CreatePurchaseForm extends StatelessWidget {
   final void Function(int, String) updateItemQuantity;
   final void Function(int, String) updateItemRate;
   final void Function(int, String) updateItemDiscount;
+  final void Function(int, int, String) updateItemSerial;
 
   const CreatePurchaseForm({
     Key? key,
@@ -70,15 +88,82 @@ class CreatePurchaseForm extends StatelessWidget {
     required this.updateItemQuantity,
     required this.updateItemRate,
     required this.updateItemDiscount,
+    required this.updateItemSerial,
   }) : super(key: key);
 
-  Widget _buildPurchaseItemCard(int index) {
-    final item = purchaseItems[index];
-    final showEditSection = showEditSections[index] ?? false;
+  @override
+  State<CreatePurchaseForm> createState() => _CreatePurchaseFormState();
+}
+
+class _CreatePurchaseFormState extends State<CreatePurchaseForm> {
+  final Map<String, TextEditingController> _imeiControllers = {};
+  final Map<String, FocusNode> _imeiFocusNodes = {};
+  final Debouncer _debouncer = Debouncer(milliseconds: 300);
+  bool _isUpdating = false;
+
+  String _getImeiKey(int itemIndex, int imeiIndex) {
+    return 'imei_${itemIndex}_$imeiIndex';
+  }
+
+  void _initializeImeiController(int itemIndex, int imeiIndex, String value) {
+    final key = _getImeiKey(itemIndex, imeiIndex);
+    if (!_imeiControllers.containsKey(key)) {
+      _imeiControllers[key] = TextEditingController(text: value);
+      _imeiFocusNodes[key] = FocusNode();
+
+      // Add listener to update parent
+      _imeiControllers[key]!.addListener(() {
+        if (!_isUpdating) {
+          final newValue = _imeiControllers[key]!.text;
+          final currentValue =
+              imeiIndex < (widget.itemImeis[itemIndex]?.length ?? 0)
+              ? widget.itemImeis[itemIndex]![imeiIndex]
+              : '';
+
+          if (newValue != currentValue) {
+            _debouncer.run(() {
+              if (mounted) {
+                widget.updateItemSerial(itemIndex, imeiIndex, newValue);
+              }
+            });
+          }
+        }
+      });
+    } else {
+      // Update controller value without triggering listener
+      _isUpdating = true;
+      if (_imeiControllers[key]!.text != value) {
+        _imeiControllers[key]!.text = value;
+      }
+      _isUpdating = false;
+    }
+  }
+
+  void _disposeImeiControllers() {
+    for (var controller in _imeiControllers.values) {
+      controller.dispose();
+    }
+    for (var node in _imeiFocusNodes.values) {
+      node.dispose();
+    }
+    _imeiControllers.clear();
+    _imeiFocusNodes.clear();
+    _debouncer.dispose();
+  }
+
+  @override
+  void dispose() {
+    _disposeImeiControllers();
+    super.dispose();
+  }
+
+  Widget _buildPurchaseItemCard(int index, BuildContext context) {
+    final item = widget.purchaseItems[index];
+    final showEditSection = widget.showEditSections[index] ?? false;
     final requiredImeiCount = item.quantity?.toInt() ?? 1;
-    final currentImeiCount = itemImeis[index]?.length ?? 0;
+    final currentImeiCount = widget.itemImeis[index]?.length ?? 0;
     final hasAllImeis = currentImeiCount >= requiredImeiCount;
-    final itemImeisList = itemImeis[index] ?? [];
+    final itemImeisList = widget.itemImeis[index] ?? [];
 
     double itemTotal = 0.0;
     double itemDiscount = 0.0;
@@ -107,11 +192,11 @@ class CreatePurchaseForm extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // Header Section - Shows product name and price (always visible)
+          // Header Section
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: lightGreen.withOpacity(0.1),
+              color: widget.lightGreen.withOpacity(0.1),
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(10),
                 topRight: Radius.circular(10),
@@ -122,7 +207,7 @@ class CreatePurchaseForm extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(4),
                   decoration: BoxDecoration(
-                    color: lightGreen,
+                    color: widget.lightGreen,
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
@@ -161,7 +246,7 @@ class CreatePurchaseForm extends StatelessWidget {
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: primaryGreen.withOpacity(0.1),
+                                color: widget.primaryGreen.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
@@ -169,18 +254,17 @@ class CreatePurchaseForm extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w600,
-                                  color: primaryGreen,
+                                  color: widget.primaryGreen,
                                 ),
                               ),
                             ),
                           ],
                         ),
                       ] else
-                        // Show select product button only when no product is selected
                         Material(
                           color: Colors.transparent,
                           child: InkWell(
-                            onTap: () => showProductSelection(index),
+                            onTap: () => widget.showProductSelection(index),
                             borderRadius: BorderRadius.circular(6),
                             child: Container(
                               padding: const EdgeInsets.symmetric(
@@ -188,10 +272,10 @@ class CreatePurchaseForm extends StatelessWidget {
                                 vertical: 8,
                               ),
                               decoration: BoxDecoration(
-                                color: primaryGreen.withOpacity(0.05),
+                                color: widget.primaryGreen.withOpacity(0.05),
                                 borderRadius: BorderRadius.circular(6),
                                 border: Border.all(
-                                  color: primaryGreen.withOpacity(0.3),
+                                  color: widget.primaryGreen.withOpacity(0.3),
                                   width: 1,
                                 ),
                               ),
@@ -201,7 +285,7 @@ class CreatePurchaseForm extends StatelessWidget {
                                   Icon(
                                     Icons.add_circle_outline,
                                     size: 16,
-                                    color: primaryGreen,
+                                    color: widget.primaryGreen,
                                   ),
                                   const SizedBox(width: 6),
                                   Text(
@@ -209,7 +293,7 @@ class CreatePurchaseForm extends StatelessWidget {
                                     style: TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w500,
-                                      color: primaryGreen,
+                                      color: widget.primaryGreen,
                                     ),
                                   ),
                                 ],
@@ -220,21 +304,30 @@ class CreatePurchaseForm extends StatelessWidget {
                     ],
                   ),
                 ),
-                // Only show expand/collapse and delete buttons when product is selected
                 if (item.productId != null) ...[
                   IconButton(
-                    onPressed: () => toggleEditSection(index),
+                    onPressed: () => widget.toggleEditSection(index),
                     icon: Icon(
                       showEditSection ? Icons.expand_less : Icons.expand_more,
-                      color: primaryGreen,
+                      color: widget.primaryGreen,
                       size: 18,
                     ),
                     padding: const EdgeInsets.all(8),
                     constraints: const BoxConstraints(),
                   ),
-                  if (purchaseItems.length > 1)
+                  if (widget.purchaseItems.length > 1)
                     IconButton(
-                      onPressed: () => removeItem(index),
+                      onPressed: () {
+                        // Dispose controllers for this item before removal
+                        for (int i = 0; i < 100; i++) {
+                          final key = _getImeiKey(index, i);
+                          _imeiControllers[key]?.dispose();
+                          _imeiFocusNodes[key]?.dispose();
+                          _imeiControllers.remove(key);
+                          _imeiFocusNodes.remove(key);
+                        }
+                        widget.removeItem(index);
+                      },
                       icon: const Icon(
                         Icons.delete_outline,
                         color: Colors.red,
@@ -248,7 +341,7 @@ class CreatePurchaseForm extends StatelessWidget {
             ),
           ),
 
-          // Content Section - Only show when product is selected
+          // Content Section
           if (item.productId != null)
             Padding(
               padding: const EdgeInsets.all(12),
@@ -280,7 +373,7 @@ class CreatePurchaseForm extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w600,
-                                  color: primaryGreen,
+                                  color: widget.primaryGreen,
                                 ),
                               ),
                             ],
@@ -301,7 +394,7 @@ class CreatePurchaseForm extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w600,
-                                  color: primaryGreen,
+                                  color: widget.primaryGreen,
                                 ),
                               ),
                             ],
@@ -325,7 +418,7 @@ class CreatePurchaseForm extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w700,
-                                  color: primaryGreen,
+                                  color: widget.primaryGreen,
                                 ),
                               ),
                             ],
@@ -348,7 +441,7 @@ class CreatePurchaseForm extends StatelessWidget {
                                 ),
                                 decoration: BoxDecoration(
                                   color: currentImeiCount == requiredImeiCount
-                                      ? lightGreen.withOpacity(0.1)
+                                      ? widget.lightGreen.withOpacity(0.1)
                                       : Colors.amber.withOpacity(0.1),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
@@ -358,7 +451,7 @@ class CreatePurchaseForm extends StatelessWidget {
                                     fontSize: 9,
                                     fontWeight: FontWeight.w600,
                                     color: currentImeiCount == requiredImeiCount
-                                        ? lightGreen
+                                        ? widget.lightGreen
                                         : Colors.amber,
                                   ),
                                 ),
@@ -387,7 +480,7 @@ class CreatePurchaseForm extends StatelessWidget {
                   // Edit Section
                   if (showEditSection) ...[
                     const SizedBox(height: 12),
-                    // Quantity and Rate fields only (removed discount)
+                    // Quantity and Rate fields
                     Row(
                       children: [
                         Expanded(
@@ -395,7 +488,7 @@ class CreatePurchaseForm extends StatelessWidget {
                             label: 'Quantity *',
                             value: item.quantity?.toString(),
                             onChanged: (value) =>
-                                updateItemQuantity(index, value),
+                                widget.updateItemQuantity(index, value),
                             keyboardType: TextInputType.number,
                           ),
                         ),
@@ -404,7 +497,8 @@ class CreatePurchaseForm extends StatelessWidget {
                           child: _buildInputField(
                             label: 'Rate *',
                             value: item.rate?.toStringAsFixed(2),
-                            onChanged: (value) => updateItemRate(index, value),
+                            onChanged: (value) =>
+                                widget.updateItemRate(index, value),
                             keyboardType: TextInputType.number,
                             prefix: '₹',
                           ),
@@ -414,136 +508,155 @@ class CreatePurchaseForm extends StatelessWidget {
                     const SizedBox(height: 12),
 
                     // Serial Number Section with Scan Option
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    StatefulBuilder(
+                      builder: (context, setState) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              'Serial/IMEI Numbers',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: hasAllImeis ? lightGreen : Colors.amber,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                '$currentImeiCount/$requiredImeiCount',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
+                            const SizedBox(height: 8),
 
-                        // Individual serial number text fields with scan button
-                        ...List.generate(requiredImeiCount, (imeiIndex) {
-                          final currentSerial = imeiIndex < itemImeisList.length
-                              ? itemImeisList[imeiIndex]
-                              : '';
+                            // Individual serial number text fields with scan button
+                            ...List.generate(requiredImeiCount, (imeiIndex) {
+                              final currentSerial =
+                                  imeiIndex < itemImeisList.length
+                                  ? itemImeisList[imeiIndex]
+                                  : '';
 
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: TextFormField(
-                                    initialValue: currentSerial,
-                                    style: const TextStyle(fontSize: 13),
-                                    decoration: InputDecoration(
-                                      hintText: 'Serial/IMEI #${imeiIndex + 1}',
-                                      hintStyle: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade400,
-                                      ),
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                        borderSide: BorderSide(
-                                          color: Colors.grey.shade300,
-                                        ),
-                                      ),
-                                      enabledBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                        borderSide: BorderSide(
-                                          color: Colors.grey.shade300,
-                                        ),
-                                      ),
-                                      focusedBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                        borderSide: BorderSide(
-                                          color: primaryGreen,
-                                          width: 2,
-                                        ),
-                                      ),
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 12,
+                              // Initialize or update controller
+                              _initializeImeiController(
+                                index,
+                                imeiIndex,
+                                currentSerial,
+                              );
+                              final controller =
+                                  _imeiControllers[_getImeiKey(
+                                    index,
+                                    imeiIndex,
+                                  )]!;
+                              final focusNode =
+                                  _imeiFocusNodes[_getImeiKey(
+                                    index,
+                                    imeiIndex,
+                                  )]!;
+
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: controller,
+                                        focusNode: focusNode,
+                                        style: const TextStyle(fontSize: 13),
+                                        decoration: InputDecoration(
+                                          hintText:
+                                              'Serial/IMEI #${imeiIndex + 1}',
+                                          hintStyle: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey.shade400,
                                           ),
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            borderSide: BorderSide(
+                                              color: Colors.grey.shade300,
+                                            ),
+                                          ),
+                                          enabledBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            borderSide: BorderSide(
+                                              color: Colors.grey.shade300,
+                                            ),
+                                          ),
+                                          focusedBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            borderSide: BorderSide(
+                                              color: widget.primaryGreen,
+                                              width: 2,
+                                            ),
+                                          ),
+                                          contentPadding:
+                                              const EdgeInsets.symmetric(
+                                                horizontal: 12,
+                                                vertical: 12,
+                                              ),
+                                        ),
+                                        textInputAction:
+                                            imeiIndex < requiredImeiCount - 1
+                                            ? TextInputAction.next
+                                            : TextInputAction.done,
+                                        onFieldSubmitted: (_) {
+                                          if (imeiIndex <
+                                              requiredImeiCount - 1) {
+                                            final nextKey = _getImeiKey(
+                                              index,
+                                              imeiIndex + 1,
+                                            );
+                                            _imeiFocusNodes[nextKey]
+                                                ?.requestFocus();
+                                          }
+                                        },
+                                      ),
                                     ),
-                                    onChanged: (value) {
-                                      // Update the serial in the list
-                                      final updatedSerials = List<String>.from(
-                                        itemImeisList,
-                                      );
-                                      while (updatedSerials.length <=
-                                          imeiIndex) {
-                                        updatedSerials.add('');
-                                      }
-                                      updatedSerials[imeiIndex] = value;
-                                      // This needs to be handled by the parent widget
-                                      // You'll need to implement a method to update serials
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Container(
-                                  decoration: BoxDecoration(
-                                    color: lightGreen.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: IconButton(
-                                    onPressed: () => showScannerDialog(
-                                      index,
-                                      imeiIndex: imeiIndex,
-                                    ),
-                                    icon: Icon(
-                                      Icons.qr_code_scanner,
-                                      color: primaryGreen,
-                                      size: 22,
-                                    ),
-                                    tooltip: 'Scan IMEI/Serial',
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        color: widget.lightGreen.withOpacity(
+                                          0.1,
+                                        ),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: IconButton(
+                                        onPressed: () async {
+                                          final scannedSerial =
+                                              await Navigator.of(
+                                                context,
+                                              ).push<String>(
+                                                MaterialPageRoute(
+                                                  builder: (ctx) =>
+                                                      CreatePurchaseScanner(
+                                                        itemIndex: index,
+                                                        imeiIndex: imeiIndex,
+                                                        currentSerial:
+                                                            controller.text,
+                                                      ),
+                                                ),
+                                              );
 
-                        const SizedBox(height: 8),
+                                          if (scannedSerial != null &&
+                                              scannedSerial.isNotEmpty) {
+                                            _isUpdating = true;
+                                            controller.text = scannedSerial;
+                                            _isUpdating = false;
+                                            widget.updateItemSerial(
+                                              index,
+                                              imeiIndex,
+                                              scannedSerial,
+                                            );
+                                          }
+                                        },
+                                        icon: Icon(
+                                          Icons.qr_code_scanner,
+                                          color: widget.primaryGreen,
+                                          size: 22,
+                                        ),
+                                        tooltip: 'Scan IMEI/Serial',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
 
-                        // Progress indicator
-                        LinearProgressIndicator(
-                          value: currentImeiCount / requiredImeiCount,
-                          backgroundColor: Colors.grey.shade200,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            hasAllImeis ? lightGreen : Colors.amber,
-                          ),
-                        ),
-                      ],
+                            const SizedBox(height: 8),
+                          ],
+                        );
+                      },
                     ),
 
                     // Item Total Summary
@@ -577,7 +690,7 @@ class CreatePurchaseForm extends StatelessWidget {
                                     style: TextStyle(
                                       fontSize: 11,
                                       fontWeight: FontWeight.w600,
-                                      color: primaryGreen,
+                                      color: widget.primaryGreen,
                                     ),
                                   ),
                                 ],
@@ -646,7 +759,7 @@ class CreatePurchaseForm extends StatelessWidget {
                                     style: TextStyle(
                                       fontSize: 11,
                                       fontWeight: FontWeight.w700,
-                                      color: primaryGreen,
+                                      color: widget.primaryGreen,
                                     ),
                                   ),
                                 ],
@@ -675,7 +788,10 @@ class CreatePurchaseForm extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: TextStyle(fontSize: 9, color: Colors.grey.shade700)),
+        Text(
+          label,
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+        ),
         const SizedBox(height: 2),
         TextFormField(
           initialValue: value,
@@ -713,7 +829,7 @@ class CreatePurchaseForm extends StatelessWidget {
             label,
             style: TextStyle(
               fontSize: 11,
-              color: isTotal ? primaryGreen : Colors.grey.shade700,
+              color: isTotal ? widget.primaryGreen : Colors.grey.shade700,
               fontWeight: isTotal ? FontWeight.w600 : FontWeight.normal,
             ),
           ),
@@ -721,7 +837,7 @@ class CreatePurchaseForm extends StatelessWidget {
             value,
             style: TextStyle(
               fontSize: 11,
-              color: isTotal ? primaryGreen : Colors.grey.shade800,
+              color: isTotal ? widget.primaryGreen : Colors.grey.shade800,
               fontWeight: isTotal ? FontWeight.w600 : FontWeight.normal,
             ),
           ),
@@ -748,7 +864,7 @@ class CreatePurchaseForm extends StatelessWidget {
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w500,
-            color: primaryGreen,
+            color: widget.primaryGreen,
           ),
         ),
         const SizedBox(height: 4),
@@ -771,7 +887,7 @@ class CreatePurchaseForm extends StatelessWidget {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: lightGreen, width: 1.5),
+              borderSide: BorderSide(color: widget.lightGreen, width: 1.5),
             ),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 10,
@@ -791,7 +907,7 @@ class CreatePurchaseForm extends StatelessWidget {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(12),
       child: Form(
-        key: formKey,
+        key: widget.formKey,
         child: Column(
           children: [
             // Date Section
@@ -823,20 +939,20 @@ class CreatePurchaseForm extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}',
+                        '${widget.selectedDate.day}/${widget.selectedDate.month}/${widget.selectedDate.year}',
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: primaryGreen,
+                          color: widget.primaryGreen,
                         ),
                       ),
                     ],
                   ),
                   ElevatedButton.icon(
-                    onPressed: selectDate,
+                    onPressed: widget.selectDate,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: lightGreen.withOpacity(0.1),
-                      foregroundColor: primaryGreen,
+                      backgroundColor: widget.lightGreen.withOpacity(0.1),
+                      foregroundColor: widget.primaryGreen,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(6),
@@ -856,20 +972,20 @@ class CreatePurchaseForm extends StatelessWidget {
 
             // Supplier Field
             GestureDetector(
-              onTap: showSupplierSelection,
+              onTap: widget.showSupplierSelection,
               child: AbsorbPointer(
                 absorbing: true,
                 child: _buildFormField(
                   label: 'Supplier *',
-                  controller: supplierController,
+                  controller: widget.supplierController,
                   readOnly: true,
                   suffixIcon: Icon(
                     Icons.arrow_drop_down,
                     size: 18,
-                    color: primaryGreen,
+                    color: widget.primaryGreen,
                   ),
                   validator: (value) {
-                    if (selectedSupplier == null) {
+                    if (widget.selectedSupplier == null) {
                       return 'Please select a supplier';
                     }
                     return null;
@@ -882,7 +998,7 @@ class CreatePurchaseForm extends StatelessWidget {
             // Invoice Field
             _buildFormField(
               label: 'Invoice Number *',
-              controller: invoiceController,
+              controller: widget.invoiceController,
               keyboardType: TextInputType.text,
               validator: (value) {
                 if (value == null || value.isEmpty) {
@@ -902,12 +1018,14 @@ class CreatePurchaseForm extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: primaryGreen,
+                    color: widget.primaryGreen,
                   ),
                 ),
                 TextButton.icon(
-                  onPressed: addNewItem,
-                  style: TextButton.styleFrom(foregroundColor: lightGreen),
+                  onPressed: widget.addNewItem,
+                  style: TextButton.styleFrom(
+                    foregroundColor: widget.lightGreen,
+                  ),
                   icon: const Icon(Icons.add, size: 14),
                   label: const Text('Add Item', style: TextStyle(fontSize: 11)),
                 ),
@@ -916,9 +1034,9 @@ class CreatePurchaseForm extends StatelessWidget {
             const SizedBox(height: 6),
 
             // Purchase Items List
-            ...purchaseItems.asMap().entries.map((entry) {
-              return _buildPurchaseItemCard(entry.key);
-            }),
+            ...widget.purchaseItems.asMap().entries.map((entry) {
+              return _buildPurchaseItemCard(entry.key, context);
+            }).toList(),
 
             // Add Item Button
             Padding(
@@ -926,9 +1044,9 @@ class CreatePurchaseForm extends StatelessWidget {
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: addNewItem,
+                  onPressed: widget.addNewItem,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: lightGreen,
+                    backgroundColor: widget.lightGreen,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 10),
                     shape: RoundedRectangleBorder(
@@ -965,34 +1083,34 @@ class CreatePurchaseForm extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: primaryGreen,
+                      color: widget.primaryGreen,
                     ),
                   ),
                   const SizedBox(height: 12),
                   _buildSummaryRow(
                     'Subtotal:',
-                    '₹${subtotal.toStringAsFixed(2)}',
+                    '₹${widget.subtotal.toStringAsFixed(2)}',
                   ),
-                  if (totalDiscount > 0)
+                  if (widget.totalDiscount > 0)
                     _buildSummaryRow(
                       'Total Discount:',
-                      '-₹${totalDiscount.toStringAsFixed(2)}',
+                      '-₹${widget.totalDiscount.toStringAsFixed(2)}',
                     ),
                   _buildSummaryRow(
                     'GST (18%):',
-                    '₹${gstAmount.toStringAsFixed(2)}',
+                    '₹${widget.gstAmount.toStringAsFixed(2)}',
                   ),
-                  if (roundOff != 0)
+                  if (widget.roundOff != 0)
                     _buildSummaryRow(
                       'Round Off:',
-                      roundOff > 0
-                          ? '+₹${roundOff.abs().toStringAsFixed(2)}'
-                          : '-₹${roundOff.abs().toStringAsFixed(2)}',
+                      widget.roundOff > 0
+                          ? '+₹${widget.roundOff.abs().toStringAsFixed(2)}'
+                          : '-₹${widget.roundOff.abs().toStringAsFixed(2)}',
                     ),
                   const Divider(height: 12),
                   _buildSummaryRow(
                     'Total Amount:',
-                    '₹${totalAmount.toStringAsFixed(2)}',
+                    '₹${widget.totalAmount.toStringAsFixed(2)}',
                     isTotal: true,
                   ),
                 ],
@@ -1003,7 +1121,7 @@ class CreatePurchaseForm extends StatelessWidget {
             // Notes Field
             _buildFormField(
               label: 'Notes',
-              controller: notesController,
+              controller: widget.notesController,
               maxLines: 2,
             ),
             const SizedBox(height: 20),
@@ -1013,7 +1131,7 @@ class CreatePurchaseForm extends StatelessWidget {
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: togglePreview,
+                    onPressed: widget.togglePreview,
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 10),
                       shape: RoundedRectangleBorder(
@@ -1029,9 +1147,9 @@ class CreatePurchaseForm extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: savePurchase,
+                    onPressed: widget.savePurchase,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: lightGreen,
+                      backgroundColor: widget.lightGreen,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 10),
                       shape: RoundedRectangleBorder(

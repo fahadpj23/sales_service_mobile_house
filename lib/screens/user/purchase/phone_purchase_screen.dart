@@ -12,7 +12,6 @@ import '../../../providers/auth_provider.dart';
 import '../../../models/user_model.dart';
 
 class PhonePurchaseScreen extends StatefulWidget {
-  // Keep the supplier parameter but make it optional
   final Map<String, dynamic>? supplier;
 
   const PhonePurchaseScreen({Key? key, this.supplier}) : super(key: key);
@@ -57,12 +56,10 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
     super.initState();
     _fetchSuppliers();
     _fetchProducts();
-    // Check if supplier was passed from previous screen
     if (widget.supplier != null) {
       _selectedSupplier = widget.supplier;
       _supplierController.text = widget.supplier!['name'] ?? '';
     }
-    // Add one empty item initially
     _addNewItem();
   }
 
@@ -169,18 +166,16 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
       _purchaseItems.add(
         PurchaseItem(
           discountPercentage: 0.0,
-          quantity: 1.0, // Default quantity to 1
-          hsnCode: '85171300', // Set default HSN code for mobiles
+          quantity: 1.0,
+          hsnCode: '85171300',
         ),
       );
       _itemImeis[newIndex] = [];
 
-      // Collapse ALL existing items
       for (var key in _showEditSections.keys) {
         _showEditSections[key] = false;
       }
 
-      // Expand ONLY the new item
       _showEditSections[newIndex] = true;
     });
   }
@@ -190,7 +185,6 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
       setState(() {
         _purchaseItems.removeAt(index);
 
-        // Create new maps to reindex everything properly
         final newPurchaseItems = <PurchaseItem>[];
         final newShowEditSections = <int, bool>{};
         final newItemImeis = <int, List<String>>{};
@@ -221,20 +215,16 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
       final currentState = _showEditSections[index] ?? false;
 
       if (!currentState) {
-        // If we're expanding this item, collapse all others first
         for (var key in _showEditSections.keys) {
           _showEditSections[key] = false;
         }
       }
 
-      // Toggle the current item
       _showEditSections[index] = !currentState;
     });
   }
 
   bool _isValidSerialNumber(String serial) {
-    // Remove 15-digit restriction, allow various serial formats
-    // Minimum 3 characters, maximum 30 for most products
     final trimmed = serial.trim();
     return trimmed.isNotEmpty && trimmed.length >= 3 && trimmed.length <= 30;
   }
@@ -262,6 +252,18 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
         behavior: SnackBarBehavior.floating,
       ),
     );
+  }
+
+  void _updateItemSerial(int itemIndex, int imeiIndex, String value) {
+    setState(() {
+      if (_itemImeis[itemIndex] == null) {
+        _itemImeis[itemIndex] = [];
+      }
+      while (_itemImeis[itemIndex]!.length <= imeiIndex) {
+        _itemImeis[itemIndex]!.add('');
+      }
+      _itemImeis[itemIndex]![imeiIndex] = value;
+    });
   }
 
   @override
@@ -308,6 +310,7 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
             updateItemQuantity: _updateItemQuantity,
             updateItemRate: _updateItemRate,
             updateItemDiscount: _updateItemDiscount,
+            updateItemSerial: _updateItemSerial,
           ),
           if (_showPreview)
             Container(
@@ -335,18 +338,15 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
     );
   }
 
-  // Methods for form updates
   void _updateItemQuantity(int index, String value) {
     final quantity = double.tryParse(value);
     if (quantity != null && quantity > 0) {
       setState(() {
         _purchaseItems[index].quantity = quantity;
-        // Check if we need to adjust IMEIs
         final currentImeis = _itemImeis[index] ?? [];
         final requiredCount = quantity.toInt();
 
         if (currentImeis.length > requiredCount) {
-          // Remove excess IMEIs
           _itemImeis[index] = currentImeis.sublist(0, requiredCount);
         }
       });
@@ -374,7 +374,6 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
     }
   }
 
-  // Methods that need to be accessible from child widgets
   void _showSupplierSelection() {
     showModalBottomSheet(
       context: context,
@@ -875,7 +874,7 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
       _purchaseItems[itemIndex].productName =
           product['productName'] ?? 'Unnamed Product';
       _purchaseItems[itemIndex].brand = product['brand'];
-      _purchaseItems[itemIndex].hsnCode = '85171300'; // Set fixed HSN code
+      _purchaseItems[itemIndex].hsnCode = '85171300';
 
       final purchaseRate = product['purchaseRate'];
       if (purchaseRate != null && purchaseRate is num && purchaseRate > 0) {
@@ -883,7 +882,6 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
         _purchaseItems[itemIndex].gstAmount = purchaseRate.toDouble() * 0.18;
       }
 
-      // Collapse all other items and expand only this one
       for (var key in _showEditSections.keys) {
         _showEditSections[key] = false;
       }
@@ -1062,7 +1060,6 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
     final productNameController = TextEditingController();
     final purchaseRateController = TextEditingController();
     final priceController = TextEditingController();
-    // HSN controller removed as we'll use fixed value
 
     final List<String> brandList = [
       'Samsung',
@@ -1250,7 +1247,6 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        // HSN code info - showing fixed value
                         Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
@@ -1513,7 +1509,7 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
       final productData = {
         'brand': selectedBrand,
         'productName': productNameController.text.trim(),
-        'hsnCode': '85171300', // Fixed HSN code for mobiles
+        'hsnCode': '85171300',
         'purchaseRate': double.parse(purchaseRateController.text),
         'price': double.parse(priceController.text),
         'stockQuantity': 0,
@@ -1744,12 +1740,10 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
                 Navigator.pop(context);
                 setState(() {
                   if (imeiIndex != null) {
-                    // Edit existing serial
                     if ((_itemImeis[itemIndex]?.length ?? 0) > imeiIndex) {
                       _itemImeis[itemIndex]![imeiIndex] = serial;
                     }
                   } else {
-                    // Add new serial
                     _itemImeis[itemIndex] ??= [];
                     _itemImeis[itemIndex]!.add(serial);
                   }
@@ -1790,14 +1784,12 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
 
       setState(() {
         if (_currentScanImeiIndex != null) {
-          // Update specific serial
           if ((_itemImeis[_currentScanItemIndex!]?.length ?? 0) >
               _currentScanImeiIndex!) {
             _itemImeis[_currentScanItemIndex!]![_currentScanImeiIndex!] =
                 trimmedValue;
           }
         } else {
-          // Add new serial
           _itemImeis[_currentScanItemIndex!] ??= [];
           _itemImeis[_currentScanItemIndex!]!.add(trimmedValue);
         }
@@ -1810,16 +1802,13 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
   }
 
   Future<void> _savePurchase() async {
-    // Instead of directly saving, show preview first
     _togglePreview();
   }
 
-  // UPDATED: Complete method with phone stock creation
   Future<void> _confirmAndSavePurchase() async {
     if (_formKey.currentState!.validate() &&
         _selectedSupplier != null &&
         _purchaseItems.isNotEmpty) {
-      // Validate all items
       for (var i = 0; i < _purchaseItems.length; i++) {
         final item = _purchaseItems[i];
 
@@ -1835,7 +1824,6 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
         final requiredImeiCount = item.quantity!.toInt();
         final itemImeis = _itemImeis[i] ?? [];
 
-        // Check if IMEI count matches quantity
         if (itemImeis.length != requiredImeiCount) {
           _showErrorSnackbar(
             'Item ${i + 1}: Quantity is $requiredImeiCount, but you have ${itemImeis.length} Serial Numbers. Please add ${requiredImeiCount - itemImeis.length} more.',
@@ -1855,7 +1843,6 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
       }
 
       try {
-        // Get current user for tracking
         final user = Provider.of<AuthProvider>(context, listen: false).user;
 
         if (user == null) {
@@ -1863,7 +1850,6 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
           return;
         }
 
-        // Create purchase data
         final purchaseData = {
           'supplierId': _selectedSupplier!['id'],
           'supplierName': _selectedSupplier!['name'],
@@ -1882,7 +1868,6 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
             itemMap['imeis'] = _itemImeis[index] ?? [];
             return itemMap;
           }).toList(),
-          // User tracking fields
           'userId': user.uid,
           'userName': user.name ?? user.email,
           'shopId': user.shopId,
@@ -1890,10 +1875,8 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
           'createdAt': FieldValue.serverTimestamp(),
         };
 
-        // Create the purchase record
         final purchaseId = await _firestoreService.createPurchase(purchaseData);
 
-        // Create phone stock entries for each IMEI/serial number
         final List<Map<String, dynamic>> phoneStockList = [];
 
         for (var i = 0; i < _purchaseItems.length; i++) {
@@ -1920,19 +1903,17 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
               'supplierId': _selectedSupplier!['id'],
               'supplierName': _selectedSupplier!['name'],
               'productId': item.productId,
-              'hsnCode': '85171300', // Fixed HSN code
+              'hsnCode': '85171300',
             };
 
             phoneStockList.add(phoneStockData);
           }
         }
 
-        // Add all phone stock entries in batch
         if (phoneStockList.isNotEmpty) {
           await _firestoreService.addMultiplePhoneStock(phoneStockList);
         }
 
-        // Update product stock counts
         for (var i = 0; i < _purchaseItems.length; i++) {
           final item = _purchaseItems[i];
           if (item.productId != null) {
@@ -1942,7 +1923,6 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
                 item.rate!,
               );
             }
-            // No need to update HSN code as it's fixed
             await _firestoreService.updateProductStock(
               item.productId!,
               item.quantity!.toInt(),
@@ -1954,7 +1934,6 @@ class _PhonePurchaseScreenState extends State<PhonePurchaseScreen> {
           'Purchase saved successfully with ${phoneStockList.length} items',
         );
 
-        // Navigate to PurchaseHistoryScreen after successful save
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (context) => PurchaseHistoryScreen()),

@@ -1,4 +1,3 @@
-// lib/screens/user/gst_accessories_sale_upload.dart
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -11,9 +10,12 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../providers/auth_provider.dart';
+import '../../../services/firestore_service.dart';
 
 class GSTAccessoriesSaleUpload extends StatefulWidget {
-  const GSTAccessoriesSaleUpload({super.key});
+  final Map<String, dynamic>? initialProductData;
+
+  const GSTAccessoriesSaleUpload({super.key, this.initialProductData});
 
   @override
   State<GSTAccessoriesSaleUpload> createState() =>
@@ -23,6 +25,7 @@ class GSTAccessoriesSaleUpload extends StatefulWidget {
 class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
   final _formKey = GlobalKey<FormState>();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirestoreService _firestoreService = FirestoreService();
 
   // Controllers
   final TextEditingController _billNumberController = TextEditingController();
@@ -37,19 +40,24 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
   final TextEditingController _gstAmountController = TextEditingController();
 
   // Product controllers
-  final TextEditingController _productNameController = TextEditingController();
   final TextEditingController _quantityController = TextEditingController(
     text: '1',
   );
-  final TextEditingController _priceController = TextEditingController();
   final TextEditingController _discountController = TextEditingController(
     text: '0',
   );
+
+  // New Product controllers (for adding new product)
+  final TextEditingController _newProductNameController =
+      TextEditingController();
+  final TextEditingController _newProductPriceController =
+      TextEditingController();
 
   // State variables
   bool isLoading = false;
   bool _isGeneratingBill = false;
   bool _sealChecked = false;
+  bool _isAddingProduct = false;
 
   // FIXED: GST rate fixed at 18%
   final double gstRate = 18.0;
@@ -61,24 +69,121 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
   // FIXED: Purchase Mode - Always Ready Cash, no dropdown
   final String _purchaseMode = 'Ready Cash';
 
-  // FIXED: Remove finance fields completely
-  // No finance companies list needed
-
   // Images for PDF
   Uint8List? _logoImage;
   Uint8List? _sealImage;
   File? _savedPdfFile;
+
+  // Selected product
+  Map<String, dynamic>? _selectedProduct;
+  List<Map<String, dynamic>> _accessoriesList = [];
+  bool _isLoadingAccessories = false;
+
+  // Original stock data from accessories stock screen
+  Map<String, dynamic>? _originalStockData;
 
   @override
   void initState() {
     super.initState();
     _loadImages();
     _generateNextBillNumber();
+    _loadAccessories();
 
-    // FIXED: Add listeners with proper error handling
-    _priceController.addListener(_onPriceOrQuantityChanged);
+    // Initialize with product data if provided
+    if (widget.initialProductData != null) {
+      _initializeWithProductData(widget.initialProductData!);
+    }
+
+    // Add listeners with proper error handling
     _quantityController.addListener(_onPriceOrQuantityChanged);
     _discountController.addListener(_onPriceOrQuantityChanged);
+  }
+
+  void _initializeWithProductData(Map<String, dynamic> data) {
+    // Store original stock data for later use
+    _originalStockData = data;
+
+    // Set quantity
+    if (data['quantity'] != null) {
+      _quantityController.text = data['quantity'].toString();
+    }
+
+    // We'll select the product after loading accessories list
+    // This will be handled in _loadAccessories when data is loaded
+  }
+
+  Future<void> _loadAccessories() async {
+    setState(() => _isLoadingAccessories = true);
+    try {
+      final querySnapshot = await _firestore
+          .collection('accessories')
+          .orderBy('accessoryName')
+          .get();
+
+      final accessories = querySnapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'id': doc.id,
+          'accessoryName': data['accessoryName'] ?? '',
+          'salesPrice':
+              data['salesPrice'] ??
+              0.0, // Using salesPrice instead of purchaseRate
+          'stockQuantity': data['stockQuantity'] ?? 0,
+          'hsnCode': data['hsnCode'] ?? '',
+          'category': data['category'] ?? '',
+        };
+      }).toList();
+
+      setState(() {
+        _accessoriesList = accessories;
+        _isLoadingAccessories = false;
+      });
+
+      // If we have initial product data, select the matching product
+      if (widget.initialProductData != null && mounted) {
+        _selectProductFromInitialData();
+      }
+    } catch (e) {
+      print('Error loading accessories: $e');
+      setState(() => _isLoadingAccessories = false);
+    }
+  }
+
+  void _selectProductFromInitialData() {
+    final initialData = widget.initialProductData!;
+    final productId = initialData['productId'];
+    final productName = initialData['productName'];
+
+    if (productId != null) {
+      // Try to find by ID first
+      final product = _accessoriesList.firstWhere(
+        (p) => p['id'] == productId,
+        orElse: () => <String, dynamic>{},
+      );
+
+      if (product.isNotEmpty) {
+        setState(() {
+          _selectedProduct = product;
+        });
+        _onPriceOrQuantityChanged();
+        return;
+      }
+    }
+
+    if (productName != null) {
+      // Fallback to name search
+      final product = _accessoriesList.firstWhere(
+        (p) => p['accessoryName'] == productName,
+        orElse: () => <String, dynamic>{},
+      );
+
+      if (product.isNotEmpty) {
+        setState(() {
+          _selectedProduct = product;
+        });
+        _onPriceOrQuantityChanged();
+      }
+    }
   }
 
   Future<void> _loadImages() async {
@@ -91,6 +196,153 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
     } catch (e) {
       print('Error loading images: $e');
     }
+  }
+
+  // ============ ADD NEW PRODUCT TO ACCESSORIES COLLECTION ============
+  Future<void> _addNewProduct() async {
+    if (_newProductNameController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter accessory name')),
+      );
+      return;
+    }
+
+    if (_newProductPriceController.text.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please enter sales price')));
+      return;
+    }
+
+    try {
+      setState(() => _isAddingProduct = true);
+
+      final price = double.parse(_newProductPriceController.text);
+      final now = DateTime.now();
+
+      final productData = {
+        'accessoryName': _newProductNameController.text.trim(),
+        'salesPrice': price,
+        'stockQuantity': 0,
+        'createdAt': Timestamp.fromDate(now),
+        'updatedAt': Timestamp.fromDate(now),
+        'shop': _selectedShop,
+      };
+
+      // Add to accessories collection
+      final docRef = await _firestore
+          .collection('accessories')
+          .add(productData);
+
+      // Auto-select the newly added product
+      setState(() {
+        _selectedProduct = {
+          'id': docRef.id,
+          'accessoryName': _newProductNameController.text.trim(),
+          'salesPrice': price,
+          'stockQuantity': 0,
+        };
+
+        // Add to local list and select it
+        _accessoriesList.add({
+          'id': docRef.id,
+          'accessoryName': _newProductNameController.text.trim(),
+          'salesPrice': price,
+          'stockQuantity': 0,
+        });
+
+        // Sort the list alphabetically by accessoryName
+        _accessoriesList.sort(
+          (a, b) => a['accessoryName'].compareTo(b['accessoryName']),
+        );
+      });
+
+      // Trigger price calculation
+      _onPriceOrQuantityChanged();
+
+      // Clear new product form
+      _newProductNameController.clear();
+      _newProductPriceController.clear();
+
+      // Close the dialog
+      Navigator.pop(context);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Accessory added successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error adding accessory: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() => _isAddingProduct = false);
+    }
+  }
+
+  // ============ SHOW ADD PRODUCT DIALOG ============
+  void _showAddProductDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Add New Accessory'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: _newProductNameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Accessory Name *',
+                    border: OutlineInputBorder(),
+                  ),
+                  autofocus: true,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _newProductPriceController,
+                  decoration: const InputDecoration(
+                    labelText: 'Sales Price (Inc. GST) *',
+                    border: OutlineInputBorder(),
+                    prefixText: '₹ ',
+                  ),
+                  keyboardType: TextInputType.number,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                _newProductNameController.clear();
+                _newProductPriceController.clear();
+                Navigator.pop(context);
+              },
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: _isAddingProduct ? null : _addNewProduct,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green[700],
+              ),
+              child: _isAddingProduct
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Add Accessory'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   // ============ BILL NUMBER GENERATION ============
@@ -140,9 +392,8 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
     }
   }
 
-  // ============ FIXED: GST CALCULATION - Price with GST ============
+  // ============ GST CALCULATION - Price with GST ============
   void _onPriceOrQuantityChanged() {
-    // Use WidgetsBinding.instance.addPostFrameCallback to avoid setState during build
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _calculateGST();
@@ -151,22 +402,19 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
   }
 
   void _calculateGST() {
-    // Price entered is WITH GST (18% included)
-    final priceWithGst = double.tryParse(_priceController.text) ?? 0.0;
+    if (_selectedProduct == null) return;
+
+    final priceWithGst =
+        _selectedProduct!['salesPrice'] as double; // Using salesPrice
     final quantity = int.tryParse(_quantityController.text) ?? 1;
     final discount = double.tryParse(_discountController.text) ?? 0.0;
 
-    // Calculate total with GST
     double totalWithGst = priceWithGst * quantity;
 
-    // Apply discount if any
     if (discount > 0) {
       totalWithGst = totalWithGst - (totalWithGst * discount / 100);
     }
 
-    // Calculate taxable amount (remove GST)
-    // GST is 18%, so totalWithGst = taxableAmount * 1.18
-    // Therefore taxableAmount = totalWithGst / 1.18
     final taxableAmount = totalWithGst / (1 + gstRate / 100);
     final gstAmount = totalWithGst - taxableAmount;
 
@@ -175,6 +423,79 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
       _taxableAmountController.text = taxableAmount.toStringAsFixed(2);
       _gstAmountController.text = gstAmount.toStringAsFixed(2);
     });
+  }
+
+  // ============ UPDATE STOCK AFTER SALE ============
+  Future<void> _updateAccessoryStock() async {
+    if (_originalStockData == null) return;
+
+    try {
+      final stockId = _originalStockData!['stockId'];
+      final productId = _originalStockData!['productId'];
+      final quantity = int.tryParse(_quantityController.text) ?? 1;
+      final currentQuantity = _originalStockData!['currentQuantity'] ?? 0;
+      final minStockLevel = _originalStockData!['minStockLevel'] ?? 5;
+
+      final newQuantity = currentQuantity - quantity;
+
+      // Update accessoryStock collection
+      final updateData = {
+        'quantity': newQuantity,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      if (newQuantity == 0) {
+        updateData['status'] = 'sold_out';
+        updateData['soldOutAt'] = FieldValue.serverTimestamp();
+      } else if (newQuantity < minStockLevel) {
+        updateData['status'] = 'low_stock';
+      } else {
+        updateData['status'] = 'available';
+      }
+
+      await _firestore
+          .collection('accessoryStock')
+          .doc(stockId)
+          .update(updateData);
+
+      // Also update the master accessories collection stock quantity
+      final accessoryDoc = await _firestore
+          .collection('accessories')
+          .doc(productId)
+          .get();
+
+      if (accessoryDoc.exists) {
+        final currentMasterStock = accessoryDoc.data()?['stockQuantity'] ?? 0;
+        await _firestore.collection('accessories').doc(productId).update({
+          'stockQuantity': (currentMasterStock as int) - quantity,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      // Add to stock movement log
+      await _firestore.collection('accessoryMovements').add({
+        'productId': productId,
+        'productName': _selectedProduct?['accessoryName'],
+        'productCategory': _originalStockData!['productCategory'],
+        'movementType': 'sale',
+        'quantity': quantity,
+        'previousQuantity': currentQuantity,
+        'newQuantity': newQuantity,
+        'shopId': _originalStockData!['shopId'],
+        'shopName': _originalStockData!['shopName'],
+        'performedBy':
+            Provider.of<AuthProvider>(context, listen: false).user?.email ??
+            'Unknown',
+        'performedById':
+            Provider.of<AuthProvider>(context, listen: false).user?.uid ?? '',
+        'timestamp': FieldValue.serverTimestamp(),
+        'billNumber': 'MH-${_billNumberController.text}',
+        'notes': 'Sale via GST bill',
+      });
+    } catch (e) {
+      print('Error updating accessory stock: $e');
+      rethrow;
+    }
   }
 
   // ============ SAVE BILL AND GENERATE PDF ============
@@ -186,18 +507,11 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
       return;
     }
 
-    // Validate product details
-    if (_productNameController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter product name')),
-      );
-      return;
-    }
-
-    if (_priceController.text.isEmpty) {
+    // Validate product selection
+    if (_selectedProduct == null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Please enter price')));
+      ).showSnackBar(const SnackBar(content: Text('Please select a product')));
       return;
     }
 
@@ -208,6 +522,22 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
       return;
     }
 
+    // Validate stock if coming from stock screen
+    if (_originalStockData != null) {
+      final quantity = int.tryParse(_quantityController.text) ?? 1;
+      final currentQuantity = _originalStockData!['currentQuantity'] ?? 0;
+
+      if (quantity > currentQuantity) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Insufficient stock! Available: $currentQuantity'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
+
     try {
       setState(() => _isGeneratingBill = true);
 
@@ -215,7 +545,7 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
       final user = authProvider.user;
 
       // Prepare product data
-      final priceWithGst = double.parse(_priceController.text);
+      final priceWithGst = _selectedProduct!['salesPrice'] as double;
       final quantity = int.tryParse(_quantityController.text) ?? 1;
       final discount = double.tryParse(_discountController.text) ?? 0.0;
 
@@ -228,13 +558,15 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
       final gstAmount = totalWithGst - taxableAmount;
 
       final product = {
-        'productName': _productNameController.text,
+        'productName': _selectedProduct!['accessoryName'],
+        'productId': _selectedProduct!['id'],
         'quantity': quantity,
-        'price': priceWithGst, // Price with GST
+        'price': priceWithGst,
         'discount': discount,
         'taxableAmount': taxableAmount,
         'gstAmount': gstAmount,
         'totalAmount': totalWithGst,
+        'hsnCode': _selectedProduct!['hsnCode'] ?? '',
       };
 
       final now = DateTime.now();
@@ -260,7 +592,9 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
         'createdByName': user?.name ?? 'User',
         'sealApplied': _sealChecked,
         'billType': 'GST Accessories',
-        'purchaseMode': _purchaseMode, // Fixed: Ready Cash
+        'purchaseMode': _purchaseMode,
+        'originalStockId': _originalStockData?['stockId'],
+        'originalProductId': _originalStockData?['productId'],
       };
 
       // Save to Firestore
@@ -272,6 +606,23 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
         'timestamp': FieldValue.serverTimestamp(),
         'saleDate': now.toIso8601String(),
       });
+
+      // Update accessory stock if this came from stock screen
+      if (_originalStockData != null) {
+        await _updateAccessoryStock();
+      } else {
+        // If not from stock screen, just update the master stock
+        final currentStock = _selectedProduct!['stockQuantity'] as int;
+        final newStock = currentStock - quantity;
+
+        await _firestore
+            .collection('accessories')
+            .doc(_selectedProduct!['id'])
+            .update({
+              'stockQuantity': newStock < 0 ? 0 : newStock,
+              'updatedAt': Timestamp.fromDate(now),
+            });
+      }
 
       // Generate PDF
       final pdfBytes = await _generatePdf(
@@ -300,6 +651,12 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
         await _sharePdf(pdfFile);
         _clearForm();
         await _generateNextBillNumber();
+
+        // Refresh accessories list to get updated stock
+        await _loadAccessories();
+
+        // Return true to indicate success to the calling screen
+        Navigator.pop(context, true);
       }
     } catch (e) {
       print('Error: $e');
@@ -722,13 +1079,11 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
       columnWidths: {
         0: pw.FixedColumnWidth(40),
         1: pw.FlexColumnWidth(2.5),
-        2: pw.FixedColumnWidth(40),
-        3: pw.FixedColumnWidth(30),
-        4: pw.FixedColumnWidth(40),
-        5: pw.FixedColumnWidth(50),
+        2: pw.FixedColumnWidth(30),
+        3: pw.FixedColumnWidth(40),
+        4: pw.FixedColumnWidth(50),
+        5: pw.FixedColumnWidth(45),
         6: pw.FixedColumnWidth(70),
-        7: pw.FixedColumnWidth(45),
-        8: pw.FixedColumnWidth(70),
       },
       defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
       children: [
@@ -736,11 +1091,9 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
           children: [
             _buildTableCell('SLNO', isHeader: true, fontSize: 9),
             _buildTableCell('Product Name', isHeader: true, fontSize: 9),
-            _buildTableCell('HSN', isHeader: true, fontSize: 9),
             _buildTableCell('Qty', isHeader: true, fontSize: 9),
-            _buildTableCell('Total Rate', isHeader: true, fontSize: 9),
+            _buildTableCell('Rate', isHeader: true, fontSize: 9),
             _buildTableCell('Disc%', isHeader: true, fontSize: 9),
-            _buildTableCell('GST%', isHeader: true, fontSize: 9),
             _buildTableCell('GST Amt', isHeader: true, fontSize: 9),
             _buildTableCell('Total Amount', isHeader: true, fontSize: 9),
           ],
@@ -754,7 +1107,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
               fontSize: 9,
               maxLines: 2,
             ),
-            _buildTableCell('', fontSize: 9),
             _buildTableCell(
               product['quantity']?.toString() ?? '1',
               fontSize: 9,
@@ -767,8 +1119,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
               product['discount'] > 0 ? '${product['discount']}%' : '-',
               fontSize: 9,
             ),
-
-            _buildTableCell('$gstRate', fontSize: 9),
             _buildTableCell(
               (product['gstAmount'] ?? 0.0).toStringAsFixed(0),
               fontSize: 9,
@@ -998,15 +1348,13 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
     _customerNameController.clear();
     _customerPhoneController.clear();
     _customerAddressController.clear();
-    _productNameController.clear();
     _quantityController.text = '1';
-    _priceController.clear();
     _discountController.text = '0';
     _totalAmountController.clear();
     _taxableAmountController.clear();
     _gstAmountController.clear();
-
     setState(() {
+      _selectedProduct = null;
       _sealChecked = false;
     });
   }
@@ -1032,6 +1380,11 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.add_box, color: Colors.white, size: 20),
+            onPressed: _showAddProductDialog,
+            tooltip: 'Add New Accessory',
+          ),
           if (_savedPdfFile != null)
             IconButton(
               icon: const Icon(Icons.share, color: Colors.white, size: 20),
@@ -1071,7 +1424,7 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
             const SizedBox(height: 16),
             _buildProductDetailsCard(),
             const SizedBox(height: 12),
-            _buildGSTSummaryCard(), // Simplified GST card
+            _buildGSTSummaryCard(),
             const SizedBox(height: 12),
             _buildSealCheckbox(),
             const SizedBox(height: 12),
@@ -1272,64 +1625,219 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Icon(Icons.shopping_cart, color: Colors.green[700], size: 16),
-              const SizedBox(width: 6),
-              const Text(
-                'Product Details',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.green,
+              Row(
+                children: [
+                  Icon(Icons.shopping_cart, color: Colors.green[700], size: 16),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'Product Details',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green,
+                    ),
+                  ),
+                ],
+              ),
+              TextButton.icon(
+                onPressed: _showAddProductDialog,
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('Add New', style: TextStyle(fontSize: 12)),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.green[700],
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 0,
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 10),
 
-          // Product Name
-          _buildTextField(
-            _productNameController,
-            'Product Name *',
-            Icons.shopping_bag_outlined,
-            validator: (value) => value?.isEmpty ?? true ? 'Required' : null,
-          ),
-          const SizedBox(height: 10),
-          _buildTextField(
-            _quantityController,
-            'Quantity',
-            Icons.production_quantity_limits_outlined,
-            keyboardType: TextInputType.number,
-          ),
-          const SizedBox(height: 10),
-          _buildTextField(
-            _priceController,
-            'Price (Inc. GST) *',
-            Icons.currency_rupee,
-            keyboardType: TextInputType.number,
-            validator: (value) {
-              if (value?.isEmpty ?? true) return 'Required';
-              if (double.tryParse(value!) == null) return 'Invalid price';
-              return null;
-            },
+          // Product Selection Dropdown
+          Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.green[200]!),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: _isLoadingAccessories
+                ? const Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                : DropdownButtonFormField<Map<String, dynamic>>(
+                    value: _selectedProduct,
+                    hint: const Text('Select Accessory *'),
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      prefixIcon: Icon(
+                        Icons.inventory,
+                        color: Colors.green[700],
+                        size: 16,
+                      ),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                      ),
+                    ),
+                    items: _accessoriesList.map((accessory) {
+                      return DropdownMenuItem<Map<String, dynamic>>(
+                        value: accessory,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    accessory['accessoryName'],
+                                    style: const TextStyle(fontSize: 12),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  if (accessory['stockQuantity'] != null)
+                                    Text(
+                                      'Stock: ${accessory['stockQuantity']}',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: accessory['stockQuantity'] > 0
+                                            ? Colors.green[600]
+                                            : Colors.red[600],
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.green[100],
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                '₹${accessory['salesPrice']}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.green[700],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (Map<String, dynamic>? newValue) {
+                      setState(() {
+                        _selectedProduct = newValue;
+                        if (newValue != null) {
+                          _onPriceOrQuantityChanged();
+                        } else {
+                          _totalAmountController.clear();
+                          _taxableAmountController.clear();
+                          _gstAmountController.clear();
+                        }
+                      });
+                    },
+                    validator: (value) =>
+                        value == null ? 'Please select a product' : null,
+                  ),
           ),
 
-          // Quantity and Price Row
           const SizedBox(height: 10),
 
-          // Discount
-          _buildTextField(
-            _discountController,
-            'Discount % (Default 0)',
-            Icons.percent,
-            keyboardType: TextInputType.number,
+          // Quantity and Discount Row
+          Row(
+            children: [
+              Expanded(
+                child: _buildTextField(
+                  _quantityController,
+                  'Quantity',
+                  Icons.production_quantity_limits_outlined,
+                  keyboardType: TextInputType.number,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildTextField(
+                  _discountController,
+                  'Discount % (Default 0)',
+                  Icons.percent,
+                  keyboardType: TextInputType.number,
+                ),
+              ),
+            ],
           ),
+
+          // Show warning if stock is low
+          if (_selectedProduct != null &&
+              _selectedProduct!['stockQuantity'] != null &&
+              int.tryParse(_quantityController.text) != null &&
+              _selectedProduct!['stockQuantity'] <
+                  int.tryParse(_quantityController.text)!)
+            Padding(
+              padding: const EdgeInsets.only(top: 8.0),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange[50],
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.orange[200]!),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning, color: Colors.orange[700], size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Insufficient stock! Available: ${_selectedProduct!['stockQuantity']}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.orange[800],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // Show original stock info if from stock screen
+          if (_originalStockData != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8.0),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.blue[200]!),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.inventory, color: Colors.blue[700], size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Stock available: ${_originalStockData!['currentQuantity']} units',
+                        style: TextStyle(fontSize: 11, color: Colors.blue[800]),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
-  // ============ SIMPLIFIED GST CARD - FIXED 18% ============
   Widget _buildGSTSummaryCard() {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1424,7 +1932,7 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
                       style: TextStyle(fontSize: 12),
                     ),
                     Text(
-                      '₹${_taxableAmountController.text}',
+                      '₹${_taxableAmountController.text.isEmpty ? "0.00" : _taxableAmountController.text}',
                       style: const TextStyle(fontSize: 12),
                     ),
                   ],
@@ -1438,7 +1946,7 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
                       style: TextStyle(fontSize: 12),
                     ),
                     Text(
-                      '₹${_gstAmountController.text}',
+                      '₹${_gstAmountController.text.isEmpty ? "0.00" : _gstAmountController.text}',
                       style: TextStyle(fontSize: 12, color: Colors.green[700]),
                     ),
                   ],
@@ -1455,7 +1963,7 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
                       ),
                     ),
                     Text(
-                      '₹${_totalAmountController.text}',
+                      '₹${_totalAmountController.text.isEmpty ? "0.00" : _totalAmountController.text}',
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.bold,
@@ -1626,13 +2134,13 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
     _customerNameController.dispose();
     _customerPhoneController.dispose();
     _customerAddressController.dispose();
-    _productNameController.dispose();
     _quantityController.dispose();
-    _priceController.dispose();
     _discountController.dispose();
     _totalAmountController.dispose();
     _taxableAmountController.dispose();
     _gstAmountController.dispose();
+    _newProductNameController.dispose();
+    _newProductPriceController.dispose();
     super.dispose();
   }
 }

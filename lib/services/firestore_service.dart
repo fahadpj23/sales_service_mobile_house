@@ -1566,4 +1566,112 @@ class FirestoreService {
 
     return query.snapshots();
   }
+  // Add these methods to the FirestoreService class in lib/services/firestore_service.dart
+
+  // ========== ACCESSORY SALE METHODS ==========
+  Future<void> createAccessorySale(Map<String, dynamic> saleData) async {
+    try {
+      await _firestore.collection('gst_accessories_sales').add({
+        ...saleData,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('Error creating accessory sale: $e');
+      rethrow;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getAccessorySales({
+    String? shopId,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    try {
+      Query query = _firestore
+          .collection('gst_accessories_sales')
+          .orderBy('saleDate', descending: true);
+
+      if (shopId != null) {
+        query = query.where('shopId', isEqualTo: shopId);
+      }
+
+      if (startDate != null) {
+        query = query.where('saleDate', isGreaterThanOrEqualTo: startDate);
+      }
+
+      if (endDate != null) {
+        query = query.where('saleDate', isLessThanOrEqualTo: endDate);
+      }
+
+      final snapshot = await query.get();
+
+      return snapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return {'id': doc.id, ...data};
+      }).toList();
+    } catch (e) {
+      print('Error fetching accessory sales: $e');
+      return [];
+    }
+  }
+
+  Stream<QuerySnapshot> getAccessorySalesStream({String? shopId}) {
+    Query query = _firestore
+        .collection('gst_accessories_sales')
+        .orderBy('saleDate', descending: true);
+
+    if (shopId != null) {
+      query = query.where('shopId', isEqualTo: shopId);
+    }
+
+    return query.snapshots();
+  }
+
+  Future<Map<String, dynamic>> getAccessorySalesAnalytics({
+    String? shopId,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    try {
+      final sales = await getAccessorySales(
+        shopId: shopId,
+        startDate: startDate,
+        endDate: endDate,
+      );
+
+      double totalAmount = 0.0;
+      double totalGst = 0.0;
+      int totalItems = 0;
+      int totalTransactions = sales.length;
+
+      for (var sale in sales) {
+        totalAmount += (sale['totalAmount'] ?? 0).toDouble();
+        totalGst += (sale['gstAmount'] ?? 0).toDouble();
+
+        final product = sale['product'] as Map<String, dynamic>?;
+        if (product != null) {
+          totalItems += (product['quantity'] ?? 1) as int;
+        }
+      }
+
+      return {
+        'totalAmount': totalAmount,
+        'totalGst': totalGst,
+        'totalItems': totalItems,
+        'totalTransactions': totalTransactions,
+        'averageTransactionValue': totalTransactions > 0
+            ? totalAmount / totalTransactions
+            : 0.0,
+      };
+    } catch (e) {
+      print('Error getting accessory sales analytics: $e');
+      return {
+        'totalAmount': 0.0,
+        'totalGst': 0.0,
+        'totalItems': 0,
+        'totalTransactions': 0,
+        'averageTransactionValue': 0.0,
+      };
+    }
+  }
 }

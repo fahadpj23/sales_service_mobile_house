@@ -60,7 +60,6 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
       _selectedSupplier = widget.supplier;
       _supplierController.text = widget.supplier!['name'] ?? '';
     }
-    // Add one empty item initially
     _addNewItem();
   }
 
@@ -77,7 +76,6 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
 
   Future<void> _fetchTvModels() async {
     try {
-      // Fetch TV models from the "tvModels" collection
       final snapshot = await FirebaseFirestore.instance
           .collection('tvModels')
           .orderBy('modelName')
@@ -179,20 +177,13 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
   void _addNewItem() {
     setState(() {
       final newIndex = _purchaseItems.length;
-      _purchaseItems.add(
-        PurchaseItem(
-          discountPercentage: 0.0,
-          quantity: 1.0, // Default quantity to 1
-        ),
-      );
+      _purchaseItems.add(PurchaseItem(discountPercentage: 0.0, quantity: 1.0));
       _itemSerials[newIndex] = [];
 
-      // Collapse ALL existing items
       for (var key in _showEditSections.keys) {
         _showEditSections[key] = false;
       }
 
-      // Expand ONLY the new item
       _showEditSections[newIndex] = true;
     });
   }
@@ -202,7 +193,6 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
       setState(() {
         _purchaseItems.removeAt(index);
 
-        // Create new maps to reindex everything properly
         final newPurchaseItems = <PurchaseItem>[];
         final newShowEditSections = <int, bool>{};
         final newItemSerials = <int, List<String>>{};
@@ -233,20 +223,16 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
       final currentState = _showEditSections[index] ?? false;
 
       if (!currentState) {
-        // If we're expanding this item, collapse all others first
         for (var key in _showEditSections.keys) {
           _showEditSections[key] = false;
         }
       }
 
-      // Toggle the current item
       _showEditSections[index] = !currentState;
     });
   }
 
   bool _isValidSerialNumber(String serial) {
-    // Serial number validation - allow various formats
-    // Minimum 3 characters, maximum 50 for TVs
     final trimmed = serial.trim();
     return trimmed.isNotEmpty && trimmed.length >= 3 && trimmed.length <= 50;
   }
@@ -276,6 +262,18 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
     );
   }
 
+  void _updateItemSerial(int itemIndex, int serialIndex, String value) {
+    setState(() {
+      if (_itemSerials[itemIndex] == null) {
+        _itemSerials[itemIndex] = [];
+      }
+      while (_itemSerials[itemIndex]!.length <= serialIndex) {
+        _itemSerials[itemIndex]!.add('');
+      }
+      _itemSerials[itemIndex]![serialIndex] = value;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -300,8 +298,7 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
             invoiceController: _invoiceController,
             notesController: _notesController,
             purchaseItems: _purchaseItems,
-            itemImeis:
-                _itemSerials, // Reusing the same structure but for serials
+            itemImeis: _itemSerials,
             showEditSections: _showEditSections,
             subtotal: _subtotal,
             totalDiscount: _totalDiscount,
@@ -321,6 +318,7 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
             updateItemQuantity: _updateItemQuantity,
             updateItemRate: _updateItemRate,
             updateItemDiscount: _updateItemDiscount,
+            updateItemSerial: _updateItemSerial,
           ),
           if (_showPreview)
             Container(
@@ -348,18 +346,15 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
     );
   }
 
-  // Methods for form updates
   void _updateItemQuantity(int index, String value) {
     final quantity = double.tryParse(value);
     if (quantity != null && quantity > 0) {
       setState(() {
         _purchaseItems[index].quantity = quantity;
-        // Check if we need to adjust serials
         final currentSerials = _itemSerials[index] ?? [];
         final requiredCount = quantity.toInt();
 
         if (currentSerials.length > requiredCount) {
-          // Remove excess serials
           _itemSerials[index] = currentSerials.sublist(0, requiredCount);
         }
       });
@@ -387,13 +382,6 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
     }
   }
 
-  void _updateItemHsnCode(int index, String value) {
-    setState(() {
-      _purchaseItems[index].hsnCode = value;
-    });
-  }
-
-  // Methods that need to be accessible from child widgets
   void _showSupplierSelection() {
     showModalBottomSheet(
       context: context,
@@ -864,7 +852,6 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
       _purchaseItems[itemIndex].brand = tvModel['brand'] ?? '';
       _purchaseItems[itemIndex].rate = (tvModel['price'] ?? 0).toDouble();
 
-      // Collapse all other items and expand only this one
       for (var key in _showEditSections.keys) {
         _showEditSections[key] = false;
       }
@@ -1344,16 +1331,15 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
     );
   }
 
-  // FIXED: Changed parameter name from serialIndex to imeiIndex to match CreatePurchaseForm expectations
   Future<void> _showScannerDialog(int itemIndex, {int? imeiIndex}) async {
     _currentScanItemIndex = itemIndex;
-    _currentScanSerialIndex = imeiIndex; // Map imeiIndex to serialIndex
+    _currentScanSerialIndex = imeiIndex;
 
     final result = await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => CreatePurchaseScanner(
           itemIndex: itemIndex,
-          imeiIndex: imeiIndex, // Keep as imeiIndex for the scanner
+          imeiIndex: imeiIndex,
           currentSerial:
               imeiIndex != null &&
                   (_itemSerials[itemIndex]?.length ?? 0) > imeiIndex
@@ -1368,7 +1354,6 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
     }
   }
 
-  // FIXED: Changed parameter name from serialIndex to imeiIndex to match CreatePurchaseForm expectations
   Future<void> _showManualSerialEntry(int itemIndex, {int? imeiIndex}) async {
     final serialController = TextEditingController(
       text:
@@ -1468,12 +1453,10 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
                 Navigator.pop(context);
                 setState(() {
                   if (imeiIndex != null) {
-                    // Edit existing serial
                     if ((_itemSerials[itemIndex]?.length ?? 0) > imeiIndex) {
                       _itemSerials[itemIndex]![imeiIndex] = serial;
                     }
                   } else {
-                    // Add new serial
                     _itemSerials[itemIndex] ??= [];
                     _itemSerials[itemIndex]!.add(serial);
                   }
@@ -1514,14 +1497,12 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
 
       setState(() {
         if (_currentScanSerialIndex != null) {
-          // Update specific serial
           if ((_itemSerials[_currentScanItemIndex!]?.length ?? 0) >
               _currentScanSerialIndex!) {
             _itemSerials[_currentScanItemIndex!]![_currentScanSerialIndex!] =
                 trimmedValue;
           }
         } else {
-          // Add new serial
           _itemSerials[_currentScanItemIndex!] ??= [];
           _itemSerials[_currentScanItemIndex!]!.add(trimmedValue);
         }
@@ -1534,16 +1515,13 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
   }
 
   Future<void> _savePurchase() async {
-    // Instead of directly saving, show preview first
     _togglePreview();
   }
 
-  // Updated method for TV purchase with tvStock creation
   Future<void> _confirmAndSavePurchase() async {
     if (_formKey.currentState!.validate() &&
         _selectedSupplier != null &&
         _purchaseItems.isNotEmpty) {
-      // Validate all items
       for (var i = 0; i < _purchaseItems.length; i++) {
         final item = _purchaseItems[i];
 
@@ -1559,7 +1537,6 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
         final requiredSerialCount = item.quantity!.toInt();
         final itemSerials = _itemSerials[i] ?? [];
 
-        // Check if serial count matches quantity
         if (itemSerials.length != requiredSerialCount) {
           _showErrorSnackbar(
             'Item ${i + 1}: Quantity is $requiredSerialCount, but you have ${itemSerials.length} Serial Numbers. Please add ${requiredSerialCount - itemSerials.length} more.',
@@ -1579,7 +1556,6 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
       }
 
       try {
-        // Get current user for tracking
         final user = Provider.of<AuthProvider>(context, listen: false).user;
 
         if (user == null) {
@@ -1587,7 +1563,6 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
           return;
         }
 
-        // Create purchase data for tvPurchase collection
         final purchaseData = {
           'supplierId': _selectedSupplier!['id'],
           'supplierName': _selectedSupplier!['name'],
@@ -1606,7 +1581,6 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
             itemMap['serials'] = _itemSerials[index] ?? [];
             return itemMap;
           }).toList(),
-          // User tracking fields
           'userId': user.uid,
           'userName': user.name ?? user.email,
           'shopId': user.shopId,
@@ -1614,13 +1588,11 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
           'createdAt': FieldValue.serverTimestamp(),
         };
 
-        // Create the purchase record in tvPurchase collection
         final purchaseRef = await FirebaseFirestore.instance
             .collection('tvPurchase')
             .add(purchaseData);
         final purchaseId = purchaseRef.id;
 
-        // Create TV stock entries for each serial number in tvStock collection
         final List<Map<String, dynamic>> tvStockList = [];
 
         for (var i = 0; i < _purchaseItems.length; i++) {
@@ -1653,7 +1625,6 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
           }
         }
 
-        // Add all TV stock entries in batch
         if (tvStockList.isNotEmpty) {
           final batch = FirebaseFirestore.instance.batch();
           for (var tvStock in tvStockList) {
@@ -1665,19 +1636,13 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
           await batch.commit();
         }
 
-        // Update TV model if needed (optional)
         for (var i = 0; i < _purchaseItems.length; i++) {
           final item = _purchaseItems[i];
           if (item.productId != null) {
-            // Optionally update last purchase price or increment stock count
             await FirebaseFirestore.instance
                 .collection('tvModels')
                 .doc(item.productId)
-                .update({
-                  'updatedAt': FieldValue.serverTimestamp(),
-                  // You could add a 'stock' field if you want to track total stock in the model
-                  // 'stock': FieldValue.increment(item.quantity!.toInt()),
-                });
+                .update({'updatedAt': FieldValue.serverTimestamp()});
           }
         }
 
@@ -1685,11 +1650,10 @@ class _CreateTvPurchaseScreenState extends State<CreateTvPurchaseScreen> {
           'TV Purchase saved successfully with ${tvStockList.length} items',
         );
 
-        // Navigate to PurchaseHistoryScreen after successful save
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (context) => PurchaseHistoryScreen()),
-          (route) => false, // Remove all previous routes from stack
+          (route) => false,
         );
       } catch (e) {
         _showErrorSnackbar('Error saving purchase: $e');
