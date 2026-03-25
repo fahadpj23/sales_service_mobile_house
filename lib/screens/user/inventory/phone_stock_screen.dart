@@ -47,6 +47,9 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     'Apple',
     'Google',
     'OnePlus',
+    'nothing',
+    'iqoo',
+    'motorola',
   ];
   final Map<String, List<Map<String, dynamic>>> _productsByBrand = {};
   bool _isLoading = false;

@@ -1073,20 +1073,20 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
 
     final List<String> brandList = [
       'Samsung',
-      'Apple',
-      'OnePlus',
       'Xiaomi',
       'Oppo',
       'Vivo',
       'Realme',
-      'Nokia',
-      'Motorola',
-      'Google',
       'Nothing',
       'Asus',
       'LG',
       'Sony',
       'Huawei',
+      'Apple',
+      'OnePlus',
+      'Nokia',
+      'Motorola',
+      'Google',
     ];
     String selectedBrand = '';
 

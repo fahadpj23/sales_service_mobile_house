@@ -370,6 +370,110 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     fetchSalesData();
   }
 
+  // Delete sale with confirmation
+  Future<void> _deleteSale(Map<String, dynamic> sale) async {
+    final collection = sale['collection'] as String;
+    final saleId = sale['id'] as String;
+    final saleType = sale['type'] as String;
+
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Sale'),
+        content: Text(
+          'Are you sure you want to delete this $saleType sale?\n\n'
+          'Customer: ${sale['customerInfo']}\n'
+          'Amount: ₹${(sale['displayAmount'] as double).toStringAsFixed(0)}\n\n'
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // Show loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      // Handle base model sale: update stock status in baseModelStock
+      if (collection == 'base_model_sale') {
+        final imei = sale['imei']?.toString();
+        if (imei != null && imei.isNotEmpty) {
+          // Find the product in baseModelStock collection
+          final baseModelStockSnapshot = await FirebaseFirestore.instance
+              .collection('baseModelStock')
+              .where('imei', isEqualTo: imei)
+              .where('shopId', isEqualTo: widget.shopId)
+              .limit(1)
+              .get();
+
+          if (baseModelStockSnapshot.docs.isNotEmpty) {
+            final stockDoc = baseModelStockSnapshot.docs.first;
+            // Update status to "available"
+            await stockDoc.reference.update({
+              'status': 'available',
+              'updatedAt': FieldValue.serverTimestamp(),
+              'updatedBy': 'system', // You can pass the current user info here
+            });
+            print(
+              'Base model stock updated: IMEI $imei status set to available',
+            );
+          } else {
+            print('Base model stock not found for IMEI: $imei');
+          }
+        }
+      }
+
+      // Delete the sale document
+      await FirebaseFirestore.instance
+          .collection(collection)
+          .doc(saleId)
+          .delete();
+
+      // Close loading dialog
+      Navigator.pop(context);
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$saleType sale deleted successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      // Refresh the sales list
+      await fetchSalesData();
+    } catch (e) {
+      // Close loading dialog
+      Navigator.pop(context);
+
+      // Show error message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting sale: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      print('Error deleting sale: $e');
+    }
+  }
+
   void _showCustomReport(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -1229,40 +1333,61 @@ ${filteredSales.map((sale) {
                                             ),
                                           ],
                                         ),
-                                        trailing: Column(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.end,
+                                        trailing: Row(
+                                          mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            Text(
-                                              '₹${(sale['displayAmount'] as double).toStringAsFixed(0)}',
-                                              style: const TextStyle(
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.green,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 3),
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 6,
-                                                    vertical: 1,
+                                            Column(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.end,
+                                              children: [
+                                                Text(
+                                                  '₹${(sale['displayAmount'] as double).toStringAsFixed(0)}',
+                                                  style: const TextStyle(
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.green,
                                                   ),
-                                              decoration: BoxDecoration(
-                                                color: color.withOpacity(0.1),
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                              ),
-                                              child: Text(
-                                                type,
-                                                style: TextStyle(
-                                                  fontSize: 8,
-                                                  color: color,
-                                                  fontWeight: FontWeight.w600,
                                                 ),
+                                                const SizedBox(height: 3),
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 6,
+                                                        vertical: 1,
+                                                      ),
+                                                  decoration: BoxDecoration(
+                                                    color: color.withOpacity(
+                                                      0.1,
+                                                    ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          8,
+                                                        ),
+                                                  ),
+                                                  child: Text(
+                                                    type,
+                                                    style: TextStyle(
+                                                      fontSize: 8,
+                                                      color: color,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            // Delete button
+                                            IconButton(
+                                              icon: Icon(
+                                                Icons.delete_outline,
+                                                size: 18,
+                                                color: Colors.red.shade400,
                                               ),
+                                              onPressed: () =>
+                                                  _deleteSale(sale),
+                                              tooltip: 'Delete Sale',
                                             ),
                                           ],
                                         ),
@@ -1584,18 +1709,44 @@ ${filteredSales.map((sale) {
                 _buildDetailRow('Notes', sale['notes'].toString()),
 
               const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Text(
+                        'Close',
+                        style: TextStyle(fontSize: 14),
+                      ),
                     ),
                   ),
-                  child: const Text('Close', style: TextStyle(fontSize: 14)),
-                ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _deleteSale(sale);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Text(
+                        'Delete',
+                        style: TextStyle(fontSize: 14, color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
