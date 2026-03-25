@@ -42,7 +42,7 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
   // Date variable for Timestamp
   DateTime? _selectedDate;
 
-  // Keypad Phone Brands
+  // Keypad Phone Brands - Ensure all values are consistent (all capitalized)
   final List<String> _keypadBrands = [
     'Nokia',
     'Itel',
@@ -50,7 +50,7 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
     'Samsung',
     'Micromax',
     'Lava',
-    'Karbonn',
+    'Karbonn', // Capital K
     'Intex',
     'Other',
   ];
@@ -79,16 +79,22 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
         _stockModelId = widget.initialData!['modelId'];
 
         // Pre-fill form with stock data
-        _selectedBrand = widget.initialData!['productBrand'];
+        String? brandFromData = widget.initialData!['productBrand'];
+
+        // Normalize brand name - capitalize first letter to match dropdown items
+        if (brandFromData != null && brandFromData.isNotEmpty) {
+          // Convert to proper case: capitalize first letter, lowercase the rest
+          _selectedBrand =
+              brandFromData[0].toUpperCase() +
+              brandFromData.substring(1).toLowerCase();
+        }
+
         _modelNameController.text = widget.initialData!['productName'] ?? '';
 
         final price = widget.initialData!['productPrice'];
         if (price != null) {
           _priceController.text = price.toString();
         }
-
-        // You can also pre-fill other fields if needed
-        // For example, you might want to set the IMEI in a note field
       });
     }
   }
@@ -98,7 +104,7 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
     try {
       final User? user = _auth.currentUser;
       if (user != null) {
-        print('Current user UID: ${user.uid}'); // Debug log
+        print('Current user UID: ${user.uid}');
 
         final userDoc = await _firestore
             .collection('users')
@@ -107,7 +113,7 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
 
         if (userDoc.exists) {
           final userData = userDoc.data()!;
-          print('User data retrieved: $userData'); // Debug log
+          print('User data retrieved: $userData');
 
           setState(() {
             _shopId = userData['shopId']?.toString() ?? '';
@@ -115,7 +121,7 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
             _isLoadingShopData = false;
           });
 
-          print('Shop ID: $_shopId, Shop Name: $_shopName'); // Debug log
+          print('Shop ID: $_shopId, Shop Name: $_shopName');
         } else {
           print('User document does not exist');
           setState(() {
@@ -198,7 +204,7 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
     return cash + card + gpay + payLater;
   }
 
-  // Validate payment breakdown - Checks if Cash + Card + GPay + Pay Later = Sale Price
+  // Validate payment breakdown
   bool _validatePaymentBreakdown(double totalPrice) {
     if (totalPrice <= 0) return false;
     final totalPayment = _calculateTotalPayment();
@@ -212,6 +218,11 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
     if (_validatePaymentBreakdown(totalPrice)) return 'balanced';
     if (totalPayment < totalPrice) return 'short';
     return 'excess';
+  }
+
+  // Navigate to dashboard
+  void _navigateToDashboard() {
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   // Upload function to Firebase
@@ -364,25 +375,35 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
       // Store customer info for success dialog before clearing
       final customerName = _customerNameController.text;
       final customerPhone = _customerPhoneController.text;
+      final productName = _modelNameController.text;
+      final salePrice = totalPrice;
 
       // Clear the form immediately after successful upload
       if (mounted) {
         _clearForm();
 
-        // Show success dialog
-        _showSuccessDialog(
+        // Show success dialog and then navigate to dashboard
+        await _showSuccessDialog(
           context,
           customerName: customerName,
           customerPhone: customerPhone,
+          productName: productName,
+          salePrice: salePrice,
           documentId: docRef.id,
+          isQuickSale: _isQuickSale,
         );
+
+        // After dialog is closed, navigate to dashboard
+        if (mounted) {
+          _navigateToDashboard();
+        }
       }
     } catch (error) {
       print('Error uploading to Firebase: $error');
 
       // Show error dialog
       if (mounted) {
-        _showErrorDialog(context, error.toString());
+        await _showErrorDialog(context, error.toString());
       }
     } finally {
       if (mounted) {
@@ -393,13 +414,16 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
     }
   }
 
-  void _showSuccessDialog(
+  Future<void> _showSuccessDialog(
     BuildContext context, {
     String? customerName,
     String? customerPhone,
+    String? productName,
+    double? salePrice,
     String? documentId,
-  }) {
-    showDialog(
+    bool isQuickSale = false,
+  }) async {
+    return showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => Dialog(
@@ -429,7 +453,7 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Success!',
+                  'Sale Successful!',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
@@ -438,9 +462,9 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _isQuickSale
-                      ? 'Base model sold and stock updated!'
-                      : 'Base model sale uploaded to Firebase',
+                  isQuickSale
+                      ? 'Base model sold and stock updated successfully!'
+                      : 'Base model sale recorded successfully!',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 14,
@@ -448,9 +472,126 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                     height: 1.4,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 16),
+
+                // Sale Details Card
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey[200]!),
+                  ),
+                  child: Column(
+                    children: [
+                      if (productName != null && productName.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.devices,
+                                size: 16,
+                                color: Colors.purple[700],
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  productName,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey[800],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (salePrice != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.attach_money,
+                                size: 16,
+                                color: Colors.purple[700],
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                '\$${salePrice.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.purple[700],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if ((customerName != null && customerName.isNotEmpty) ||
+                          (customerPhone != null && customerPhone.isNotEmpty))
+                        Container(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Column(
+                            children: [
+                              if (customerName != null &&
+                                  customerName.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.person,
+                                        size: 14,
+                                        color: Colors.blue[700],
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          customerName,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.blue[800],
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              if (customerPhone != null &&
+                                  customerPhone.isNotEmpty)
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.phone,
+                                      size: 14,
+                                      color: Colors.blue[700],
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        customerPhone,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.blue[800],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 12),
                 Text(
-                  'Shop: $_shopName',
+                  'Shop: ${_shopName ?? ''}',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                 ),
@@ -458,56 +599,25 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                   Text(
                     'Sale ID: ${documentId.substring(0, 8)}...',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                    style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                   ),
-                if (_isQuickSale && _stockModelId != null)
-                  Text(
-                    'Stock updated successfully',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, color: Colors.green[700]),
-                  ),
-
-                // Show customer info in success dialog if available
-                if (customerName != null && customerName.isNotEmpty ||
-                    customerPhone != null && customerPhone.isNotEmpty)
-                  Container(
-                    margin: const EdgeInsets.only(top: 8),
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.blue[50],
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Column(
-                      children: [
-                        if (customerName != null && customerName.isNotEmpty)
-                          Text(
-                            'Customer: $customerName',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.blue[800],
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        if (customerPhone != null && customerPhone.isNotEmpty)
-                          Text(
-                            'Phone: $customerPhone',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.blue[800],
-                            ),
-                          ),
-                      ],
+                if (isQuickSale && _stockModelId != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'Stock updated successfully',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 11, color: Colors.green[700]),
                     ),
                   ),
-
                 const SizedBox(height: 24),
+
+                // Go to Dashboard Button
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () {
-                      Navigator.pop(context);
-                      // Return true to indicate success
-                      Navigator.pop(context, true);
+                      Navigator.pop(context); // Close dialog
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.purple[700],
@@ -517,12 +627,19 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    child: const Text(
-                      'OK',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.dashboard, size: 18),
+                        SizedBox(width: 8),
+                        Text(
+                          'Go to Dashboard',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -534,9 +651,10 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
     );
   }
 
-  void _showErrorDialog(BuildContext context, String error) {
-    showDialog(
+  Future<void> _showErrorDialog(BuildContext context, String error) async {
+    return showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Container(
@@ -1042,6 +1160,144 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
     );
   }
 
+  // Build brand dropdown with proper null safety and case normalization
+  Widget _buildBrandDropdown() {
+    // Ensure we always have items
+    if (_keypadBrands.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.red[50],
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Text(
+          'No brands available. Please check configuration.',
+          style: TextStyle(fontSize: 12, color: Colors.red),
+        ),
+      );
+    }
+
+    // Ensure selected brand matches one of the dropdown items (case-insensitive check)
+    String? normalizedSelectedBrand;
+    if (_selectedBrand != null) {
+      // Find matching brand (case-insensitive)
+      final matchingBrand = _keypadBrands.firstWhere(
+        (brand) => brand.toLowerCase() == _selectedBrand!.toLowerCase(),
+        orElse: () => '',
+      );
+      if (matchingBrand.isNotEmpty) {
+        normalizedSelectedBrand = matchingBrand;
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Phone Brand *',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 4),
+        DropdownButtonFormField<String>(
+          value: normalizedSelectedBrand,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.grey[50],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Colors.purple, width: 1.5),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Colors.red, width: 1),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Colors.red, width: 1.5),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 12,
+            ),
+          ),
+          items: _keypadBrands.map((String brand) {
+            return DropdownMenuItem<String>(
+              value: brand,
+              child: Text(brand, style: const TextStyle(fontSize: 13)),
+            );
+          }).toList(),
+          onChanged: (String? newValue) {
+            setState(() {
+              _selectedBrand = newValue;
+            });
+          },
+          validator: (value) {
+            if (value == null || value.isEmpty) {
+              return 'Please select brand';
+            }
+            return null;
+          },
+          hint: const Text(
+            'Select brand',
+            style: TextStyle(fontSize: 13, color: Colors.grey),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSummaryRow({
+    required String label,
+    required String value,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Row(
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: color, size: 18),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final priceText = _priceController.text.trim();
@@ -1266,7 +1522,6 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                               if (value == null || value.trim().isEmpty) {
                                 return 'Please enter phone number';
                               }
-                              // Simple phone validation (at least 10 digits)
                               final digitsOnly = value.replaceAll(
                                 RegExp(r'\D'),
                                 '',
@@ -1280,85 +1535,8 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
                           ),
                           const SizedBox(height: 12),
 
-                          // Brand Dropdown
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Phone Brand *',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.black87,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              DropdownButtonFormField<String>(
-                                value: _selectedBrand,
-                                decoration: InputDecoration(
-                                  filled: true,
-                                  fillColor: Colors.grey[50],
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide(
-                                      color: Colors.grey[300]!,
-                                    ),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide(
-                                      color: Colors.grey[300]!,
-                                    ),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: const BorderSide(
-                                      color: Colors.purple,
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  errorBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: const BorderSide(
-                                      color: Colors.red,
-                                      width: 1,
-                                    ),
-                                  ),
-                                  focusedErrorBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: const BorderSide(
-                                      color: Colors.red,
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                    vertical: 12,
-                                  ),
-                                ),
-                                items: _keypadBrands.map((String brand) {
-                                  return DropdownMenuItem<String>(
-                                    value: brand,
-                                    child: Text(
-                                      brand,
-                                      style: const TextStyle(fontSize: 13),
-                                    ),
-                                  );
-                                }).toList(),
-                                onChanged: (String? newValue) {
-                                  setState(() {
-                                    _selectedBrand = newValue;
-                                  });
-                                },
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return 'Please select brand';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ],
-                          ),
+                          // Brand Dropdown - Using the safe builder method
+                          _buildBrandDropdown(),
                           const SizedBox(height: 12),
 
                           // Model Name
@@ -1827,46 +2005,6 @@ class _BaseModelSaleUploadState extends State<BaseModelSaleUpload> {
             ),
         ],
       ),
-    );
-  }
-
-  Widget _buildSummaryRow({
-    required String label,
-    required String value,
-    required IconData icon,
-    required Color color,
-  }) {
-    return Row(
-      children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(icon, color: color, size: 18),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: Colors.black87,
-            ),
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-            color: color,
-          ),
-        ),
-      ],
     );
   }
 

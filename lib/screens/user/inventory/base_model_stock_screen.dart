@@ -4,8 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:sales_stock/screens/user/inventory/add_stock_modal.dart';
 import 'package:sales_stock/screens/user/inventory/imei_scanner.dart';
-import 'package:sales_stock/screens/user/sale/second_phone_sale_upload.dart';
-import 'package:sales_stock/screens/user/sale/base_model_sale_upload.dart'; // ADD THIS IMPORT
+import 'package:sales_stock/screens/user/sale/base_model_sale_upload.dart';
 import '../../../providers/auth_provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'dart:async';
@@ -716,7 +715,6 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
     });
   }
 
-  // Updated _markAsSold method that connects to BaseModelSaleUpload
   Future<void> _markAsSold(
     String modelId,
     Map<String, dynamic> modelData,
@@ -727,7 +725,6 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final user = authProvider.user;
 
-      // Navigate to BaseModelSaleUpload with model data
       if (mounted) {
         final result = await Navigator.push(
           context,
@@ -744,9 +741,7 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
           ),
         );
 
-        // If sale was completed successfully, update the status
         if (result == true) {
-          // Update the stock status to sold
           await _firestore.collection('baseModelStock').doc(modelId).update({
             'status': 'sold',
             'soldAt': FieldValue.serverTimestamp(),
@@ -761,7 +756,6 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
             });
           }
         } else {
-          // If user cancelled or upload failed
           if (mounted) {
             setState(() {
               _selectedModelForAction = null;
@@ -1251,16 +1245,40 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
 
     final shouldShowAddNew = brandHasNoProducts || searchHasNoResults;
 
+    // Remove duplicates from filtered products based on productName
+    final uniqueProducts = <Map<String, dynamic>>[];
+    final seenNames = <String>{};
+
+    for (final product in _filteredProducts) {
+      final name = product['productName'] as String? ?? '';
+      if (name.isNotEmpty && !seenNames.contains(name)) {
+        seenNames.add(name);
+        uniqueProducts.add(product);
+      }
+    }
+
+    if (uniqueProducts.isEmpty && !shouldShowAddNew) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text(
+            'No products available for this brand',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+        ),
+      );
+    }
+
     return ListView.builder(
       shrinkWrap: true,
       physics: const AlwaysScrollableScrollPhysics(),
-      itemCount: _filteredProducts.length + (shouldShowAddNew ? 1 : 0),
+      itemCount: uniqueProducts.length + (shouldShowAddNew ? 1 : 0),
       itemBuilder: (context, index) {
-        if (shouldShowAddNew && index == _filteredProducts.length) {
+        if (shouldShowAddNew && index == uniqueProducts.length) {
           return _buildAddNewProductTile();
         }
 
-        final product = _filteredProducts[index];
+        final product = uniqueProducts[index];
         final productName = product['productName'] as String? ?? '';
         final price = product['price'];
         String priceText = '';
@@ -1311,6 +1329,7 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
     }
 
     return ListTile(
+      key: const ValueKey('add_new_product_tile'), // Add unique key
       leading: const Icon(Icons.add, color: Colors.green, size: 18),
       title: const Text(
         'Add New Product...',
@@ -1373,12 +1392,23 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
     final searchText = _productSearchController.text.toLowerCase();
 
     if (searchText.isNotEmpty) {
-      _filteredProducts = products.where((product) {
+      // Remove duplicates when filtering
+      final uniqueProductsMap = <String, Map<String, dynamic>>{};
+      for (final product in products) {
         final productName = product['productName'] as String? ?? '';
-        return productName.toLowerCase().contains(searchText);
-      }).toList();
+        if (productName.toLowerCase().contains(searchText)) {
+          uniqueProductsMap[productName] = product;
+        }
+      }
+      _filteredProducts = uniqueProductsMap.values.toList();
     } else {
-      _filteredProducts = List.from(products);
+      // Remove duplicates when showing all products
+      final uniqueProductsMap = <String, Map<String, dynamic>>{};
+      for (final product in products) {
+        final productName = product['productName'] as String? ?? '';
+        uniqueProductsMap[productName] = product;
+      }
+      _filteredProducts = uniqueProductsMap.values.toList();
     }
 
     return Column(

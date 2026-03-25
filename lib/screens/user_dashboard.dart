@@ -1588,17 +1588,17 @@ class _UserDashboardState extends State<UserDashboard> {
                                     );
                                   },
                                 ),
-                                _buildDrawerTile(
-                                  icon: Icons.devices,
-                                  title: 'Base Models',
-                                  color: Colors.purple,
-                                  onTap: () {
-                                    _scaffoldKey.currentState?.closeDrawer();
-                                    _navigateToScreen(
-                                      const BaseModelSaleUpload(),
-                                    );
-                                  },
-                                ),
+                                // _buildDrawerTile(
+                                //   icon: Icons.devices,
+                                //   title: 'Base Models',
+                                //   color: Colors.purple,
+                                //   onTap: () {
+                                //     _scaffoldKey.currentState?.closeDrawer();
+                                //     _navigateToScreen(
+                                //       const BaseModelSaleUpload(),
+                                //     );
+                                //   },
+                                // ),
                                 _buildDrawerTile(
                                   icon: Icons.receipt_long,
                                   title: 'GST Accessories',
