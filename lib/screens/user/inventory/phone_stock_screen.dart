@@ -52,9 +52,11 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   bool _isLoading = false;
   bool _showAddProductForm = false;
   bool _showAddStockModal = false;
+  bool _showEditStockModal = false;
 
   List<Map<String, dynamic>> _shops = [];
   Map<String, dynamic>? _selectedPhoneForAction;
+  Map<String, dynamic>? _selectedPhoneForEdit;
   String _selectedAction = 'sell';
 
   late TextEditingController _productSearchController;
@@ -79,13 +81,23 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
   Map<String, dynamic>? _foundInSoldStock;
   bool _showingSoldStockWarning = false;
 
+  // Edit modal controllers
+  late TextEditingController _editProductNameController;
+  late TextEditingController _editProductPriceController;
+  late TextEditingController _editImeiController;
+  String? _editSelectedBrand;
+  String? _editSelectedProduct;
+  bool _editIsLoading = false;
+  String? _editModalError;
+  String? _editModalSuccess;
+
   List<Map<String, dynamic>> _filterStocksBySearch(
     List<QueryDocumentSnapshot> stocks,
   ) {
     if (_searchQuery.isEmpty) {
       return stocks.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
-        return {...data, 'id': doc.id}; // Ensure ID is always included
+        return {...data, 'id': doc.id};
       }).toList();
     }
 
@@ -183,6 +195,9 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     _priceChangeController = TextEditingController();
     _newProductNameController = TextEditingController();
     _newProductPriceController = TextEditingController();
+    _editProductNameController = TextEditingController();
+    _editProductPriceController = TextEditingController();
+    _editImeiController = TextEditingController();
 
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
@@ -210,6 +225,9 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     _priceChangeController.dispose();
     _newProductNameController.dispose();
     _newProductPriceController.dispose();
+    _editProductNameController.dispose();
+    _editProductPriceController.dispose();
+    _editImeiController.dispose();
     _disposeImeiControllers();
   }
 
@@ -719,6 +737,161 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     });
   }
 
+  // Edit Stock Methods
+  void _openEditStockModal(Map<String, dynamic> phoneData) {
+    _resetEditForm();
+    setState(() {
+      _selectedPhoneForEdit = phoneData;
+      _showEditStockModal = true;
+
+      // Populate edit form with existing data
+      _editSelectedBrand = phoneData['productBrand'] as String?;
+      _editSelectedProduct = phoneData['productName'] as String?;
+      _editProductNameController.text = phoneData['productName'] ?? '';
+      _editProductPriceController.text = _formatPriceForEdit(
+        phoneData['productPrice'],
+      );
+      _editImeiController.text = phoneData['imei'] ?? '';
+    });
+  }
+
+  void _resetEditForm() {
+    setState(() {
+      _editSelectedBrand = null;
+      _editSelectedProduct = null;
+      _editProductNameController.clear();
+      _editProductPriceController.clear();
+      _editImeiController.clear();
+      _editModalError = null;
+      _editModalSuccess = null;
+      _editIsLoading = false;
+    });
+  }
+
+  void _closeEditStockModal() {
+    setState(() {
+      _showEditStockModal = false;
+      _selectedPhoneForEdit = null;
+    });
+    _resetEditForm();
+  }
+
+  String _formatPriceForEdit(dynamic price) {
+    try {
+      if (price == null) return '';
+      if (price is int) return price.toString();
+      if (price is double) return price.toStringAsFixed(0);
+      if (price is String) return price;
+      return '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  Future<void> _updatePhoneStock() async {
+    if (_selectedPhoneForEdit == null) return;
+
+    try {
+      setState(() {
+        _editIsLoading = true;
+        _editModalError = null;
+      });
+
+      final phoneId = _selectedPhoneForEdit!['id'] as String?;
+      if (phoneId == null) {
+        _showEditModalError('Phone ID not found');
+        return;
+      }
+
+      final newProductName = _editProductNameController.text.trim();
+      final newPriceText = _editProductPriceController.text.trim();
+      final newImei = _editImeiController.text.trim();
+
+      if (newProductName.isEmpty) {
+        _showEditModalError('Please enter product name');
+        return;
+      }
+
+      if (newPriceText.isEmpty) {
+        _showEditModalError('Please enter product price');
+        return;
+      }
+
+      final newPrice = double.tryParse(newPriceText);
+      if (newPrice == null || newPrice <= 0) {
+        _showEditModalError('Please enter valid price');
+        return;
+      }
+
+      if (newImei.isEmpty) {
+        _showEditModalError('Please enter IMEI number');
+        return;
+      }
+
+      if (newImei.length < 15 || newImei.length > 16) {
+        _showEditModalError('IMEI must be 15-16 digits');
+        return;
+      }
+
+      if (!RegExp(r'^[0-9]+$').hasMatch(newImei)) {
+        _showEditModalError('IMEI contains non-numeric characters');
+        return;
+      }
+
+      // Check if IMEI already exists (excluding current phone)
+      final existingCheck = await _firestore
+          .collection('phoneStock')
+          .where('imei', isEqualTo: newImei)
+          .limit(1)
+          .get();
+
+      if (existingCheck.docs.isNotEmpty &&
+          existingCheck.docs.first.id != phoneId) {
+        _showEditModalError('IMEI already exists in stock database');
+        return;
+      }
+
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final user = authProvider.user;
+
+      final updates = {
+        'productName': newProductName,
+        'productPrice': newPrice,
+        'imei': newImei,
+        'updatedBy': user?.email ?? user?.name ?? 'Unknown',
+        'updatedById': user?.uid ?? '',
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      await _firestore.collection('phoneStock').doc(phoneId).update(updates);
+
+      setState(() {
+        _editModalSuccess = 'Phone updated successfully!';
+      });
+
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) {
+          _closeEditStockModal();
+          _showSuccess('Phone updated successfully!');
+        }
+      });
+    } catch (e) {
+      _showEditModalError('Failed to update: ${e.toString()}');
+    } finally {
+      if (mounted) {
+        setState(() => _editIsLoading = false);
+      }
+    }
+  }
+
+  void _showEditModalError(String message) {
+    setState(() {
+      _editModalError = message;
+      _editModalSuccess = null;
+      _editIsLoading = false;
+    });
+  }
+
   Future<void> _markAsSold(
     String phoneId,
     Map<String, dynamic> phoneData,
@@ -885,7 +1058,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             _searchQuery = imei.toLowerCase();
           });
 
-          // Clear previous sold stock warning
           setState(() {
             _foundInSoldStock = null;
             _showingSoldStockWarning = false;
@@ -898,6 +1070,26 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               _showingSoldStockWarning = true;
             });
           }
+        },
+      ),
+    );
+  }
+
+  Future<void> _openScannerForEditImei() async {
+    if (!await _checkCameraPermission()) {
+      _showError('Camera permission required for scanning');
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => OptimizedImeiScanner(
+        title: 'Scan IMEI',
+        description: 'Scan barcode for IMEI',
+        onScanComplete: (imei) {
+          setState(() {
+            _editImeiController.text = imei;
+          });
         },
       ),
     );
@@ -1662,6 +1854,247 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     );
   }
 
+  Widget _buildEditStockModal() {
+    if (_selectedPhoneForEdit == null) return const SizedBox();
+
+    final phoneData = _selectedPhoneForEdit!;
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: 500,
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Edit Phone Stock',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 24),
+                    onPressed: _closeEditStockModal,
+                  ),
+                ],
+              ),
+              const Divider(),
+              const SizedBox(height: 16),
+
+              // Original Phone Info Display
+              Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Original Information',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Product: ${phoneData['productName'] ?? 'N/A'}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    Text(
+                      'Brand: ${phoneData['productBrand'] ?? 'N/A'}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    Text(
+                      'IMEI: ${_formatImeiForDisplay(phoneData['imei'] ?? 'N/A')}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    Text(
+                      'Price: ${_formatPrice(phoneData['productPrice'])}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Edit Form
+              const Text(
+                'Edit Details',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue,
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Product Name Field
+              TextFormField(
+                controller: _editProductNameController,
+                decoration: const InputDecoration(
+                  labelText: 'Product Name *',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.smartphone, size: 20),
+                  labelStyle: TextStyle(fontSize: 12),
+                ),
+                style: const TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+
+              // Product Price Field
+              TextFormField(
+                controller: _editProductPriceController,
+                decoration: const InputDecoration(
+                  labelText: 'Product Price *',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.currency_rupee, size: 20),
+                  labelStyle: TextStyle(fontSize: 12),
+                ),
+                style: const TextStyle(fontSize: 13),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 12),
+
+              // IMEI Field
+              TextFormField(
+                controller: _editImeiController,
+                decoration: InputDecoration(
+                  labelText: 'IMEI Number *',
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.confirmation_number, size: 20),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.qr_code_scanner, size: 20),
+                    onPressed: _openScannerForEditImei,
+                    tooltip: 'Scan IMEI',
+                  ),
+                  labelStyle: const TextStyle(fontSize: 12),
+                ),
+                style: const TextStyle(fontSize: 13, fontFamily: 'Monospace'),
+              ),
+              const SizedBox(height: 16),
+
+              // Error Message
+              if (_editModalError != null)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(8),
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.red.shade100),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.error, color: Colors.red, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _editModalError!,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.red,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // Success Message
+              if (_editModalSuccess != null)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(8),
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.green.shade100),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.check_circle,
+                        color: Colors.green,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _editModalSuccess!,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // Action Buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _editIsLoading ? null : _closeEditStockModal,
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _editIsLoading ? null : _updatePhoneStock,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: _editIsLoading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text('Update'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildActionModal() {
     if (_selectedPhoneForAction == null) return const SizedBox();
 
@@ -1674,7 +2107,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     final currentShopName = phone['shopName'] as String? ?? 'Unknown Shop';
     final phoneId = phone['id'] as String? ?? '';
 
-    // Filter shops to exclude the current shop
     final filteredShops = _shops
         .where((shop) => shop['id'] != currentShopId)
         .toList();
@@ -2717,7 +3149,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                     crossAxisCount: 1,
                     crossAxisSpacing: 6,
                     mainAxisSpacing: 8,
-                    mainAxisExtent: 200,
+                    mainAxisExtent: 220,
                   ),
                   itemCount: filteredStocks.length,
                   itemBuilder: (context, index) {
@@ -2732,8 +3164,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                     final soldAt = stock['soldAt'];
                     final phoneId = stock['id'] as String? ?? '';
 
-                    return // In _buildStockList method, when creating the phone card:
-                    _buildPhoneCard(
+                    return _buildPhoneCard(
                       productName: productName,
                       productBrand: productBrand,
                       imei: imei,
@@ -2741,7 +3172,12 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                       uploadedAt: uploadedAt,
                       soldAt: soldAt,
                       status: type,
-                      phoneData: stock, // Pass the full stock data
+                      phoneData: stock,
+                      onEdit: type == 'available'
+                          ? () {
+                              _openEditStockModal(stock);
+                            }
+                          : null,
                       onSell: type == 'available'
                           ? () {
                               Navigator.push(
@@ -2852,6 +3288,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     dynamic soldAt,
     required String status,
     Map<String, dynamic>? phoneData,
+    VoidCallback? onEdit,
     VoidCallback? onSell,
     VoidCallback? onTransfer,
     VoidCallback? onReturn,
@@ -2875,16 +3312,12 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         bgColor = Colors.white;
     }
 
-    // Extract transfer information
     final transferredBy = phoneData?['transferredBy'] as String?;
     final transferredAt = phoneData?['transferredAt'];
     final previousShopName = phoneData?['previousShopName'] as String?;
 
     return Container(
-      constraints: const BoxConstraints(
-        minHeight: 200,
-        maxHeight: 350, // Add max height to prevent excessive growth
-      ),
+      constraints: const BoxConstraints(minHeight: 220, maxHeight: 380),
       decoration: BoxDecoration(
         color: bgColor,
         borderRadius: BorderRadius.circular(10),
@@ -2902,47 +3335,57 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         child: LayoutBuilder(
           builder: (context, constraints) {
             return SingleChildScrollView(
-              // Make content scrollable
-              physics: const ClampingScrollPhysics(), // Prevent overscroll
+              physics: const ClampingScrollPhysics(),
               child: ConstrainedBox(
                 constraints: BoxConstraints(minHeight: constraints.maxHeight),
                 child: IntrinsicHeight(
-                  // Allow column to size itself naturally
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // Status chip
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: status == 'available'
-                              ? Colors.green.shade100
-                              : status == 'sold'
-                              ? Colors.blue.shade100
-                              : Colors.grey.shade200,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          status.toUpperCase(),
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                            color: status == 'available'
-                                ? Colors.green
-                                : status == 'sold'
-                                ? Colors.blue
-                                : Colors.grey,
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: status == 'available'
+                                  ? Colors.green.shade100
+                                  : status == 'sold'
+                                  ? Colors.blue.shade100
+                                  : Colors.grey.shade200,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              status.toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                color: status == 'available'
+                                    ? Colors.green
+                                    : status == 'sold'
+                                    ? Colors.blue
+                                    : Colors.grey,
+                              ),
+                            ),
                           ),
-                        ),
+                          if (onEdit != null && status == 'available')
+                            IconButton(
+                              icon: const Icon(Icons.edit, size: 16),
+                              onPressed: onEdit,
+                              tooltip: 'Edit phone details',
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              color: Colors.blue,
+                            ),
+                        ],
                       ),
 
                       const SizedBox(height: 4),
 
-                      // Product name with max lines and overflow
                       SizedBox(
                         height: 32,
                         child: Text(
@@ -2959,7 +3402,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
                       const SizedBox(height: 2),
 
-                      // Price
                       Text(
                         _formatPrice(price),
                         style: const TextStyle(
@@ -2973,7 +3415,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
                       const SizedBox(height: 2),
 
-                      // Brand
                       Text(
                         productBrand,
                         style: TextStyle(
@@ -2987,7 +3428,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
                       const SizedBox(height: 2),
 
-                      // IMEI
                       SizedBox(
                         height: 24,
                         child: Text(
@@ -3002,7 +3442,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                         ),
                       ),
 
-                      // Transfer info with flexible layout
                       if (transferredBy != null && transferredAt != null) ...[
                         const SizedBox(height: 2),
                         Row(
@@ -3030,7 +3469,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                         ),
                       ],
 
-                      // Upload info
                       Text(
                         'Added: ${_formatDate(uploadedAt)} by ${phoneData?['uploadedBy'] ?? 'Unknown'}',
                         style: TextStyle(fontSize: 9, color: Colors.grey[600]),
@@ -3038,7 +3476,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                         overflow: TextOverflow.ellipsis,
                       ),
 
-                      // Sold info
                       if (status == 'sold' && soldAt != null) ...[
                         Text(
                           'Sold: ${_formatDate(soldAt)}',
@@ -3061,7 +3498,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                           ),
                       ],
 
-                      // Action buttons
                       if (status == 'available' &&
                           (onSell != null ||
                               onTransfer != null ||
@@ -3083,15 +3519,13 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                                         style: ElevatedButton.styleFrom(
                                           backgroundColor: Colors.green,
                                           foregroundColor: Colors.white,
-                                          padding:
-                                              EdgeInsets.zero, // Remove padding
+                                          padding: EdgeInsets.zero,
                                           textStyle: const TextStyle(
                                             fontSize: 11,
                                             fontWeight: FontWeight.w500,
                                           ),
                                         ),
                                         child: const FittedBox(
-                                          // Scale text if needed
                                           fit: BoxFit.scaleDown,
                                           child: Text('Sell'),
                                         ),
@@ -3152,7 +3586,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                           ],
                         ),
 
-                      // Add extra space at bottom to ensure content doesn't get cut
                       const SizedBox(height: 4),
                     ],
                   ),
@@ -3489,7 +3922,9 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             floatingActionButton: _buildQuickScanButton(),
           ),
 
-          if (_showAddStockModal || _selectedPhoneForAction != null)
+          if (_showAddStockModal ||
+              _selectedPhoneForAction != null ||
+              _showEditStockModal)
             Container(
               color: Colors.black.withOpacity(0.5),
               width: double.infinity,
@@ -3497,6 +3932,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             ),
 
           if (_showAddStockModal) _buildAddStockModal(),
+
+          if (_showEditStockModal) _buildEditStockModal(),
 
           if (_selectedPhoneForAction != null) _buildActionModal(),
         ],
