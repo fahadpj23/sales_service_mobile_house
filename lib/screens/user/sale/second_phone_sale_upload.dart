@@ -310,19 +310,33 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
 
         if (!mounted) return;
 
-        // Show success dialog
-        _showSuccessDialog(
+        // Store customer info and product info before clearing
+        final customerName = _customerNameController.text;
+        final customerPhone = _customerPhoneController.text;
+        final productName = _productNameController.text;
+        final salePrice = totalPrice;
+
+        // Clear the form data
+        _clearForm();
+
+        // Show success dialog with stored information
+        await _showSuccessDialog(
           context,
-          customerName: _customerNameController.text,
-          customerPhone: _customerPhoneController.text,
+          customerName: customerName,
+          customerPhone: customerPhone,
+          productName: productName,
+          salePrice: salePrice,
+          shopName: _shopName,
         );
 
         // Return true to indicate successful sale
-        Navigator.pop(context, true);
+        if (mounted) {
+          Navigator.pop(context, true);
+        }
       } catch (error) {
         if (!mounted) return;
         // Show error dialog
-        _showErrorDialog(context, error.toString());
+        await _showErrorDialog(context, error.toString());
       } finally {
         if (mounted) {
           setState(() {
@@ -333,12 +347,15 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
     }
   }
 
-  void _showSuccessDialog(
+  Future<void> _showSuccessDialog(
     BuildContext context, {
     String? customerName,
     String? customerPhone,
-  }) {
-    showDialog(
+    String? productName,
+    double? salePrice,
+    String? shopName,
+  }) async {
+    return showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => Dialog(
@@ -368,7 +385,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Success!',
+                  'Successfully Uploaded!',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
@@ -377,7 +394,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Phone sale uploaded successfully',
+                  'Phone sale has been recorded successfully',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 14,
@@ -385,45 +402,127 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                     height: 1.4,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey[200]!),
+                  ),
+                  child: Column(
+                    children: [
+                      if (productName != null && productName.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.devices,
+                                size: 16,
+                                color: Colors.green[700],
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  productName,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey[800],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (salePrice != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.attach_money,
+                                size: 16,
+                                color: Colors.green[700],
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                '\$${salePrice.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.green[700],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if ((customerName != null && customerName.isNotEmpty) ||
+                          (customerPhone != null && customerPhone.isNotEmpty))
+                        Container(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Column(
+                            children: [
+                              if (customerName != null &&
+                                  customerName.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.person,
+                                        size: 14,
+                                        color: Colors.blue[700],
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          customerName,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.blue[800],
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              if (customerPhone != null &&
+                                  customerPhone.isNotEmpty)
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.phone,
+                                      size: 14,
+                                      color: Colors.blue[700],
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        customerPhone,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.blue[800],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
                 Text(
-                  'Shop: $_shopName',
+                  'Shop: ${shopName ?? ''}',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                 ),
-                // Display customer info in success dialog
-                if ((customerName != null && customerName.isNotEmpty) ||
-                    (customerPhone != null && customerPhone.isNotEmpty))
-                  Container(
-                    margin: const EdgeInsets.only(top: 8),
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.blue[50],
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Column(
-                      children: [
-                        if (customerName != null && customerName.isNotEmpty)
-                          Text(
-                            'Customer: $customerName',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.blue[800],
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        if (customerPhone != null && customerPhone.isNotEmpty)
-                          Text(
-                            'Phone: $customerPhone',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.blue[800],
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -439,7 +538,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
                       ),
                     ),
                     child: const Text(
-                      'OK',
+                      'Continue',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -455,8 +554,8 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
     );
   }
 
-  void _showErrorDialog(BuildContext context, String error) {
-    showDialog(
+  Future<void> _showErrorDialog(BuildContext context, String error) async {
+    return showDialog(
       context: context,
       builder: (context) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
