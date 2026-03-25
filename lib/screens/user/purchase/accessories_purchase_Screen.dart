@@ -728,6 +728,7 @@ class _CreateAccessoryPurchaseScreenState
         accessory['purchaseRate'] > 0;
     final accessoryName = accessory['accessoryName'] ?? 'Unnamed Accessory';
     final purchaseRate = accessory['purchaseRate'] ?? 0.0;
+    final salesRate = accessory['salesRate'] ?? 0.0;
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -760,11 +761,20 @@ class _CreateAccessoryPurchaseScreenState
           Row(
             children: [
               Text(
-                '₹${(purchaseRate as num).toStringAsFixed(2)}',
+                'Purchase: ₹${(purchaseRate as num).toStringAsFixed(2)}',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
                   color: _accessoryColor,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Sales: ₹${(salesRate as num).toStringAsFixed(2)}',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: _lightGreen,
                 ),
               ),
             ],
@@ -781,13 +791,15 @@ class _CreateAccessoryPurchaseScreenState
       ),
       onTap: () async {
         if (!hasPurchaseRate) {
-          final newRate = await _showSetPurchaseRateDialog(accessoryName);
-          if (newRate != null) {
-            await _firestoreService.updateAccessoryPurchaseRate(
+          final rates = await _showSetRatesDialog(accessoryName);
+          if (rates != null) {
+            await _firestoreService.updateAccessoryRates(
               accessory['id'] ?? '',
-              newRate,
+              rates['purchaseRate'],
+              rates['salesRate'],
             );
-            accessory['purchaseRate'] = newRate;
+            accessory['purchaseRate'] = rates['purchaseRate'];
+            accessory['salesRate'] = rates['salesRate'];
             await _fetchAccessories();
             _productSearchController.clear();
             _filterAccessories('');
@@ -830,19 +842,17 @@ class _CreateAccessoryPurchaseScreenState
     });
   }
 
-  Future<double?> _showSetPurchaseRateDialog(String accessoryName) async {
-    final rateController = TextEditingController();
-    double? purchaseRate;
+  Future<Map<String, double>?> _showSetRatesDialog(String accessoryName) async {
+    final purchaseRateController = TextEditingController();
+    final salesRateController = TextEditingController();
 
-    return await showDialog<double>(
+    return await showDialog<Map<String, double>>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) {
-          purchaseRate = double.tryParse(rateController.text);
-
           return AlertDialog(
             title: Text(
-              'Set Purchase Rate',
+              'Set Rates',
               style: TextStyle(color: _accessoryColor, fontSize: 14),
             ),
             content: SingleChildScrollView(
@@ -862,12 +872,12 @@ class _CreateAccessoryPurchaseScreenState
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Enter the purchase rate (cost price):',
+                    'Enter purchase rate (cost price):',
                     style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                   TextField(
-                    controller: rateController,
+                    controller: purchaseRateController,
                     style: const TextStyle(fontSize: 12),
                     keyboardType: TextInputType.numberWithOptions(
                       decimal: true,
@@ -887,7 +897,34 @@ class _CreateAccessoryPurchaseScreenState
                     autofocus: true,
                     onChanged: (value) => setState(() {}),
                   ),
-                  if (purchaseRate != null && purchaseRate! > 0)
+                  const SizedBox(height: 12),
+                  Text(
+                    'Enter sales rate (selling price):',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: salesRateController,
+                    style: const TextStyle(fontSize: 12),
+                    keyboardType: TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'Sales Rate',
+                      labelStyle: const TextStyle(fontSize: 11),
+                      hintText: 'Enter sales rate...',
+                      hintStyle: const TextStyle(fontSize: 11),
+                      prefixText: '₹ ',
+                      border: const OutlineInputBorder(),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 10,
+                      ),
+                    ),
+                    onChanged: (value) => setState(() {}),
+                  ),
+                  if (purchaseRateController.text.isNotEmpty &&
+                      salesRateController.text.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 12),
                       child: Container(
@@ -899,19 +936,27 @@ class _CreateAccessoryPurchaseScreenState
                         child: Column(
                           children: [
                             _buildPriceCalculationRow(
-                              'Cost Price:',
-                              '₹${purchaseRate!.toStringAsFixed(2)}',
+                              'Purchase Rate:',
+                              '₹${double.tryParse(purchaseRateController.text)?.toStringAsFixed(2) ?? '0.00'}',
                             ),
                             _buildPriceCalculationRow(
-                              'GST (18%):',
-                              '₹${(purchaseRate! * 0.18).toStringAsFixed(2)}',
+                              'Sales Rate:',
+                              '₹${double.tryParse(salesRateController.text)?.toStringAsFixed(2) ?? '0.00'}',
+                            ),
+                            _buildPriceCalculationRow(
+                              'GST on Purchase (18%):',
+                              '₹${(double.tryParse(purchaseRateController.text) ?? 0 * 0.18).toStringAsFixed(2)}',
+                            ),
+                            _buildPriceCalculationRow(
+                              'GST on Sales (18%):',
+                              '₹${(double.tryParse(salesRateController.text) ?? 0 * 0.18).toStringAsFixed(2)}',
                             ),
                             const Divider(height: 12),
                             _buildPriceCalculationRow(
-                              'Total Cost:',
-                              '₹${(purchaseRate! * 1.18).toStringAsFixed(2)}',
+                              'Profit Margin:',
+                              '₹${((double.tryParse(salesRateController.text) ?? 0) - (double.tryParse(purchaseRateController.text) ?? 0)).toStringAsFixed(2)}',
                               isBold: true,
-                              color: _accessoryColor,
+                              color: _lightGreen,
                             ),
                           ],
                         ),
@@ -931,15 +976,38 @@ class _CreateAccessoryPurchaseScreenState
               ),
               ElevatedButton(
                 onPressed: () {
-                  if (purchaseRate != null && purchaseRate! > 0) {
-                    Navigator.pop(context, purchaseRate);
+                  final purchaseRate = double.tryParse(
+                    purchaseRateController.text,
+                  );
+                  final salesRate = double.tryParse(salesRateController.text);
+
+                  if (purchaseRate != null &&
+                      purchaseRate > 0 &&
+                      salesRate != null &&
+                      salesRate > 0) {
+                    if (salesRate < purchaseRate) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Sales rate should be greater than purchase rate',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                      return;
+                    }
+                    Navigator.pop(context, {
+                      'purchaseRate': purchaseRate,
+                      'salesRate': salesRate,
+                    });
                     _productSearchController.clear();
                     _filterAccessories('');
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text(
-                          'Please enter a valid purchase rate',
+                          'Please enter valid purchase and sales rates',
                           style: TextStyle(fontSize: 12),
                         ),
                         backgroundColor: Colors.red,
@@ -955,7 +1023,7 @@ class _CreateAccessoryPurchaseScreenState
                   ),
                 ),
                 child: const Text(
-                  'Set Purchase Rate',
+                  'Set Rates',
                   style: TextStyle(color: Colors.white, fontSize: 12),
                 ),
               ),
@@ -997,7 +1065,7 @@ class _CreateAccessoryPurchaseScreenState
   Future<void> _showAddAccessoryDialog({String preFilledSearch = ''}) async {
     final accessoryNameController = TextEditingController();
     final purchaseRateController = TextEditingController();
-    // Removed hsnController
+    final salesRateController = TextEditingController();
 
     if (preFilledSearch.isNotEmpty) {
       accessoryNameController.text = preFilledSearch;
@@ -1082,9 +1150,7 @@ class _CreateAccessoryPurchaseScreenState
                         ),
                         const SizedBox(height: 12),
 
-                        // Removed HSN Code section
-
-                        // Purchase Rate Only
+                        // Pricing Information Section
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
@@ -1106,6 +1172,8 @@ class _CreateAccessoryPurchaseScreenState
                                 ),
                               ),
                               const SizedBox(height: 12),
+
+                              // Purchase Rate
                               _buildFormSection(
                                 label: 'Purchase Rate (Cost Price) *',
                                 child: TextField(
@@ -1125,7 +1193,32 @@ class _CreateAccessoryPurchaseScreenState
                                   onChanged: (value) => setState(() {}),
                                 ),
                               ),
-                              if (purchaseRateController.text.isNotEmpty)
+                              const SizedBox(height: 12),
+
+                              // Sales Rate
+                              _buildFormSection(
+                                label: 'Sales Rate (Selling Price) *',
+                                child: TextField(
+                                  controller: salesRateController,
+                                  style: const TextStyle(fontSize: 12),
+                                  keyboardType: TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                                  decoration: InputDecoration(
+                                    hintText: 'Enter sales rate',
+                                    hintStyle: const TextStyle(fontSize: 11),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    prefixText: '₹ ',
+                                  ),
+                                  onChanged: (value) => setState(() {}),
+                                ),
+                              ),
+
+                              // Price Calculation Preview
+                              if (purchaseRateController.text.isNotEmpty &&
+                                  salesRateController.text.isNotEmpty)
                                 Padding(
                                   padding: const EdgeInsets.only(top: 12),
                                   child: Container(
@@ -1137,17 +1230,25 @@ class _CreateAccessoryPurchaseScreenState
                                     child: Column(
                                       children: [
                                         _buildPriceRow(
-                                          'Cost Price:',
+                                          'Purchase Rate:',
                                           '₹${double.tryParse(purchaseRateController.text)?.toStringAsFixed(2) ?? '0.00'}',
                                         ),
                                         _buildPriceRow(
-                                          'GST (18%):',
+                                          'Sales Rate:',
+                                          '₹${double.tryParse(salesRateController.text)?.toStringAsFixed(2) ?? '0.00'}',
+                                        ),
+                                        _buildPriceRow(
+                                          'GST on Purchase (18%):',
                                           '₹${(double.tryParse(purchaseRateController.text) ?? 0 * 0.18).toStringAsFixed(2)}',
+                                        ),
+                                        _buildPriceRow(
+                                          'GST on Sales (18%):',
+                                          '₹${(double.tryParse(salesRateController.text) ?? 0 * 0.18).toStringAsFixed(2)}',
                                         ),
                                         const Divider(height: 10),
                                         _buildPriceRow(
-                                          'Total Cost:',
-                                          '₹${(double.tryParse(purchaseRateController.text) ?? 0 * 1.18).toStringAsFixed(2)}',
+                                          'Profit Margin:',
+                                          '₹${((double.tryParse(salesRateController.text) ?? 0) - (double.tryParse(purchaseRateController.text) ?? 0)).toStringAsFixed(2)}',
                                           color: _lightGreen,
                                           isBold: true,
                                         ),
@@ -1192,12 +1293,14 @@ class _CreateAccessoryPurchaseScreenState
                             onPressed: () async {
                               if (_validateAccessoryForm(
                                 accessoryNameController,
-                                purchaseRateController, // Removed hsnController
+                                purchaseRateController,
+                                salesRateController,
                               )) {
                                 try {
                                   await _saveAccessory(
                                     accessoryNameController,
-                                    purchaseRateController, // Removed hsnController
+                                    purchaseRateController,
+                                    salesRateController,
                                   );
                                   Navigator.pop(context);
                                 } catch (e) {
@@ -1233,22 +1336,39 @@ class _CreateAccessoryPurchaseScreenState
 
   bool _validateAccessoryForm(
     TextEditingController accessoryNameController,
-    TextEditingController purchaseRateController, // Removed hsnController
+    TextEditingController purchaseRateController,
+    TextEditingController salesRateController,
   ) {
     if (accessoryNameController.text.isEmpty) {
       _showErrorSnackbar('Please enter accessory name');
       return false;
     }
-    // Removed HSN validation
+
     if (purchaseRateController.text.isEmpty) {
       _showErrorSnackbar('Please enter purchase rate');
       return false;
     }
 
+    if (salesRateController.text.isEmpty) {
+      _showErrorSnackbar('Please enter sales rate');
+      return false;
+    }
+
     final purchaseRate = double.tryParse(purchaseRateController.text);
+    final salesRate = double.tryParse(salesRateController.text);
 
     if (purchaseRate == null || purchaseRate <= 0) {
       _showErrorSnackbar('Please enter a valid purchase rate');
+      return false;
+    }
+
+    if (salesRate == null || salesRate <= 0) {
+      _showErrorSnackbar('Please enter a valid sales rate');
+      return false;
+    }
+
+    if (salesRate < purchaseRate) {
+      _showErrorSnackbar('Sales rate should be greater than purchase rate');
       return false;
     }
 
@@ -1257,13 +1377,14 @@ class _CreateAccessoryPurchaseScreenState
 
   Future<void> _saveAccessory(
     TextEditingController accessoryNameController,
-    TextEditingController purchaseRateController, // Removed hsnController
+    TextEditingController purchaseRateController,
+    TextEditingController salesRateController,
   ) async {
     try {
       final accessoryData = {
         'accessoryName': accessoryNameController.text.trim(),
-        // Removed hsnCode
         'purchaseRate': double.parse(purchaseRateController.text),
+        'salesRate': double.parse(salesRateController.text),
         'stockQuantity': 0,
         'createdAt': DateTime.now(),
       };

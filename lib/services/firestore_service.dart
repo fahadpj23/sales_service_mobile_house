@@ -991,6 +991,24 @@ class FirestoreService {
     }
   }
 
+  // NEW METHOD: Update both purchase rate and sales rate
+  Future<void> updateAccessoryRates(
+    String accessoryId,
+    double purchaseRate,
+    double salesRate,
+  ) async {
+    try {
+      await _firestore.collection('accessories').doc(accessoryId).update({
+        'purchaseRate': purchaseRate,
+        'salesRate': salesRate,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('Error updating accessory rates: $e');
+      rethrow;
+    }
+  }
+
   Future<void> updateAccessoryHsnCode(
     String accessoryId,
     String hsnCode,
@@ -1566,7 +1584,6 @@ class FirestoreService {
 
     return query.snapshots();
   }
-  // Add these methods to the FirestoreService class in lib/services/firestore_service.dart
 
   // ========== ACCESSORY SALE METHODS ==========
   Future<void> createAccessorySale(Map<String, dynamic> saleData) async {
