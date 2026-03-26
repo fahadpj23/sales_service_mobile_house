@@ -755,8 +755,13 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   }
 
   // Show share popup after successful upload
+  // Show share popup after successful upload
   void _showSharePopup() {
     if (_lastSaleData == null) return;
+
+    final purchaseMode = _lastSaleData!['purchaseMode']?.toString() ?? '';
+    final isEmiMode = purchaseMode == 'EMI';
+    final isReadyCashMode = purchaseMode == 'Ready Cash';
 
     showDialog(
       context: context,
@@ -785,7 +790,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'EMI Sale Uploaded!',
+                  isEmiMode ? 'EMI Sale Uploaded!' : 'Sale Uploaded!',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -794,10 +799,11 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Share EMI details with customer',
+                  isEmiMode
+                      ? 'Share EMI details with customer'
+                      : 'Share sale details with customer',
                   style: TextStyle(fontSize: 13, color: _secondaryColor),
                 ),
-
                 const SizedBox(height: 20),
                 Row(
                   children: [
@@ -841,8 +847,12 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   }
 
   // Show share options dialog
+  // Show share options dialog
   Future<void> _showShareOptionsDialog() async {
     if (_lastSaleData == null) return;
+
+    final purchaseMode = _lastSaleData!['purchaseMode']?.toString() ?? '';
+    final isEmiMode = purchaseMode == 'EMI';
 
     final message = _generateEmiShareMessage();
 
@@ -859,7 +869,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Share EMI Details',
+                  isEmiMode ? 'Share EMI Details' : 'Share Sale Details',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -1123,6 +1133,8 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       final customerName = _customerNameController.text;
       final customerPhone = _customerPhoneController.text;
       final isEmiMode = _selectedPurchaseMode == 'EMI';
+      final isReadyCashMode = _selectedPurchaseMode == 'Ready Cash';
+      final isCreditCardMode = _selectedPurchaseMode == 'Credit Card';
 
       // Fetch shop details for WhatsApp number
       await _getShopDetails();
@@ -1177,7 +1189,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         'amountToPay': amountToPay > 0 ? amountToPay : 0.0,
         'balanceReturnedToCustomer': balanceReturned,
         'customerName': customerName,
-        'customerPhone': customerPhone, // Use stored value
+        'customerPhone': customerPhone,
         'billNumber': _withoutBillNumber ? null : _selectedBillNumber,
         'addedAt': DateTime.now(),
         'createdAt': FieldValue.serverTimestamp(),
@@ -1186,17 +1198,15 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
       await _firestore.collection('phoneSales').add(salesData);
 
-      // Store last sale data for sharing (only for EMI)
-      if (isEmiMode) {
-        setState(() {
-          _lastSaleData = {...salesData, 'customerPhone': customerPhone};
-        });
-      }
+      // Store last sale data for sharing (for EMI, Ready Cash, and Credit Card)
+      setState(() {
+        _lastSaleData = {...salesData, 'customerPhone': customerPhone};
+      });
 
       _showMessage('✓ Phone sale uploaded successfully!', isError: false);
 
-      // Show share popup for EMI sales
-      if (isEmiMode) {
+      // Show share popup for all purchase modes
+      if (isEmiMode || isReadyCashMode || isCreditCardMode) {
         // Reset form but keep lastSaleData
         _resetForm();
 
@@ -1215,30 +1225,31 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     setState(() => _isLoading = false);
   }
 
-  // Generate EMI details message for sharing
-  // Generate EMI details message for sharing
+  // Generate sale details message for sharing (supports both EMI and Ready Cash)
   String _generateEmiShareMessage() {
     if (_lastSaleData == null) return '';
 
     final sale = _lastSaleData!;
+    final purchaseMode = sale['purchaseMode']?.toString() ?? '';
+    final isEmiMode = purchaseMode == 'EMI';
+    final isReadyCashMode = purchaseMode == 'Ready Cash';
+
     final brand = sale['brand']?.toString().toUpperCase() ?? '';
     final model = sale['productModel']?.toString() ?? '';
     final price = (sale['price'] as num?)?.toDouble() ?? 0.0;
-    final downPayment = (sale['downPayment'] as num?)?.toDouble() ?? 0.0;
     final discount = (sale['discount'] as num?)?.toDouble() ?? 0.0;
     final exchange = (sale['exchangeValue'] as num?)?.toDouble() ?? 0.0;
-    final numberOfEmi = sale['numberOfEmi'] ?? 0;
-    final perMonthEmi = (sale['perMonthEmi'] as num?)?.toDouble() ?? 0.0;
-    final financeType = sale['financeType']?.toString() ?? '';
-    final loanId = sale['loanId']?.toString() ?? '';
-    final autoDebit = sale['autoDebit'] as bool? ?? false;
-    final insurance = sale['insurance'] as bool? ?? false;
+    final customerCredit = (sale['customerCredit'] as num?)?.toDouble() ?? 0.0;
+    final effectivePrice = (sale['effectivePrice'] as num?)?.toDouble() ?? 0.0;
+    final amountToPay = (sale['amountToPay'] as num?)?.toDouble() ?? 0.0;
+    final balanceReturned =
+        (sale['balanceReturnedToCustomer'] as num?)?.toDouble() ?? 0.0;
     final saleDate = sale['saleDate'] as DateTime? ?? DateTime.now();
     final customerName = sale['customerName']?.toString() ?? '';
     final customerPhone = sale['customerPhone']?.toString() ?? '';
     final gifts = sale['giftsList']?.toString() ?? '';
 
-    // Get payment breakdown for down payment
+    // Get payment breakdown
     final paymentBreakdown =
         sale['paymentBreakdown'] as Map<String, dynamic>? ?? {};
     final cashAmount = (paymentBreakdown['cash'] as num?)?.toDouble() ?? 0.0;
@@ -1246,6 +1257,15 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     final cardAmount = (paymentBreakdown['card'] as num?)?.toDouble() ?? 0.0;
     final creditAmount =
         (paymentBreakdown['credit'] as num?)?.toDouble() ?? 0.0;
+
+    // EMI specific fields
+    final downPayment = (sale['downPayment'] as num?)?.toDouble() ?? 0.0;
+    final numberOfEmi = sale['numberOfEmi'] ?? 0;
+    final perMonthEmi = (sale['perMonthEmi'] as num?)?.toDouble() ?? 0.0;
+    final financeType = sale['financeType']?.toString() ?? '';
+    final loanId = sale['loanId']?.toString() ?? '';
+    final autoDebit = sale['autoDebit'] as bool? ?? false;
+    final insurance = sale['insurance'] as bool? ?? false;
 
     final dateFormat = DateFormat('dd/MM/yyyy');
     final formattedDate = dateFormat.format(saleDate);
@@ -1265,19 +1285,34 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     buffer.writeln(
       '📸 Instagram : https://instagram.com/${shopInstagram.replaceAll('@', '')}',
     );
-    buffer.writeln('✨ *EMI DETAILS* ✨');
+    buffer.writeln();
+
+    if (isEmiMode) {
+      buffer.writeln('✨ *EMI DETAILS* ✨');
+    } else if (isReadyCashMode) {
+      buffer.writeln('✨ *SALE DETAILS* ✨');
+    }
+
     buffer.writeln();
     buffer.writeln(' Shop : $shopName');
     buffer.writeln(' Brand : $brand');
     buffer.writeln(' Model : $model');
     buffer.writeln(' Price : ₹${price.toStringAsFixed(0)}');
-    buffer.writeln(' Down Payment : ₹${downPayment.toStringAsFixed(0)}');
 
-    // Add down payment breakdown if any payment method was used
+    if (discount > 0) {
+      buffer.writeln(' Discount : ₹${discount.toStringAsFixed(0)}');
+    }
+
+    if (isEmiMode) {
+      buffer.writeln(' Down Payment : ₹${downPayment.toStringAsFixed(0)}');
+    }
+
+    // Add payment breakdown
     if (cashAmount > 0 ||
         gpayAmount > 0 ||
         cardAmount > 0 ||
         creditAmount > 0) {
+      buffer.writeln(' Payment :');
       if (cashAmount > 0)
         buffer.writeln('    • Cash: ₹${cashAmount.toStringAsFixed(0)}');
       if (gpayAmount > 0)
@@ -1288,22 +1323,41 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         buffer.writeln('    • Credit: ₹${creditAmount.toStringAsFixed(0)}');
     }
 
-    if (discount > 0) {
-      buffer.writeln(' Discount : ₹${discount.toStringAsFixed(0)}');
-    }
     if (exchange > 0) {
       buffer.writeln(' Exchange : ₹${exchange.toStringAsFixed(0)}');
     }
 
-    buffer.writeln(' EMI : ₹${perMonthEmi.toStringAsFixed(0)}*$numberOfEmi');
-    buffer.writeln(' Finance : $financeType');
-
-    if (loanId.isNotEmpty) {
-      buffer.writeln(' Loan Id : $loanId');
+    if (customerCredit > 0) {
+      buffer.writeln(
+        ' Customer Credit : ₹${customerCredit.toStringAsFixed(0)}',
+      );
     }
 
-    buffer.writeln(' Auto Debit : ${autoDebit ? ' YES' : ' NO'}');
-    buffer.writeln(' Insurance : ${insurance ? ' YES' : ' NO'}');
+    if (balanceReturned > 0) {
+      buffer.writeln(
+        ' Balance Returned : ₹${balanceReturned.toStringAsFixed(0)}',
+      );
+    }
+
+    if (isEmiMode) {
+      buffer.writeln(
+        ' Effective Price : ₹${effectivePrice.toStringAsFixed(0)}',
+      );
+      buffer.writeln(' Amount to Pay : ₹${amountToPay.toStringAsFixed(0)}');
+      buffer.writeln();
+      buffer.writeln(' EMI : ₹${perMonthEmi.toStringAsFixed(0)}*$numberOfEmi');
+      buffer.writeln(' Finance : $financeType');
+
+      if (loanId.isNotEmpty) {
+        buffer.writeln(' Loan Id : $loanId');
+      }
+
+      buffer.writeln(' Auto Debit : ${autoDebit ? ' YES' : ' NO'}');
+      buffer.writeln(' Insurance : ${insurance ? ' YES' : ' NO'}');
+    } else if (isReadyCashMode) {
+      buffer.writeln(' Total Paid : ₹${amountToPay.toStringAsFixed(0)}');
+    }
+
     buffer.writeln(' Date : $formattedDate');
     buffer.writeln();
     buffer.writeln(' Customer : $customerName');
@@ -1315,12 +1369,13 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       buffer.writeln(' $gifts');
     }
 
-    buffer.writeln();
-    buffer.writeln('⚠️ *എല്ലാ മാസവും 1 നു മുമ്പ് EMI pay ചെയ്യണം*');
+    if (isEmiMode) {
+      buffer.writeln();
+      buffer.writeln('⚠️ *എല്ലാ മാസവും 1 നു മുമ്പ് EMI pay ചെയ്യണം*');
+    }
+
     buffer.writeln();
     buffer.writeln('━━━━━━━━━━━━━━━━━━━━━');
-    buffer.writeln();
-
     buffer.writeln();
     buffer.writeln('🎯 *For Exciting Offers*');
     buffer.writeln('📸 Follow @${shopInstagram.replaceAll('@', '')}');

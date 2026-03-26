@@ -1245,7 +1245,6 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
 
     final shouldShowAddNew = brandHasNoProducts || searchHasNoResults;
 
-    // Remove duplicates from filtered products based on productName
     final uniqueProducts = <Map<String, dynamic>>[];
     final seenNames = <String>{};
 
@@ -1329,7 +1328,7 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
     }
 
     return ListTile(
-      key: const ValueKey('add_new_product_tile'), // Add unique key
+      key: const ValueKey('add_new_product_tile'),
       leading: const Icon(Icons.add, color: Colors.green, size: 18),
       title: const Text(
         'Add New Product...',
@@ -1392,7 +1391,6 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
     final searchText = _productSearchController.text.toLowerCase();
 
     if (searchText.isNotEmpty) {
-      // Remove duplicates when filtering
       final uniqueProductsMap = <String, Map<String, dynamic>>{};
       for (final product in products) {
         final productName = product['productName'] as String? ?? '';
@@ -1402,7 +1400,6 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
       }
       _filteredProducts = uniqueProductsMap.values.toList();
     } else {
-      // Remove duplicates when showing all products
       final uniqueProductsMap = <String, Map<String, dynamic>>{};
       for (final product in products) {
         final productName = product['productName'] as String? ?? '';
@@ -1773,7 +1770,7 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: Colors.blue,
+                      color: Colors.green,
                     ),
                   ),
                   IconButton(
@@ -1937,7 +1934,7 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
                         return ListTile(
                           leading: const Icon(
                             Icons.store,
-                            color: Colors.blue,
+                            color: Colors.green,
                             size: 18,
                           ),
                           title: Text(
@@ -2115,13 +2112,13 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: BorderSide(
-                color: _showingSoldStockWarning ? Colors.orange : Colors.blue,
+                color: _showingSoldStockWarning ? Colors.orange : Colors.green,
               ),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: BorderSide(
-                color: _showingSoldStockWarning ? Colors.orange : Colors.blue,
+                color: _showingSoldStockWarning ? Colors.orange : Colors.green,
                 width: 2,
               ),
             ),
@@ -2170,7 +2167,7 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
       onPressed: _openScannerForSearch,
       icon: const Icon(Icons.qr_code_scanner),
       label: const Text('Scan'),
-      backgroundColor: Colors.blue,
+      backgroundColor: Colors.green,
       foregroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
       elevation: 4,
@@ -2444,16 +2441,10 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
               const SizedBox(height: 8),
 
               Expanded(
-                child: GridView.builder(
+                child: ListView.builder(
                   padding: const EdgeInsets.all(8),
                   shrinkWrap: true,
                   physics: const AlwaysScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 1,
-                    crossAxisSpacing: 6,
-                    mainAxisSpacing: 8,
-                    childAspectRatio: 2.1,
-                  ),
                   itemCount: filteredReturns.length,
                   itemBuilder: (context, index) {
                     final returnData = filteredReturns[index];
@@ -2470,15 +2461,18 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
                     final originalShopName =
                         returnData['originalShopName'] ?? 'Unknown Shop';
 
-                    return _buildReturnedModelCard(
-                      productName: productName,
-                      productBrand: productBrand,
-                      imei: imei,
-                      price: price,
-                      returnedAt: returnedAt,
-                      returnedBy: returnedBy,
-                      reason: reason,
-                      originalShopName: originalShopName,
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _buildReturnedModelCard(
+                        productName: productName,
+                        productBrand: productBrand,
+                        imei: imei,
+                        price: price,
+                        returnedAt: returnedAt,
+                        returnedBy: returnedBy,
+                        reason: reason,
+                        originalShopName: originalShopName,
+                      ),
                     );
                   },
                 ),
@@ -2775,16 +2769,10 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
               const SizedBox(height: 8),
 
               Expanded(
-                child: GridView.builder(
+                child: ListView.builder(
                   padding: const EdgeInsets.all(8),
                   shrinkWrap: true,
                   physics: const AlwaysScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 1,
-                    crossAxisSpacing: 6,
-                    mainAxisSpacing: 8,
-                    mainAxisExtent: 200,
-                  ),
                   itemCount: filteredStocks.length,
                   itemBuilder: (context, index) {
                     final stock = filteredStocks[index];
@@ -2798,48 +2786,51 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
                     final soldAt = stock['soldAt'];
                     final modelId = stock['id'] as String? ?? '';
 
-                    return _buildModelCard(
-                      productName: productName,
-                      productBrand: productBrand,
-                      imei: imei,
-                      price: price,
-                      uploadedAt: uploadedAt,
-                      soldAt: soldAt,
-                      status: type,
-                      modelData: stock,
-                      onSell: type == 'available'
-                          ? () {
-                              setState(() {
-                                _selectedModelForAction = {
-                                  ...stock,
-                                  'id': modelId,
-                                };
-                                _selectedAction = 'sell';
-                              });
-                            }
-                          : null,
-                      onTransfer: type == 'available'
-                          ? () {
-                              setState(() {
-                                _selectedModelForAction = {
-                                  ...stock,
-                                  'id': modelId,
-                                };
-                                _selectedAction = 'transfer';
-                              });
-                            }
-                          : null,
-                      onReturn: type == 'available'
-                          ? () {
-                              setState(() {
-                                _selectedModelForAction = {
-                                  ...stock,
-                                  'id': modelId,
-                                };
-                                _selectedAction = 'return';
-                              });
-                            }
-                          : null,
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _buildModelCard(
+                        productName: productName,
+                        productBrand: productBrand,
+                        imei: imei,
+                        price: price,
+                        uploadedAt: uploadedAt,
+                        soldAt: soldAt,
+                        status: type,
+                        modelData: stock,
+                        onSell: type == 'available'
+                            ? () {
+                                setState(() {
+                                  _selectedModelForAction = {
+                                    ...stock,
+                                    'id': modelId,
+                                  };
+                                  _selectedAction = 'sell';
+                                });
+                              }
+                            : null,
+                        onTransfer: type == 'available'
+                            ? () {
+                                setState(() {
+                                  _selectedModelForAction = {
+                                    ...stock,
+                                    'id': modelId,
+                                  };
+                                  _selectedAction = 'transfer';
+                                });
+                              }
+                            : null,
+                        onReturn: type == 'available'
+                            ? () {
+                                setState(() {
+                                  _selectedModelForAction = {
+                                    ...stock,
+                                    'id': modelId,
+                                  };
+                                  _selectedAction = 'return';
+                                });
+                              }
+                            : null,
+                      ),
                     );
                   },
                 ),
@@ -2935,10 +2926,8 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
 
     final transferredBy = modelData?['transferredBy'] as String?;
     final transferredAt = modelData?['transferredAt'];
-    final previousShopName = modelData?['previousShopName'] as String?;
 
     return Container(
-      constraints: const BoxConstraints(minHeight: 200, maxHeight: 350),
       decoration: BoxDecoration(
         color: bgColor,
         borderRadius: BorderRadius.circular(10),
@@ -2952,254 +2941,224 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              physics: const ClampingScrollPhysics(),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: IntrinsicHeight(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: status == 'available'
-                              ? Colors.green.shade100
-                              : status == 'sold'
-                              ? Colors.blue.shade100
-                              : Colors.grey.shade200,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          status.toUpperCase(),
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                            color: status == 'available'
-                                ? Colors.green
-                                : status == 'sold'
-                                ? Colors.blue
-                                : Colors.grey,
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 4),
-
-                      SizedBox(
-                        height: 32,
-                        child: Text(
-                          productName,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-
-                      const SizedBox(height: 2),
-
-                      Text(
-                        _formatPrice(price),
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-
-                      const SizedBox(height: 2),
-
-                      Text(
-                        productBrand,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.blue.shade700,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-
-                      const SizedBox(height: 2),
-
-                      SizedBox(
-                        height: 24,
-                        child: Text(
-                          'IMEI: $displayImei',
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.black,
-                            fontFamily: 'Monospace',
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-
-                      if (transferredBy != null && transferredAt != null) ...[
-                        const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.swap_horiz,
-                              size: 10,
-                              color: Colors.orange.shade700,
-                            ),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              flex: 2,
-                              child: Text(
-                                'Transfer by $transferredBy on ${_formatDate(transferredAt)}',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  color: Colors.orange.shade700,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-
-                      Text(
-                        'Added: ${_formatDate(uploadedAt)} by ${modelData?['uploadedBy'] ?? 'Unknown'}',
-                        style: TextStyle(fontSize: 9, color: Colors.grey[600]),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-
-                      if (status == 'sold' && soldAt != null) ...[
-                        Text(
-                          'Sold: ${_formatDate(soldAt)}',
-                          style: TextStyle(
-                            fontSize: 9,
-                            color: Colors.grey[600],
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (modelData?['soldBy'] != null)
-                          Text(
-                            'By: ${modelData?['soldBy']}',
-                            style: TextStyle(
-                              fontSize: 9,
-                              color: Colors.grey[600],
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                      ],
-
-                      if (status == 'available' &&
-                          (onSell != null ||
-                              onTransfer != null ||
-                              onReturn != null))
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const SizedBox(height: 6),
-                            const Divider(height: 1, color: Colors.grey),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                if (onSell != null)
-                                  Expanded(
-                                    child: SizedBox(
-                                      height: 28,
-                                      child: ElevatedButton(
-                                        onPressed: onSell,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.green,
-                                          foregroundColor: Colors.white,
-                                          padding: EdgeInsets.zero,
-                                          textStyle: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        child: const FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          child: Text('Sell'),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                if (onSell != null && onTransfer != null)
-                                  const SizedBox(width: 4),
-                                if (onTransfer != null)
-                                  Expanded(
-                                    child: SizedBox(
-                                      height: 28,
-                                      child: ElevatedButton(
-                                        onPressed: onTransfer,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.blue,
-                                          foregroundColor: Colors.white,
-                                          padding: EdgeInsets.zero,
-                                          textStyle: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        child: const FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          child: Text('Transfer'),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                if ((onSell != null || onTransfer != null) &&
-                                    onReturn != null)
-                                  const SizedBox(width: 4),
-                                if (onReturn != null)
-                                  Expanded(
-                                    child: SizedBox(
-                                      height: 28,
-                                      child: ElevatedButton(
-                                        onPressed: onReturn,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.orange,
-                                          foregroundColor: Colors.white,
-                                          padding: EdgeInsets.zero,
-                                          textStyle: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        child: const FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          child: Text('Return'),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-
-                      const SizedBox(height: 4),
-                    ],
-                  ),
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: status == 'available'
+                    ? Colors.green.shade100
+                    : status == 'sold'
+                    ? Colors.blue.shade100
+                    : Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                status.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: status == 'available'
+                      ? Colors.green
+                      : status == 'sold'
+                      ? Colors.blue
+                      : Colors.grey,
                 ),
               ),
-            );
-          },
+            ),
+            const SizedBox(height: 8),
+            Text(
+              productName,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _formatPrice(price),
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: Colors.green,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              productBrand,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.green.shade700,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Icon(
+                  Icons.confirmation_number,
+                  size: 12,
+                  color: Colors.grey,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'IMEI: $displayImei',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Colors.black87,
+                      fontFamily: 'Monospace',
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            if (transferredBy != null && transferredAt != null) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(
+                    Icons.swap_horiz,
+                    size: 12,
+                    color: Colors.orange.shade700,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'Transfer: $transferredBy',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.orange.shade700,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Icon(Icons.person, size: 10, color: Colors.grey),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'Added: ${_formatDate(uploadedAt)}',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            if (status == 'sold' && soldAt != null) ...[
+              Row(
+                children: [
+                  const Icon(Icons.sell, size: 10, color: Colors.grey),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'Sold: ${_formatDate(soldAt)}',
+                      style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              if (modelData?['soldBy'] != null)
+                Row(
+                  children: [
+                    const Icon(Icons.person, size: 10, color: Colors.grey),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        'By: ${modelData?['soldBy']}',
+                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+            if (status == 'available' &&
+                (onSell != null || onTransfer != null || onReturn != null)) ...[
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (onSell != null)
+                    SizedBox(
+                      width: 80,
+                      height: 32,
+                      child: ElevatedButton(
+                        onPressed: onSell,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.zero,
+                          textStyle: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        child: const Text('Sell'),
+                      ),
+                    ),
+                  if (onTransfer != null)
+                    SizedBox(
+                      width: 80,
+                      height: 32,
+                      child: ElevatedButton(
+                        onPressed: onTransfer,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.zero,
+                          textStyle: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        child: const Text('Transfer'),
+                      ),
+                    ),
+                  if (onReturn != null)
+                    SizedBox(
+                      width: 80,
+                      height: 32,
+                      child: ElevatedButton(
+                        onPressed: onReturn,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange,
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.zero,
+                          textStyle: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        child: const Text('Return'),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -3218,7 +3177,6 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
     String displayImei = _formatImeiForDisplay(imei);
 
     return Container(
-      constraints: const BoxConstraints(minHeight: 180),
       decoration: BoxDecoration(
         color: Colors.orange.shade50,
         borderRadius: BorderRadius.circular(10),
@@ -3232,13 +3190,13 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: Colors.orange.shade100,
                 borderRadius: BorderRadius.circular(4),
@@ -3246,89 +3204,112 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
               child: const Text(
                 'RETURNED',
                 style: TextStyle(
-                  fontSize: 9,
+                  fontSize: 10,
                   fontWeight: FontWeight.bold,
                   color: Colors.orange,
                 ),
               ),
             ),
-
-            const SizedBox(height: 4),
-
-            SizedBox(
-              height: 32,
-              child: Text(
-                productName,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+            const SizedBox(height: 8),
+            Text(
+              productName,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
               ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
-
-            const SizedBox(height: 2),
-
+            const SizedBox(height: 4),
             Text(
               _formatPrice(price),
               style: const TextStyle(
-                fontSize: 13,
+                fontSize: 15,
                 fontWeight: FontWeight.bold,
                 color: Colors.green,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
-
-            const SizedBox(height: 2),
-
+            const SizedBox(height: 4),
             Text(
               productBrand,
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 12,
                 color: Colors.orange.shade700,
                 fontWeight: FontWeight.w500,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
-
-            const SizedBox(height: 2),
-
-            SizedBox(
-              height: 24,
-              child: Text(
-                'IMEI: $displayImei',
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: Colors.black,
-                  fontFamily: 'Monospace',
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Icon(
+                  Icons.confirmation_number,
+                  size: 12,
+                  color: Colors.grey,
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'IMEI: $displayImei',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Colors.black87,
+                      fontFamily: 'Monospace',
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
-
-            Text(
-              'Returned: ${_formatDate(returnedAt)}',
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Icon(
+                  Icons.assignment_return,
+                  size: 10,
+                  color: Colors.grey,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'Returned: ${_formatDate(returnedAt)}',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
-            Text(
-              'By: $returnedBy',
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            Row(
+              children: [
+                const Icon(Icons.person, size: 10, color: Colors.grey),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'By: $returnedBy',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
-            Text(
-              'Shop: $originalShopName',
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            Row(
+              children: [
+                const Icon(Icons.store, size: 10, color: Colors.grey),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'Shop: $originalShopName',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
+            const SizedBox(height: 2),
             Text(
               'Reason: ${reason.replaceAll('_', ' ').toLowerCase()}',
               style: TextStyle(fontSize: 9, color: Colors.orange.shade600),

@@ -580,7 +580,6 @@ class _TvStockScreenState extends State<TvStockScreen>
           return;
         }
 
-        // UPDATED: Allow forward slash in serial numbers
         if (!RegExp(r'^[A-Za-z0-9/]+$').hasMatch(serial)) {
           _showModalError(
             'Serial ${i + 1} contains invalid characters. Use only letters, numbers, and forward slash (/)',
@@ -954,9 +953,7 @@ class _TvStockScreenState extends State<TvStockScreen>
   String _formatSerialForDisplay(String serial) {
     if (serial.isEmpty) return '';
 
-    // Check if serial contains forward slash
     if (serial.contains('/')) {
-      // Keep the original format with slash
       return serial;
     }
 
@@ -971,7 +968,6 @@ class _TvStockScreenState extends State<TvStockScreen>
   bool _isValidSerial(String serial) {
     if (serial.isEmpty) return false;
     if (serial.length < 8 || serial.length > 20) return false;
-    // UPDATED: Allow forward slash in validation
     if (!RegExp(r'^[A-Za-z0-9/]+$').hasMatch(serial)) return false;
     return true;
   }
@@ -1549,7 +1545,6 @@ class _TvStockScreenState extends State<TvStockScreen>
                   });
                 }
               },
-              // UPDATED: Validator now accepts forward slash
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
                   return 'Please enter serial number';
@@ -1561,7 +1556,6 @@ class _TvStockScreenState extends State<TvStockScreen>
                 if (trimmedValue.length > 20) {
                   return 'Serial must be at most 20 characters';
                 }
-                // Updated regex to allow forward slash
                 if (!RegExp(r'^[A-Za-z0-9/]+$').hasMatch(trimmedValue)) {
                   return 'Use only letters, numbers, and forward slash (/)';
                 }
@@ -2381,16 +2375,10 @@ class _TvStockScreenState extends State<TvStockScreen>
               const SizedBox(height: 8),
 
               Expanded(
-                child: GridView.builder(
+                child: ListView.builder(
                   padding: const EdgeInsets.all(8),
                   shrinkWrap: true,
                   physics: const AlwaysScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 1,
-                    crossAxisSpacing: 6,
-                    mainAxisSpacing: 8,
-                    childAspectRatio: 2.1,
-                  ),
                   itemCount: filteredReturns.length,
                   itemBuilder: (context, index) {
                     final returnData = filteredReturns[index];
@@ -2408,15 +2396,18 @@ class _TvStockScreenState extends State<TvStockScreen>
                     final originalShopName =
                         returnData['originalShopName'] ?? 'Unknown Shop';
 
-                    return _buildReturnedTvCard(
-                      modelName: modelName,
-                      modelBrand: modelBrand,
-                      serial: serial,
-                      price: price,
-                      returnedAt: returnedAt,
-                      returnedBy: returnedBy,
-                      reason: reason,
-                      originalShopName: originalShopName,
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _buildReturnedTvCard(
+                        modelName: modelName,
+                        modelBrand: modelBrand,
+                        serial: serial,
+                        price: price,
+                        returnedAt: returnedAt,
+                        returnedBy: returnedBy,
+                        reason: reason,
+                        originalShopName: originalShopName,
+                      ),
                     );
                   },
                 ),
@@ -2711,16 +2702,10 @@ class _TvStockScreenState extends State<TvStockScreen>
               const SizedBox(height: 8),
 
               Expanded(
-                child: GridView.builder(
+                child: ListView.builder(
                   padding: const EdgeInsets.all(8),
                   shrinkWrap: true,
                   physics: const AlwaysScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 1,
-                    crossAxisSpacing: 6,
-                    mainAxisSpacing: 8,
-                    mainAxisExtent: 200,
-                  ),
                   itemCount: filteredStocks.length,
                   itemBuilder: (context, index) {
                     final stock = filteredStocks[index];
@@ -2734,49 +2719,52 @@ class _TvStockScreenState extends State<TvStockScreen>
                     final soldAt = stock['soldAt'];
                     final tvId = stock['id'] as String? ?? '';
 
-                    return _buildTvCard(
-                      modelName: modelName,
-                      modelBrand: modelBrand,
-                      serial: serial,
-                      price: price,
-                      uploadedAt: uploadedAt,
-                      soldAt: soldAt,
-                      status: type,
-                      tvData: stock,
-                      onSell: type == 'available'
-                          ? () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => BillFormTvScreen(
-                                    tvData: stock,
-                                    serialNumber: serial,
-                                    tvId: tvId,
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _buildTvCard(
+                        modelName: modelName,
+                        modelBrand: modelBrand,
+                        serial: serial,
+                        price: price,
+                        uploadedAt: uploadedAt,
+                        soldAt: soldAt,
+                        status: type,
+                        tvData: stock,
+                        onSell: type == 'available'
+                            ? () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => BillFormTvScreen(
+                                      tvData: stock,
+                                      serialNumber: serial,
+                                      tvId: tvId,
+                                    ),
                                   ),
-                                ),
-                              ).then((success) {
-                                if (success == true) {
-                                  setState(() {});
-                                }
-                              });
-                            }
-                          : null,
-                      onTransfer: type == 'available'
-                          ? () {
-                              setState(() {
-                                _selectedTvForAction = {...stock, 'id': tvId};
-                                _selectedAction = 'transfer';
-                              });
-                            }
-                          : null,
-                      onReturn: type == 'available'
-                          ? () {
-                              setState(() {
-                                _selectedTvForAction = {...stock, 'id': tvId};
-                                _selectedAction = 'return';
-                              });
-                            }
-                          : null,
+                                ).then((success) {
+                                  if (success == true) {
+                                    setState(() {});
+                                  }
+                                });
+                              }
+                            : null,
+                        onTransfer: type == 'available'
+                            ? () {
+                                setState(() {
+                                  _selectedTvForAction = {...stock, 'id': tvId};
+                                  _selectedAction = 'transfer';
+                                });
+                              }
+                            : null,
+                        onReturn: type == 'available'
+                            ? () {
+                                setState(() {
+                                  _selectedTvForAction = {...stock, 'id': tvId};
+                                  _selectedAction = 'return';
+                                });
+                              }
+                            : null,
+                      ),
                     );
                   },
                 ),
@@ -2872,10 +2860,8 @@ class _TvStockScreenState extends State<TvStockScreen>
 
     final transferredBy = tvData?['transferredBy'] as String?;
     final transferredAt = tvData?['transferredAt'];
-    final previousShopName = tvData?['previousShopName'] as String?;
 
     return Container(
-      constraints: const BoxConstraints(minHeight: 200, maxHeight: 350),
       decoration: BoxDecoration(
         color: bgColor,
         borderRadius: BorderRadius.circular(10),
@@ -2889,254 +2875,220 @@ class _TvStockScreenState extends State<TvStockScreen>
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              physics: const ClampingScrollPhysics(),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: IntrinsicHeight(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: status == 'available'
-                              ? Colors.green.shade100
-                              : status == 'sold'
-                              ? Colors.blue.shade100
-                              : Colors.grey.shade200,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          status.toUpperCase(),
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                            color: status == 'available'
-                                ? Colors.green
-                                : status == 'sold'
-                                ? Colors.blue
-                                : Colors.grey,
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 4),
-
-                      SizedBox(
-                        height: 32,
-                        child: Text(
-                          modelName,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-
-                      const SizedBox(height: 2),
-
-                      Text(
-                        _formatPrice(price),
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-
-                      const SizedBox(height: 2),
-
-                      Text(
-                        modelBrand,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.blue.shade700,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-
-                      const SizedBox(height: 2),
-
-                      SizedBox(
-                        height: 24,
-                        child: Text(
-                          'Serial: $displaySerial',
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.black,
-                            fontFamily: 'Monospace',
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-
-                      if (transferredBy != null && transferredAt != null) ...[
-                        const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.swap_horiz,
-                              size: 10,
-                              color: Colors.orange.shade700,
-                            ),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              flex: 2,
-                              child: Text(
-                                'Transfer by $transferredBy on ${_formatDate(transferredAt)}',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  color: Colors.orange.shade700,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-
-                      Text(
-                        'Added: ${_formatDate(uploadedAt)} by ${tvData?['uploadedBy'] ?? 'Unknown'}',
-                        style: TextStyle(fontSize: 9, color: Colors.grey[600]),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-
-                      if (status == 'sold' && soldAt != null) ...[
-                        Text(
-                          'Sold: ${_formatDate(soldAt)}',
-                          style: TextStyle(
-                            fontSize: 9,
-                            color: Colors.grey[600],
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (tvData?['soldBy'] != null)
-                          Text(
-                            'By: ${tvData?['soldBy']}',
-                            style: TextStyle(
-                              fontSize: 9,
-                              color: Colors.grey[600],
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                      ],
-
-                      if (status == 'available' &&
-                          (onSell != null ||
-                              onTransfer != null ||
-                              onReturn != null))
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const SizedBox(height: 6),
-                            const Divider(height: 1, color: Colors.grey),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                if (onSell != null)
-                                  Expanded(
-                                    child: SizedBox(
-                                      height: 28,
-                                      child: ElevatedButton(
-                                        onPressed: onSell,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.green,
-                                          foregroundColor: Colors.white,
-                                          padding: EdgeInsets.zero,
-                                          textStyle: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        child: const FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          child: Text('Sell'),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                if (onSell != null && onTransfer != null)
-                                  const SizedBox(width: 4),
-                                if (onTransfer != null)
-                                  Expanded(
-                                    child: SizedBox(
-                                      height: 28,
-                                      child: ElevatedButton(
-                                        onPressed: onTransfer,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.blue,
-                                          foregroundColor: Colors.white,
-                                          padding: EdgeInsets.zero,
-                                          textStyle: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        child: const FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          child: Text('Transfer'),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                if ((onSell != null || onTransfer != null) &&
-                                    onReturn != null)
-                                  const SizedBox(width: 4),
-                                if (onReturn != null)
-                                  Expanded(
-                                    child: SizedBox(
-                                      height: 28,
-                                      child: ElevatedButton(
-                                        onPressed: onReturn,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.orange,
-                                          foregroundColor: Colors.white,
-                                          padding: EdgeInsets.zero,
-                                          textStyle: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        child: const FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          child: Text('Return'),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-
-                      const SizedBox(height: 4),
-                    ],
-                  ),
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: status == 'available'
+                    ? Colors.green.shade100
+                    : status == 'sold'
+                    ? Colors.blue.shade100
+                    : Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                status.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: status == 'available'
+                      ? Colors.green
+                      : status == 'sold'
+                      ? Colors.blue
+                      : Colors.grey,
                 ),
               ),
-            );
-          },
+            ),
+            const SizedBox(height: 8),
+            Text(
+              modelName,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _formatPrice(price),
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: Colors.green,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              modelBrand,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.blue.shade700,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Icon(Icons.qr_code, size: 12, color: Colors.grey),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'Serial: $displaySerial',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Colors.black87,
+                      fontFamily: 'Monospace',
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            if (transferredBy != null && transferredAt != null) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(
+                    Icons.swap_horiz,
+                    size: 12,
+                    color: Colors.orange.shade700,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'Transfer: $transferredBy',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.orange.shade700,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Icon(Icons.person, size: 10, color: Colors.grey),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'Added: ${_formatDate(uploadedAt)}',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            if (status == 'sold' && soldAt != null) ...[
+              Row(
+                children: [
+                  const Icon(Icons.sell, size: 10, color: Colors.grey),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'Sold: ${_formatDate(soldAt)}',
+                      style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              if (tvData?['soldBy'] != null)
+                Row(
+                  children: [
+                    const Icon(Icons.person, size: 10, color: Colors.grey),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        'By: ${tvData?['soldBy']}',
+                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+            if (status == 'available' &&
+                (onSell != null || onTransfer != null || onReturn != null)) ...[
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (onSell != null)
+                    SizedBox(
+                      width: 80,
+                      height: 32,
+                      child: ElevatedButton(
+                        onPressed: onSell,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.zero,
+                          textStyle: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        child: const Text('Sell'),
+                      ),
+                    ),
+                  if (onTransfer != null)
+                    SizedBox(
+                      width: 80,
+                      height: 32,
+                      child: ElevatedButton(
+                        onPressed: onTransfer,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.zero,
+                          textStyle: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        child: const Text('Transfer'),
+                      ),
+                    ),
+                  if (onReturn != null)
+                    SizedBox(
+                      width: 80,
+                      height: 32,
+                      child: ElevatedButton(
+                        onPressed: onReturn,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange,
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.zero,
+                          textStyle: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        child: const Text('Return'),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -3155,7 +3107,6 @@ class _TvStockScreenState extends State<TvStockScreen>
     String displaySerial = _formatSerialForDisplay(serial);
 
     return Container(
-      constraints: const BoxConstraints(minHeight: 180),
       decoration: BoxDecoration(
         color: Colors.orange.shade50,
         borderRadius: BorderRadius.circular(10),
@@ -3169,13 +3120,13 @@ class _TvStockScreenState extends State<TvStockScreen>
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: Colors.orange.shade100,
                 borderRadius: BorderRadius.circular(4),
@@ -3183,89 +3134,108 @@ class _TvStockScreenState extends State<TvStockScreen>
               child: const Text(
                 'RETURNED',
                 style: TextStyle(
-                  fontSize: 9,
+                  fontSize: 10,
                   fontWeight: FontWeight.bold,
                   color: Colors.orange,
                 ),
               ),
             ),
-
-            const SizedBox(height: 4),
-
-            SizedBox(
-              height: 32,
-              child: Text(
-                modelName,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+            const SizedBox(height: 8),
+            Text(
+              modelName,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
               ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
-
-            const SizedBox(height: 2),
-
+            const SizedBox(height: 4),
             Text(
               _formatPrice(price),
               style: const TextStyle(
-                fontSize: 13,
+                fontSize: 15,
                 fontWeight: FontWeight.bold,
                 color: Colors.green,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
-
-            const SizedBox(height: 2),
-
+            const SizedBox(height: 4),
             Text(
               modelBrand,
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 12,
                 color: Colors.orange.shade700,
                 fontWeight: FontWeight.w500,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
-
-            const SizedBox(height: 2),
-
-            SizedBox(
-              height: 24,
-              child: Text(
-                'Serial: $displaySerial',
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: Colors.black,
-                  fontFamily: 'Monospace',
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Icon(Icons.qr_code, size: 12, color: Colors.grey),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'Serial: $displaySerial',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Colors.black87,
+                      fontFamily: 'Monospace',
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
+              ],
             ),
-
-            Text(
-              'Returned: ${_formatDate(returnedAt)}',
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Icon(
+                  Icons.assignment_return,
+                  size: 10,
+                  color: Colors.grey,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'Returned: ${_formatDate(returnedAt)}',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
-            Text(
-              'By: $returnedBy',
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            Row(
+              children: [
+                const Icon(Icons.person, size: 10, color: Colors.grey),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'By: $returnedBy',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
-            Text(
-              'Shop: $originalShopName',
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            Row(
+              children: [
+                const Icon(Icons.store, size: 10, color: Colors.grey),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'Shop: $originalShopName',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
+            const SizedBox(height: 2),
             Text(
               'Reason: ${reason.replaceAll('_', ' ').toLowerCase()}',
               style: TextStyle(fontSize: 9, color: Colors.orange.shade600),
@@ -3482,7 +3452,7 @@ class _TvStockScreenState extends State<TvStockScreen>
   }
 }
 
-// FIXED: Scanner dialog class for serial numbers
+// Scanner dialog class for serial numbers
 class OptimizedSerialScanner extends StatefulWidget {
   final String title;
   final String description;
@@ -3540,7 +3510,6 @@ class _OptimizedSerialScannerState extends State<OptimizedSerialScanner>
         );
       });
 
-      // Set flash as available by default
       _isFlashAvailable = true;
     } catch (e) {
       print('Scanner init error: $e');
