@@ -1187,7 +1187,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
     return Container(
       margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: Colors.orange.shade50,
         borderRadius: BorderRadius.circular(8),
@@ -1201,20 +1201,20 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               Icon(
                 Icons.warning_amber,
                 color: Colors.orange.shade700,
-                size: 16,
+                size: 14,
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               Text(
                 'IMEI Found in Sold Stock',
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: FontWeight.bold,
                   color: Colors.orange.shade700,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Row(
             children: [
               Expanded(
@@ -1224,7 +1224,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                     Text(
                       productName,
                       style: const TextStyle(
-                        fontSize: 11,
+                        fontSize: 10,
                         fontWeight: FontWeight.w500,
                       ),
                       maxLines: 1,
@@ -1233,18 +1233,18 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                     const SizedBox(height: 2),
                     Text(
                       'Brand: $productBrand',
-                      style: TextStyle(fontSize: 10, color: Colors.grey[700]),
+                      style: TextStyle(fontSize: 9, color: Colors.grey[700]),
                     ),
                     if (soldAt != null)
                       Text(
                         'Sold: ${_formatDate(soldAt)}',
-                        style: TextStyle(fontSize: 10, color: Colors.grey[700]),
+                        style: TextStyle(fontSize: 9, color: Colors.grey[700]),
                       ),
                   ],
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.info_outline, size: 16),
+                icon: const Icon(Icons.info_outline, size: 14),
                 onPressed: () {
                   _showSoldItemDetails(soldItem);
                 },
@@ -1252,11 +1252,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                 color: Colors.orange,
               ),
             ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'This IMEI is not available in current stock (it has been sold).',
-            style: TextStyle(fontSize: 10, color: Colors.orange.shade600),
           ),
         ],
       ),
@@ -2579,6 +2574,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     }
   }
 
+  // FIXED: This is the corrected _buildStockList method with proper scrolling
   Widget _buildStockList(String type) {
     final authProvider = Provider.of<AuthProvider>(context);
     final user = authProvider.user;
@@ -2693,165 +2689,164 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             brandStats[brand]!['value'] = brandStats[brand]!['value'] + price;
           }
 
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _buildStatCard(
-                        'Returned Value',
-                        _formatPrice(totalValue),
-                        '$totalPhones phones',
-                        Colors.orange,
-                        Icons.assignment_return,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _buildStatCard(
-                        'Brands',
-                        '${brandStats.length}',
-                        'Varieties',
-                        Colors.purple,
-                        Icons.category,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              if (brandStats.isNotEmpty) ...[
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
-                  child: Text(
-                    'Returned by Brand',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 70,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    itemCount: brandStats.length,
-                    itemBuilder: (context, index) {
-                      final brand = brandStats.keys.toList()[index];
-                      final stats = brandStats[brand]!;
-                      return Container(
-                        width: 100,
-                        margin: const EdgeInsets.only(right: 8),
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.orange.shade200),
+          // FIXED: Using CustomScrollView and SliverList to properly handle scrolling without overflow
+          return CustomScrollView(
+            slivers: [
+              // Stats header
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _buildStatCard(
+                          'Returned Value',
+                          _formatPrice(totalValue),
+                          '$totalPhones phones',
+                          Colors.orange,
+                          Icons.assignment_return,
                         ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Text(
-                              brand,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              maxLines: 1,
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '${stats['count']}',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.orange,
-                              ),
-                            ),
-                            Text(
-                              _formatPrice(stats['value']),
-                              style: const TextStyle(
-                                fontSize: 9,
-                                color: Colors.orange,
-                              ),
-                            ),
-                          ],
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildStatCard(
+                          'Brands',
+                          '${brandStats.length}',
+                          'Varieties',
+                          Colors.purple,
+                          Icons.category,
                         ),
-                      );
-                    },
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 8),
-              ],
-
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12),
-                child: Divider(),
               ),
 
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Returned Phones: ${filteredReturns.length}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                    Text(
-                      'Shop: ${user?.shopName ?? 'Unknown'}',
-                      style: TextStyle(fontSize: 10, color: Colors.grey[500]),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              Expanded(
-                child: GridView.builder(
-                  padding: const EdgeInsets.all(8),
-                  shrinkWrap: true,
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 1,
-                    crossAxisSpacing: 6,
-                    mainAxisSpacing: 8,
-                    childAspectRatio: 2.1,
+              // Brand stats row
+              if (brandStats.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: Column(
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 12),
+                        child: Text(
+                          'Returned by Brand',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        height: 80,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          itemCount: brandStats.length,
+                          itemBuilder: (context, index) {
+                            final brand = brandStats.keys.toList()[index];
+                            final stats = brandStats[brand]!;
+                            return Container(
+                              width: 100,
+                              margin: const EdgeInsets.only(right: 12),
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.orange.shade200,
+                                ),
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    brand,
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    maxLines: 1,
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${stats['count']}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.orange,
+                                    ),
+                                  ),
+                                  Text(
+                                    _formatPrice(stats['value']),
+                                    style: const TextStyle(
+                                      fontSize: 9,
+                                      color: Colors.orange,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      const Divider(),
+                    ],
                   ),
-                  itemCount: filteredReturns.length,
-                  itemBuilder: (context, index) {
-                    final returnData = filteredReturns[index];
-                    final productName =
-                        returnData['productName'] as String? ?? 'Unknown';
-                    final productBrand =
-                        returnData['productBrand'] as String? ?? 'Unknown';
-                    final imei = returnData['imei'] as String? ?? 'N/A';
-                    final price = returnData['productPrice'];
-                    final returnedAt = returnData['returnedAt'];
-                    final returnedBy = returnData['returnedBy'] ?? 'Unknown';
-                    final reason =
-                        returnData['reason'] ?? 'returned_to_inventory';
-                    final originalShopName =
-                        returnData['originalShopName'] ?? 'Unknown Shop';
+                ),
 
-                    return _buildReturnedPhoneCard(
-                      productName: productName,
-                      productBrand: productBrand,
-                      imei: imei,
-                      price: price,
-                      returnedAt: returnedAt,
-                      returnedBy: returnedBy,
-                      reason: reason,
-                      originalShopName: originalShopName,
-                    );
-                  },
+              // Header info
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Returned Phones: ${filteredReturns.length}',
+                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                      ),
+                      Text(
+                        'Shop: ${user?.shopName ?? 'Unknown'}',
+                        style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+                      ),
+                    ],
+                  ),
                 ),
               ),
+
+              const SliverToBoxAdapter(child: SizedBox(height: 12)),
+
+              // Phone list
+              SliverList(
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final returnData = filteredReturns[index];
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    child: _buildReturnedPhoneCard(
+                      productName: returnData['productName'] ?? 'Unknown',
+                      productBrand: returnData['productBrand'] ?? 'Unknown',
+                      imei: returnData['imei'] ?? 'N/A',
+                      price: returnData['productPrice'],
+                      returnedAt: returnData['returnedAt'],
+                      returnedBy: returnData['returnedBy'] ?? 'Unknown',
+                      reason: returnData['reason'] ?? 'returned_to_inventory',
+                      originalShopName:
+                          returnData['originalShopName'] ?? 'Unknown Shop',
+                    ),
+                  );
+                }, childCount: filteredReturns.length),
+              ),
+
+              const SliverToBoxAdapter(child: SizedBox(height: 80)),
             ],
           );
         },
@@ -3012,162 +3007,171 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             brandStats[brand]!['value'] = brandStats[brand]!['value'] + price;
           }
 
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _buildStatCard(
-                        type == 'available' ? 'Available Value' : 'Sold Value',
-                        _formatPrice(totalValue),
-                        '$totalPhones phones',
-                        type == 'available' ? Colors.green : Colors.blue,
-                        type == 'available'
-                            ? Icons.inventory
-                            : Icons.shopping_cart_checkout,
+          // FIXED: Using CustomScrollView and SliverList to properly handle scrolling without overflow
+          return CustomScrollView(
+            slivers: [
+              // Stats header
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _buildStatCard(
+                          type == 'available'
+                              ? 'Available Value'
+                              : 'Sold Value',
+                          _formatPrice(totalValue),
+                          '$totalPhones phones',
+                          type == 'available' ? Colors.green : Colors.blue,
+                          type == 'available'
+                              ? Icons.inventory
+                              : Icons.shopping_cart_checkout,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _buildStatCard(
-                        'Brands',
-                        '${brandStats.length}',
-                        'Varieties',
-                        Colors.purple,
-                        Icons.category,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildStatCard(
+                          'Brands',
+                          '${brandStats.length}',
+                          'Varieties',
+                          Colors.purple,
+                          Icons.category,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
 
-              if (brandStats.isNotEmpty) ...[
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
-                  child: Text(
-                    'Brand-wise Summary',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 70,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    itemCount: brandStats.length,
-                    itemBuilder: (context, index) {
-                      final brand = brandStats.keys.toList()[index];
-                      final stats = brandStats[brand]!;
-                      return Container(
-                        width: 100,
-                        margin: const EdgeInsets.only(right: 8),
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: type == 'available'
-                              ? Colors.green.shade50
-                              : Colors.blue.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: type == 'available'
-                                ? Colors.green.shade200
-                                : Colors.blue.shade200,
+              // Brand stats row
+              if (brandStats.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: Column(
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 12),
+                        child: Text(
+                          'Brand-wise Summary',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Text(
-                              brand,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '${stats['count']}',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: type == 'available'
-                                    ? Colors.green
-                                    : Colors.blue,
-                              ),
-                            ),
-                            Text(
-                              _formatPrice(stats['value']),
-                              style: TextStyle(
-                                fontSize: 9,
-                                color: type == 'available'
-                                    ? Colors.green
-                                    : Colors.blue,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
-
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12),
-                child: Divider(),
-              ),
-
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Phones: ${filteredStocks.length}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                    if (type == 'available')
-                      IconButton(
-                        icon: const Icon(Icons.qr_code_scanner, size: 20),
-                        onPressed: _openScannerForSearch,
-                        tooltip: 'Scan IMEI to search',
                       ),
-                  ],
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        height: 80,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          itemCount: brandStats.length,
+                          itemBuilder: (context, index) {
+                            final brand = brandStats.keys.toList()[index];
+                            final stats = brandStats[brand]!;
+                            return Container(
+                              width: 100,
+                              margin: const EdgeInsets.only(right: 12),
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: type == 'available'
+                                    ? Colors.green.shade50
+                                    : Colors.blue.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: type == 'available'
+                                      ? Colors.green.shade200
+                                      : Colors.blue.shade200,
+                                ),
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    brand,
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${stats['count']}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: type == 'available'
+                                          ? Colors.green
+                                          : Colors.blue,
+                                    ),
+                                  ),
+                                  Text(
+                                    _formatPrice(stats['value']),
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      color: type == 'available'
+                                          ? Colors.green
+                                          : Colors.blue,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      const Divider(),
+                    ],
+                  ),
+                ),
+
+              // Header info
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Phones: ${filteredStocks.length}',
+                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                      ),
+                      if (type == 'available')
+                        IconButton(
+                          icon: const Icon(Icons.qr_code_scanner, size: 20),
+                          onPressed: _openScannerForSearch,
+                          tooltip: 'Scan IMEI to search',
+                        ),
+                    ],
+                  ),
                 ),
               ),
 
-              const SizedBox(height: 8),
+              const SliverToBoxAdapter(child: SizedBox(height: 12)),
 
-              Expanded(
-                child: GridView.builder(
-                  padding: const EdgeInsets.all(8),
-                  shrinkWrap: true,
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 1,
-                    crossAxisSpacing: 6,
-                    mainAxisSpacing: 8,
-                    mainAxisExtent: 220,
-                  ),
-                  itemCount: filteredStocks.length,
-                  itemBuilder: (context, index) {
-                    final stock = filteredStocks[index];
-                    final productName =
-                        stock['productName'] as String? ?? 'Unknown';
-                    final productBrand =
-                        stock['productBrand'] as String? ?? 'Unknown';
-                    final imei = stock['imei'] as String? ?? 'N/A';
-                    final price = stock['productPrice'];
-                    final uploadedAt = stock['uploadedAt'];
-                    final soldAt = stock['soldAt'];
-                    final phoneId = stock['id'] as String? ?? '';
+              // Phone list
+              SliverList(
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final stock = filteredStocks[index];
+                  final productName =
+                      stock['productName'] as String? ?? 'Unknown';
+                  final productBrand =
+                      stock['productBrand'] as String? ?? 'Unknown';
+                  final imei = stock['imei'] as String? ?? 'N/A';
+                  final price = stock['productPrice'];
+                  final uploadedAt = stock['uploadedAt'];
+                  final soldAt = stock['soldAt'];
+                  final phoneId = stock['id'] as String? ?? '';
 
-                    return _buildPhoneCard(
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    child: _buildPhoneCard(
                       productName: productName,
                       productBrand: productBrand,
                       imei: imei,
@@ -3221,10 +3225,12 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                               });
                             }
                           : null,
-                    );
-                  },
-                ),
+                    ),
+                  );
+                }, childCount: filteredStocks.length),
               ),
+
+              const SliverToBoxAdapter(child: SizedBox(height: 80)),
             ],
           );
         },
@@ -3320,7 +3326,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     final previousShopName = phoneData?['previousShopName'] as String?;
 
     return Container(
-      constraints: const BoxConstraints(minHeight: 220, maxHeight: 380),
       decoration: BoxDecoration(
         color: bgColor,
         borderRadius: BorderRadius.circular(10),
@@ -3334,268 +3339,268 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              physics: const ClampingScrollPhysics(),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: IntrinsicHeight(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: status == 'available'
-                                  ? Colors.green.shade100
-                                  : status == 'sold'
-                                  ? Colors.blue.shade100
-                                  : Colors.grey.shade200,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              status.toUpperCase(),
-                              style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                                color: status == 'available'
-                                    ? Colors.green
-                                    : status == 'sold'
-                                    ? Colors.blue
-                                    : Colors.grey,
-                              ),
-                            ),
-                          ),
-                          if (onEdit != null && status == 'available')
-                            IconButton(
-                              icon: const Icon(Icons.edit, size: 16),
-                              onPressed: onEdit,
-                              tooltip: 'Edit phone details',
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              color: Colors.blue,
-                            ),
-                        ],
-                      ),
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Row for status badge and edit button
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: status == 'available'
+                        ? Colors.green.shade100
+                        : status == 'sold'
+                        ? Colors.blue.shade100
+                        : Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    status.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      color: status == 'available'
+                          ? Colors.green
+                          : status == 'sold'
+                          ? Colors.blue
+                          : Colors.grey,
+                    ),
+                  ),
+                ),
+                if (onEdit != null && status == 'available')
+                  IconButton(
+                    icon: const Icon(Icons.edit, size: 16),
+                    onPressed: onEdit,
+                    tooltip: 'Edit phone details',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    color: Colors.blue,
+                  ),
+              ],
+            ),
 
-                      const SizedBox(height: 4),
+            const SizedBox(height: 5),
 
-                      SizedBox(
-                        height: 32,
-                        child: Text(
-                          productName,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+            // Product name
+            Text(
+              productName,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+
+            const SizedBox(height: 4),
+
+            // Price and Brand row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    _formatPrice(price),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Flexible(
+                  child: Text(
+                    productBrand,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.blue.shade700,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 3),
+
+            // IMEI
+            Text(
+              'IMEI: $displayImei',
+              style: const TextStyle(
+                fontSize: 10,
+                color: Colors.black54,
+                fontFamily: 'Monospace',
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+
+            // Transfer info with transferred by
+            if (transferredBy != null && transferredAt != null) ...[
+              const SizedBox(height: 3),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.swap_horiz,
+                          size: 10,
+                          color: Colors.orange.shade700,
                         ),
-                      ),
-
-                      const SizedBox(height: 2),
-
-                      Text(
-                        _formatPrice(price),
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-
-                      const SizedBox(height: 2),
-
-                      Text(
-                        productBrand,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.blue.shade700,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-
-                      const SizedBox(height: 2),
-
-                      SizedBox(
-                        height: 24,
-                        child: Text(
-                          'IMEI: $displayImei',
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.black,
-                            fontFamily: 'Monospace',
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-
-                      if (transferredBy != null && transferredAt != null) ...[
-                        const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.swap_horiz,
-                              size: 10,
-                              color: Colors.orange.shade700,
-                            ),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              flex: 2,
-                              child: Text(
-                                'Transfer by $transferredBy on ${_formatDate(transferredAt)}',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  color: Colors.orange.shade700,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-
-                      Text(
-                        'Added: ${_formatDate(uploadedAt)} by ${phoneData?['uploadedBy'] ?? 'Unknown'}',
-                        style: TextStyle(fontSize: 9, color: Colors.grey[600]),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-
-                      if (status == 'sold' && soldAt != null) ...[
+                        const SizedBox(width: 4),
                         Text(
-                          'Sold: ${_formatDate(soldAt)}',
+                          'Transferred',
                           style: TextStyle(
-                            fontSize: 9,
-                            color: Colors.grey[600],
+                            fontSize: 8,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.orange.shade700,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
-                        if (phoneData?['soldBy'] != null)
-                          Text(
-                            'By: ${phoneData?['soldBy']}',
+                        Expanded(
+                          child: Text(
+                            ' By: $transferredBy',
                             style: TextStyle(
-                              fontSize: 9,
-                              color: Colors.grey[600],
+                              fontSize: 8,
+                              color: Colors.orange.shade600,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                      ],
-
-                      if (status == 'available' &&
-                          (onSell != null ||
-                              onTransfer != null ||
-                              onReturn != null))
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const SizedBox(height: 6),
-                            const Divider(height: 1, color: Colors.grey),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                if (onSell != null)
-                                  Expanded(
-                                    child: SizedBox(
-                                      height: 28,
-                                      child: ElevatedButton(
-                                        onPressed: onSell,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.green,
-                                          foregroundColor: Colors.white,
-                                          padding: EdgeInsets.zero,
-                                          textStyle: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        child: const FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          child: Text('Sell'),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                if (onSell != null && onTransfer != null)
-                                  const SizedBox(width: 4),
-                                if (onTransfer != null)
-                                  Expanded(
-                                    child: SizedBox(
-                                      height: 28,
-                                      child: ElevatedButton(
-                                        onPressed: onTransfer,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.blue,
-                                          foregroundColor: Colors.white,
-                                          padding: EdgeInsets.zero,
-                                          textStyle: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        child: const FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          child: Text('Transfer'),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                if ((onSell != null || onTransfer != null) &&
-                                    onReturn != null)
-                                  const SizedBox(width: 4),
-                                if (onReturn != null)
-                                  Expanded(
-                                    child: SizedBox(
-                                      height: 28,
-                                      child: ElevatedButton(
-                                        onPressed: onReturn,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.orange,
-                                          foregroundColor: Colors.white,
-                                          padding: EdgeInsets.zero,
-                                          textStyle: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        child: const FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          child: Text('Return'),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ],
                         ),
-
-                      const SizedBox(height: 4),
-                    ],
-                  ),
+                        Expanded(
+                          child: Text(
+                            'On: ${_formatDate(transferredAt)}',
+                            style: TextStyle(
+                              fontSize: 7,
+                              color: Colors.orange.shade600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                  ],
                 ),
               ),
-            );
-          },
+            ],
+            const SizedBox(height: 3),
+            // Added info
+            Text(
+              'Added: ${_formatDate(uploadedAt)}',
+              style: TextStyle(fontSize: 9, color: Colors.grey[600]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+
+            // Sold info
+            if (status == 'sold' && soldAt != null) ...[
+              Text(
+                'Sold: ${_formatDate(soldAt)}',
+                style: TextStyle(fontSize: 8, color: Colors.grey[600]),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+
+            // Action buttons
+            if (status == 'available' &&
+                (onSell != null || onTransfer != null || onReturn != null))
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Divider(height: 1, color: Colors.grey),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        if (onSell != null)
+                          Expanded(
+                            child: SizedBox(
+                              height: 26,
+                              child: ElevatedButton(
+                                onPressed: onSell,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  foregroundColor: Colors.white,
+                                  padding: EdgeInsets.zero,
+                                  textStyle: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                child: const Text('Sell'),
+                              ),
+                            ),
+                          ),
+                        if (onSell != null && onTransfer != null)
+                          const SizedBox(width: 4),
+                        if (onTransfer != null)
+                          Expanded(
+                            child: SizedBox(
+                              height: 26,
+                              child: ElevatedButton(
+                                onPressed: onTransfer,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blue,
+                                  foregroundColor: Colors.white,
+                                  padding: EdgeInsets.zero,
+                                  textStyle: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                child: const Text('Transfer'),
+                              ),
+                            ),
+                          ),
+                        if ((onSell != null || onTransfer != null) &&
+                            onReturn != null)
+                          const SizedBox(width: 4),
+                        if (onReturn != null)
+                          Expanded(
+                            child: SizedBox(
+                              height: 26,
+                              child: ElevatedButton(
+                                onPressed: onReturn,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange,
+                                  foregroundColor: Colors.white,
+                                  padding: EdgeInsets.zero,
+                                  textStyle: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                child: const Text('Return'),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -3614,7 +3619,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     String displayImei = _formatImeiForDisplay(imei);
 
     return Container(
-      constraints: const BoxConstraints(minHeight: 180),
       decoration: BoxDecoration(
         color: Colors.orange.shade50,
         borderRadius: BorderRadius.circular(10),
@@ -3631,10 +3635,11 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         padding: const EdgeInsets.all(8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          mainAxisSize: MainAxisSize.min,
           children: [
+            // Status badge
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 color: Colors.orange.shade100,
                 borderRadius: BorderRadius.circular(4),
@@ -3651,28 +3656,13 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
             const SizedBox(height: 4),
 
-            SizedBox(
-              height: 32,
-              child: Text(
-                productName,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-
-            const SizedBox(height: 2),
-
+            // Product name
             Text(
-              _formatPrice(price),
+              productName,
               style: const TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: FontWeight.bold,
-                color: Colors.green,
+                color: Colors.black,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -3680,56 +3670,87 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
             const SizedBox(height: 2),
 
-            Text(
-              productBrand,
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.orange.shade700,
-                fontWeight: FontWeight.w500,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-
-            const SizedBox(height: 2),
-
-            SizedBox(
-              height: 24,
-              child: Text(
-                'IMEI: $displayImei',
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: Colors.black,
-                  fontFamily: 'Monospace',
+            // Price and Brand row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    _formatPrice(price),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    productBrand,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.orange.shade700,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
 
+            const SizedBox(height: 2),
+
+            // IMEI
             Text(
-              'Returned: ${_formatDate(returnedAt)}',
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+              'IMEI: $displayImei',
+              style: const TextStyle(
+                fontSize: 9,
+                color: Colors.black54,
+                fontFamily: 'Monospace',
+              ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            Text(
-              'By: $returnedBy',
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+
+            const SizedBox(height: 2),
+
+            // Return info in compact format
+            Row(
+              children: [
+                Icon(
+                  Icons.assignment_return,
+                  size: 10,
+                  color: Colors.orange.shade600,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    _formatDate(returnedAt),
+                    style: TextStyle(fontSize: 8, color: Colors.grey[600]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
-            Text(
-              'Shop: $originalShopName',
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            Text(
-              'Reason: ${reason.replaceAll('_', ' ').toLowerCase()}',
-              style: TextStyle(fontSize: 9, color: Colors.orange.shade600),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+
+            Row(
+              children: [
+                Icon(Icons.person, size: 10, color: Colors.grey.shade600),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    returnedBy,
+                    style: TextStyle(fontSize: 8, color: Colors.grey[600]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
