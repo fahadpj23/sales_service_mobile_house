@@ -121,16 +121,16 @@ class FinanceDashboardSidebar extends StatelessWidget {
                         .where((s) => s['paymentVerified'] == true)
                         .length,
                   ),
-                  _buildSidebarItem(
-                    icon: Icons.shopping_cart,
-                    label: 'Accessories',
-                    index: 3,
-                    count: _filterByShop(accessoriesServiceSales).length,
-                    totalCount: accessoriesServiceSales.length,
-                    verifiedCount: accessoriesServiceSales
-                        .where((s) => s['paymentVerified'] == true)
-                        .length,
-                  ),
+                  // _buildSidebarItem(
+                  //   icon: Icons.shopping_cart,
+                  //   label: 'Accessories',
+                  //   index: 3,
+                  //   count: _filterByShop(accessoriesServiceSales).length,
+                  //   totalCount: accessoriesServiceSales.length,
+                  //   verifiedCount: accessoriesServiceSales
+                  //       .where((s) => s['paymentVerified'] == true)
+                  //       .length,
+                  // ),
                   _buildSidebarItem(
                     icon: Icons.warning,
                     label: 'Overdue',

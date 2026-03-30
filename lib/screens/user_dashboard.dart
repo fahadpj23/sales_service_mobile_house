@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:sales_stock/screens/user/inventory/base_model_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/tv_stock_screen.dart';
+import 'package:sales_stock/screens/user/inventory/appliances_stock_screen.dart'; // Add this import
 import 'package:sales_stock/screens/user/purchase/create_purchase_screen.dart';
 import 'package:sales_stock/screens/user/purchase/supplier_form_screen.dart';
 import 'package:sales_stock/screens/user/purchase/tv_purchase_screen.dart';
@@ -1531,6 +1532,18 @@ class _UserDashboardState extends State<UserDashboard> {
                                   },
                                 ),
                                 _buildDrawerTile(
+                                  icon:
+                                      Icons.kitchen, // Kitchen/Appliances icon
+                                  title: 'Appliances Stock',
+                                  color: Colors.orange,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(
+                                      const AppliancesStockScreen(),
+                                    );
+                                  },
+                                ),
+                                _buildDrawerTile(
                                   icon: Icons.devices,
                                   title: 'Base Model Stock',
                                   color: Colors.purple,
@@ -1613,7 +1626,7 @@ class _UserDashboardState extends State<UserDashboard> {
                               ],
                             ),
 
-                            // PURCHASE SECTION
+                            // PURCHASE SECTION (commented out as per original)
                             // _buildDrawerSection(
                             //   title: 'PURCHASE',
                             //   children: [

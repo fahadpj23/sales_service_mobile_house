@@ -305,10 +305,8 @@ class OverdueVerificationTab extends StatelessWidget {
     } else if (sale.containsKey('modelName')) {
       saleType = 'Base Model';
       collection = 'base_model_sale';
-    } else if (sale.containsKey('totalSaleAmount')) {
-      saleType = 'Accessory/Service';
-      collection = 'accessories_service_sales';
     }
+    // Removed Accessory/Service condition
 
     DateTime? saleDate;
     if (sale.containsKey('saleDate')) {
