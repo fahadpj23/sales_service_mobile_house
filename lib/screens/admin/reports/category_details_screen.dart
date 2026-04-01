@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../models/sale.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class CategoryDetailsScreen extends StatefulWidget {
   final String category;
@@ -22,7 +23,7 @@ class CategoryDetailsScreen extends StatefulWidget {
 
 class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
   String? _expandedShop;
-  String _timePeriod = 'monthly'; // Default to monthly
+  String _timePeriod = 'monthly';
   DateTime? _customStartDate;
   DateTime? _customEndDate;
   bool _showCustomDatePicker = false;
@@ -30,8 +31,11 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     List<Sale> filteredSales = _filterSales();
+
+    List<String> categoriesToShow = _getCategoriesForDisplay();
+
     List<Sale> categorySales = filteredSales
-        .where((sale) => sale.category == widget.category)
+        .where((sale) => categoriesToShow.contains(sale.category))
         .toList();
 
     Map<String, List<Sale>> shopWiseSales = {};
@@ -50,7 +54,7 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          '${widget.category} Details',
+          _getDisplayTitle(),
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 20,
@@ -65,10 +69,7 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // Time Period Filter
             _buildTimePeriodFilter(),
-
-            // Summary Card
             Container(
               padding: EdgeInsets.all(16),
               child: Card(
@@ -126,8 +127,6 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
                 ),
               ),
             ),
-
-            // Time Period Label
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
@@ -151,8 +150,6 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
               ),
             ),
             SizedBox(height: 16),
-
-            // Shop-wise Breakdown
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text(
@@ -165,8 +162,6 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
               ),
             ),
             SizedBox(height: 8),
-
-            // Shop Cards - Now entire card is clickable
             ...shopWiseSales.entries.map((entry) {
               String shopName = entry.key;
               List<Sale> shopSales = entry.value;
@@ -193,7 +188,6 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Shop Header
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -237,8 +231,6 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
                               ),
                             ],
                           ),
-
-                          // Shop Summary
                           SizedBox(height: 8),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -265,8 +257,6 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
                               ),
                             ],
                           ),
-
-                          // Detailed Items (Expanded)
                           if (_expandedShop == shopName) ...[
                             SizedBox(height: 16),
                             Divider(),
@@ -282,7 +272,7 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
                             SizedBox(height: 8),
                             ...shopSales.map((sale) {
                               return GestureDetector(
-                                onTap: () {}, // Prevent parent tap
+                                onTap: () {},
                                 child: _buildSaleItemCard(sale),
                               );
                             }).toList(),
@@ -294,8 +284,6 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
                 ),
               );
             }).toList(),
-
-            // No data message
             if (categorySales.isEmpty)
               Container(
                 padding: EdgeInsets.all(32),
@@ -304,8 +292,9 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
                     Icon(Icons.inbox, size: 64, color: Colors.grey[400]),
                     SizedBox(height: 16),
                     Text(
-                      'No sales found for ${_getTimePeriodLabel().toLowerCase()}',
+                      'No sales found for ${_getDisplayTitle().toLowerCase()} in ${_getTimePeriodLabel().toLowerCase()}',
                       style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+                      textAlign: TextAlign.center,
                     ),
                     SizedBox(height: 8),
                     Text(
@@ -319,6 +308,36 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
         ),
       ),
     );
+  }
+
+  List<String> _getCategoriesForDisplay() {
+    switch (widget.category) {
+      case 'Second Phone':
+        return ['Second Phone', 'seconds_phone_sale'];
+      case 'Base Model':
+        return ['Base Model', 'base_model_sale'];
+      case 'New Phone':
+        return ['New Phone', 'phone_sale'];
+      case 'Service':
+        return ['Service', 'accessories_service_sale'];
+      default:
+        return [widget.category];
+    }
+  }
+
+  String _getDisplayTitle() {
+    switch (widget.category) {
+      case 'Second Phone':
+        return 'Second Phone Sales';
+      case 'Base Model':
+        return 'Base Model Sales';
+      case 'New Phone':
+        return 'New Phone Sales';
+      case 'Service':
+        return 'Service & Accessories Sales';
+      default:
+        return '${widget.category} Details';
+    }
   }
 
   Widget _buildTimePeriodFilter() {
@@ -347,8 +366,6 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
                 ],
               ),
               SizedBox(height: 12),
-
-              // Time Period Chips
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -356,7 +373,12 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
                   _buildTimePeriodChip('Today', 'today', Icons.today),
                   _buildTimePeriodChip('Yesterday', 'yesterday', Icons.history),
                   _buildTimePeriodChip(
-                    'Monthly',
+                    'Previous Month',
+                    'previous_month',
+                    Icons.calendar_view_month,
+                  ),
+                  _buildTimePeriodChip(
+                    'Current Month',
                     'monthly',
                     Icons.calendar_month,
                   ),
@@ -368,8 +390,6 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
                   _buildTimePeriodChip('Custom', 'custom', Icons.date_range),
                 ],
               ),
-
-              // Custom Date Picker
               if (_showCustomDatePicker) ...[
                 SizedBox(height: 16),
                 Divider(),
@@ -556,8 +576,14 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
       onSelected: (selected) {
         if (value == 'custom') {
           setState(() {
-            _timePeriod = value;
-            _showCustomDatePicker = !_showCustomDatePicker;
+            if (_timePeriod == 'custom') {
+              _showCustomDatePicker = !_showCustomDatePicker;
+            } else {
+              _timePeriod = value;
+              _showCustomDatePicker = true;
+              _customStartDate = null;
+              _customEndDate = null;
+            }
           });
         } else {
           setState(() {
@@ -594,6 +620,9 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
     if (picked != null) {
       setState(() {
         _customStartDate = picked;
+        if (_customEndDate != null) {
+          _timePeriod = 'custom';
+        }
       });
     }
   }
@@ -618,6 +647,9 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
     if (picked != null) {
       setState(() {
         _customEndDate = picked;
+        if (_customStartDate != null) {
+          _timePeriod = 'custom';
+        }
       });
     }
   }
@@ -627,31 +659,71 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
     DateTime startDate;
     DateTime endDate;
 
+    // Calculate start and end dates based on selected period
     switch (_timePeriod) {
       case 'today':
-        startDate = DateTime(now.year, now.month, now.day);
-        endDate = startDate.add(Duration(days: 1, seconds: -1));
+        startDate = DateTime(now.year, now.month, now.day, 0, 0, 0);
+        endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
         break;
       case 'yesterday':
         final yesterday = now.subtract(Duration(days: 1));
-        startDate = DateTime(yesterday.year, yesterday.month, yesterday.day);
-        endDate = startDate.add(Duration(days: 1, seconds: -1));
+        startDate = DateTime(
+          yesterday.year,
+          yesterday.month,
+          yesterday.day,
+          0,
+          0,
+          0,
+        );
+        endDate = DateTime(
+          yesterday.year,
+          yesterday.month,
+          yesterday.day,
+          23,
+          59,
+          59,
+        );
+        break;
+      case 'previous_month':
+        final firstDayOfCurrentMonth = DateTime(now.year, now.month, 1);
+        final lastDayOfPreviousMonth = firstDayOfCurrentMonth.subtract(
+          Duration(days: 1),
+        );
+        startDate = DateTime(
+          lastDayOfPreviousMonth.year,
+          lastDayOfPreviousMonth.month,
+          1,
+          0,
+          0,
+          0,
+        );
+        endDate = DateTime(
+          lastDayOfPreviousMonth.year,
+          lastDayOfPreviousMonth.month,
+          lastDayOfPreviousMonth.day,
+          23,
+          59,
+          59,
+        );
         break;
       case 'monthly':
-        startDate = DateTime(now.year, now.month, 1);
-        endDate = DateTime(
-          now.year,
-          now.month + 1,
-          1,
-        ).add(Duration(seconds: -1));
+        startDate = DateTime(now.year, now.month, 1, 0, 0, 0);
+        endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
         break;
       case 'yearly':
-        startDate = DateTime(now.year, 1, 1);
-        endDate = DateTime(now.year + 1, 1, 1).add(Duration(seconds: -1));
+        startDate = DateTime(now.year, 1, 1, 0, 0, 0);
+        endDate = DateTime(now.year, 12, 31, 23, 59, 59);
         break;
       case 'custom':
         if (_customStartDate != null && _customEndDate != null) {
-          startDate = _customStartDate!;
+          startDate = DateTime(
+            _customStartDate!.year,
+            _customStartDate!.month,
+            _customStartDate!.day,
+            0,
+            0,
+            0,
+          );
           endDate = DateTime(
             _customEndDate!.year,
             _customEndDate!.month,
@@ -661,28 +733,54 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
             59,
           );
         } else {
-          // Default to monthly if custom dates not selected
-          startDate = DateTime(now.year, now.month, 1);
-          endDate = DateTime(
-            now.year,
-            now.month + 1,
-            1,
-          ).add(Duration(seconds: -1));
+          startDate = DateTime(now.year, now.month, 1, 0, 0, 0);
+          endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
         }
         break;
       default:
-        startDate = DateTime(now.year, now.month, 1);
-        endDate = DateTime(
-          now.year,
-          now.month + 1,
-          1,
-        ).add(Duration(seconds: -1));
+        startDate = DateTime(now.year, now.month, 1, 0, 0, 0);
+        endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
     }
 
-    return widget.sales.where((sale) {
-      return sale.date.isAfter(startDate.subtract(Duration(seconds: 1))) &&
-          sale.date.isBefore(endDate.add(Duration(seconds: 1)));
+    // Filter sales using the date parameter
+    List<Sale> filteredSales = widget.sales.where((sale) {
+      // Extract the actual date from the sale
+      DateTime saleDate = _extractDateFromSale(sale);
+
+      // Check if the sale date is within the selected range
+      bool isInRange =
+          saleDate.isAfter(startDate.subtract(Duration(milliseconds: 1))) &&
+          saleDate.isBefore(endDate.add(Duration(milliseconds: 1)));
+
+      return isInRange;
     }).toList();
+
+    return filteredSales;
+  }
+
+  DateTime _extractDateFromSale(Sale sale) {
+    try {
+      // Try to get the date from the sale object
+      // The date is stored in the 'date' field
+      if (sale.date != null) {
+        if (sale.date is DateTime) {
+          return sale.date as DateTime;
+        } else if (sale.date is Timestamp) {
+          return (sale.date as Timestamp).toDate();
+        } else if (sale.date is int) {
+          return DateTime.fromMillisecondsSinceEpoch(sale.date as int);
+        }
+      }
+
+      // Fallback to current date if no valid date found
+      print(
+        'Warning: Could not parse date for sale ${sale.id}, using current date',
+      );
+      return DateTime.now();
+    } catch (e) {
+      print('Error extracting date from sale: $e');
+      return DateTime.now();
+    }
   }
 
   String _getTimePeriodLabel() {
@@ -691,8 +789,12 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
         return 'Today\'s Sales';
       case 'yesterday':
         return 'Yesterday\'s Sales';
+      case 'previous_month':
+        final now = DateTime.now();
+        final previousMonth = DateTime(now.year, now.month - 1);
+        return 'Previous Month Sales (${DateFormat('MMM yyyy').format(previousMonth)})';
       case 'monthly':
-        return 'Monthly Sales (${DateFormat('MMM yyyy').format(DateTime.now())})';
+        return 'Current Month Sales (${DateFormat('MMM yyyy').format(DateTime.now())})';
       case 'yearly':
         return 'Yearly Sales (${DateTime.now().year})';
       case 'custom':
@@ -701,11 +803,25 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
         }
         return 'Custom Period';
       default:
-        return 'Monthly Sales (${DateFormat('MMM yyyy').format(DateTime.now())})';
+        return 'Current Month Sales (${DateFormat('MMM yyyy').format(DateTime.now())})';
     }
   }
 
   Widget _buildSaleItemCard(Sale sale) {
+    String displayName = '';
+
+    if (sale.type == 'seconds_phone_sale') {
+      displayName = sale.itemName ?? sale.productName ?? 'Second Phone';
+    } else if (sale.type == 'base_model_sale') {
+      displayName = sale.model ?? sale.itemName ?? 'Base Model Phone';
+    } else if (sale.type == 'phone_sale') {
+      displayName = sale.model ?? sale.itemName ?? 'New Phone';
+    } else if (sale.type == 'accessories_service_sale') {
+      displayName = sale.itemName ?? 'Service & Accessories';
+    } else {
+      displayName = sale.itemName ?? sale.model ?? 'Product';
+    }
+
     return Container(
       margin: EdgeInsets.only(bottom: 8),
       padding: EdgeInsets.all(12),
@@ -735,33 +851,28 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
             ],
           ),
           SizedBox(height: 8),
-
-          if (sale.itemName != null && sale.itemName!.isNotEmpty)
-            _buildInfoRow('Product:', sale.itemName!),
-          if (sale.model != null && sale.model!.isNotEmpty)
+          if (displayName.isNotEmpty) _buildInfoRow('Product:', displayName),
+          if (sale.brand != null && sale.brand!.isNotEmpty)
+            _buildInfoRow('Brand:', sale.brand!),
+          if (sale.model != null &&
+              sale.model!.isNotEmpty &&
+              sale.model != displayName)
             _buildInfoRow('Model:', sale.model!),
           if (sale.imei != null && sale.imei!.isNotEmpty)
             _buildInfoRow('IMEI:', sale.imei!),
-
           if (sale.customerName != null && sale.customerName!.isNotEmpty)
             _buildInfoRow('Customer:', sale.customerName!),
           if (sale.customerPhone != null && sale.customerPhone!.isNotEmpty)
             _buildInfoRow('Phone:', sale.customerPhone!),
-
           SizedBox(height: 8),
           _buildPaymentInfo(sale),
-
           if (sale.defect != null && sale.defect!.isNotEmpty)
             _buildInfoRow('Defect:', sale.defect!),
-          if (sale.brand != null && sale.brand!.isNotEmpty)
-            _buildInfoRow('Brand:', sale.brand!),
-
           if (sale.salesPersonName != null && sale.salesPersonName!.isNotEmpty)
             _buildInfoRow('Sales Person:', sale.salesPersonName!),
           if (sale.salesPersonEmail != null &&
               sale.salesPersonEmail!.isNotEmpty)
             _buildInfoRow('Sales Email:', sale.salesPersonEmail!),
-
           Container(
             margin: EdgeInsets.only(top: 4),
             padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -771,7 +882,7 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
               border: Border.all(color: _getSaleTypeColor(sale.type)),
             ),
             child: Text(
-              '${sale.type.replaceAll('_', ' ').toUpperCase()}',
+              _getDisplayTypeName(sale.type),
               style: TextStyle(
                 fontSize: 10,
                 color: _getSaleTypeColor(sale.type),
@@ -782,6 +893,21 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
         ],
       ),
     );
+  }
+
+  String _getDisplayTypeName(String type) {
+    switch (type) {
+      case 'phone_sale':
+        return 'NEW PHONE';
+      case 'base_model_sale':
+        return 'BASE MODEL';
+      case 'seconds_phone_sale':
+        return 'SECOND PHONE';
+      case 'accessories_service_sale':
+        return 'SERVICE & ACCESSORIES';
+      default:
+        return type.replaceAll('_', ' ').toUpperCase();
+    }
   }
 
   Widget _buildInfoRow(String label, String value) {
@@ -866,9 +992,23 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
     );
   }
 
-  String _formatDate(DateTime? date) {
+  String _formatDate(dynamic date) {
     if (date == null) return 'N/A';
-    return DateFormat('dd/MM/yyyy').format(date);
+
+    try {
+      if (date is DateTime) {
+        return DateFormat('dd/MM/yyyy').format(date);
+      } else if (date is Timestamp) {
+        return DateFormat('dd/MM/yyyy').format(date.toDate());
+      } else if (date is int) {
+        return DateFormat(
+          'dd/MM/yyyy',
+        ).format(DateTime.fromMillisecondsSinceEpoch(date));
+      }
+      return 'Invalid Date';
+    } catch (e) {
+      return 'Invalid Date';
+    }
   }
 
   Color _getSaleTypeColor(String saleType) {

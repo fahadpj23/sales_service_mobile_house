@@ -6,6 +6,7 @@ import 'package:sales_stock/screens/admin/analysis/customer_discount_screen.dart
 import 'package:sales_stock/screens/admin/analysis/downpayment_benefit_screen.dart';
 import 'package:sales_stock/screens/admin/analysis/exchange_analysis_screen.dart';
 import 'package:sales_stock/screens/admin/analysis/payment_breakdown_screen.dart';
+import 'package:sales_stock/screens/admin/inventory/appliance_stock_screen.dart';
 import 'package:sales_stock/screens/admin/inventory/base_model_stock_screen.dart';
 import 'package:sales_stock/screens/admin/inventory/tv_stock_screen.dart';
 import 'package:sales_stock/screens/login_screen.dart';
@@ -34,7 +35,6 @@ class AdminDashboardScreen extends StatefulWidget {
 }
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
-  final DateTime _selectedDate = DateTime.now();
   String _timePeriod = 'monthly';
   bool _isLoading = true;
   final authService = AuthService();
@@ -186,10 +186,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         final data = doc.data() as Map<String, dynamic>;
 
         DateTime saleDate;
-        if (data['timestamp'] != null) {
+        if (data['date'] is Timestamp) {
+          saleDate = (data['date'] as Timestamp).toDate();
+        } else if (data['timestamp'] != null) {
           saleDate = DateTime.fromMillisecondsSinceEpoch(data['timestamp']);
-        } else if (data['uploadedAt'] is Timestamp) {
-          saleDate = (data['uploadedAt'] as Timestamp).toDate();
         } else {
           saleDate = DateTime.now();
         }
@@ -347,8 +347,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         final data = doc.data() as Map<String, dynamic>;
 
         DateTime saleDate;
-        if (data['uploadedAt'] is Timestamp) {
-          saleDate = (data['uploadedAt'] as Timestamp).toDate();
+        if (data['date'] is Timestamp) {
+          saleDate = (data['date'] as Timestamp).toDate();
         } else if (data['timestamp'] != null) {
           saleDate = DateTime.fromMillisecondsSinceEpoch(data['timestamp']);
         } else {
@@ -1587,6 +1587,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               );
             },
           ),
+          _buildDrawerItem(
+            Icons.kitchen,
+            'Appliances Stock',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ApplianceStockScreen(
+                    formatNumber: _formatNumber,
+                    shops: shops,
+                  ),
+                ),
+              );
+            },
+          ),
 
           Padding(
             padding: EdgeInsets.only(left: 16, top: 12, bottom: 6),
@@ -2031,30 +2047,32 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     DateTime endDate;
 
     if (_isCustomPeriod && _customStartDate != null && _customEndDate != null) {
-      startDate = _customStartDate!;
-      endDate = _customEndDate!;
+      startDate = DateTime(
+        _customStartDate!.year,
+        _customStartDate!.month,
+        _customStartDate!.day,
+        0,
+        0,
+        0,
+      );
+      endDate = DateTime(
+        _customEndDate!.year,
+        _customEndDate!.month,
+        _customEndDate!.day,
+        23,
+        59,
+        59,
+        999,
+      );
     } else {
+      final now = DateTime.now();
       switch (_timePeriod) {
         case 'daily':
-          startDate = DateTime(
-            _selectedDate.year,
-            _selectedDate.month,
-            _selectedDate.day,
-            0,
-            0,
-            0,
-          );
-          endDate = DateTime(
-            _selectedDate.year,
-            _selectedDate.month,
-            _selectedDate.day,
-            23,
-            59,
-            59,
-          );
+          startDate = DateTime(now.year, now.month, now.day, 0, 0, 0);
+          endDate = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
           break;
         case 'yesterday':
-          final yesterday = _selectedDate.subtract(Duration(days: 1));
+          final yesterday = now.subtract(Duration(days: 1));
           startDate = DateTime(
             yesterday.year,
             yesterday.month,
@@ -2070,79 +2088,73 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             23,
             59,
             59,
+            999,
           );
           break;
         case 'last_month':
-          final firstDayOfLastMonth = DateTime(
-            _selectedDate.year,
-            _selectedDate.month - 1,
-            1,
-            0,
-            0,
-            0,
-          );
-          startDate = firstDayOfLastMonth;
-          endDate = DateTime(
-            _selectedDate.year,
-            _selectedDate.month,
-            0,
-            23,
-            59,
-            59,
-          );
+          startDate = DateTime(now.year, now.month - 1, 1, 0, 0, 0);
+          endDate = DateTime(now.year, now.month, 0, 23, 59, 59, 999);
           break;
         case 'monthly':
-          startDate = DateTime(
-            _selectedDate.year,
-            _selectedDate.month,
-            1,
-            0,
-            0,
-            0,
-          );
-          endDate = DateTime(
-            _selectedDate.year,
-            _selectedDate.month + 1,
-            0,
-            23,
-            59,
-            59,
-          );
+          startDate = DateTime(now.year, now.month, 1, 0, 0, 0);
+          endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999);
           break;
         case 'yearly':
-          startDate = DateTime(_selectedDate.year, 1, 1, 0, 0, 0);
-          endDate = DateTime(_selectedDate.year, 12, 31, 23, 59, 59);
+          startDate = DateTime(now.year, 1, 1, 0, 0, 0);
+          endDate = DateTime(now.year, 12, 31, 23, 59, 59, 999);
           break;
         default:
-          startDate = DateTime(
-            _selectedDate.year,
-            _selectedDate.month,
-            _selectedDate.day,
-            0,
-            0,
-            0,
-          );
-          endDate = DateTime(
-            _selectedDate.year,
-            _selectedDate.month,
-            _selectedDate.day,
-            23,
-            59,
-            59,
-          );
+          startDate = DateTime(now.year, now.month, 1, 0, 0, 0);
+          endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999);
       }
     }
 
     List<Sale> filtered = allSales.where((sale) {
-      return (sale.date.isAfter(
-                startDate.subtract(Duration(milliseconds: 1)),
-              ) ||
-              sale.date.isAtSameMomentAs(startDate)) &&
-          (sale.date.isBefore(endDate.add(Duration(milliseconds: 1))) ||
-              sale.date.isAtSameMomentAs(endDate));
+      DateTime saleDate = _extractDateFromSale(sale);
+
+      DateTime normalizedSaleDate = DateTime(
+        saleDate.year,
+        saleDate.month,
+        saleDate.day,
+      );
+
+      DateTime normalizedStartDate = DateTime(
+        startDate.year,
+        startDate.month,
+        startDate.day,
+      );
+
+      DateTime normalizedEndDate = DateTime(
+        endDate.year,
+        endDate.month,
+        endDate.day,
+      );
+
+      bool isInRange =
+          normalizedSaleDate.isAfter(
+            normalizedStartDate.subtract(Duration(days: 1)),
+          ) &&
+          normalizedSaleDate.isBefore(normalizedEndDate.add(Duration(days: 1)));
+
+      return isInRange;
     }).toList();
 
     return filtered;
+  }
+
+  DateTime _extractDateFromSale(Sale sale) {
+    try {
+      if (sale.date is DateTime) {
+        return sale.date as DateTime;
+      } else if (sale.date is Timestamp) {
+        return (sale.date as Timestamp).toDate();
+      } else if (sale.date is int) {
+        return DateTime.fromMillisecondsSinceEpoch(sale.date as int);
+      }
+      return DateTime.now();
+    } catch (e) {
+      return DateTime.now();
+    }
   }
 
   double _calculateTotalSales() {

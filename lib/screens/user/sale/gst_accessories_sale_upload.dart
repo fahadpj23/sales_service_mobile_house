@@ -13,7 +13,9 @@ import 'package:share_plus/share_plus.dart';
 import '../../../providers/auth_provider.dart';
 
 class GSTAccessoriesSaleUpload extends StatefulWidget {
-  const GSTAccessoriesSaleUpload({super.key});
+  final Map<String, dynamic>? productData;
+
+  const GSTAccessoriesSaleUpload({super.key, this.productData});
 
   @override
   State<GSTAccessoriesSaleUpload> createState() =>
@@ -51,34 +53,56 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
   bool _isGeneratingBill = false;
   bool _sealChecked = false;
 
-  // FIXED: GST rate fixed at 18%
   final double gstRate = 18.0;
 
-  // FIXED: Shop selection - default Peringottukara
   String? _selectedShop = 'Peringottukara';
   final List<String> _shopOptions = ['Peringottukara', 'Cherpu'];
 
-  // FIXED: Purchase Mode - Always Ready Cash, no dropdown
   final String _purchaseMode = 'Ready Cash';
 
-  // FIXED: Remove finance fields completely
-  // No finance companies list needed
-
-  // Images for PDF
   Uint8List? _logoImage;
   Uint8List? _sealImage;
   File? _savedPdfFile;
+  String? _stockModelId;
 
   @override
   void initState() {
     super.initState();
     _loadImages();
     _generateNextBillNumber();
+    _prefillProductData();
 
-    // FIXED: Add listeners with proper error handling
     _priceController.addListener(_onPriceOrQuantityChanged);
     _quantityController.addListener(_onPriceOrQuantityChanged);
     _discountController.addListener(_onPriceOrQuantityChanged);
+  }
+
+  void _prefillProductData() {
+    if (widget.productData != null) {
+      final product = widget.productData!;
+
+      _stockModelId = product['modelId'];
+
+      if (product['productName'] != null) {
+        _productNameController.text = product['productName'];
+      }
+
+      if (product['quantity'] != null) {
+        _quantityController.text = product['quantity'].toString();
+      }
+
+      if (product['sellingPrice'] != null) {
+        _priceController.text = product['sellingPrice'].toString();
+      } else if (product['productPrice'] != null) {
+        double basePrice = product['productPrice'];
+        double priceWithGst = basePrice * (1 + gstRate / 100);
+        _priceController.text = priceWithGst.toStringAsFixed(0);
+      }
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _calculateGST();
+      });
+    }
   }
 
   Future<void> _loadImages() async {
@@ -93,7 +117,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
     }
   }
 
-  // ============ BILL NUMBER GENERATION ============
   Future<void> _generateNextBillNumber() async {
     try {
       setState(() {
@@ -140,9 +163,7 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
     }
   }
 
-  // ============ FIXED: GST CALCULATION - Price with GST ============
   void _onPriceOrQuantityChanged() {
-    // Use WidgetsBinding.instance.addPostFrameCallback to avoid setState during build
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _calculateGST();
@@ -151,22 +172,16 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
   }
 
   void _calculateGST() {
-    // Price entered is WITH GST (18% included)
     final priceWithGst = double.tryParse(_priceController.text) ?? 0.0;
     final quantity = int.tryParse(_quantityController.text) ?? 1;
     final discount = double.tryParse(_discountController.text) ?? 0.0;
 
-    // Calculate total with GST
     double totalWithGst = priceWithGst * quantity;
 
-    // Apply discount if any
     if (discount > 0) {
       totalWithGst = totalWithGst - (totalWithGst * discount / 100);
     }
 
-    // Calculate taxable amount (remove GST)
-    // GST is 18%, so totalWithGst = taxableAmount * 1.18
-    // Therefore taxableAmount = totalWithGst / 1.18
     final taxableAmount = totalWithGst / (1 + gstRate / 100);
     final gstAmount = totalWithGst - taxableAmount;
 
@@ -177,7 +192,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
     });
   }
 
-  // ============ SAVE BILL AND GENERATE PDF ============
   Future<void> _saveAndPrintBill() async {
     if (!_formKey.currentState!.validate()) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -186,7 +200,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
       return;
     }
 
-    // Validate product details
     if (_productNameController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter product name')),
@@ -214,7 +227,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final user = authProvider.user;
 
-      // Prepare product data
       final priceWithGst = double.parse(_priceController.text);
       final quantity = int.tryParse(_quantityController.text) ?? 1;
       final discount = double.tryParse(_discountController.text) ?? 0.0;
@@ -230,7 +242,7 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
       final product = {
         'productName': _productNameController.text,
         'quantity': quantity,
-        'price': priceWithGst, // Price with GST
+        'price': priceWithGst,
         'discount': discount,
         'taxableAmount': taxableAmount,
         'gstAmount': gstAmount,
@@ -239,7 +251,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
 
       final now = DateTime.now();
 
-      // Prepare bill data
       final billData = {
         'billNumber': 'MH-${_billNumberController.text}',
         'billDate': Timestamp.fromDate(now),
@@ -260,10 +271,12 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
         'createdByName': user?.name ?? 'User',
         'sealApplied': _sealChecked,
         'billType': 'GST Accessories',
-        'purchaseMode': _purchaseMode, // Fixed: Ready Cash
+        'purchaseMode': _purchaseMode,
+        'applianceModelId': _stockModelId,
+        'applianceProductName': widget.productData?['productName'],
+        'applianceBrand': widget.productData?['productBrand'],
       };
 
-      // Save to Firestore
       final docRef = await _firestore.collection('bills').add(billData);
 
       await _firestore.collection('gst_accessories_sales').add({
@@ -273,7 +286,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
         'saleDate': now.toIso8601String(),
       });
 
-      // Generate PDF
       final pdfBytes = await _generatePdf(
         product,
         totalWithGst,
@@ -298,8 +310,9 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
         );
 
         await _sharePdf(pdfFile);
-        _clearForm();
-        await _generateNextBillNumber();
+
+        // Return success to the appliance screen
+        Navigator.pop(context, true);
       }
     } catch (e) {
       print('Error: $e');
@@ -318,7 +331,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
     }
   }
 
-  // ============ PDF GENERATION ============
   Future<String> _savePdfToStorage(Uint8List pdfBytes) async {
     try {
       Directory directory;
@@ -379,7 +391,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
     await _sharePdf(_savedPdfFile!);
   }
 
-  // ============ AMOUNT TO WORDS CONVERSION ============
   String _amountToWords(String amount) {
     try {
       double value = double.parse(amount);
@@ -479,7 +490,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
     return words.trim();
   }
 
-  // ============ PDF DESIGN ============
   Future<Uint8List> _generatePdf(
     Map<String, dynamic> product,
     double totalAmount,
@@ -723,7 +733,7 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
         0: pw.FixedColumnWidth(40),
         1: pw.FlexColumnWidth(2.5),
         2: pw.FixedColumnWidth(40),
-        3: pw.FixedColumnWidth(30),
+        3: pw.FixedColumnWidth(40),
         4: pw.FixedColumnWidth(40),
         5: pw.FixedColumnWidth(50),
         6: pw.FixedColumnWidth(70),
@@ -993,7 +1003,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
     );
   }
 
-  // ============ FORM CLEAR ============
   void _clearForm() {
     _customerNameController.clear();
     _customerPhoneController.clear();
@@ -1011,15 +1020,16 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
     });
   }
 
-  // ============ UI BUILD ============
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text(
-          'GST Accessories Sale',
-          style: TextStyle(
+        title: Text(
+          widget.productData != null
+              ? 'Sell Appliance - ${widget.productData!['productName']}'
+              : 'GST Accessories Sale',
+          style: const TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 16,
             color: Colors.white,
@@ -1029,7 +1039,7 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.pop(context, false),
         ),
         actions: [
           if (_savedPdfFile != null)
@@ -1071,7 +1081,7 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
             const SizedBox(height: 16),
             _buildProductDetailsCard(),
             const SizedBox(height: 12),
-            _buildGSTSummaryCard(), // Simplified GST card
+            _buildGSTSummaryCard(),
             const SizedBox(height: 12),
             _buildSealCheckbox(),
             const SizedBox(height: 12),
@@ -1287,7 +1297,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
           ),
           const SizedBox(height: 10),
 
-          // Product Name
           _buildTextField(
             _productNameController,
             'Product Name *',
@@ -1313,11 +1322,7 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
               return null;
             },
           ),
-
-          // Quantity and Price Row
           const SizedBox(height: 10),
-
-          // Discount
           _buildTextField(
             _discountController,
             'Discount % (Default 0)',
@@ -1329,7 +1334,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
     );
   }
 
-  // ============ SIMPLIFIED GST CARD - FIXED 18% ============
   Widget _buildGSTSummaryCard() {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1340,7 +1344,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
       ),
       child: Column(
         children: [
-          // Purchase Mode - Fixed
           Row(
             children: [
               Icon(Icons.shopping_cart, color: Colors.green[700], size: 16),
@@ -1375,7 +1378,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
           const Divider(height: 1),
           const SizedBox(height: 12),
 
-          // GST Rate - Fixed 18%
           Row(
             children: [
               Container(
@@ -1406,7 +1408,6 @@ class _GSTAccessoriesSaleUploadState extends State<GSTAccessoriesSaleUpload> {
 
           const SizedBox(height: 12),
 
-          // Calculation Summary
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(

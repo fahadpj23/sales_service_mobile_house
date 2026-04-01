@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../../../providers/auth_provider.dart';
+import '../sale/gst_accessories_sale_upload.dart';
 
 class AppliancesStockScreen extends StatefulWidget {
   const AppliancesStockScreen({super.key});
@@ -21,28 +22,19 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
   String _searchQuery = '';
   late TextEditingController _searchController;
 
+  static const String _fixedCategory = 'Appliances';
+
   String? _selectedBrand;
   String? _selectedProduct;
   String? _newProductName;
   double? _newProductPrice;
   int? _quantity;
 
-  final List<String> _brands = [
-    'LG',
-    "havells",
-    'Samsung',
-    'Whirlpool',
-    'Godrej',
-    'Voltas',
-    'Haier',
-    'Panasonic',
-    'Sony',
-    'Daikin',
-    'Blue Star',
-    'Videocon',
-    'Onida',
-    'Croma',
-  ];
+  // Dynamic brands from Firestore
+  List<String> _brands = [];
+  bool _showAddBrandModal = false;
+  TextEditingController _newBrandController = TextEditingController();
+
   final Map<String, List<Map<String, dynamic>>> _productsByBrand = {};
   bool _isLoading = false;
   bool _showAddProductForm = false;
@@ -71,6 +63,12 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
 
   final FocusNode _searchFocusNode = FocusNode();
 
+  // Controllers for action dialogs
+  TextEditingController _sellQuantityController = TextEditingController();
+  TextEditingController _sellPriceController = TextEditingController();
+  TextEditingController _transferQuantityController = TextEditingController();
+  TextEditingController _returnQuantityController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -86,8 +84,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
         _currentTabIndex = _tabController.index;
       });
     });
-    _loadExistingProducts();
-    _loadShops();
+    _loadAllData();
   }
 
   @override
@@ -99,7 +96,82 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
     _priceChangeController.dispose();
     _newProductNameController.dispose();
     _newProductPriceController.dispose();
+    _sellQuantityController.dispose();
+    _sellPriceController.dispose();
+    _transferQuantityController.dispose();
+    _returnQuantityController.dispose();
+    _newBrandController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadAllData() async {
+    await Future.wait([_loadBrands(), _loadExistingProducts(), _loadShops()]);
+  }
+
+  Future<void> _loadBrands() async {
+    try {
+      setState(() => _isLoading = true);
+
+      final brandsSnapshot = await _firestore
+          .collection('applianceBrands')
+          .orderBy('brand')
+          .get();
+
+      final loadedBrands = <String>[];
+      for (var doc in brandsSnapshot.docs) {
+        final data = doc.data();
+        final brand = data['brand'] as String?;
+        if (brand != null && brand.isNotEmpty) {
+          loadedBrands.add(brand);
+        }
+      }
+
+      setState(() {
+        _brands = loadedBrands;
+      });
+    } catch (e) {
+      print('Error loading brands: $e');
+      _showError('Failed to load brands');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _addNewBrand() async {
+    final newBrand = _newBrandController.text.trim();
+    if (newBrand.isEmpty) {
+      _showModalError('Please enter brand name');
+      return;
+    }
+
+    if (_brands.contains(newBrand)) {
+      _showModalError('Brand already exists');
+      return;
+    }
+
+    try {
+      setState(() => _isLoading = true);
+
+      await _firestore.collection('applianceBrands').add({
+        'brand': newBrand,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      setState(() {
+        _brands.add(newBrand);
+        _brands.sort();
+        _showAddBrandModal = false;
+        _newBrandController.clear();
+        _selectedBrand = newBrand;
+        _selectedProduct = null;
+        _clearModalMessages();
+        _showModalSuccess('Brand "$newBrand" added successfully!');
+      });
+    } catch (e) {
+      _showModalError('Failed to add brand: $e');
+    } finally {
+      setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _loadShops() async {
@@ -125,7 +197,10 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
     try {
       setState(() => _isLoading = true);
 
-      final snapshot = await _firestore.collection('applianceModels').get();
+      final snapshot = await _firestore
+          .collection('applianceModels')
+          .where('category', isEqualTo: _fixedCategory)
+          .get();
 
       _productsByBrand.clear();
 
@@ -146,10 +221,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
           }
 
           if (priceDouble != null) {
-            if (!_brands.contains(brand)) {
-              _brands.add(brand);
-            }
-
             if (!_productsByBrand.containsKey(brand)) {
               _productsByBrand[brand] = [];
             }
@@ -171,8 +242,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
           }
         }
       }
-
-      _brands.sort();
 
       for (var brand in _productsByBrand.keys) {
         _productsByBrand[brand]!.sort(
@@ -263,6 +332,8 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
         _clearModalMessages();
         _newProductNameController.clear();
         _newProductPriceController.clear();
+        // Clear quantity when showing add product form
+        _quantity = null;
       });
     } else {
       setState(() {
@@ -305,6 +376,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
       _newProductNameController.clear();
       _newProductPriceController.clear();
       _clearModalMessages();
+      _quantity = null;
     });
   }
 
@@ -345,13 +417,16 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
       setState(() => _isLoading = true);
 
       final newProduct = {
+        'category': _fixedCategory,
         'brand': _selectedBrand!,
         'productName': productName,
         'price': price,
         'createdAt': FieldValue.serverTimestamp(),
       };
 
-      await _firestore.collection('applianceModels').add(newProduct);
+      final docRef = await _firestore
+          .collection('applianceModels')
+          .add(newProduct);
 
       if (!_productsByBrand.containsKey(_selectedBrand!)) {
         _productsByBrand[_selectedBrand!] = [];
@@ -362,7 +437,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
 
       if (existingProductIndex == -1) {
         _productsByBrand[_selectedBrand!]!.add({
-          'id': 'temp',
+          'id': docRef.id,
           'productName': productName,
           'price': price,
         });
@@ -441,6 +516,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
           _showModalError('Product not selected after creation');
           return;
         }
+        productId = null;
       } else {
         if (_selectedProduct == null || _selectedProduct!.isEmpty) {
           _showModalError('Please select a product');
@@ -479,6 +555,13 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                     'price': productPrice,
                     'updatedAt': FieldValue.serverTimestamp(),
                   });
+
+              final productIndex = products.indexWhere(
+                (p) => p['id'] == productId,
+              );
+              if (productIndex != -1) {
+                products[productIndex]['price'] = productPrice;
+              }
             }
           } else {
             productPrice = productPriceTemp is int
@@ -512,10 +595,10 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
           user.email.trim() ?? user.name.trim() ?? 'Unknown User';
       final uploadedById = user.uid;
 
-      // Check if product already exists in stock for this shop
       final existingStockQuery = await _firestore
           .collection('applianceStock')
           .where('shopId', isEqualTo: shopId)
+          .where('category', isEqualTo: _fixedCategory)
           .where('productBrand', isEqualTo: _selectedBrand!.trim())
           .where('productName', isEqualTo: productName)
           .where('status', isEqualTo: 'available')
@@ -523,7 +606,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
           .get();
 
       if (existingStockQuery.docs.isNotEmpty) {
-        // Update existing stock by adding quantity
         final existingDoc = existingStockQuery.docs.first;
         final existingData = existingDoc.data();
         final currentQuantity = existingData['quantity'] as int? ?? 0;
@@ -537,7 +619,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
               'lastUpdatedAt': FieldValue.serverTimestamp(),
               'lastUpdatedBy': uploadedBy,
               'lastUpdatedById': uploadedById,
-              'productPrice': productPrice, // Update price if changed
+              'productPrice': productPrice,
             });
 
         if (!mounted) return;
@@ -545,8 +627,8 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
           'Added $_quantity to existing stock! New total: $newQuantity',
         );
       } else {
-        // Create new stock entry
         final stockData = {
+          'category': _fixedCategory,
           'productBrand': _selectedBrand!.trim(),
           'productName': productName,
           'productPrice': productPrice,
@@ -626,218 +708,282 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
     Map<String, dynamic> modelData,
   ) async {
     try {
-      setState(() => _isLoading = true);
-
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      final user = authProvider.user;
-
       final currentQuantity = modelData['quantity'] as int? ?? 1;
-      int sellQuantity = 1;
+      int selectedQuantity = 1;
+      double sellingPrice =
+          (modelData['productPrice'] as num?)?.toDouble() ?? 0;
 
-      if (currentQuantity > 1) {
-        final quantityController = TextEditingController(text: '1');
-        final priceController = TextEditingController(
-          text: modelData['productPrice']?.toString() ?? '',
-        );
+      final result = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) {
+          int tempQuantity = 1;
+          double tempPrice = sellingPrice;
 
-        final result = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Sell Appliance'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Product: ${modelData['productName']}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Brand: ${modelData['productBrand']}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Available: $currentQuantity units',
-                  style: const TextStyle(fontSize: 12, color: Colors.green),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: quantityController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Quantity to Sell',
-                    border: OutlineInputBorder(),
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                title: const Text('Sell Appliance'),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Product: ${modelData['productName']}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Brand: ${modelData['productBrand']}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Available Quantity:',
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                  Text(
+                                    '$currentQuantity units',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.green.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: TextEditingController(text: '1')
+                          ..selection = TextSelection.collapsed(offset: 1),
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Quantity to Sell *',
+                          border: OutlineInputBorder(),
+                          helperText: 'Enter quantity to sell',
+                        ),
+                        onChanged: (value) {
+                          final qty = int.tryParse(value);
+                          if (qty != null &&
+                              qty > 0 &&
+                              qty <= currentQuantity) {
+                            setDialogState(() {
+                              tempQuantity = qty;
+                            });
+                          } else if (qty != null && qty > currentQuantity) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Cannot sell more than available stock ($currentQuantity units)',
+                                ),
+                                backgroundColor: Colors.red,
+                                duration: const Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller:
+                            TextEditingController(text: sellingPrice.toString())
+                              ..selection = TextSelection.collapsed(
+                                offset: sellingPrice.toString().length,
+                              ),
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Selling Price *',
+                          border: OutlineInputBorder(),
+                          prefixText: '₹ ',
+                          helperText: 'Enter selling price per unit',
+                        ),
+                        onChanged: (value) {
+                          final price = double.tryParse(value);
+                          if (price != null && price > 0) {
+                            setDialogState(() {
+                              tempPrice = price;
+                            });
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Total Amount:',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              '₹ ${(tempQuantity * tempPrice).toStringAsFixed(0)}',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue.shade700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: priceController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Selling Price',
-                    border: OutlineInputBorder(),
-                    prefixText: '₹ ',
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context, false);
+                    },
+                    child: const Text('Cancel'),
                   ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  sellQuantity = int.tryParse(quantityController.text) ?? 1;
-                  if (sellQuantity > 0 && sellQuantity <= currentQuantity) {
-                    Navigator.pop(context, true);
-                  } else {
-                    _showError('Invalid quantity');
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('Sell'),
-              ),
-            ],
-          ),
-        );
+                  ElevatedButton(
+                    onPressed: () {
+                      if (tempQuantity > 0 &&
+                          tempQuantity <= currentQuantity &&
+                          tempPrice > 0) {
+                        selectedQuantity = tempQuantity;
+                        sellingPrice = tempPrice;
+                        Navigator.pop(context, true);
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Please enter valid quantity and price',
+                            ),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Continue to Bill'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
 
-        if (result != true) {
-          setState(() => _selectedModelForAction = null);
-          return;
-        }
+      if (result != true) {
+        setState(() => _selectedModelForAction = null);
+        return;
+      }
 
-        final sellingPrice = double.tryParse(priceController.text);
+      setState(() {
+        _selectedModelForAction = null;
+      });
 
-        if (sellQuantity == currentQuantity) {
-          // Sell all - update status to sold
+      final productData = {
+        'productName': modelData['productName'],
+        'productBrand': modelData['productBrand'],
+        'productPrice': sellingPrice,
+        'quantity': selectedQuantity,
+        'modelId': modelId,
+        'sellingPrice': sellingPrice,
+        'totalAmount': selectedQuantity * sellingPrice,
+        'category': _fixedCategory,
+      };
+
+      final gstResult = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              GSTAccessoriesSaleUpload(productData: productData),
+        ),
+      );
+
+      if (gstResult == true && mounted) {
+        setState(() => _isLoading = true);
+
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        final user = authProvider.user;
+
+        if (selectedQuantity == currentQuantity) {
           await _firestore.collection('applianceStock').doc(modelId).update({
             'status': 'sold',
             'soldAt': FieldValue.serverTimestamp(),
             'soldBy': user?.email ?? user?.name ?? 'Unknown',
             'soldById': user?.uid ?? '',
             'sellingPrice': sellingPrice,
-            'soldQuantity': sellQuantity,
+            'soldQuantity': selectedQuantity,
+            'billGenerated': true,
+            'billGeneratedAt': FieldValue.serverTimestamp(),
           });
         } else {
-          // Sell partial - reduce quantity
           await _firestore.collection('applianceStock').doc(modelId).update({
-            'quantity': currentQuantity - sellQuantity,
+            'quantity': currentQuantity - selectedQuantity,
             'lastUpdatedAt': FieldValue.serverTimestamp(),
             'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
           });
 
-          // Create a sold record for the partial sale
           final soldRecord = {
+            'category': _fixedCategory,
             'productBrand': modelData['productBrand'],
             'productName': modelData['productName'],
             'productPrice': modelData['productPrice'],
-            'quantity': sellQuantity,
+            'quantity': selectedQuantity,
             'sellingPrice': sellingPrice,
+            'totalAmount': selectedQuantity * sellingPrice,
             'shopId': modelData['shopId'],
             'shopName': modelData['shopName'],
             'soldBy': user?.email ?? user?.name ?? 'Unknown',
             'soldById': user?.uid ?? '',
             'soldAt': FieldValue.serverTimestamp(),
             'originalStockId': modelId,
+            'billGenerated': true,
+            'billGeneratedAt': FieldValue.serverTimestamp(),
           };
 
           await _firestore.collection('applianceSoldRecords').add(soldRecord);
         }
 
-        if (mounted) {
-          _showSuccess('$sellQuantity unit(s) sold successfully!');
-          setState(() {
-            _selectedModelForAction = null;
-          });
-        }
-      } else {
-        // Single unit - simple sale
-        final priceController = TextEditingController(
-          text: modelData['productPrice']?.toString() ?? '',
+        setState(() => _isLoading = false);
+        _showSuccess(
+          '$selectedQuantity unit(s) sold and bill generated successfully!',
         );
-
-        final result = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Sell Appliance'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Product: ${modelData['productName']}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Brand: ${modelData['productBrand']}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: priceController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Selling Price',
-                    border: OutlineInputBorder(),
-                    prefixText: '₹ ',
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context, true),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('Sell'),
-              ),
-            ],
-          ),
-        );
-
-        if (result == true && mounted) {
-          final sellingPrice = double.tryParse(priceController.text);
-
-          await _firestore.collection('applianceStock').doc(modelId).update({
-            'status': 'sold',
-            'soldAt': FieldValue.serverTimestamp(),
-            'soldBy': user?.email ?? user?.name ?? 'Unknown',
-            'soldById': user?.uid ?? '',
-            'sellingPrice': sellingPrice,
-            'soldQuantity': 1,
-          });
-
-          if (mounted) {
-            _showSuccess('Appliance sold successfully!');
-            setState(() {
-              _selectedModelForAction = null;
-            });
-          }
-        } else {
-          if (mounted) {
-            setState(() {
-              _selectedModelForAction = null;
-            });
-          }
-        }
       }
     } catch (e) {
+      print('Error in _markAsSold: $e');
       if (mounted) {
         _showError('Failed to process sale: $e');
-        setState(() {
-          _selectedModelForAction = null;
-        });
       }
     } finally {
       if (mounted) {
@@ -853,6 +999,162 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
     String newShopName,
   ) async {
     try {
+      final currentQuantity = modelData['quantity'] as int? ?? 1;
+      int transferQuantity = 1;
+
+      final result = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) {
+          int tempQuantity = 1;
+
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                title: const Text('Transfer Appliance'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Product: ${modelData['productName']}',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Brand: ${modelData['productBrand']}',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.green.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Available Quantity:',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                                Text(
+                                  '$currentQuantity units',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.green.shade700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: TextEditingController(text: '1')
+                        ..selection = TextSelection.collapsed(offset: 1),
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Quantity to Transfer *',
+                        border: OutlineInputBorder(),
+                        helperText: 'Enter quantity to transfer',
+                      ),
+                      onChanged: (value) {
+                        final qty = int.tryParse(value);
+                        if (qty != null && qty > 0 && qty <= currentQuantity) {
+                          setDialogState(() {
+                            tempQuantity = qty;
+                          });
+                        } else if (qty != null && qty > currentQuantity) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Cannot transfer more than available stock ($currentQuantity units)',
+                              ),
+                              backgroundColor: Colors.red,
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.store, size: 16, color: Colors.blue),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Transfer to: $newShopName',
+                              style: const TextStyle(fontSize: 12),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context, false);
+                    },
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      if (tempQuantity > 0 && tempQuantity <= currentQuantity) {
+                        transferQuantity = tempQuantity;
+                        Navigator.pop(context, true);
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Please enter valid quantity'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Transfer'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+
+      if (result != true) {
+        setState(() => _selectedModelForAction = null);
+        return;
+      }
+
       setState(() => _isLoading = true);
 
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -861,83 +1163,18 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
       final currentShopId = modelData['shopId'] as String? ?? '';
       final currentShopName =
           modelData['shopName'] as String? ?? 'Unknown Shop';
-      final quantity = modelData['quantity'] as int? ?? 1;
-      int transferQuantity = quantity;
 
-      if (quantity > 1) {
-        final quantityController = TextEditingController(
-          text: quantity.toString(),
-        );
-
-        final result = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Transfer Appliance'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Product: ${modelData['productName']}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Available: $quantity units',
-                  style: const TextStyle(fontSize: 12, color: Colors.green),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: quantityController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Quantity to Transfer',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  transferQuantity = int.tryParse(quantityController.text) ?? 1;
-                  if (transferQuantity > 0 && transferQuantity <= quantity) {
-                    Navigator.pop(context, true);
-                  } else {
-                    _showError('Invalid quantity');
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('Transfer'),
-              ),
-            ],
-          ),
-        );
-
-        if (result != true) {
-          setState(() => _selectedModelForAction = null);
-          return;
-        }
-      }
-
-      // Check if product already exists in target shop
       final existingTargetQuery = await _firestore
           .collection('applianceStock')
           .where('shopId', isEqualTo: newShopId)
+          .where('category', isEqualTo: _fixedCategory)
           .where('productBrand', isEqualTo: modelData['productBrand'])
           .where('productName', isEqualTo: modelData['productName'])
           .where('status', isEqualTo: 'available')
           .limit(1)
           .get();
 
-      if (transferQuantity == quantity) {
-        // Transfer entire stock
+      if (transferQuantity == currentQuantity) {
         await _firestore.collection('applianceStock').doc(modelId).update({
           'shopId': newShopId,
           'shopName': newShopName,
@@ -946,17 +1183,16 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
           'transferredAt': FieldValue.serverTimestamp(),
           'previousShopId': currentShopId,
           'previousShopName': currentShopName,
+          'quantity': transferQuantity,
         });
       } else {
-        // Transfer partial - reduce quantity in current shop
         await _firestore.collection('applianceStock').doc(modelId).update({
-          'quantity': quantity - transferQuantity,
+          'quantity': currentQuantity - transferQuantity,
           'lastUpdatedAt': FieldValue.serverTimestamp(),
           'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
         });
 
         if (existingTargetQuery.docs.isNotEmpty) {
-          // Add to existing stock in target shop
           final targetDoc = existingTargetQuery.docs.first;
           final targetData = targetDoc.data();
           final targetQuantity = targetData['quantity'] as int? ?? 0;
@@ -970,8 +1206,8 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                 'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
               });
         } else {
-          // Create new stock in target shop
           final newStockData = {
+            'category': _fixedCategory,
             'productBrand': modelData['productBrand'],
             'productName': modelData['productName'],
             'productPrice': modelData['productPrice'],
@@ -993,6 +1229,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
 
       setState(() {
         _selectedModelForAction = null;
+        _isLoading = false;
       });
 
       _showSuccess(
@@ -1000,10 +1237,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
       );
     } catch (e) {
       _showError('Failed to transfer: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      setState(() => _isLoading = false);
     }
   }
 
@@ -1012,82 +1246,176 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
     Map<String, dynamic> modelData,
   ) async {
     try {
+      final currentQuantity = modelData['quantity'] as int? ?? 1;
+      int returnQuantity = 1;
+
+      final result = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) {
+          int tempQuantity = 1;
+
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                title: const Text('Return Appliance'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Product: ${modelData['productName']}',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Brand: ${modelData['productBrand']}',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.green.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Available Quantity:',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                                Text(
+                                  '$currentQuantity units',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.green.shade700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: TextEditingController(text: '1')
+                        ..selection = TextSelection.collapsed(offset: 1),
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Quantity to Return *',
+                        border: OutlineInputBorder(),
+                        helperText: 'Enter quantity to return',
+                      ),
+                      onChanged: (value) {
+                        final qty = int.tryParse(value);
+                        if (qty != null && qty > 0 && qty <= currentQuantity) {
+                          setDialogState(() {
+                            tempQuantity = qty;
+                          });
+                        } else if (qty != null && qty > currentQuantity) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Cannot return more than available stock ($currentQuantity units)',
+                              ),
+                              backgroundColor: Colors.red,
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.warning,
+                            size: 16,
+                            color: Colors.orange,
+                          ),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'This will remove the selected quantity from available stock and create a return record.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.orange,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context, false);
+                    },
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      if (tempQuantity > 0 && tempQuantity <= currentQuantity) {
+                        returnQuantity = tempQuantity;
+                        Navigator.pop(context, true);
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Please enter valid quantity'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Return'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+
+      if (result != true) {
+        setState(() => _selectedModelForAction = null);
+        return;
+      }
+
       setState(() => _isLoading = true);
 
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final user = authProvider.user;
-      final quantity = modelData['quantity'] as int? ?? 1;
-      int returnQuantity = quantity;
-
-      if (quantity > 1) {
-        final quantityController = TextEditingController(
-          text: quantity.toString(),
-        );
-
-        final result = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Return Appliance'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Product: ${modelData['productName']}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Available: $quantity units',
-                  style: const TextStyle(fontSize: 12, color: Colors.green),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: quantityController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Quantity to Return',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'This will remove the selected quantity from stock.',
-                  style: TextStyle(fontSize: 10, color: Colors.grey),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  returnQuantity = int.tryParse(quantityController.text) ?? 1;
-                  if (returnQuantity > 0 && returnQuantity <= quantity) {
-                    Navigator.pop(context, true);
-                  } else {
-                    _showError('Invalid quantity');
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('Return'),
-              ),
-            ],
-          ),
-        );
-
-        if (result != true) {
-          setState(() => _selectedModelForAction = null);
-          return;
-        }
-      }
 
       final returnData = {
         'modelId': modelId,
+        'category': _fixedCategory,
         'productBrand': modelData['productBrand'] ?? 'Unknown',
         'productName': modelData['productName'] ?? 'Unknown',
         'productPrice': modelData['productPrice'] ?? 0,
@@ -1104,11 +1432,11 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
 
       await _firestore.collection('applianceReturns').add(returnData);
 
-      if (returnQuantity == quantity) {
+      if (returnQuantity == currentQuantity) {
         await _firestore.collection('applianceStock').doc(modelId).delete();
       } else {
         await _firestore.collection('applianceStock').doc(modelId).update({
-          'quantity': quantity - returnQuantity,
+          'quantity': currentQuantity - returnQuantity,
           'lastUpdatedAt': FieldValue.serverTimestamp(),
           'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
         });
@@ -1116,15 +1444,13 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
 
       setState(() {
         _selectedModelForAction = null;
+        _isLoading = false;
       });
 
       _showSuccess('$returnQuantity unit(s) returned successfully!');
     } catch (e) {
       _showError('Failed to return: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      setState(() => _isLoading = false);
     }
   }
 
@@ -1221,7 +1547,315 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
     }
   }
 
+  Widget _buildBrandDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButtonFormField<String>(
+          value: _selectedBrand,
+          decoration: const InputDecoration(
+            labelText: 'Select Brand *',
+            border: OutlineInputBorder(),
+            labelStyle: TextStyle(fontSize: 12),
+          ),
+          style: const TextStyle(fontSize: 12),
+          items: [
+            ..._brands.map((brand) {
+              return DropdownMenuItem(value: brand, child: Text(brand));
+            }),
+            const DropdownMenuItem(
+              value: 'add_new_brand',
+              child: Row(
+                children: [
+                  Icon(Icons.add, size: 16, color: Colors.blue),
+                  SizedBox(width: 8),
+                  Text('Add New Brand', style: TextStyle(color: Colors.blue)),
+                ],
+              ),
+            ),
+          ],
+          onChanged: (value) {
+            if (value == 'add_new_brand') {
+              setState(() {
+                _showAddBrandModal = true;
+                _newBrandController.clear();
+              });
+            } else {
+              setState(() {
+                _selectedBrand = value;
+                _selectedProduct = null;
+                _showAddProductForm = false;
+                _showPriceChangeOption = false;
+                _productSearchController.clear();
+                _priceChangeController.clear();
+                _clearModalMessages();
+                // Reset quantity when brand changes
+                _quantity = null;
+              });
+            }
+          },
+          validator: (value) {
+            if (value == null || value.isEmpty || value == 'add_new_brand') {
+              return 'Please select a brand';
+            }
+            return null;
+          },
+        ),
+        if (_brands.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info, size: 14, color: Colors.orange),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'No brands available. Click "Add New Brand" to create one.',
+                      style: TextStyle(fontSize: 11, color: Colors.orange),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildProductSearchDropdown() {
+    if (_selectedBrand == null) return const SizedBox();
+
+    if (_showAddProductForm) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.blue.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.blue.shade100),
+        ),
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.info, color: Colors.blue, size: 16),
+                SizedBox(width: 8),
+                Text(
+                  'Adding New Product',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Enter product details below. Product will be saved to database.',
+              style: TextStyle(fontSize: 10, color: Colors.blue),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final products = _productsByBrand[_selectedBrand!] ?? [];
+    final searchText = _productSearchController.text.toLowerCase();
+
+    if (searchText.isNotEmpty) {
+      final uniqueProductsMap = <String, Map<String, dynamic>>{};
+      for (final product in products) {
+        final productName = product['productName'] as String? ?? '';
+        if (productName.toLowerCase().contains(searchText)) {
+          uniqueProductsMap[productName] = product;
+        }
+      }
+      _filteredProducts = uniqueProductsMap.values.toList();
+    } else {
+      final uniqueProductsMap = <String, Map<String, dynamic>>{};
+      for (final product in products) {
+        final productName = product['productName'] as String? ?? '';
+        uniqueProductsMap[productName] = product;
+      }
+      _filteredProducts = uniqueProductsMap.values.toList();
+    }
+
+    return Column(
+      children: [
+        TextField(
+          controller: _productSearchController,
+          decoration: InputDecoration(
+            labelText: 'Search Product',
+            labelStyle: const TextStyle(fontSize: 12),
+            prefixIcon: const Icon(Icons.search, size: 18),
+            suffixIcon: _selectedProduct != null && _selectedProduct!.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear, size: 16),
+                    onPressed: () {
+                      setState(() {
+                        _selectedProduct = null;
+                        _productSearchController.clear();
+                        _showPriceChangeOption = false;
+                        _originalProductPrice = null;
+                        _priceChangeController.clear();
+                        _clearModalMessages();
+                        // Reset quantity when product is cleared
+                        _quantity = null;
+                      });
+                    },
+                  )
+                : null,
+            border: const OutlineInputBorder(),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 12,
+            ),
+            hintText: _selectedProduct ?? 'Search or select product',
+          ),
+          style: const TextStyle(fontSize: 12, color: Colors.black),
+          onChanged: (value) {
+            setState(() {
+              if (_selectedProduct != null && value != _selectedProduct) {
+                _selectedProduct = null;
+                _showPriceChangeOption = false;
+                _originalProductPrice = null;
+                _priceChangeController.clear();
+                // Reset quantity when product search changes
+                _quantity = null;
+              }
+              _clearModalMessages();
+            });
+          },
+          onTap: () {
+            if (_selectedProduct != null &&
+                _productSearchController.text == _selectedProduct) {
+              _productSearchController.clear();
+              setState(() {
+                _clearModalMessages();
+                // Reset quantity when tapping to change product
+                _quantity = null;
+              });
+            }
+          },
+        ),
+        const SizedBox(height: 8),
+
+        if (_modalSuccess != null && _modalSuccess!.contains('Product added'))
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(8),
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.green.shade100),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.green, size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _modalSuccess!,
+                    style: const TextStyle(fontSize: 11, color: Colors.green),
+                    maxLines: 2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        if (_selectedProduct == null ||
+            _productSearchController.text.isNotEmpty)
+          Container(
+            constraints: const BoxConstraints(maxHeight: 120),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: _buildProductList(),
+          ),
+
+        if (_selectedProduct != null && _productSearchController.text.isEmpty)
+          Container(
+            margin: const EdgeInsets.only(top: 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.green.shade200),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.green, size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Selected Product:',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.green.shade700,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _selectedProduct!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      if (_originalProductPrice != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Price: ${_formatPrice(_originalProductPrice)}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.green.shade700,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.edit, size: 16),
+                  onPressed: () {
+                    setState(() {
+                      _selectedProduct = null;
+                      _showPriceChangeOption = false;
+                      _originalProductPrice = null;
+                      _priceChangeController.clear();
+                      _productSearchController.clear();
+                      // Reset quantity when changing product
+                      _quantity = null;
+                    });
+                  },
+                  tooltip: 'Change product',
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _buildProductList() {
+    if (_selectedBrand == null) return const SizedBox();
+
     final brandHasNoProducts =
         !_productsByBrand.containsKey(_selectedBrand!) ||
         (_productsByBrand[_selectedBrand!] ?? []).isEmpty;
@@ -1335,229 +1969,89 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
     );
   }
 
-  Widget _buildProductSearchDropdown() {
-    if (_selectedBrand == null) return const SizedBox();
-
-    if (_showAddProductForm) {
-      return Container(
-        padding: const EdgeInsets.all(12),
+  Widget _buildAddBrandModal() {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        constraints: BoxConstraints(maxWidth: 400),
         decoration: BoxDecoration(
-          color: Colors.blue.shade50,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.blue.shade100),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
         ),
-        child: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.info, color: Colors.blue, size: 16),
-                SizedBox(width: 8),
-                Text(
-                  'Adding New Product',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue,
-                  ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Add New Brand',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue,
                 ),
-              ],
-            ),
-            SizedBox(height: 4),
-            Text(
-              'Enter product details below. Product will be saved to database.',
-              style: TextStyle(fontSize: 10, color: Colors.blue),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final products = _productsByBrand[_selectedBrand!] ?? [];
-    final searchText = _productSearchController.text.toLowerCase();
-
-    if (searchText.isNotEmpty) {
-      final uniqueProductsMap = <String, Map<String, dynamic>>{};
-      for (final product in products) {
-        final productName = product['productName'] as String? ?? '';
-        if (productName.toLowerCase().contains(searchText)) {
-          uniqueProductsMap[productName] = product;
-        }
-      }
-      _filteredProducts = uniqueProductsMap.values.toList();
-    } else {
-      final uniqueProductsMap = <String, Map<String, dynamic>>{};
-      for (final product in products) {
-        final productName = product['productName'] as String? ?? '';
-        uniqueProductsMap[productName] = product;
-      }
-      _filteredProducts = uniqueProductsMap.values.toList();
-    }
-
-    return Column(
-      children: [
-        TextField(
-          controller: _productSearchController,
-          decoration: InputDecoration(
-            labelText: 'Search Product',
-            labelStyle: const TextStyle(fontSize: 12),
-            prefixIcon: const Icon(Icons.search, size: 18),
-            suffixIcon: _selectedProduct != null && _selectedProduct!.isNotEmpty
-                ? IconButton(
-                    icon: const Icon(Icons.clear, size: 16),
-                    onPressed: () {
-                      setState(() {
-                        _selectedProduct = null;
-                        _productSearchController.clear();
-                        _showPriceChangeOption = false;
-                        _originalProductPrice = null;
-                        _priceChangeController.clear();
-                        _clearModalMessages();
-                      });
-                    },
-                  )
-                : null,
-            border: const OutlineInputBorder(),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 12,
-            ),
-            hintText: _selectedProduct ?? 'Search or select product',
-          ),
-          style: const TextStyle(fontSize: 12, color: Colors.black),
-          onChanged: (value) {
-            setState(() {
-              if (_selectedProduct != null && value != _selectedProduct) {
-                _selectedProduct = null;
-                _showPriceChangeOption = false;
-                _originalProductPrice = null;
-                _priceChangeController.clear();
-              }
-              _clearModalMessages();
-            });
-          },
-          onTap: () {
-            if (_selectedProduct != null &&
-                _productSearchController.text == _selectedProduct) {
-              _productSearchController.clear();
-              setState(() {
-                _clearModalMessages();
-              });
-            }
-          },
-        ),
-        const SizedBox(height: 8),
-
-        if (_modalSuccess != null && _modalSuccess!.contains('Product added'))
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(8),
-            margin: const EdgeInsets.only(bottom: 8),
-            decoration: BoxDecoration(
-              color: Colors.green.shade50,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.green.shade100),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.check_circle, color: Colors.green, size: 16),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _modalSuccess!,
-                    style: const TextStyle(fontSize: 11, color: Colors.green),
-                    maxLines: 2,
-                  ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _newBrandController,
+                decoration: const InputDecoration(
+                  labelText: 'Brand Name *',
+                  border: OutlineInputBorder(),
                 ),
-              ],
-            ),
-          ),
-
-        if (_selectedProduct == null ||
-            _productSearchController.text.isNotEmpty)
-          Container(
-            constraints: const BoxConstraints(maxHeight: 120),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey.shade300),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: _buildProductList(),
-          ),
-
-        if (_selectedProduct != null && _productSearchController.text.isEmpty)
-          Container(
-            margin: const EdgeInsets.only(top: 8),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.green.shade50,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.green.shade200),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.check_circle, color: Colors.green, size: 16),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Selected Product:',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.green.shade700,
-                          fontWeight: FontWeight.bold,
-                        ),
+                autofocus: true,
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {
+                        setState(() {
+                          _showAddBrandModal = false;
+                          _newBrandController.clear();
+                        });
+                      },
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _addNewBrand,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _selectedProduct!,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.black,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      if (_originalProductPrice != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
-                            'Price: ${_formatPrice(_originalProductPrice)}',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.green.shade700,
-                            ),
-                          ),
-                        ),
-                    ],
+                      child: _isLoading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text('Add Brand'),
+                    ),
                   ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.edit, size: 16),
-                  onPressed: () {
-                    setState(() {
-                      _selectedProduct = null;
-                      _showPriceChangeOption = false;
-                      _originalProductPrice = null;
-                      _priceChangeController.clear();
-                      _productSearchController.clear();
-                    });
-                  },
-                  tooltip: 'Change product',
-                ),
-              ],
-            ),
+                ],
+              ),
+            ],
           ),
-      ],
+        ),
+      ),
     );
   }
 
   Widget _buildAddStockModal() {
+    // Determine if product is selected (either existing or in add product form)
+    final isProductSelected = _selectedProduct != null || _showAddProductForm;
+
     return Dialog(
       backgroundColor: Colors.transparent,
       child: Container(
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.9,
+          maxHeight: MediaQuery.of(context).size.height * 0.95,
           maxWidth: 500,
         ),
         decoration: BoxDecoration(
@@ -1565,7 +2059,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
           borderRadius: BorderRadius.circular(16),
         ),
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(15),
           child: Form(
             key: _formKey,
             child: Column(
@@ -1591,6 +2085,29 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                 ),
                 const Divider(),
                 const SizedBox(height: 12),
+
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(8),
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.category, size: 16, color: Colors.green),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Category: $_fixedCategory',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
                 if (_modalError != null)
                   Container(
@@ -1650,35 +2167,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                     ),
                   ),
 
-                DropdownButtonFormField<String>(
-                  value: _selectedBrand,
-                  decoration: const InputDecoration(
-                    labelText: 'Select Brand *',
-                    border: OutlineInputBorder(),
-                    labelStyle: TextStyle(fontSize: 12),
-                  ),
-                  style: const TextStyle(fontSize: 12),
-                  items: _brands.map((brand) {
-                    return DropdownMenuItem(value: brand, child: Text(brand));
-                  }).toList(),
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedBrand = value;
-                      _selectedProduct = null;
-                      _showAddProductForm = false;
-                      _showPriceChangeOption = false;
-                      _productSearchController.clear();
-                      _priceChangeController.clear();
-                      _clearModalMessages();
-                    });
-                  },
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please select a brand';
-                    }
-                    return null;
-                  },
-                ),
+                _buildBrandDropdown(),
                 const SizedBox(height: 12),
 
                 _buildProductSearchDropdown(),
@@ -1699,6 +2188,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                   ),
 
                 if (_showAddProductForm) ...[
+                  const SizedBox(height: 12),
                   TextFormField(
                     controller: _newProductNameController,
                     decoration: const InputDecoration(
@@ -1736,7 +2226,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                       return null;
                     },
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 20),
                   Row(
                     children: [
                       Expanded(
@@ -1778,27 +2268,61 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                     ],
                   ),
                 ] else ...[
-                  TextFormField(
-                    decoration: const InputDecoration(
-                      labelText: 'Quantity *',
-                      border: OutlineInputBorder(),
-                      labelStyle: TextStyle(fontSize: 12),
+                  // Only show quantity field if product is selected
+                  if (isProductSelected) ...[
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      decoration: const InputDecoration(
+                        labelText: 'Quantity *',
+                        border: OutlineInputBorder(),
+                        labelStyle: TextStyle(fontSize: 12),
+                      ),
+                      keyboardType: TextInputType.number,
+                      style: const TextStyle(fontSize: 12),
+                      onChanged: _handleQuantityChange,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter quantity';
+                        }
+                        final qty = int.tryParse(value);
+                        if (qty == null || qty <= 0) {
+                          return 'Please enter valid quantity';
+                        }
+                        return null;
+                      },
                     ),
-                    keyboardType: TextInputType.number,
-                    style: const TextStyle(fontSize: 12),
-                    onChanged: _handleQuantityChange,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter quantity';
-                      }
-                      final qty = int.tryParse(value);
-                      if (qty == null || qty <= 0) {
-                        return 'Please enter valid quantity';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 20),
+                    const SizedBox(height: 20),
+                  ] else ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            size: 16,
+                            color: Colors.grey.shade600,
+                          ),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'Please select a product first to enter quantity',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
 
                   Row(
                     children: [
@@ -1817,7 +2341,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                       const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton(
-                          onPressed: _saveStock,
+                          onPressed: isProductSelected ? _saveStock : null,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.green,
                             foregroundColor: Colors.white,
@@ -1926,6 +2450,10 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
+                    Text(
+                      'Category: $_fixedCategory',
+                      style: const TextStyle(fontSize: 12),
+                    ),
                     Row(
                       children: [
                         Text(
@@ -1982,36 +2510,33 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
-                  controller: TextEditingController(
-                    text: price?.toString() ?? '',
+                  controller: _sellQuantityController,
+                  decoration: const InputDecoration(
+                    labelText: 'Quantity to Sell *',
+                    border: OutlineInputBorder(),
+                    helperText: 'Enter quantity to sell',
                   ),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _sellPriceController,
                   decoration: const InputDecoration(
                     labelText: 'Selling Price *',
                     border: OutlineInputBorder(),
                     prefixText: '₹ ',
+                    helperText: 'Enter selling price per unit',
                   ),
                   keyboardType: TextInputType.number,
-                  onChanged: (value) {
-                    // Store selling price
-                  },
                 ),
-                if (quantity > 1) ...[
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: TextEditingController(text: '1'),
-                    decoration: const InputDecoration(
-                      labelText: 'Quantity to Sell',
-                      border: OutlineInputBorder(),
-                    ),
-                    keyboardType: TextInputType.number,
-                  ),
-                ],
                 const SizedBox(height: 20),
                 Row(
                   children: [
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () {
+                          _sellQuantityController.clear();
+                          _sellPriceController.clear();
                           setState(() => _selectedModelForAction = null);
                         },
                         style: OutlinedButton.styleFrom(
@@ -2028,12 +2553,124 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                       child: ElevatedButton(
                         onPressed: _isLoading
                             ? null
-                            : () {
-                                if (modelId.isNotEmpty) {
-                                  _markAsSold(modelId, model);
-                                } else {
+                            : () async {
+                                final qtyText = _sellQuantityController.text;
+                                final qty = int.tryParse(qtyText);
+                                final priceText = _sellPriceController.text;
+                                final salePrice = double.tryParse(priceText);
+
+                                if (qty == null || qty <= 0) {
+                                  _showError('Please enter valid quantity');
+                                  return;
+                                }
+                                if (qty > quantity) {
                                   _showError(
-                                    'Model ID not found. Please try again.',
+                                    'Cannot sell more than available stock ($quantity units)',
+                                  );
+                                  return;
+                                }
+                                if (salePrice == null || salePrice <= 0) {
+                                  _showError(
+                                    'Please enter valid selling price',
+                                  );
+                                  return;
+                                }
+
+                                setState(() => _selectedModelForAction = null);
+
+                                final productData = {
+                                  'productName': productName,
+                                  'productBrand': productBrand,
+                                  'productPrice': salePrice,
+                                  'quantity': qty,
+                                  'modelId': modelId,
+                                  'sellingPrice': salePrice,
+                                  'totalAmount': qty * salePrice,
+                                  'category': _fixedCategory,
+                                };
+
+                                final gstResult = await Navigator.push<bool>(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        GSTAccessoriesSaleUpload(
+                                          productData: productData,
+                                        ),
+                                  ),
+                                );
+
+                                if (gstResult == true && mounted) {
+                                  setState(() => _isLoading = true);
+                                  final authProvider =
+                                      Provider.of<AuthProvider>(
+                                        context,
+                                        listen: false,
+                                      );
+                                  final user = authProvider.user;
+
+                                  if (qty == quantity) {
+                                    await _firestore
+                                        .collection('applianceStock')
+                                        .doc(modelId)
+                                        .update({
+                                          'status': 'sold',
+                                          'soldAt':
+                                              FieldValue.serverTimestamp(),
+                                          'soldBy':
+                                              user?.email ??
+                                              user?.name ??
+                                              'Unknown',
+                                          'soldById': user?.uid ?? '',
+                                          'sellingPrice': salePrice,
+                                          'soldQuantity': qty,
+                                          'billGenerated': true,
+                                          'billGeneratedAt':
+                                              FieldValue.serverTimestamp(),
+                                        });
+                                  } else {
+                                    await _firestore
+                                        .collection('applianceStock')
+                                        .doc(modelId)
+                                        .update({
+                                          'quantity': quantity - qty,
+                                          'lastUpdatedAt':
+                                              FieldValue.serverTimestamp(),
+                                          'lastUpdatedBy':
+                                              user?.email ??
+                                              user?.name ??
+                                              'Unknown',
+                                        });
+
+                                    final soldRecord = {
+                                      'category': _fixedCategory,
+                                      'productBrand': productBrand,
+                                      'productName': productName,
+                                      'productPrice': price,
+                                      'quantity': qty,
+                                      'sellingPrice': salePrice,
+                                      'totalAmount': qty * salePrice,
+                                      'shopId': currentShopId,
+                                      'shopName': currentShopName,
+                                      'soldBy':
+                                          user?.email ??
+                                          user?.name ??
+                                          'Unknown',
+                                      'soldById': user?.uid ?? '',
+                                      'soldAt': FieldValue.serverTimestamp(),
+                                      'originalStockId': modelId,
+                                      'billGenerated': true,
+                                      'billGeneratedAt':
+                                          FieldValue.serverTimestamp(),
+                                    };
+
+                                    await _firestore
+                                        .collection('applianceSoldRecords')
+                                        .add(soldRecord);
+                                  }
+
+                                  setState(() => _isLoading = false);
+                                  _showSuccess(
+                                    '$qty unit(s) sold and bill generated successfully!',
                                   );
                                 }
                               },
@@ -2052,7 +2689,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                                 ),
                               )
                             : const Text(
-                                'Sell',
+                                'Generate Bill',
                                 style: TextStyle(fontSize: 12),
                               ),
                       ),
@@ -2076,60 +2713,84 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                     ),
                   )
                 else
-                  SizedBox(
-                    height: 150,
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: filteredShops.length,
-                      itemBuilder: (context, index) {
-                        final shop = filteredShops[index];
-                        return ListTile(
-                          leading: const Icon(
-                            Icons.store,
-                            color: Colors.green,
-                            size: 18,
-                          ),
-                          title: Text(
-                            shop['name'] as String? ?? 'Unknown Shop',
-                            style: const TextStyle(fontSize: 12),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle:
-                              shop['address'] != null &&
-                                  (shop['address'] as String).isNotEmpty
-                              ? Text(
-                                  shop['address'] as String,
-                                  style: const TextStyle(fontSize: 10),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                )
-                              : null,
-                          onTap: _isLoading
-                              ? null
-                              : () {
-                                  if (modelId.isNotEmpty) {
-                                    _transferToShop(
-                                      modelId,
-                                      model,
-                                      shop['id'] as String? ?? '',
-                                      shop['name'] as String? ?? 'Unknown Shop',
-                                    );
-                                  } else {
-                                    _showError(
-                                      'Model ID not found. Please try again.',
-                                    );
-                                  }
-                                },
-                          dense: true,
-                          visualDensity: VisualDensity.compact,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 4,
-                          ),
-                        );
-                      },
-                    ),
+                  Column(
+                    children: [
+                      TextFormField(
+                        controller: _transferQuantityController,
+                        decoration: const InputDecoration(
+                          labelText: 'Quantity to Transfer *',
+                          border: OutlineInputBorder(),
+                          helperText: 'Enter quantity to transfer',
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        height: 150,
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: filteredShops.length,
+                          itemBuilder: (context, index) {
+                            final shop = filteredShops[index];
+                            return ListTile(
+                              leading: const Icon(
+                                Icons.store,
+                                color: Colors.green,
+                                size: 18,
+                              ),
+                              title: Text(
+                                shop['name'] as String? ?? 'Unknown Shop',
+                                style: const TextStyle(fontSize: 12),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle:
+                                  shop['address'] != null &&
+                                      (shop['address'] as String).isNotEmpty
+                                  ? Text(
+                                      shop['address'] as String,
+                                      style: const TextStyle(fontSize: 10),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    )
+                                  : null,
+                              onTap: _isLoading
+                                  ? null
+                                  : () async {
+                                      final qtyText =
+                                          _transferQuantityController.text;
+                                      final qty = int.tryParse(qtyText);
+                                      if (qty == null || qty <= 0) {
+                                        _showError(
+                                          'Please enter valid quantity',
+                                        );
+                                        return;
+                                      }
+                                      if (qty > quantity) {
+                                        _showError(
+                                          'Cannot transfer more than available stock ($quantity units)',
+                                        );
+                                        return;
+                                      }
+                                      await _transferToShop(
+                                        modelId,
+                                        model,
+                                        shop['id'] as String? ?? '',
+                                        shop['name'] as String? ??
+                                            'Unknown Shop',
+                                      );
+                                    },
+                              dense: true,
+                              visualDensity: VisualDensity.compact,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 4,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ),
 
                 const SizedBox(height: 20),
@@ -2140,6 +2801,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                         onPressed: _isLoading
                             ? null
                             : () {
+                                _transferQuantityController.clear();
                                 setState(() => _selectedModelForAction = null);
                               },
                         style: OutlinedButton.styleFrom(
@@ -2155,8 +2817,8 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                 ),
               ] else if (_selectedAction == 'return') ...[
                 const Text(
-                  'Are you sure you want to return this appliance?',
-                  style: TextStyle(fontSize: 12, color: Colors.orange),
+                  'Enter return details:',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -2164,30 +2826,27 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                   style: const TextStyle(fontSize: 11, color: Colors.green),
                 ),
                 const SizedBox(height: 8),
+                TextFormField(
+                  controller: _returnQuantityController,
+                  decoration: const InputDecoration(
+                    labelText: 'Quantity to Return *',
+                    border: OutlineInputBorder(),
+                    helperText: 'Enter quantity to return',
+                  ),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 8),
                 const Text(
                   'This will remove the selected quantity from available stock and create a return record.',
                   style: TextStyle(fontSize: 10, color: Colors.grey),
                 ),
-                if (quantity > 1) ...[
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: TextEditingController(
-                      text: quantity.toString(),
-                    ),
-                    decoration: const InputDecoration(
-                      labelText: 'Quantity to Return',
-                      border: OutlineInputBorder(),
-                    ),
-                    keyboardType: TextInputType.number,
-                  ),
-                ],
-
                 const SizedBox(height: 20),
                 Row(
                   children: [
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () {
+                          _returnQuantityController.clear();
                           setState(() => _selectedModelForAction = null);
                         },
                         style: OutlinedButton.styleFrom(
@@ -2205,13 +2864,19 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                         onPressed: _isLoading
                             ? null
                             : () {
-                                if (modelId.isNotEmpty) {
-                                  _returnModel(modelId, model);
-                                } else {
-                                  _showError(
-                                    'Model ID not found. Please try again.',
-                                  );
+                                final qtyText = _returnQuantityController.text;
+                                final qty = int.tryParse(qtyText);
+                                if (qty == null || qty <= 0) {
+                                  _showError('Please enter valid quantity');
+                                  return;
                                 }
+                                if (qty > quantity) {
+                                  _showError(
+                                    'Cannot return more than available stock ($quantity units)',
+                                  );
+                                  return;
+                                }
+                                _returnModel(modelId, model);
                               },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.orange,
@@ -2291,7 +2956,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
   Widget _buildQuickScanButton() {
     return FloatingActionButton.extended(
       onPressed: () {
-        // Optional: Add barcode scanner for product lookup
         _showError('Scanner feature coming soon for appliances');
       },
       icon: const Icon(Icons.qr_code_scanner),
@@ -2467,6 +3131,11 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
               overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 4),
+            Text(
+              'Category: $_fixedCategory',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 2),
             Text(
               _formatPrice(price),
               style: const TextStyle(
@@ -3376,6 +4045,9 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                                     'id': modelId,
                                   };
                                   _selectedAction = 'sell';
+                                  _sellQuantityController.text = '1';
+                                  _sellPriceController.text =
+                                      price?.toString() ?? '';
                                 });
                               }
                             : null,
@@ -3387,6 +4059,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                                     'id': modelId,
                                   };
                                   _selectedAction = 'transfer';
+                                  _transferQuantityController.text = '1';
                                 });
                               }
                             : null,
@@ -3398,6 +4071,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                                     'id': modelId,
                                   };
                                   _selectedAction = 'return';
+                                  _returnQuantityController.text = '1';
                                 });
                               }
                             : null,
@@ -3597,7 +4271,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
             ),
 
           if (_showAddStockModal) _buildAddStockModal(),
-
+          if (_showAddBrandModal) _buildAddBrandModal(),
           if (_selectedModelForAction != null) _buildActionModal(),
         ],
       ),

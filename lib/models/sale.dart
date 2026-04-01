@@ -35,6 +35,8 @@ class Sale {
   final DateTime? addedAt;
   final String? imei;
   final String? defect;
+  final String? productName;
+  final String? modelName;
 
   // NEW FIELDS from your data model
   final double? price;
@@ -66,6 +68,8 @@ class Sale {
     this.salesPersonName,
     this.salesPersonEmail,
     this.serviceAmount,
+    this.productName,
+    this.modelName,
     this.accessoriesAmount,
     this.paymentBreakdownVerified,
     this.paymentVerified,
