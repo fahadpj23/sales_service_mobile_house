@@ -279,11 +279,11 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
               border: Border.all(color: Colors.grey.shade300),
             ),
             child: TextField(
-              style: const TextStyle(fontSize: 13),
+              style: const TextStyle(fontSize: 13, color: Colors.black87),
               textAlign: TextAlign.left,
               decoration: InputDecoration(
                 hintText: 'Search by Product Name, Brand...',
-                hintStyle: const TextStyle(fontSize: 12),
+                hintStyle: const TextStyle(fontSize: 12, color: Colors.grey),
                 prefixIcon: Icon(Icons.search, color: primaryGreen, size: 18),
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(
@@ -323,13 +323,18 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                       size: 18,
                       color: primaryGreen,
                     ),
-                    style: TextStyle(fontSize: 12, color: primaryGreen),
+                    dropdownColor: Colors.white,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.black87,
+                      fontWeight: FontWeight.w500,
+                    ),
                     items: const [
                       DropdownMenuItem(
                         value: 'all',
                         child: Text(
                           'All Status',
-                          style: TextStyle(fontSize: 12),
+                          style: TextStyle(fontSize: 12, color: Colors.black87),
                           textAlign: TextAlign.left,
                         ),
                       ),
@@ -337,7 +342,7 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                         value: 'available',
                         child: Text(
                           'Available',
-                          style: TextStyle(fontSize: 12),
+                          style: TextStyle(fontSize: 12, color: Colors.black87),
                           textAlign: TextAlign.left,
                         ),
                       ),
@@ -345,7 +350,7 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                         value: 'sold',
                         child: Text(
                           'Sold',
-                          style: TextStyle(fontSize: 12),
+                          style: TextStyle(fontSize: 12, color: Colors.black87),
                           textAlign: TextAlign.left,
                         ),
                       ),
@@ -379,10 +384,15 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                       size: 18,
                       color: primaryGreen,
                     ),
-                    style: TextStyle(fontSize: 12, color: primaryGreen),
+                    dropdownColor: Colors.white,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.black87,
+                      fontWeight: FontWeight.w500,
+                    ),
                     hint: const Text(
                       'All Shops',
-                      style: TextStyle(fontSize: 12),
+                      style: TextStyle(fontSize: 12, color: Colors.black87),
                       textAlign: TextAlign.left,
                     ),
                     items: [
@@ -390,7 +400,7 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                         value: null,
                         child: Text(
                           'All Shops',
-                          style: TextStyle(fontSize: 12),
+                          style: TextStyle(fontSize: 12, color: Colors.black87),
                           textAlign: TextAlign.left,
                         ),
                       ),
@@ -399,7 +409,10 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                           value: shop['id'] as String?,
                           child: Text(
                             shop['name'] as String? ?? 'Unknown',
-                            style: const TextStyle(fontSize: 12),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.black87,
+                            ),
                             overflow: TextOverflow.ellipsis,
                             textAlign: TextAlign.left,
                           ),
@@ -448,10 +461,18 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                             size: 18,
                             color: primaryGreen,
                           ),
-                          style: TextStyle(fontSize: 12, color: primaryGreen),
+                          dropdownColor: Colors.white,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.black87,
+                            fontWeight: FontWeight.w500,
+                          ),
                           hint: const Text(
                             'All Brands',
-                            style: TextStyle(fontSize: 12),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.black87,
+                            ),
                             textAlign: TextAlign.left,
                           ),
                           items: [
@@ -459,7 +480,10 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                               value: null,
                               child: Text(
                                 'All Brands',
-                                style: TextStyle(fontSize: 12),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black87,
+                                ),
                                 textAlign: TextAlign.left,
                               ),
                             ),
@@ -468,7 +492,10 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                                 value: brand,
                                 child: Text(
                                   brand,
-                                  style: const TextStyle(fontSize: 12),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.black87,
+                                  ),
                                   overflow: TextOverflow.ellipsis,
                                   textAlign: TextAlign.left,
                                 ),

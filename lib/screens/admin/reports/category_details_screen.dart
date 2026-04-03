@@ -29,14 +29,49 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
   bool _showCustomDatePicker = false;
 
   @override
+  void initState() {
+    super.initState();
+    _debugCheckDates();
+  }
+
+  void _debugCheckDates() {
+    print('=== DEBUG: Total sales received: ${widget.sales.length} ===');
+    int validDates = 0;
+    int nullDates = 0;
+
+    for (var sale in widget.sales) {
+      if (sale.category == 'Base Model' || sale.category == 'Second Phone') {
+        print('Sale ID: ${sale.id}');
+        print('  Type: ${sale.type}');
+        print('  Category: ${sale.category}');
+        print('  Date object: ${sale.date}');
+        print('  Date type: ${sale.date.runtimeType}');
+        print('  Amount: ${sale.amount}');
+        print('---');
+
+        if (sale.date != null) {
+          validDates++;
+        } else {
+          nullDates++;
+        }
+      }
+    }
+    print('=== Valid dates: $validDates, Null dates: $nullDates ===');
+  }
+
+  @override
   Widget build(BuildContext context) {
     List<Sale> filteredSales = _filterSales();
+
+    print('=== Filtered sales count: ${filteredSales.length} ===');
 
     List<String> categoriesToShow = _getCategoriesForDisplay();
 
     List<Sale> categorySales = filteredSales
         .where((sale) => categoriesToShow.contains(sale.category))
         .toList();
+
+    print('=== Category sales count: ${categorySales.length} ===');
 
     Map<String, List<Sale>> shopWiseSales = {};
     for (var sale in categorySales) {
@@ -66,245 +101,340 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
         elevation: 3,
         centerTitle: true,
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            _buildTimePeriodFilter(),
-            Container(
-              padding: EdgeInsets.all(16),
-              child: Card(
-                elevation: 3,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          setState(() {});
+          return Future.value();
+        },
+        color: Color(0xFF0A4D2E),
+        child: SingleChildScrollView(
+          physics: AlwaysScrollableScrollPhysics(),
+          child: Column(
+            children: [
+              _buildTimePeriodFilter(),
+              Container(
+                padding: EdgeInsets.all(16),
+                child: Card(
+                  elevation: 3,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          children: [
+                            Text(
+                              'Total Sales',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              '₹${widget.formatNumber(totalSales)}',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF0A4D2E),
+                              ),
+                            ),
+                          ],
+                        ),
+                        Column(
+                          children: [
+                            Text(
+                              'Total Items',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              '${categorySales.length}',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1A7D4A),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        children: [
-                          Text(
-                            'Total Sales',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            '₹${widget.formatNumber(totalSales)}',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF0A4D2E),
-                            ),
-                          ),
-                        ],
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.calendar_today,
+                      size: 16,
+                      color: Color(0xFF0A4D2E),
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      _getTimePeriodLabel(),
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFF0A4D2E),
+                        fontWeight: FontWeight.w600,
                       ),
-                      Column(
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Shop-wise Breakdown',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF0A4D2E),
+                      ),
+                    ),
+                    if (categorySales.isNotEmpty)
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Color(0xFF0A4D2E).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '${shopWiseSales.length} Shops',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF0A4D2E),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              SizedBox(height: 8),
+              if (categorySales.isEmpty)
+                Container(
+                  padding: EdgeInsets.all(32),
+                  child: Column(
+                    children: [
+                      Icon(Icons.inbox, size: 64, color: Colors.grey[400]),
+                      SizedBox(height: 16),
+                      Text(
+                        'No sales found for ${_getDisplayTitle().toLowerCase()} in ${_getTimePeriodLabel().toLowerCase()}',
+                        style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+                        textAlign: TextAlign.center,
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'Try selecting a different time period',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                      ),
+                      SizedBox(height: 16),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
                         children: [
-                          Text(
-                            'Total Items',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey[600],
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _timePeriod = 'previous_month';
+                                _customStartDate = null;
+                                _customEndDate = null;
+                                _showCustomDatePicker = false;
+                              });
+                            },
+                            icon: Icon(Icons.arrow_back),
+                            label: Text('Previous Month'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Color(0xFF0A4D2E),
+                              foregroundColor: Colors.white,
                             ),
                           ),
-                          SizedBox(height: 4),
-                          Text(
-                            '${categorySales.length}',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF1A7D4A),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _timePeriod = 'yearly';
+                                _customStartDate = null;
+                                _customEndDate = null;
+                                _showCustomDatePicker = false;
+                              });
+                            },
+                            icon: Icon(Icons.calendar_today),
+                            label: Text('Yearly'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Color(0xFF0A4D2E),
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _timePeriod = 'all_time';
+                                _customStartDate = null;
+                                _customEndDate = null;
+                                _showCustomDatePicker = false;
+                              });
+                            },
+                            icon: Icon(Icons.all_inclusive),
+                            label: Text('All Time'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Color(0xFF0A4D2E),
+                              foregroundColor: Colors.white,
                             ),
                           ),
                         ],
                       ),
                     ],
                   ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.calendar_today,
-                    size: 16,
-                    color: Color(0xFF0A4D2E),
-                  ),
-                  SizedBox(width: 8),
-                  Text(
-                    _getTimePeriodLabel(),
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF0A4D2E),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(height: 16),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                'Shop-wise Breakdown',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF0A4D2E),
-                ),
-              ),
-            ),
-            SizedBox(height: 8),
-            ...shopWiseSales.entries.map((entry) {
-              String shopName = entry.key;
-              List<Sale> shopSales = entry.value;
-              double shopTotal = shopSales.fold(
-                0.0,
-                (sum, sale) => sum + sale.amount,
-              );
+                )
+              else
+                ...shopWiseSales.entries.map((entry) {
+                  String shopName = entry.key;
+                  List<Sale> shopSales = entry.value;
+                  double shopTotal = shopSales.fold(
+                    0.0,
+                    (sum, sale) => sum + sale.amount,
+                  );
 
-              return GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _expandedShop = _expandedShop == shopName ? null : shopName;
-                  });
-                },
-                child: Container(
-                  margin: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: Card(
-                    elevation: 2,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  return GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _expandedShop = _expandedShop == shopName
+                            ? null
+                            : shopName;
+                      });
+                    },
+                    child: Container(
+                      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      child: Card(
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: Text(
-                                  shopName,
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
                               Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Container(
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Color(0xFF1A7D4A).withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
+                                  Expanded(
                                     child: Text(
-                                      '${shopSales.length} items',
+                                      shopName,
                                       style: TextStyle(
-                                        fontSize: 12,
-                                        color: Color(0xFF1A7D4A),
-                                        fontWeight: FontWeight.w600,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                   ),
-                                  SizedBox(width: 8),
-                                  Icon(
-                                    _expandedShop == shopName
-                                        ? Icons.expand_less
-                                        : Icons.expand_more,
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Color(
+                                            0xFF1A7D4A,
+                                          ).withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          '${shopSales.length} items',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Color(0xFF1A7D4A),
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                      SizedBox(width: 8),
+                                      Icon(
+                                        _expandedShop == shopName
+                                            ? Icons.expand_less
+                                            : Icons.expand_more,
+                                        color: Color(0xFF0A4D2E),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              SizedBox(height: 8),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Total: ₹${widget.formatNumber(shopTotal)}',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF0A4D2E),
+                                        ),
+                                      ),
+                                      Text(
+                                        'Avg: ₹${widget.formatNumber(shopTotal / shopSales.length)}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              if (_expandedShop == shopName) ...[
+                                SizedBox(height: 16),
+                                Divider(),
+                                SizedBox(height: 8),
+                                Text(
+                                  'Items Details:',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
                                     color: Color(0xFF0A4D2E),
                                   ),
-                                ],
-                              ),
+                                ),
+                                SizedBox(height: 8),
+                                ...shopSales.map((sale) {
+                                  return _buildSaleItemCard(sale);
+                                }).toList(),
+                              ],
                             ],
                           ),
-                          SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Total: ₹${widget.formatNumber(shopTotal)}',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                      color: Color(0xFF0A4D2E),
-                                    ),
-                                  ),
-                                  Text(
-                                    'Avg: ₹${widget.formatNumber(shopTotal / shopSales.length)}',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                          if (_expandedShop == shopName) ...[
-                            SizedBox(height: 16),
-                            Divider(),
-                            SizedBox(height: 8),
-                            Text(
-                              'Items Details:',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
-                                color: Color(0xFF0A4D2E),
-                              ),
-                            ),
-                            SizedBox(height: 8),
-                            ...shopSales.map((sale) {
-                              return GestureDetector(
-                                onTap: () {},
-                                child: _buildSaleItemCard(sale),
-                              );
-                            }).toList(),
-                          ],
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-                ),
-              );
-            }).toList(),
-            if (categorySales.isEmpty)
-              Container(
-                padding: EdgeInsets.all(32),
-                child: Column(
-                  children: [
-                    Icon(Icons.inbox, size: 64, color: Colors.grey[400]),
-                    SizedBox(height: 16),
-                    Text(
-                      'No sales found for ${_getDisplayTitle().toLowerCase()} in ${_getTimePeriodLabel().toLowerCase()}',
-                      style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-                      textAlign: TextAlign.center,
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Try selecting a different time period',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                    ),
-                  ],
-                ),
-              ),
-          ],
+                  );
+                }).toList(),
+              SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );
@@ -386,6 +516,11 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
                     'Yearly',
                     'yearly',
                     Icons.calendar_today,
+                  ),
+                  _buildTimePeriodChip(
+                    'All Time',
+                    'all_time',
+                    Icons.all_inclusive,
                   ),
                   _buildTimePeriodChip('Custom', 'custom', Icons.date_range),
                 ],
@@ -531,6 +666,7 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
                           ? () {
                               setState(() {
                                 _timePeriod = 'custom';
+                                _showCustomDatePicker = false;
                               });
                             }
                           : null,
@@ -655,113 +791,148 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
   }
 
   List<Sale> _filterSales() {
+    // First, filter by category
+    List<String> categoriesToShow = _getCategoriesForDisplay();
+    List<Sale> categoryFilteredSales = widget.sales
+        .where((sale) => categoriesToShow.contains(sale.category))
+        .toList();
+
+    print('=== Category filtered sales: ${categoryFilteredSales.length} ===');
+
+    // If no sales in this category, return empty list
+    if (categoryFilteredSales.isEmpty) {
+      return [];
+    }
+
+    // Handle All Time filter separately
+    if (_timePeriod == 'all_time') {
+      print('Showing all time sales: ${categoryFilteredSales.length}');
+      return categoryFilteredSales;
+    }
+
+    // Get current date
     DateTime now = DateTime.now();
     DateTime startDate;
     DateTime endDate;
 
-    // Calculate start and end dates based on selected period
+    // Calculate date range based on selected period
     switch (_timePeriod) {
       case 'today':
-        startDate = DateTime(now.year, now.month, now.day, 0, 0, 0);
-        endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
+        startDate = DateTime(now.year, now.month, now.day);
+        endDate = DateTime(now.year, now.month, now.day);
         break;
+
       case 'yesterday':
-        final yesterday = now.subtract(Duration(days: 1));
-        startDate = DateTime(
-          yesterday.year,
-          yesterday.month,
-          yesterday.day,
-          0,
-          0,
-          0,
-        );
-        endDate = DateTime(
-          yesterday.year,
-          yesterday.month,
-          yesterday.day,
-          23,
-          59,
-          59,
-        );
+        DateTime yesterday = DateTime(now.year, now.month, now.day - 1);
+        startDate = DateTime(yesterday.year, yesterday.month, yesterday.day);
+        endDate = DateTime(yesterday.year, yesterday.month, yesterday.day);
         break;
+
       case 'previous_month':
-        final firstDayOfCurrentMonth = DateTime(now.year, now.month, 1);
-        final lastDayOfPreviousMonth = firstDayOfCurrentMonth.subtract(
+        DateTime firstDayCurrentMonth = DateTime(now.year, now.month, 1);
+        DateTime lastDayPreviousMonth = firstDayCurrentMonth.subtract(
           Duration(days: 1),
         );
         startDate = DateTime(
-          lastDayOfPreviousMonth.year,
-          lastDayOfPreviousMonth.month,
+          lastDayPreviousMonth.year,
+          lastDayPreviousMonth.month,
           1,
-          0,
-          0,
-          0,
         );
         endDate = DateTime(
-          lastDayOfPreviousMonth.year,
-          lastDayOfPreviousMonth.month,
-          lastDayOfPreviousMonth.day,
-          23,
-          59,
-          59,
+          lastDayPreviousMonth.year,
+          lastDayPreviousMonth.month,
+          lastDayPreviousMonth.day,
         );
         break;
+
       case 'monthly':
-        startDate = DateTime(now.year, now.month, 1, 0, 0, 0);
-        endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = DateTime(now.year, now.month + 1, 0);
         break;
+
       case 'yearly':
-        startDate = DateTime(now.year, 1, 1, 0, 0, 0);
-        endDate = DateTime(now.year, 12, 31, 23, 59, 59);
+        startDate = DateTime(now.year, 1, 1);
+        endDate = DateTime(now.year, 12, 31);
         break;
+
       case 'custom':
         if (_customStartDate != null && _customEndDate != null) {
           startDate = DateTime(
             _customStartDate!.year,
             _customStartDate!.month,
             _customStartDate!.day,
-            0,
-            0,
-            0,
           );
           endDate = DateTime(
             _customEndDate!.year,
             _customEndDate!.month,
             _customEndDate!.day,
-            23,
-            59,
-            59,
           );
         } else {
-          startDate = DateTime(now.year, now.month, 1, 0, 0, 0);
-          endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+          // Default to current month if custom dates not set
+          startDate = DateTime(now.year, now.month, 1);
+          endDate = DateTime(now.year, now.month + 1, 0);
         }
         break;
+
       default:
-        startDate = DateTime(now.year, now.month, 1, 0, 0, 0);
-        endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = DateTime(now.year, now.month + 1, 0);
     }
 
-    // Filter sales using the date parameter
-    List<Sale> filteredSales = widget.sales.where((sale) {
-      // Extract the actual date from the sale
-      DateTime saleDate = _extractDateFromSale(sale);
+    print('Filter period: $_timePeriod');
+    print('Start date: ${DateFormat('yyyy-MM-dd').format(startDate)}');
+    print('End date: ${DateFormat('yyyy-MM-dd').format(endDate)}');
 
-      // Check if the sale date is within the selected range
+    // Filter by date range
+    List<Sale> dateFilteredSales = categoryFilteredSales.where((sale) {
+      DateTime? saleDate = _extractDateFromSale(sale);
+
+      if (saleDate == null) {
+        print('Warning: Sale ${sale.id} has no valid date');
+        return false;
+      }
+
+      // Extract just the date part for comparison
+      DateTime saleDateOnly = DateTime(
+        saleDate.year,
+        saleDate.month,
+        saleDate.day,
+      );
+      DateTime startDateOnly = DateTime(
+        startDate.year,
+        startDate.month,
+        startDate.day,
+      );
+      DateTime endDateOnly = DateTime(endDate.year, endDate.month, endDate.day);
+
+      // Check if sale date is within range (inclusive)
       bool isInRange =
-          saleDate.isAfter(startDate.subtract(Duration(milliseconds: 1))) &&
-          saleDate.isBefore(endDate.add(Duration(milliseconds: 1)));
+          (saleDateOnly.isAfter(startDateOnly.subtract(Duration(days: 1))) &&
+          saleDateOnly.isBefore(endDateOnly.add(Duration(days: 1))));
+
+      if (isInRange) {
+        print(
+          'Sale ${sale.id} date ${DateFormat('yyyy-MM-dd').format(saleDate)} is IN range',
+        );
+      } else {
+        print(
+          'Sale ${sale.id} date ${DateFormat('yyyy-MM-dd').format(saleDate)} is OUT of range',
+        );
+      }
 
       return isInRange;
     }).toList();
 
-    return filteredSales;
+    print(
+      'Final filtered sales: ${dateFilteredSales.length} out of ${categoryFilteredSales.length}',
+    );
+
+    return dateFilteredSales;
   }
 
-  DateTime _extractDateFromSale(Sale sale) {
+  DateTime? _extractDateFromSale(Sale sale) {
     try {
-      // Try to get the date from the sale object
-      // The date is stored in the 'date' field
+      // Direct access to sale.date property
       if (sale.date != null) {
         if (sale.date is DateTime) {
           return sale.date as DateTime;
@@ -772,14 +943,17 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
         }
       }
 
-      // Fallback to current date if no valid date found
+      // For debugging purposes
       print(
-        'Warning: Could not parse date for sale ${sale.id}, using current date',
+        'Could not extract valid date for sale: ${sale.id}, type: ${sale.type}, category: ${sale.category}',
       );
-      return DateTime.now();
+      print('  sale.date value: ${sale.date}');
+      print('  sale.date type: ${sale.date.runtimeType}');
+
+      return null;
     } catch (e) {
       print('Error extracting date from sale: $e');
-      return DateTime.now();
+      return null;
     }
   }
 
@@ -797,6 +971,8 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
         return 'Current Month Sales (${DateFormat('MMM yyyy').format(DateTime.now())})';
       case 'yearly':
         return 'Yearly Sales (${DateTime.now().year})';
+      case 'all_time':
+        return 'All Time Sales';
       case 'custom':
         if (_customStartDate != null && _customEndDate != null) {
           return 'Custom Period: ${DateFormat('dd/MM/yyyy').format(_customStartDate!)} - ${DateFormat('dd/MM/yyyy').format(_customEndDate!)}';
@@ -844,9 +1020,20 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
                   color: Color(0xFF0A4D2E),
                 ),
               ),
-              Text(
-                _formatDate(sale.date),
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _getSaleTypeColor(sale.type).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  _getDisplayTypeName(sale.type),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: _getSaleTypeColor(sale.type),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ],
           ),
@@ -873,22 +1060,17 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
           if (sale.salesPersonEmail != null &&
               sale.salesPersonEmail!.isNotEmpty)
             _buildInfoRow('Sales Email:', sale.salesPersonEmail!),
-          Container(
-            margin: EdgeInsets.only(top: 4),
-            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: _getSaleTypeColor(sale.type).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: _getSaleTypeColor(sale.type)),
-            ),
-            child: Text(
-              _getDisplayTypeName(sale.type),
-              style: TextStyle(
-                fontSize: 10,
-                color: _getSaleTypeColor(sale.type),
-                fontWeight: FontWeight.w600,
+          SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Icon(Icons.calendar_today, size: 12, color: Colors.grey[500]),
+              SizedBox(width: 4),
+              Text(
+                _formatDate(sale.date),
+                style: TextStyle(fontSize: 11, color: Colors.grey[600]),
               ),
-            ),
+            ],
           ),
         ],
       ),
@@ -946,6 +1128,7 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
           backgroundColor: Colors.green[50],
           labelStyle: TextStyle(fontSize: 10),
           padding: EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
       );
     }
@@ -957,6 +1140,7 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
           backgroundColor: Colors.blue[50],
           labelStyle: TextStyle(fontSize: 10),
           padding: EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
       );
     }
@@ -968,6 +1152,7 @@ class _CategoryDetailsScreenState extends State<CategoryDetailsScreen> {
           backgroundColor: Colors.orange[50],
           labelStyle: TextStyle(fontSize: 10),
           padding: EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
       );
     }

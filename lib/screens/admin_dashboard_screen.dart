@@ -9,6 +9,8 @@ import 'package:sales_stock/screens/admin/analysis/payment_breakdown_screen.dart
 import 'package:sales_stock/screens/admin/inventory/appliance_stock_screen.dart';
 import 'package:sales_stock/screens/admin/inventory/base_model_stock_screen.dart';
 import 'package:sales_stock/screens/admin/inventory/tv_stock_screen.dart';
+import 'package:sales_stock/screens/admin/reports/basemodel_report-screen.dart';
+import 'package:sales_stock/screens/admin/reports/seconds_phone_report.dart';
 import 'package:sales_stock/screens/login_screen.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../services/auth_service.dart';
@@ -1653,41 +1655,40 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             },
           ),
           _buildDrawerItem(
-            Icons.phone_iphone,
-            'Second Phone Sales',
+            Icons.analytics_outlined,
+            'Base Model Details',
             onTap: () {
               Navigator.pop(context);
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => CategoryDetailsScreen(
-                    category: 'Second Phone',
-                    sales: _filterSales(),
+                  builder: (context) => BaseModelReportScreen(
+                    allSales: allSales,
                     formatNumber: _formatNumber,
-                    getCategoryColor: _getCategoryColor,
+                    shops: shops,
                   ),
                 ),
               );
             },
           ),
           _buildDrawerItem(
-            Icons.phone,
-            'Base Model Sales',
+            Icons.analytics_outlined,
+            'Second Phone Sales',
             onTap: () {
               Navigator.pop(context);
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => CategoryDetailsScreen(
-                    category: 'Base Model',
-                    sales: _filterSales(),
+                  builder: (context) => SecondPhoneSaleReportScreen(
+                    allSales: allSales,
                     formatNumber: _formatNumber,
-                    getCategoryColor: _getCategoryColor,
+                    shops: shops,
                   ),
                 ),
               );
             },
           ),
+
           Divider(height: 1),
 
           Padding(
