@@ -2,6 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:path_provider/path_provider.dart';
 
 class SalesHistoryScreen extends StatefulWidget {
   final String shopId;
@@ -32,7 +39,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     'Base Models',
   ];
 
-  // Date filter options
   String selectedDateFilter = 'Monthly';
   final List<String> dateFilterOptions = [
     'Today',
@@ -48,24 +54,72 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   DateTime? customEndDate;
   String currentPeriodText = '';
 
-  // Search
   final TextEditingController searchController = TextEditingController();
   String searchQuery = '';
 
-  // Report data
   double totalAmount = 0.0;
   int totalSales = 0;
   Map<String, double> typeTotals = {};
+
+  final Color _primaryColor = const Color(0xFF10B981);
+  final Color _whatsappColor = const Color(0xFF25D366);
+  final Color _shareColor = const Color(0xFF3B82F6);
+
+  Uint8List? _logoImage;
+  Uint8List? _sealImage;
+
+  // Shop details for sharing
+  String? _shopMobileNumber;
+  String? _shopWhatsAppNumber;
+  String? _shopInstagram;
 
   @override
   void initState() {
     super.initState();
     _initializeDates();
+    _loadImages();
+    _getShopDetails();
     if (widget.shopId.isEmpty) {
       _showError('Shop ID is required to view sales history');
       setState(() => isLoading = false);
     } else {
       fetchSalesData();
+    }
+  }
+
+  Future<void> _getShopDetails() async {
+    try {
+      if (widget.shopId.isEmpty) return;
+
+      final shopDoc = await FirebaseFirestore.instance
+          .collection('Mobile_house_Shops')
+          .doc(widget.shopId)
+          .get();
+
+      if (shopDoc.exists) {
+        final shopData = shopDoc.data() ?? {};
+        setState(() {
+          _shopMobileNumber = shopData['phone']?.toString() ?? '';
+          _shopWhatsAppNumber =
+              shopData['whatsapp']?.toString() ??
+              shopData['phone']?.toString() ??
+              '';
+          _shopInstagram = shopData['instagram']?.toString() ?? 'mobile.house_';
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching shop details: $e');
+    }
+  }
+
+  Future<void> _loadImages() async {
+    try {
+      final logoByteData = await rootBundle.load('assets/mobileHouseLogo.png');
+      _logoImage = logoByteData.buffer.asUint8List();
+      final sealByteData = await rootBundle.load('assets/mobileHouseSeal.jpeg');
+      _sealImage = sealByteData.buffer.asUint8List();
+    } catch (e) {
+      print('Error loading images: $e');
     }
   }
 
@@ -88,15 +142,12 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       return;
     }
 
-    int totalFetched = 0;
-
     for (var collection in collectionNames) {
       try {
         final List<Map<String, dynamic>> periodSales =
             await _fetchSalesForCollection(collection);
 
         for (var sale in periodSales) {
-          // Add collection info and formatted data
           sale['collection'] = collection;
           sale['type'] = _getSaleType(collection);
           sale['displayDate'] = _formatDate(sale, collection);
@@ -105,7 +156,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
           sale['paymentInfo'] = _getPaymentInfo(sale, collection);
           sale['shopName'] = _getShopName(sale, collection);
 
-          // Include accessories and service amounts for accessories sales
           if (collection == 'accessories_service_sales') {
             sale['accessoriesAmount'] = (sale['accessoriesAmount'] ?? 0)
                 .toDouble();
@@ -113,17 +163,13 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
           }
 
           allSales.add(sale);
-          totalFetched++;
         }
       } catch (e) {
         print('Error fetching $collection: $e');
       }
     }
 
-    // Calculate report data
     _calculateReportData();
-
-    // Apply initial filter
     _applyFilter();
 
     setState(() => isLoading = false);
@@ -149,7 +195,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     final List<Map<String, dynamic>> sales = [];
 
     try {
-      // Get all sales for this shop (we'll filter by date in memory)
       final snapshot = await FirebaseFirestore.instance
           .collection(collection)
           .where('shopId', isEqualTo: widget.shopId)
@@ -163,7 +208,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
 
-        // Check if sale is in selected date range
         final saleDate = _getSaleDate(data, collection);
         if (_isDateInRange(saleDate, startDate, endDate)) {
           sales.add(data);
@@ -261,7 +305,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   }
 
   void _applyFilter() {
-    // First filter by type
     List<Map<String, dynamic>> tempSales;
     if (selectedFilter == 'All') {
       tempSales = List.from(allSales);
@@ -294,7 +337,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       }
     }
 
-    // Then filter by search query if any
     if (searchQuery.isNotEmpty) {
       final query = searchQuery.toLowerCase();
       tempSales = tempSales.where((sale) {
@@ -314,7 +356,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       }).toList();
     }
 
-    // Sort by date (newest first)
     tempSales.sort((a, b) {
       final dateA = _getSaleDate(a, a['collection'] as String);
       final dateB = _getSaleDate(b, b['collection'] as String);
@@ -370,13 +411,1107 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     fetchSalesData();
   }
 
+  // ==================== PDF BILL GENERATION (SAME AS BILLFORMSCREEN) ====================
+
+  String _amountToWords(String amount) {
+    try {
+      double value = double.parse(amount);
+      if (value == 0) return 'Zero Rupees Only';
+
+      int rupees = value.toInt();
+      int paise = ((value - rupees) * 100).round();
+
+      String rupeeWords = _convertNumberToWords(rupees);
+      String paiseWords = paise > 0
+          ? ' and ${_convertNumberToWords(paise)} Paise'
+          : '';
+
+      return '${rupeeWords.trim()} Rupees$paiseWords Only';
+    } catch (e) {
+      return 'Amount in words conversion failed';
+    }
+  }
+
+  String _convertNumberToWords(int number) {
+    if (number == 0) return 'Zero';
+
+    List<String> units = [
+      '',
+      'One',
+      'Two',
+      'Three',
+      'Four',
+      'Five',
+      'Six',
+      'Seven',
+      'Eight',
+      'Nine',
+    ];
+    List<String> teens = [
+      'Ten',
+      'Eleven',
+      'Twelve',
+      'Thirteen',
+      'Fourteen',
+      'Fifteen',
+      'Sixteen',
+      'Seventeen',
+      'Eighteen',
+      'Nineteen',
+    ];
+    List<String> tens = [
+      '',
+      '',
+      'Twenty',
+      'Thirty',
+      'Forty',
+      'Fifty',
+      'Sixty',
+      'Seventy',
+      'Eighty',
+      'Ninety',
+    ];
+
+    String words = '';
+
+    if (number >= 10000000) {
+      words += '${_convertNumberToWords(number ~/ 10000000)} Crore ';
+      number %= 10000000;
+    }
+
+    if (number >= 100000) {
+      words += '${_convertNumberToWords(number ~/ 100000)} Lakh ';
+      number %= 100000;
+    }
+
+    if (number >= 1000) {
+      words += '${_convertNumberToWords(number ~/ 1000)} Thousand ';
+      number %= 1000;
+    }
+
+    if (number >= 100) {
+      words += '${_convertNumberToWords(number ~/ 100)} Hundred ';
+      number %= 100;
+    }
+
+    if (number > 0) {
+      if (words.isNotEmpty) words += 'and ';
+
+      if (number < 10) {
+        words += units[number];
+      } else if (number < 20) {
+        words += teens[number - 10];
+      } else {
+        words += tens[number ~/ 10];
+        if (number % 10 > 0) {
+          words += ' ${units[number % 10]}';
+        }
+      }
+    }
+
+    return words.trim();
+  }
+
+  Future<Uint8List> _generatePdf(Map<String, dynamic> sale) async {
+    final pdf = pw.Document();
+    final pageFormat = PdfPageFormat.a4;
+    String currentDate = DateFormat('dd MMMM yyyy').format(DateTime.now());
+
+    final fullBillNumber =
+        sale['billNumber']?.toString() ??
+        sale['soldBillNo']?.toString() ??
+        'MH-${DateTime.now().millisecondsSinceEpoch}';
+
+    final customerName =
+        sale['customerInfo'] as String? ??
+        sale['customerName']?.toString() ??
+        'Walk-in Customer';
+    final customerMobile =
+        sale['customerPhone']?.toString() ??
+        sale['customerMobile']?.toString() ??
+        '';
+    final customerAddress = sale['address']?.toString() ?? '';
+
+    final phoneModel =
+        sale['productModel']?.toString() ??
+        sale['productName']?.toString() ??
+        'N/A';
+    final imei = sale['imei']?.toString() ?? '';
+
+    final totalAmount = (sale['displayAmount'] as num?)?.toDouble() ?? 0.0;
+    final taxableAmount = totalAmount / 1.18;
+    final gstAmount = totalAmount - taxableAmount;
+
+    final purchaseMode = sale['purchaseMode']?.toString() ?? '';
+    final financeType = sale['financeType']?.toString() ?? '';
+    final shopName = sale['shopName']?.toString() ?? 'MOBILE HOUSE';
+    final selectedShop = shopName.contains('Cherpu')
+        ? 'Cherpu'
+        : 'Peringottukara';
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: pageFormat,
+        margin: pw.EdgeInsets.all(15),
+        build: (pw.Context context) {
+          return _buildInvoiceContent(
+            currentDate: currentDate,
+            fullBillNumber: fullBillNumber,
+            customerName: customerName,
+            customerMobile: customerMobile,
+            customerAddress: customerAddress,
+            phoneModel: phoneModel,
+            imei: imei,
+            totalAmount: totalAmount,
+            taxableAmount: taxableAmount,
+            gstAmount: gstAmount,
+            selectedShop: selectedShop,
+            purchaseMode: purchaseMode,
+            financeType: financeType,
+          );
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  pw.Widget _buildInvoiceContent({
+    required String currentDate,
+    required String fullBillNumber,
+    required String customerName,
+    required String customerMobile,
+    required String customerAddress,
+    required String phoneModel,
+    required String imei,
+    required double totalAmount,
+    required double taxableAmount,
+    required double gstAmount,
+    required String selectedShop,
+    required String purchaseMode,
+    required String financeType,
+  }) {
+    return pw.Container(
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColors.black, width: 1.0),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          _buildHeader(currentDate, fullBillNumber, selectedShop),
+          _buildCustomerDetails(
+            customerName,
+            customerMobile,
+            customerAddress,
+            purchaseMode,
+            financeType,
+          ),
+          pw.SizedBox(height: 4),
+          _buildMainTable(
+            phoneModel,
+            imei,
+            taxableAmount,
+            gstAmount,
+            totalAmount,
+          ),
+          pw.Container(
+            height: 280,
+            child: pw.Stack(
+              children: [
+                if (_sealImage != null)
+                  pw.Positioned(
+                    right: 15,
+                    bottom: 18,
+                    child: pw.Transform.rotate(
+                      angle: 25 * 3.14159 / 180,
+                      child: pw.SizedBox(
+                        width: 150,
+                        height: 150,
+                        child: pw.Image(
+                          pw.MemoryImage(_sealImage!),
+                          fit: pw.BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          _buildTotalSection(totalAmount, taxableAmount, gstAmount),
+          _buildBottomSection(),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _buildHeader(
+    String currentDate,
+    String fullBillNumber,
+    String selectedShop,
+  ) {
+    return pw.Column(
+      children: [
+        pw.Padding(
+          padding: pw.EdgeInsets.all(8),
+          child: pw.Align(
+            alignment: pw.Alignment.centerLeft,
+            child: pw.Text(
+              'GSTIN: 32BSGPJ3340H1Z4',
+              style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+            ),
+          ),
+        ),
+        pw.Padding(
+          padding: pw.EdgeInsets.all(8),
+          child: pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.center,
+            children: [
+              pw.Column(
+                children: [
+                  if (_logoImage != null)
+                    pw.SizedBox(
+                      height: 45,
+                      child: pw.Image(
+                        pw.MemoryImage(_logoImage!),
+                        fit: pw.BoxFit.contain,
+                      ),
+                    )
+                  else
+                    pw.Text(
+                      'MOBILE HOUSE',
+                      style: pw.TextStyle(
+                        fontSize: 14,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  pw.SizedBox(height: 2),
+                  pw.Text(
+                    selectedShop == 'Peringottukara'
+                        ? "3way junction Peringottukara"
+                        : "Cherpu, Thayamkulangara",
+                    style: pw.TextStyle(fontSize: 11),
+                  ),
+                  pw.SizedBox(height: 2),
+                  pw.Text(
+                    selectedShop == 'Peringottukara'
+                        ? "Mob: 9072430483, 8304830868"
+                        : "Mob: 9544466724",
+                    style: pw.TextStyle(fontSize: 11),
+                  ),
+                  pw.SizedBox(height: 2),
+                  pw.Text("Mobile house", style: pw.TextStyle(fontSize: 11)),
+                  pw.SizedBox(height: 2),
+                  pw.Text(
+                    "GST TAX INVOICE (TYPE-B2C) - CASH SALE",
+                    style: pw.TextStyle(fontSize: 9),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        pw.Padding(
+          padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'STATE : KERALA',
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.SizedBox(height: 6),
+                  pw.Text(
+                    'Invoice No. : $fullBillNumber',
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Text(
+                    'STATE CODE : 32',
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.SizedBox(height: 6),
+                  pw.Text(
+                    'Invoice Date : $currentDate',
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        pw.Divider(color: PdfColors.black, thickness: 0.2, height: 0),
+      ],
+    );
+  }
+
+  pw.Widget _buildCustomerDetails(
+    String customerName,
+    String customerMobile,
+    String customerAddress,
+    String purchaseMode,
+    String financeType,
+  ) {
+    return pw.Padding(
+      padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: pw.Container(
+        padding: pw.EdgeInsets.all(2),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+              'Customer  : $customerName',
+              style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.SizedBox(height: 4),
+            if (customerAddress.isNotEmpty)
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text('Address     :', style: pw.TextStyle(fontSize: 11)),
+                  pw.SizedBox(width: 4),
+                  pw.Expanded(
+                    child: pw.Text(
+                      customerAddress.isNotEmpty ? customerAddress : "N/A",
+                      style: pw.TextStyle(fontSize: 11),
+                      maxLines: 2,
+                    ),
+                  ),
+                ],
+              ),
+            pw.SizedBox(height: 4),
+            pw.Text(
+              'Mobile Tel  : $customerMobile',
+              style: pw.TextStyle(fontSize: 11),
+            ),
+            pw.SizedBox(height: 6),
+            if (purchaseMode == 'EMI' && financeType.isNotEmpty)
+              pw.Row(
+                children: [
+                  pw.Text(
+                    'Finance       : ',
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.Text(
+                    financeType,
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.normal,
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  pw.Widget _buildMainTable(
+    String phoneModel,
+    String imei,
+    double taxableAmount,
+    double gstAmount,
+    double totalAmount,
+  ) {
+    return pw.Table(
+      border: pw.TableBorder.all(color: PdfColors.black, width: 0.5),
+      columnWidths: {
+        0: pw.FixedColumnWidth(40),
+        1: pw.FlexColumnWidth(2.5),
+        2: pw.FixedColumnWidth(60),
+        3: pw.FixedColumnWidth(25),
+        4: pw.FixedColumnWidth(50),
+        5: pw.FixedColumnWidth(70),
+        6: pw.FixedColumnWidth(45),
+        7: pw.FixedColumnWidth(50),
+        8: pw.FixedColumnWidth(60),
+      },
+      defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
+      children: [
+        pw.TableRow(
+          children: [
+            _buildTableCell('SLNO', isHeader: true),
+            _buildTableCell('Name of Item/Commodity', isHeader: true),
+            _buildTableCell('HSNCode', isHeader: true),
+            _buildTableCell('Qty', isHeader: true),
+            _buildTableCell(' Rate', isHeader: true),
+            _buildTableCell(' Discount', isHeader: true),
+            _buildTableCell('GST%', isHeader: true),
+            _buildTableCell('GST Amt', isHeader: true),
+            _buildTableCell('Total ', isHeader: true),
+          ],
+        ),
+        pw.TableRow(
+          children: [
+            _buildTableCell('1'),
+            _buildTableCell(
+              '${phoneModel.isNotEmpty ? phoneModel : ""}\nIMEI: ${imei.isNotEmpty ? imei : ""}',
+              textAlign: pw.TextAlign.left,
+              fontSize: 11,
+              maxLines: 3,
+            ),
+            _buildTableCell('85171300'),
+            _buildTableCell('1'),
+            _buildTableCell(taxableAmount.toStringAsFixed(2)),
+            _buildTableCell('0.00'),
+            _buildTableCell('18'),
+            _buildTableCell(gstAmount.toStringAsFixed(2)),
+            _buildTableCell(totalAmount.toStringAsFixed(2)),
+          ],
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _buildTotalSection(
+    double totalAmount,
+    double taxableAmount,
+    double gstAmount,
+  ) {
+    return pw.Column(
+      children: [
+        pw.SizedBox(height: 8),
+        pw.Divider(color: PdfColors.black, thickness: 0.5, height: 0),
+        pw.Padding(
+          padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text(
+                'Total',
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.Text(
+                '1',
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.Text(
+                taxableAmount.toStringAsFixed(2),
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.Text(
+                gstAmount.toStringAsFixed(2),
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.Text(
+                totalAmount.toStringAsFixed(2),
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+        pw.Divider(color: PdfColors.black, thickness: 0.5, height: 0),
+        pw.Padding(
+          padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'In Words: ${_amountToWords(totalAmount.toStringAsFixed(2))}',
+                style: pw.TextStyle(fontSize: 11),
+                maxLines: 2,
+              ),
+              pw.SizedBox(height: 4),
+              pw.Align(
+                alignment: pw.Alignment.centerRight,
+                child: pw.Text(
+                  'Total Amount: ${totalAmount.toStringAsFixed(2)}',
+                  style: pw.TextStyle(
+                    fontSize: 11,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _buildBottomSection() {
+    return pw.Padding(
+      padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Expanded(
+            flex: 2,
+            child: pw.Container(
+              padding: pw.EdgeInsets.all(2),
+              child: _buildGstBreakdownTable(),
+            ),
+          ),
+          pw.SizedBox(width: 10),
+          pw.Expanded(
+            flex: 1,
+            child: pw.Container(
+              padding: pw.EdgeInsets.all(6),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Text(
+                    'Certified that the particulars given above are true and correct',
+                    style: pw.TextStyle(
+                      fontSize: 9,
+                      fontStyle: pw.FontStyle.italic,
+                    ),
+                    textAlign: pw.TextAlign.right,
+                  ),
+                  pw.SizedBox(height: 15),
+                  pw.Text(
+                    'For MOBILE HOUSE',
+                    style: pw.TextStyle(
+                      fontSize: 9,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.SizedBox(height: 8),
+                  pw.Divider(color: PdfColors.black, thickness: 0.5),
+                  pw.SizedBox(height: 5),
+                  pw.Text(
+                    'Authorised Signatory',
+                    style: pw.TextStyle(fontSize: 8),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  pw.Table _buildGstBreakdownTable() {
+    return pw.Table(
+      border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+      columnWidths: {
+        0: pw.FixedColumnWidth(40),
+        1: pw.FixedColumnWidth(35),
+        2: pw.FixedColumnWidth(35),
+        3: pw.FixedColumnWidth(35),
+        4: pw.FixedColumnWidth(40),
+        5: pw.FixedColumnWidth(40),
+      },
+      defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
+      children: [
+        pw.TableRow(
+          children: [
+            _buildTableCell('', isHeader: true, fontSize: 9),
+            _buildTableCell('GST 0%', isHeader: true, fontSize: 9),
+            _buildTableCell('GST 5%', isHeader: true, fontSize: 9),
+            _buildTableCell('GST 12%', isHeader: true, fontSize: 9),
+            _buildTableCell('GST 18%', isHeader: true, fontSize: 9),
+            _buildTableCell('GST 28%', isHeader: true, fontSize: 9),
+          ],
+        ),
+        pw.TableRow(
+          children: [
+            _buildTableCell('Taxable', fontSize: 9),
+            _buildTableCell('0.00', fontSize: 9),
+            _buildTableCell('0.00', fontSize: 9),
+            _buildTableCell('0.00', fontSize: 9),
+            _buildTableCell('0.00', fontSize: 9),
+            _buildTableCell('0.00', fontSize: 9),
+          ],
+        ),
+        pw.TableRow(
+          children: [
+            _buildTableCell('CGST Amt', fontSize: 9),
+            _buildTableCell('0.00', fontSize: 9),
+            _buildTableCell('0.00', fontSize: 9),
+            _buildTableCell('0.00', fontSize: 9),
+            _buildTableCell('0.00', fontSize: 9),
+            _buildTableCell('0.00', fontSize: 9),
+          ],
+        ),
+        pw.TableRow(
+          children: [
+            _buildTableCell('SGST Amt', fontSize: 9),
+            _buildTableCell('0.00', fontSize: 9),
+            _buildTableCell('0.00', fontSize: 9),
+            _buildTableCell('0.00', fontSize: 9),
+            _buildTableCell('0.00', fontSize: 9),
+            _buildTableCell('0.00', fontSize: 9),
+          ],
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _buildTableCell(
+    String text, {
+    bool isHeader = false,
+    double fontSize = 11,
+    pw.TextAlign textAlign = pw.TextAlign.center,
+    int maxLines = 1,
+  }) {
+    final lines = text.split('\n');
+
+    if (maxLines <= 1 || lines.length <= 1) {
+      return pw.Container(
+        alignment: pw.Alignment.center,
+        padding: pw.EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+        child: pw.Text(
+          text,
+          style: pw.TextStyle(
+            fontSize: fontSize,
+            fontWeight: isHeader ? pw.FontWeight.bold : pw.FontWeight.normal,
+          ),
+          textAlign: textAlign,
+          maxLines: maxLines,
+        ),
+      );
+    }
+
+    return pw.Container(
+      alignment: pw.Alignment.center,
+      padding: pw.EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+      child: pw.Column(
+        mainAxisSize: pw.MainAxisSize.min,
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: [
+          pw.Text(
+            lines[0],
+            style: pw.TextStyle(
+              fontSize: fontSize,
+              fontWeight: isHeader ? pw.FontWeight.bold : pw.FontWeight.bold,
+            ),
+            textAlign: pw.TextAlign.center,
+          ),
+          pw.SizedBox(height: 3),
+          for (int i = 1; i < lines.length && i < maxLines; i++)
+            pw.Text(
+              lines[i],
+              style: pw.TextStyle(
+                fontSize: fontSize * 0.9,
+                fontWeight: pw.FontWeight.normal,
+              ),
+              textAlign: pw.TextAlign.center,
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ==================== SHARE FUNCTIONS ====================
+
+  // Share PDF Bill
+  Future<void> _sharePdfBill(Map<String, dynamic> sale) async {
+    try {
+      _showMessage('Generating PDF bill...', isError: false);
+
+      final pdfBytes = await _generatePdf(sale);
+
+      final directory = await getTemporaryDirectory();
+      final fileName =
+          'Bill_${sale['customerInfo']}_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final filePath = '${directory.path}/$fileName';
+      final file = File(filePath);
+      await file.writeAsBytes(pdfBytes);
+
+      await Share.shareXFiles(
+        [XFile(filePath, mimeType: 'application/pdf', name: fileName)],
+        text: 'Mobile House Bill - ${sale['customerInfo']}',
+        subject: 'Mobile House Bill',
+      );
+
+      _showMessage('PDF shared successfully!', isError: false);
+    } catch (e) {
+      _showError('Error sharing PDF: $e');
+    }
+  }
+
+  // Generate EMI Share Message (Same as PhoneSaleUpload)
+  String _generateEmiShareMessage(Map<String, dynamic> sale) {
+    final brand = sale['brand']?.toString().toUpperCase() ?? '';
+    final model = sale['productModel']?.toString() ?? '';
+    final price = (sale['displayAmount'] as num?)?.toDouble() ?? 0.0;
+    final discount = (sale['discount'] as num?)?.toDouble() ?? 0.0;
+    final exchange = (sale['exchangeValue'] as num?)?.toDouble() ?? 0.0;
+    final customerCredit = (sale['customerCredit'] as num?)?.toDouble() ?? 0.0;
+    final effectivePrice = (sale['effectivePrice'] as num?)?.toDouble() ?? 0.0;
+    final amountToPay = (sale['amountToPay'] as num?)?.toDouble() ?? 0.0;
+    final balanceReturned =
+        (sale['balanceReturnedToCustomer'] as num?)?.toDouble() ?? 0.0;
+    final saleDate =
+        sale['saleDate'] as DateTime? ??
+        (sale['addedAt'] as DateTime?) ??
+        DateTime.now();
+    final customerName =
+        sale['customerInfo'] as String? ??
+        sale['customerName']?.toString() ??
+        'Walk-in Customer';
+    final customerPhone = sale['customerPhone']?.toString() ?? '';
+    final gifts = sale['giftsList']?.toString() ?? '';
+
+    final paymentBreakdown =
+        sale['paymentBreakdown'] as Map<String, dynamic>? ?? {};
+    final cashAmount = (paymentBreakdown['cash'] as num?)?.toDouble() ?? 0.0;
+    final gpayAmount = (paymentBreakdown['gpay'] as num?)?.toDouble() ?? 0.0;
+    final cardAmount = (paymentBreakdown['card'] as num?)?.toDouble() ?? 0.0;
+    final creditAmount =
+        (paymentBreakdown['credit'] as num?)?.toDouble() ?? 0.0;
+
+    final downPayment = (sale['downPayment'] as num?)?.toDouble() ?? 0.0;
+    final numberOfEmi = sale['numberOfEmi'] ?? 0;
+    final perMonthEmi = (sale['perMonthEmi'] as num?)?.toDouble() ?? 0.0;
+    final financeType = sale['financeType']?.toString() ?? '';
+    final loanId = sale['loanId']?.toString() ?? '';
+    final autoDebit = sale['autoDebit'] as bool? ?? false;
+    final insurance = sale['insurance'] as bool? ?? false;
+
+    final dateFormat = DateFormat('dd/MM/yyyy');
+    final formattedDate = dateFormat.format(saleDate);
+
+    final shopMobile = _shopMobileNumber ?? '9072430483';
+    final shopWhatsApp = _shopWhatsAppNumber ?? shopMobile;
+    final shopInstagram = _shopInstagram ?? 'mobile.house_';
+    final shopName = sale['shopName']?.toString() ?? 'MOBILE HOUSE';
+
+    final buffer = StringBuffer();
+
+    buffer.writeln('📱 *$shopName*');
+    buffer.writeln('━━━━━━━━━━━━━━━━━━━━━');
+    buffer.writeln();
+    buffer.writeln('✨ *Thanks For Your Visit* ✨');
+    buffer.writeln('[ Keep In Touch With Mobile House 😍]');
+    buffer.writeln(
+      '📸 Instagram : https://instagram.com/${shopInstagram.replaceAll('@', '')}',
+    );
+    buffer.writeln();
+    buffer.writeln('✨ *EMI DETAILS* ✨');
+    buffer.writeln();
+    buffer.writeln(' Shop : $shopName');
+    buffer.writeln(' Brand : $brand');
+    buffer.writeln(' Model : $model');
+    buffer.writeln(' Price : ₹${price.toStringAsFixed(0)}');
+
+    if (discount > 0) {
+      buffer.writeln(' Discount : ₹${discount.toStringAsFixed(0)}');
+    }
+
+    buffer.writeln(' Down Payment : ₹${downPayment.toStringAsFixed(0)}');
+
+    if (cashAmount > 0 ||
+        gpayAmount > 0 ||
+        cardAmount > 0 ||
+        creditAmount > 0) {
+      buffer.writeln(' Payment :');
+      if (cashAmount > 0)
+        buffer.writeln('    • Cash: ₹${cashAmount.toStringAsFixed(0)}');
+      if (gpayAmount > 0)
+        buffer.writeln('    • GPay: ₹${gpayAmount.toStringAsFixed(0)}');
+      if (cardAmount > 0)
+        buffer.writeln('    • Card: ₹${cardAmount.toStringAsFixed(0)}');
+      if (creditAmount > 0)
+        buffer.writeln('    • Credit: ₹${creditAmount.toStringAsFixed(0)}');
+    }
+
+    if (exchange > 0) {
+      buffer.writeln(' Exchange : ₹${exchange.toStringAsFixed(0)}');
+    }
+
+    if (customerCredit > 0) {
+      buffer.writeln(
+        ' Customer Credit : ₹${customerCredit.toStringAsFixed(0)}',
+      );
+    }
+
+    if (balanceReturned > 0) {
+      buffer.writeln(
+        ' Balance Returned : ₹${balanceReturned.toStringAsFixed(0)}',
+      );
+    }
+
+    buffer.writeln(' Effective Price : ₹${effectivePrice.toStringAsFixed(0)}');
+    buffer.writeln(' Amount to Pay : ₹${amountToPay.toStringAsFixed(0)}');
+    buffer.writeln();
+    buffer.writeln(' EMI : ₹${perMonthEmi.toStringAsFixed(0)}*$numberOfEmi');
+    buffer.writeln(' Finance : $financeType');
+
+    if (loanId.isNotEmpty) {
+      buffer.writeln(' Loan Id : $loanId');
+    }
+
+    buffer.writeln(' Auto Debit : ${autoDebit ? ' YES' : ' NO'}');
+    buffer.writeln(' Insurance : ${insurance ? ' YES' : ' NO'}');
+    buffer.writeln(' Date : $formattedDate');
+    buffer.writeln();
+    buffer.writeln(' Customer : $customerName');
+    buffer.writeln(' Mobile : $customerPhone');
+
+    if (gifts.isNotEmpty) {
+      buffer.writeln();
+      buffer.writeln('*Mobile house Special gift🎁* ');
+      buffer.writeln(' $gifts');
+    }
+
+    buffer.writeln();
+    buffer.writeln('⚠️ *എല്ലാ മാസവും 1 നു മുമ്പ് EMI pay ചെയ്യണം*');
+    buffer.writeln();
+    buffer.writeln('━━━━━━━━━━━━━━━━━━━━━');
+    buffer.writeln();
+    buffer.writeln('🎯 *For Exciting Offers*');
+    buffer.writeln('📸 Follow @${shopInstagram.replaceAll('@', '')}');
+    buffer.writeln();
+    buffer.writeln('📱 MOBILE SALES - SERVICE - EXCHANGE');
+    buffer.writeln();
+    buffer.writeln(
+      '🔄 *പഴയ മൊബൈൽ കൊണ്ടു വരൂ എക്സ്ചേഞ്ച് ചെയ്തു പുതിയ മൊബൈൽ സ്വന്തമാക്കൂ...*',
+    );
+    buffer.writeln();
+    buffer.writeln('📞 *For more info:*');
+    buffer.writeln('📞 Whatsapp : $shopWhatsApp');
+    buffer.writeln('🌐 Website : https://mobilehouse.in/');
+
+    return buffer.toString();
+  }
+
+  // Share via intent
+  void _shareViaIntent(String message) async {
+    try {
+      await Share.share(message);
+    } catch (e) {
+      _showError('Could not share: $e');
+    }
+  }
+
+  // Share to WhatsApp
+  void _shareToWhatsApp(String message, {String? phoneNumber}) async {
+    try {
+      String phone = phoneNumber ?? '';
+
+      phone = phone.replaceAll(RegExp(r'[^0-9]'), '');
+
+      if (phone.isNotEmpty && phone.length >= 10) {
+        if (phone.length == 10) {
+          phone = '91$phone';
+        }
+      } else {
+        phone = _shopWhatsAppNumber ?? '9072430483';
+        if (!phone.startsWith('+') && phone.length == 10) {
+          phone = '91$phone';
+        } else if (phone.startsWith('+')) {
+          phone = phone.substring(1);
+        }
+      }
+
+      phone = phone.replaceAll(RegExp(r'[^0-9]'), '');
+
+      final url = 'https://wa.me/$phone?text=${Uri.encodeComponent(message)}';
+      final uri = Uri.parse(url);
+
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        _showMessage(
+          'Could not open WhatsApp. Using share instead...',
+          isError: false,
+        );
+        _shareViaIntent(message);
+      }
+    } catch (e) {
+      debugPrint('Error sharing to WhatsApp: $e');
+      _shareViaIntent(message);
+    }
+  }
+
+  // Show share options for a phone sale (Only PDF and EMI Details)
+  void _showShareOptionsForPhoneSale(Map<String, dynamic> sale) {
+    final isEmiMode = sale['purchaseMode']?.toString() == 'EMI';
+    final customerPhone = sale['customerPhone']?.toString() ?? '';
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Container(
+                  width: 50,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Share Options',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 20),
+
+              // PDF Bill Button
+              _buildShareOption(
+                icon: Icons.picture_as_pdf,
+                label: 'Share PDF Bill',
+                color: Colors.red,
+                onTap: () {
+                  Navigator.pop(context);
+                  _sharePdfBill(sale);
+                },
+              ),
+
+              const SizedBox(height: 12),
+
+              // EMI Details Share Button (only for EMI mode)
+              if (isEmiMode)
+                _buildShareOption(
+                  icon: Icons.credit_card,
+                  label: 'Share EMI Details',
+                  color: const Color(0xFF8B5CF6),
+                  onTap: () {
+                    final message = _generateEmiShareMessage(sale);
+                    Navigator.pop(context);
+                    _showShareMethodDialog(message, customerPhone);
+                  },
+                ),
+
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // Show share method dialog (Copy, Share, WhatsApp)
+  void _showShareMethodDialog(String message, String customerPhone) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Share via'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.copy, color: Colors.blue),
+                title: const Text('Copy to Clipboard'),
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: message));
+                  Navigator.pop(context);
+                  _showSuccess('Copied to clipboard!');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.share, color: Colors.green),
+                title: const Text('Share via...'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _shareViaIntent(message);
+                },
+              ),
+              if (customerPhone.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.message, color: Color(0xFF25D366)),
+                  title: const Text('Share to WhatsApp'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _shareToWhatsApp(message, phoneNumber: customerPhone);
+                  },
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildShareOption({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 24),
+            const SizedBox(width: 12),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 16,
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const Spacer(),
+            Icon(Icons.chevron_right, color: color),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ==================== END SHARE FUNCTIONS ====================
+
   // Delete sale with confirmation
   Future<void> _deleteSale(Map<String, dynamic> sale) async {
     final collection = sale['collection'] as String;
     final saleId = sale['id'] as String;
     final saleType = sale['type'] as String;
 
-    // Show confirmation dialog
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -403,7 +1538,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
 
     if (confirmed != true) return;
 
-    // Show loading indicator
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -411,11 +1545,9 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     );
 
     try {
-      // Handle base model sale: update stock status in baseModelStock
       if (collection == 'base_model_sale') {
         final imei = sale['imei']?.toString();
         if (imei != null && imei.isNotEmpty) {
-          // Find the product in baseModelStock collection
           final baseModelStockSnapshot = await FirebaseFirestore.instance
               .collection('baseModelStock')
               .where('imei', isEqualTo: imei)
@@ -425,52 +1557,26 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
 
           if (baseModelStockSnapshot.docs.isNotEmpty) {
             final stockDoc = baseModelStockSnapshot.docs.first;
-            // Update status to "available"
             await stockDoc.reference.update({
               'status': 'available',
               'updatedAt': FieldValue.serverTimestamp(),
-              'updatedBy': 'system', // You can pass the current user info here
+              'updatedBy': 'system',
             });
-            print(
-              'Base model stock updated: IMEI $imei status set to available',
-            );
-          } else {
-            print('Base model stock not found for IMEI: $imei');
           }
         }
       }
 
-      // Delete the sale document
       await FirebaseFirestore.instance
           .collection(collection)
           .doc(saleId)
           .delete();
 
-      // Close loading dialog
       Navigator.pop(context);
-
-      // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$saleType sale deleted successfully'),
-          backgroundColor: Colors.green,
-        ),
-      );
-
-      // Refresh the sales list
+      _showSuccess('$saleType sale deleted successfully');
       await fetchSalesData();
     } catch (e) {
-      // Close loading dialog
       Navigator.pop(context);
-
-      // Show error message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error deleting sale: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      print('Error deleting sale: $e');
+      _showError('Error deleting sale: $e');
     }
   }
 
@@ -510,7 +1616,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                 'Total Amount',
                 '₹${totalAmount.toStringAsFixed(0)}',
               ),
-
               const SizedBox(height: 16),
               const Text(
                 'Sales by Type',
@@ -543,7 +1648,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                     ),
                   )
                   .toList(),
-
               const SizedBox(height: 20),
               Row(
                 children: [
@@ -580,7 +1684,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   }
 
   Future<void> _exportReport(BuildContext context) async {
-    // Create report content
     final reportContent =
         '''
 Sales Report
@@ -602,7 +1705,6 @@ ${filteredSales.map((sale) {
         }).join('\n')}
 ''';
 
-    // Show share dialog
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -622,11 +1724,8 @@ ${filteredSales.map((sale) {
           ),
           ElevatedButton(
             onPressed: () {
-              // Copy to clipboard
               Clipboard.setData(ClipboardData(text: reportContent));
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Report copied to clipboard')),
-              );
+              _showSuccess('Report copied to clipboard');
               Navigator.pop(context);
             },
             child: const Text('Copy to Clipboard'),
@@ -657,7 +1756,6 @@ ${filteredSales.map((sale) {
 
   DateTime _getSaleDate(Map<String, dynamic> data, String collection) {
     try {
-      // Try different date fields based on collection and data structure
       List<String> dateFields = [];
 
       switch (collection) {
@@ -691,14 +1789,12 @@ ${filteredSales.map((sale) {
             try {
               return DateTime.parse(data[field]);
             } catch (_) {
-              // Try custom parsing for date strings
               return _parseDateString(data[field].toString());
             }
           }
         }
       }
 
-      // If no date field found, check for timestamp in milliseconds
       if (data['timestamp'] != null && data['timestamp'] is int) {
         return DateTime.fromMillisecondsSinceEpoch(data['timestamp']);
       }
@@ -711,7 +1807,6 @@ ${filteredSales.map((sale) {
 
   DateTime _parseDateString(String dateString) {
     try {
-      // Try to parse common date formats
       if (dateString.contains('/')) {
         final parts = dateString.split('/');
         if (parts.length >= 3) {
@@ -721,8 +1816,6 @@ ${filteredSales.map((sale) {
           return DateTime(year, month, day);
         }
       }
-
-      // Try ISO format
       return DateTime.parse(dateString);
     } catch (_) {
       return DateTime.now();
@@ -757,11 +1850,9 @@ ${filteredSales.map((sale) {
     try {
       switch (collection) {
         case 'accessories_service_sales':
-          // Check if totalSaleAmount exists, otherwise calculate from accessories + service
           if (data['totalSaleAmount'] != null) {
             return (data['totalSaleAmount'] ?? 0).toDouble();
           } else {
-            // Calculate from accessories and service amounts
             final accessories = (data['accessoriesAmount'] ?? 0).toDouble();
             final service = (data['serviceAmount'] ?? 0).toDouble();
             return accessories + service;
@@ -810,7 +1901,6 @@ ${filteredSales.map((sale) {
       'gpay': 0.0,
       'credit': 0.0,
       'downPayment': 0.0,
-      // For accessories sales, we need to preserve actual payment amounts
       'actualCash': 0.0,
       'actualCard': 0.0,
       'actualGpay': 0.0,
@@ -818,13 +1908,10 @@ ${filteredSales.map((sale) {
 
     try {
       if (collection == 'accessories_service_sales') {
-        // For accessories sales, get actual payment amounts
         paymentInfo['actualCash'] = (data['cashAmount'] ?? 0).toDouble();
         paymentInfo['actualCard'] = (data['cardAmount'] ?? 0).toDouble();
         paymentInfo['actualGpay'] = (data['gpayAmount'] ?? 0).toDouble();
         paymentInfo['credit'] = (data['customerCredit'] ?? 0).toDouble();
-
-        // Also store accessories and service amounts separately
         paymentInfo['accessoriesAmount'] = (data['accessoriesAmount'] ?? 0)
             .toDouble();
         paymentInfo['serviceAmount'] = (data['serviceAmount'] ?? 0).toDouble();
@@ -884,6 +1971,26 @@ ${filteredSales.map((sale) {
         content: Text(message),
         backgroundColor: Colors.red,
         duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _showSuccess(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _showMessage(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red : Colors.green,
+        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -1132,9 +2239,7 @@ ${filteredSales.map((sale) {
                                   fontSize: 14,
                                   color: Colors.grey.shade500,
                                 ),
-                                textAlign: TextAlign.center,
                               ),
-                              const SizedBox(height: 6),
                               if (searchQuery.isNotEmpty)
                                 Text(
                                   'for "$searchQuery"',
@@ -1158,7 +2263,6 @@ ${filteredSales.map((sale) {
                                   fontSize: 11,
                                   color: Colors.grey.shade500,
                                 ),
-                                textAlign: TextAlign.center,
                               ),
                               const SizedBox(height: 12),
                               ElevatedButton.icon(
@@ -1258,6 +2362,8 @@ ${filteredSales.map((sale) {
                                     final sale = filteredSales[index];
                                     final type = sale['type'] as String;
                                     final color = _getTypeColor(type);
+                                    final isPhoneSale =
+                                        sale['collection'] == 'phoneSales';
 
                                     return Card(
                                       margin: const EdgeInsets.symmetric(
@@ -1336,6 +2442,19 @@ ${filteredSales.map((sale) {
                                         trailing: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
+                                            if (isPhoneSale)
+                                              IconButton(
+                                                icon: Icon(
+                                                  Icons.share,
+                                                  size: 18,
+                                                  color: _shareColor,
+                                                ),
+                                                onPressed: () =>
+                                                    _showShareOptionsForPhoneSale(
+                                                      sale,
+                                                    ),
+                                                tooltip: 'Share',
+                                              ),
                                             Column(
                                               mainAxisAlignment:
                                                   MainAxisAlignment.center,
@@ -1378,7 +2497,6 @@ ${filteredSales.map((sale) {
                                                 ),
                                               ],
                                             ),
-                                            // Delete button
                                             IconButton(
                                               icon: Icon(
                                                 Icons.delete_outline,
@@ -1391,9 +2509,8 @@ ${filteredSales.map((sale) {
                                             ),
                                           ],
                                         ),
-                                        onTap: () {
-                                          _showSaleDetails(context, sale);
-                                        },
+                                        onTap: () =>
+                                            _showSaleDetails(context, sale),
                                       ),
                                     );
                                   },
@@ -1412,47 +2529,35 @@ ${filteredSales.map((sale) {
     Map<String, dynamic> paymentInfo,
     String collection,
   ) {
-    // For accessories sales, show accessories and service amounts instead of payment methods
     if (collection == 'accessories_service_sales') {
       final accessoriesAmount = paymentInfo['accessoriesAmount'] ?? 0.0;
       final serviceAmount = paymentInfo['serviceAmount'] ?? 0.0;
 
       final List<Widget> chips = [];
-
-      if (accessoriesAmount > 0) {
+      if (accessoriesAmount > 0)
         chips.add(
           _buildAmountChip('Accessories', accessoriesAmount, Colors.blue),
         );
-      }
-      if (serviceAmount > 0) {
+      if (serviceAmount > 0)
         chips.add(_buildAmountChip('Service', serviceAmount, Colors.orange));
-      }
-
       return Wrap(spacing: 3, runSpacing: 2, children: chips);
     }
 
-    // For other sales, show payment methods as before
     final List<Widget> chips = [];
-
-    if (paymentInfo['cash'] > 0) {
+    if (paymentInfo['cash'] > 0)
       chips.add(_buildPaymentChip('Cash', paymentInfo['cash'], Colors.green));
-    }
-    if (paymentInfo['card'] > 0) {
+    if (paymentInfo['card'] > 0)
       chips.add(_buildPaymentChip('Card', paymentInfo['card'], Colors.blue));
-    }
-    if (paymentInfo['gpay'] > 0) {
+    if (paymentInfo['gpay'] > 0)
       chips.add(_buildPaymentChip('GPay', paymentInfo['gpay'], Colors.purple));
-    }
-    if (paymentInfo['credit'] > 0) {
+    if (paymentInfo['credit'] > 0)
       chips.add(
         _buildPaymentChip('Credit', paymentInfo['credit'], Colors.orange),
       );
-    }
-    if (collection == 'phoneSales' && paymentInfo['downPayment'] > 0) {
+    if (collection == 'phoneSales' && paymentInfo['downPayment'] > 0)
       chips.add(
         _buildPaymentChip('Down', paymentInfo['downPayment'], Colors.teal),
       );
-    }
 
     return Wrap(spacing: 3, runSpacing: 2, children: chips);
   }
@@ -1537,6 +2642,7 @@ ${filteredSales.map((sale) {
 
   void _showSaleDetails(BuildContext context, Map<String, dynamic> sale) {
     final isAccessoriesSale = sale['collection'] == 'accessories_service_sales';
+    final isPhoneSale = sale['collection'] == 'phoneSales';
     final accessoriesAmount = sale['accessoriesAmount'] as double? ?? 0.0;
     final serviceAmount = sale['serviceAmount'] as double? ?? 0.0;
     final totalAmount = (sale['displayAmount'] as double).toStringAsFixed(0);
@@ -1600,7 +2706,7 @@ ${filteredSales.map((sale) {
               _buildDetailRow('Shop', sale['shopName'].toString()),
               _buildDetailRow('Date', sale['displayDate'] as String),
 
-              // For accessories & service sales, show separate amounts
+              // Amount Breakdown for Accessories
               if (isAccessoriesSale) ...[
                 const SizedBox(height: 12),
                 const Text(
@@ -1644,12 +2750,10 @@ ${filteredSales.map((sale) {
                     ],
                   ),
                 ),
-              ] else ...[
-                // For other sales, show just the total amount
+              ] else
                 _buildDetailRow('Total Amount', '₹$totalAmount'),
-              ],
 
-              // Always show payment breakdown for all sales
+              // Payment Breakdown
               const SizedBox(height: 16),
               const Text(
                 'Payment Breakdown',
@@ -1657,7 +2761,6 @@ ${filteredSales.map((sale) {
               ),
               const SizedBox(height: 8),
               if (isAccessoriesSale) ...[
-                // For accessories sales, show actual payment amounts
                 if (paymentInfo['actualCash'] > 0)
                   _buildPaymentDetailRow('Cash', paymentInfo['actualCash']),
                 if (paymentInfo['actualCard'] > 0)
@@ -1666,15 +2769,13 @@ ${filteredSales.map((sale) {
                   _buildPaymentDetailRow('GPay', paymentInfo['actualGpay']),
                 if (paymentInfo['credit'] > 0)
                   _buildPaymentDetailRow('Credit', paymentInfo['credit']),
-              ] else ...[
-                // For other sales, show regular payment breakdown
+              ] else
                 ..._buildPaymentDetails(
                   paymentInfo,
                   sale['collection'] as String,
                 ),
-              ],
 
-              // Collection-specific details
+              // Product Details
               if (sale['collection'] == 'phoneSales') ...[
                 const SizedBox(height: 16),
                 if (sale['productModel'] != null)
@@ -1695,20 +2796,20 @@ ${filteredSales.map((sale) {
                   ),
               ],
 
-              // Other collection details
-              if (sale['productName'] != null)
+              // Other product details
+              if (sale['productName'] != null &&
+                  sale['collection'] != 'phoneSales')
                 _buildDetailRow('Product', sale['productName'].toString()),
-
               if (sale['brand'] != null && sale['collection'] != 'phoneSales')
                 _buildDetailRow('Brand', sale['brand'].toString()),
-
               if (sale['imei'] != null && sale['collection'] != 'phoneSales')
                 _buildDetailRow('IMEI', sale['imei'].toString()),
-
               if (sale['notes'] != null && (sale['notes'] as String).isNotEmpty)
                 _buildDetailRow('Notes', sale['notes'].toString()),
 
               const SizedBox(height: 20),
+
+              // Action Buttons
               Row(
                 children: [
                   Expanded(
@@ -1726,26 +2827,28 @@ ${filteredSales.map((sale) {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _deleteSale(sale);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                  if (!isPhoneSale) ...[
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _deleteSale(sale);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text(
+                          'Delete',
+                          style: TextStyle(fontSize: 14, color: Colors.white),
                         ),
                       ),
-                      child: const Text(
-                        'Delete',
-                        style: TextStyle(fontSize: 14, color: Colors.white),
-                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ],
@@ -1800,25 +2903,18 @@ ${filteredSales.map((sale) {
     String collection,
   ) {
     final List<Widget> widgets = [];
-
-    if (paymentInfo['cash'] > 0) {
+    if (paymentInfo['cash'] > 0)
       widgets.add(_buildPaymentDetailRow('Cash', paymentInfo['cash']));
-    }
-    if (paymentInfo['card'] > 0) {
+    if (paymentInfo['card'] > 0)
       widgets.add(_buildPaymentDetailRow('Card', paymentInfo['card']));
-    }
-    if (paymentInfo['gpay'] > 0) {
+    if (paymentInfo['gpay'] > 0)
       widgets.add(_buildPaymentDetailRow('GPay', paymentInfo['gpay']));
-    }
-    if (paymentInfo['credit'] > 0) {
+    if (paymentInfo['credit'] > 0)
       widgets.add(_buildPaymentDetailRow('Credit', paymentInfo['credit']));
-    }
-    if (collection == 'phoneSales' && paymentInfo['downPayment'] > 0) {
+    if (collection == 'phoneSales' && paymentInfo['downPayment'] > 0)
       widgets.add(
         _buildPaymentDetailRow('Down Payment', paymentInfo['downPayment']),
       );
-    }
-
     return widgets;
   }
 
