@@ -614,29 +614,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
             gstAmount,
             totalAmount,
           ),
-          pw.Container(
-            height: 280,
-            child: pw.Stack(
-              children: [
-                if (_sealImage != null)
-                  pw.Positioned(
-                    right: 15,
-                    bottom: 18,
-                    child: pw.Transform.rotate(
-                      angle: 25 * 3.14159 / 180,
-                      child: pw.SizedBox(
-                        width: 150,
-                        height: 150,
-                        child: pw.Image(
-                          pw.MemoryImage(_sealImage!),
-                          fit: pw.BoxFit.contain,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
+          // REMOVED THE SEAL - replaced with simple spacer
+          pw.SizedBox(height: 280),
           _buildTotalSection(totalAmount, taxableAmount, gstAmount),
           _buildBottomSection(),
         ],
@@ -1160,6 +1139,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   }
 
   // Generate EMI Share Message (Same as PhoneSaleUpload)
+  // Generate EMI Share Message (Same as PhoneSaleUpload)
   String _generateEmiShareMessage(Map<String, dynamic> sale) {
     final brand = sale['brand']?.toString().toUpperCase() ?? '';
     final model = sale['productModel']?.toString() ?? '';
@@ -1171,10 +1151,21 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     final amountToPay = (sale['amountToPay'] as num?)?.toDouble() ?? 0.0;
     final balanceReturned =
         (sale['balanceReturnedToCustomer'] as num?)?.toDouble() ?? 0.0;
-    final saleDate =
-        sale['saleDate'] as DateTime? ??
-        (sale['addedAt'] as DateTime?) ??
-        DateTime.now();
+
+    // FIX: Properly convert Timestamp to DateTime
+    DateTime saleDate;
+    if (sale['saleDate'] is Timestamp) {
+      saleDate = (sale['saleDate'] as Timestamp).toDate();
+    } else if (sale['addedAt'] is Timestamp) {
+      saleDate = (sale['addedAt'] as Timestamp).toDate();
+    } else if (sale['saleDate'] is DateTime) {
+      saleDate = sale['saleDate'] as DateTime;
+    } else if (sale['addedAt'] is DateTime) {
+      saleDate = sale['addedAt'] as DateTime;
+    } else {
+      saleDate = DateTime.now();
+    }
+
     final customerName =
         sale['customerInfo'] as String? ??
         sale['customerName']?.toString() ??

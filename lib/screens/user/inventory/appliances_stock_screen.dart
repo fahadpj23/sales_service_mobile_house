@@ -332,7 +332,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
         _clearModalMessages();
         _newProductNameController.clear();
         _newProductPriceController.clear();
-        // Clear quantity when showing add product form
         _quantity = null;
       });
     } else {
@@ -1547,6 +1546,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
     }
   }
 
+  // FIXED: Brand dropdown with black text
   Widget _buildBrandDropdown() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1556,12 +1556,20 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
           decoration: const InputDecoration(
             labelText: 'Select Brand *',
             border: OutlineInputBorder(),
-            labelStyle: TextStyle(fontSize: 12),
+            labelStyle: TextStyle(fontSize: 12, color: Colors.black),
           ),
-          style: const TextStyle(fontSize: 12),
+          style: const TextStyle(fontSize: 12, color: Colors.black),
+          dropdownColor: Colors.white,
+          iconEnabledColor: Colors.black,
           items: [
             ..._brands.map((brand) {
-              return DropdownMenuItem(value: brand, child: Text(brand));
+              return DropdownMenuItem(
+                value: brand,
+                child: Text(
+                  brand,
+                  style: const TextStyle(color: Colors.black, fontSize: 12),
+                ),
+              );
             }),
             const DropdownMenuItem(
               value: 'add_new_brand',
@@ -1569,7 +1577,10 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                 children: [
                   Icon(Icons.add, size: 16, color: Colors.blue),
                   SizedBox(width: 8),
-                  Text('Add New Brand', style: TextStyle(color: Colors.blue)),
+                  Text(
+                    'Add New Brand',
+                    style: TextStyle(color: Colors.blue, fontSize: 12),
+                  ),
                 ],
               ),
             ),
@@ -1589,7 +1600,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                 _productSearchController.clear();
                 _priceChangeController.clear();
                 _clearModalMessages();
-                // Reset quantity when brand changes
                 _quantity = null;
               });
             }
@@ -1691,9 +1701,10 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
       children: [
         TextField(
           controller: _productSearchController,
+          style: const TextStyle(fontSize: 12, color: Colors.black),
           decoration: InputDecoration(
             labelText: 'Search Product',
-            labelStyle: const TextStyle(fontSize: 12),
+            labelStyle: const TextStyle(fontSize: 12, color: Colors.black),
             prefixIcon: const Icon(Icons.search, size: 18),
             suffixIcon: _selectedProduct != null && _selectedProduct!.isNotEmpty
                 ? IconButton(
@@ -1706,7 +1717,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                         _originalProductPrice = null;
                         _priceChangeController.clear();
                         _clearModalMessages();
-                        // Reset quantity when product is cleared
                         _quantity = null;
                       });
                     },
@@ -1718,8 +1728,8 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
               vertical: 12,
             ),
             hintText: _selectedProduct ?? 'Search or select product',
+            hintStyle: const TextStyle(fontSize: 12, color: Colors.grey),
           ),
-          style: const TextStyle(fontSize: 12, color: Colors.black),
           onChanged: (value) {
             setState(() {
               if (_selectedProduct != null && value != _selectedProduct) {
@@ -1727,7 +1737,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                 _showPriceChangeOption = false;
                 _originalProductPrice = null;
                 _priceChangeController.clear();
-                // Reset quantity when product search changes
                 _quantity = null;
               }
               _clearModalMessages();
@@ -1739,7 +1748,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
               _productSearchController.clear();
               setState(() {
                 _clearModalMessages();
-                // Reset quantity when tapping to change product
                 _quantity = null;
               });
             }
@@ -1840,7 +1848,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                       _originalProductPrice = null;
                       _priceChangeController.clear();
                       _productSearchController.clear();
-                      // Reset quantity when changing product
                       _quantity = null;
                     });
                   },
@@ -1994,8 +2001,10 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
               const SizedBox(height: 16),
               TextField(
                 controller: _newBrandController,
+                style: const TextStyle(color: Colors.black),
                 decoration: const InputDecoration(
                   labelText: 'Brand Name *',
+                  labelStyle: TextStyle(color: Colors.black),
                   border: OutlineInputBorder(),
                 ),
                 autofocus: true,
@@ -2044,7 +2053,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
   }
 
   Widget _buildAddStockModal() {
-    // Determine if product is selected (either existing or in add product form)
     final isProductSelected = _selectedProduct != null || _showAddProductForm;
 
     return Dialog(
@@ -2103,6 +2111,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
+                          color: Colors.black,
                         ),
                       ),
                     ],
@@ -2176,14 +2185,14 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                 if (_showPriceChangeOption)
                   TextFormField(
                     controller: _priceChangeController,
+                    style: const TextStyle(fontSize: 12, color: Colors.black),
                     decoration: const InputDecoration(
                       labelText: 'Price (Optional - Change if needed)',
                       border: OutlineInputBorder(),
                       prefixText: '₹ ',
-                      labelStyle: TextStyle(fontSize: 12),
+                      labelStyle: TextStyle(fontSize: 12, color: Colors.black),
                     ),
                     keyboardType: TextInputType.number,
-                    style: const TextStyle(fontSize: 12),
                     onChanged: (_) => _clearModalMessages(),
                   ),
 
@@ -2191,12 +2200,12 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _newProductNameController,
+                    style: const TextStyle(fontSize: 12, color: Colors.black),
                     decoration: const InputDecoration(
                       labelText: 'Product Name *',
                       border: OutlineInputBorder(),
-                      labelStyle: TextStyle(fontSize: 12),
+                      labelStyle: TextStyle(fontSize: 12, color: Colors.black),
                     ),
-                    style: const TextStyle(fontSize: 12),
                     validator: (value) {
                       if (value == null || value.trim().isEmpty) {
                         return 'Please enter product name';
@@ -2207,14 +2216,14 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _newProductPriceController,
+                    style: const TextStyle(fontSize: 12, color: Colors.black),
                     decoration: const InputDecoration(
                       labelText: 'Price *',
                       border: OutlineInputBorder(),
                       prefixText: '₹ ',
-                      labelStyle: TextStyle(fontSize: 12),
+                      labelStyle: TextStyle(fontSize: 12, color: Colors.black),
                     ),
                     keyboardType: TextInputType.number,
-                    style: const TextStyle(fontSize: 12),
                     validator: (value) {
                       if (value == null || value.trim().isEmpty) {
                         return 'Please enter price';
@@ -2268,17 +2277,19 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                     ],
                   ),
                 ] else ...[
-                  // Only show quantity field if product is selected
                   if (isProductSelected) ...[
                     const SizedBox(height: 12),
                     TextFormField(
+                      style: const TextStyle(fontSize: 12, color: Colors.black),
                       decoration: const InputDecoration(
                         labelText: 'Quantity *',
                         border: OutlineInputBorder(),
-                        labelStyle: TextStyle(fontSize: 12),
+                        labelStyle: TextStyle(
+                          fontSize: 12,
+                          color: Colors.black,
+                        ),
                       ),
                       keyboardType: TextInputType.number,
-                      style: const TextStyle(fontSize: 12),
                       onChanged: _handleQuantityChange,
                       validator: (value) {
                         if (value == null || value.isEmpty) {
@@ -2445,6 +2456,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                       style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
+                        color: Colors.black,
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -2452,13 +2464,16 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                     const SizedBox(height: 4),
                     Text(
                       'Category: $_fixedCategory',
-                      style: const TextStyle(fontSize: 12),
+                      style: const TextStyle(fontSize: 12, color: Colors.black),
                     ),
                     Row(
                       children: [
                         Text(
                           'Brand: $productBrand',
-                          style: const TextStyle(fontSize: 12),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.black,
+                          ),
                         ),
                         const Spacer(),
                         Text(
@@ -2506,13 +2521,19 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
               if (_selectedAction == 'sell') ...[
                 const Text(
                   'Enter selling details:',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _sellQuantityController,
+                  style: const TextStyle(color: Colors.black),
                   decoration: const InputDecoration(
                     labelText: 'Quantity to Sell *',
+                    labelStyle: TextStyle(color: Colors.black),
                     border: OutlineInputBorder(),
                     helperText: 'Enter quantity to sell',
                   ),
@@ -2521,8 +2542,10 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _sellPriceController,
+                  style: const TextStyle(color: Colors.black),
                   decoration: const InputDecoration(
                     labelText: 'Selling Price *',
+                    labelStyle: TextStyle(color: Colors.black),
                     border: OutlineInputBorder(),
                     prefixText: '₹ ',
                     helperText: 'Enter selling price per unit',
@@ -2699,7 +2722,11 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
               ] else if (_selectedAction == 'transfer') ...[
                 const Text(
                   'Select shop to transfer to:',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                  ),
                 ),
                 const SizedBox(height: 10),
 
@@ -2717,8 +2744,10 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                     children: [
                       TextFormField(
                         controller: _transferQuantityController,
+                        style: const TextStyle(color: Colors.black),
                         decoration: const InputDecoration(
                           labelText: 'Quantity to Transfer *',
+                          labelStyle: TextStyle(color: Colors.black),
                           border: OutlineInputBorder(),
                           helperText: 'Enter quantity to transfer',
                         ),
@@ -2740,7 +2769,10 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                               ),
                               title: Text(
                                 shop['name'] as String? ?? 'Unknown Shop',
-                                style: const TextStyle(fontSize: 12),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black,
+                                ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -2749,7 +2781,10 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                                       (shop['address'] as String).isNotEmpty
                                   ? Text(
                                       shop['address'] as String,
-                                      style: const TextStyle(fontSize: 10),
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.grey,
+                                      ),
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                     )
@@ -2818,7 +2853,11 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
               ] else if (_selectedAction == 'return') ...[
                 const Text(
                   'Enter return details:',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -2828,8 +2867,10 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _returnQuantityController,
+                  style: const TextStyle(color: Colors.black),
                   decoration: const InputDecoration(
                     labelText: 'Quantity to Return *',
+                    labelStyle: TextStyle(color: Colors.black),
                     border: OutlineInputBorder(),
                     helperText: 'Enter quantity to return',
                   ),
@@ -2912,9 +2953,10 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
     return TextField(
       controller: _searchController,
       focusNode: _searchFocusNode,
+      style: const TextStyle(fontSize: 13, color: Colors.black),
       decoration: InputDecoration(
         labelText: 'Search by product name, brand, or serial',
-        labelStyle: const TextStyle(fontSize: 13),
+        labelStyle: const TextStyle(fontSize: 13, color: Colors.black),
         prefixIcon: const Icon(Icons.search, size: 20),
         suffixIcon: _searchQuery.isNotEmpty
             ? IconButton(
@@ -2943,7 +2985,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
           vertical: 14,
         ),
       ),
-      style: const TextStyle(fontSize: 13, color: Colors.black),
       onChanged: (value) {
         setState(() => _searchQuery = value);
       },
@@ -3621,7 +3662,11 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                   padding: EdgeInsets.symmetric(horizontal: 12),
                   child: Text(
                     'Returned by Brand',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -3652,6 +3697,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                               style: const TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
+                                color: Colors.black,
                                 overflow: TextOverflow.ellipsis,
                               ),
                               maxLines: 1,
@@ -3915,7 +3961,11 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                   padding: EdgeInsets.symmetric(horizontal: 12),
                   child: Text(
                     'Brand-wise Summary',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -3952,6 +4002,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                               style: const TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
+                                color: Colors.black,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
