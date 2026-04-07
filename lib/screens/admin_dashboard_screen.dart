@@ -10,6 +10,7 @@ import 'package:sales_stock/screens/admin/inventory/appliance_stock_screen.dart'
 import 'package:sales_stock/screens/admin/inventory/base_model_stock_screen.dart';
 import 'package:sales_stock/screens/admin/inventory/tv_stock_screen.dart';
 import 'package:sales_stock/screens/admin/reports/basemodel_report-screen.dart';
+import 'package:sales_stock/screens/admin/reports/bills_report_screen.dart';
 import 'package:sales_stock/screens/admin/reports/seconds_phone_report.dart';
 import 'package:sales_stock/screens/login_screen.dart';
 import '../../../providers/auth_provider.dart';
@@ -1715,6 +1716,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     shops: shops,
                     formatNumber: _formatNumber,
                     getCategoryColor: _getCategoryColor,
+                  ),
+                ),
+              );
+            },
+          ),
+          _buildDrawerItem(
+            Icons.receipt,
+            'Bills Report',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => BillsReportScreen(
+                    formatNumber: _formatNumber,
+                    shops: shops,
                   ),
                 ),
               );
