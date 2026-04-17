@@ -212,7 +212,7 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'This TV with Serial Number:',
+                'This MH with Serial Number:',
                 style: TextStyle(fontSize: 14),
               ),
               SizedBox(height: 4),
@@ -456,9 +456,9 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final user = authProvider.user;
 
-    final billNumber = billNoController.text.startsWith('TV-')
+    final billNumber = billNoController.text.startsWith('MH-')
         ? billNoController.text
-        : 'TV-${billNoController.text}';
+        : 'MH-${billNoController.text}';
 
     final updateData = {
       'status': 'sold',
@@ -526,9 +526,9 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final user = authProvider.user;
 
-    final billNumber = billNoController.text.startsWith('TV-')
+    final billNumber = billNoController.text.startsWith('MH-')
         ? billNoController.text
-        : 'TV-${billNoController.text}';
+        : 'MH-${billNoController.text}';
 
     final now = DateTime.now();
 
@@ -587,7 +587,7 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
       print('Error saving PDF: $e');
       try {
         final tempDir = await getTemporaryDirectory();
-        final fileName = 'TV_${billNoController.text}.pdf';
+        final fileName = 'MH_${billNoController.text}.pdf';
         final filePath = '${tempDir.path}/$fileName';
         final file = File(filePath);
         await file.writeAsBytes(pdfBytes, flush: true);
@@ -608,7 +608,7 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
 
       await Share.shareXFiles([
         XFile(pdfFile.path, mimeType: 'application/pdf', name: fileName),
-      ], text: 'Mobile House TV Bill - ${customerNameController.text}');
+      ], text: 'Mobile House MH Bill - ${customerNameController.text}');
     } catch (e) {
       print('Error sharing PDF: $e');
       if (mounted) {
@@ -796,9 +796,9 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
   }
 
   pw.Widget _buildHeader(String currentDate) {
-    final fullBillNumber = billNoController.text.startsWith('TV-')
+    final fullBillNumber = billNoController.text.startsWith('MH-')
         ? billNoController.text
-        : 'TV-${billNoController.text}';
+        : 'MH-${billNoController.text}';
 
     return pw.Column(
       children: [
@@ -1310,7 +1310,7 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: Text(
-          'TV Sales Bill',
+          'MH Sales Bill',
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 18,
@@ -1428,7 +1428,7 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
                     ),
                   ),
                   Text(
-                    'TV-${billNoController.text}',
+                    'MH-${billNoController.text}',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -1503,7 +1503,7 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
             SizedBox(height: 12),
             _buildTextField(
               tvModelController,
-              'TV Model *',
+              'MH Model *',
               Icons.tv,
               readOnly: widget.tvData != null,
               validator: _validateRequired,
