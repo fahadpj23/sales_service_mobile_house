@@ -1225,7 +1225,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         gpayAmount > 0 ||
         cardAmount > 0 ||
         creditAmount > 0) {
-      buffer.writeln(' Payment :');
       if (cashAmount > 0)
         buffer.writeln('    • Cash: ₹${cashAmount.toStringAsFixed(0)}');
       if (gpayAmount > 0)
@@ -1252,8 +1251,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       );
     }
 
-    buffer.writeln(' Effective Price : ₹${effectivePrice.toStringAsFixed(0)}');
-    buffer.writeln(' Amount to Pay : ₹${amountToPay.toStringAsFixed(0)}');
     buffer.writeln();
     buffer.writeln(' EMI : ₹${perMonthEmi.toStringAsFixed(0)}*$numberOfEmi');
     buffer.writeln(' Finance : $financeType');

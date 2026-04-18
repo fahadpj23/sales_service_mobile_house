@@ -179,7 +179,8 @@ class _StockCheckScreenState extends State<StockCheckScreen>
 
   bool _isLoading = true;
   String _searchQuery = '';
-  String _statusFilter = 'all';
+  String _statusFilter = 'available'; // Default to available
+  bool _sortByPrice = false; // false = no sorting, true = low to high
   int _currentTab = 0;
 
   final TextEditingController _searchController = TextEditingController();
@@ -222,7 +223,7 @@ class _StockCheckScreenState extends State<StockCheckScreen>
     }
   }
 
-  // Smart search with partial matching
+  // Smart search with partial matching and sorting
   void _applyFilters() {
     final String currentType = _tabTypes[_currentTab];
     final List<StockItem> source = _stock[currentType] ?? [];
@@ -242,7 +243,6 @@ class _StockCheckScreenState extends State<StockCheckScreen>
       final String cleanQuery = query.replaceAll(' ', '');
 
       // Check for partial matches in ANY field
-      // This allows typing "123" to find IMEI containing "123"
       final bool matchesIdentifier =
           identifier.contains(query) || cleanIdentifier.contains(cleanQuery);
       final bool matchesModel = model.contains(query);
@@ -251,9 +251,15 @@ class _StockCheckScreenState extends State<StockCheckScreen>
       return matchesIdentifier || matchesModel || matchesBrand;
     }).toList();
 
-    // Apply status filter
-    if (_statusFilter != 'all') {
-      results = results.where((item) => item.status == _statusFilter).toList();
+    // Apply status filter (only available or sold)
+    results = results.where((item) => item.status == _statusFilter).toList();
+
+    // Apply price sorting (low to high) - FIXED
+    if (_sortByPrice) {
+      print('Sorting by price low to high'); // Debug
+      results.sort((a, b) {
+        return a.price.compareTo(b.price);
+      });
     }
 
     setState(() {
@@ -339,7 +345,16 @@ class _StockCheckScreenState extends State<StockCheckScreen>
     setState(() {
       _searchController.clear();
       _searchQuery = '';
-      _statusFilter = 'all';
+      _statusFilter = 'available';
+      _sortByPrice = false;
+    });
+    _applyFilters();
+  }
+
+  void _toggleSortByPrice() {
+    setState(() {
+      _sortByPrice = !_sortByPrice;
+      print('Sort by price enabled: $_sortByPrice'); // Debug
     });
     _applyFilters();
   }
@@ -462,16 +477,67 @@ class _StockCheckScreenState extends State<StockCheckScreen>
 
                       const SizedBox(height: 8),
 
-                      // Filter Chips
+                      // Filter Chips Row (Status + Sort)
                       SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: [
-                            _buildFilterChip('All', 'all'),
+                            // Status filters (only Available and Sold)
+                            _buildStatusChip('Available', 'available'),
                             const SizedBox(width: 6),
-                            _buildFilterChip('Available', 'available'),
-                            const SizedBox(width: 6),
-                            _buildFilterChip('Sold', 'sold'),
+                            _buildStatusChip('Sold', 'sold'),
+                            const SizedBox(width: 12),
+
+                            // Sort by price button (toggles on/off)
+                            ActionChip(
+                              label: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.attach_money,
+                                    size: 14,
+                                    color: _sortByPrice
+                                        ? Colors.teal
+                                        : Colors.grey,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Sort by Price',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: _sortByPrice
+                                          ? Colors.teal
+                                          : Colors.grey,
+                                      fontWeight: _sortByPrice
+                                          ? FontWeight.w600
+                                          : FontWeight.normal,
+                                    ),
+                                  ),
+                                  if (_sortByPrice)
+                                    const Padding(
+                                      padding: EdgeInsets.only(left: 4),
+                                      child: Icon(
+                                        Icons.arrow_upward,
+                                        size: 12,
+                                        color: Colors.teal,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              onPressed: _toggleSortByPrice,
+                              backgroundColor: _sortByPrice
+                                  ? Colors.teal.withOpacity(0.1)
+                                  : Colors.grey.shade100,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(
+                                  color: _sortByPrice
+                                      ? Colors.teal
+                                      : Colors.grey.shade300,
+                                  width: 0.5,
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -495,7 +561,9 @@ class _StockCheckScreenState extends State<StockCheckScreen>
                         ),
                       ),
                       const Spacer(),
-                      if (_searchQuery.isNotEmpty || _statusFilter != 'all')
+                      if (_searchQuery.isNotEmpty ||
+                          _statusFilter != 'available' ||
+                          _sortByPrice)
                         TextButton(
                           onPressed: _clearFilters,
                           style: TextButton.styleFrom(
@@ -527,7 +595,7 @@ class _StockCheckScreenState extends State<StockCheckScreen>
                               Text(
                                 _searchQuery.isNotEmpty
                                     ? 'No matching items found'
-                                    : 'No ${_tabTitles[_currentTab].toLowerCase()} available',
+                                    : 'No ${_statusFilter} ${_tabTitles[_currentTab].toLowerCase()} available',
                                 style: const TextStyle(
                                   fontSize: 13,
                                   color: Colors.grey,
@@ -600,7 +668,7 @@ class _StockCheckScreenState extends State<StockCheckScreen>
     );
   }
 
-  Widget _buildFilterChip(String label, String value) {
+  Widget _buildStatusChip(String label, String value) {
     final isSelected = _statusFilter == value;
     return FilterChip(
       label: Text(
@@ -613,7 +681,7 @@ class _StockCheckScreenState extends State<StockCheckScreen>
       selected: isSelected,
       onSelected: (selected) {
         setState(() {
-          _statusFilter = selected ? value : 'all';
+          _statusFilter = value; // Directly set to the selected value
         });
         _applyFilters();
       },
