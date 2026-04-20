@@ -153,6 +153,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
           sale['displayDate'] = _formatDate(sale, collection);
           sale['displayAmount'] = _getAmount(sale, collection);
           sale['customerInfo'] = _getCustomerInfo(sale);
+          sale['customerPhone'] = _getCustomerPhone(sale);
           sale['paymentInfo'] = _getPaymentInfo(sale, collection);
           sale['shopName'] = _getShopName(sale, collection);
 
@@ -173,6 +174,35 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     _applyFilter();
 
     setState(() => isLoading = false);
+  }
+
+  // Helper method to get customer phone number
+  String _getCustomerPhone(Map<String, dynamic> data) {
+    if (data['customerPhone'] != null &&
+        data['customerPhone'].toString().isNotEmpty) {
+      return data['customerPhone'].toString();
+    }
+    if (data['phone'] != null && data['phone'].toString().isNotEmpty) {
+      return data['phone'].toString();
+    }
+    if (data['mobile'] != null && data['mobile'].toString().isNotEmpty) {
+      return data['mobile'].toString();
+    }
+    if (data['customerMobile'] != null &&
+        data['customerMobile'].toString().isNotEmpty) {
+      return data['customerMobile'].toString();
+    }
+    return '';
+  }
+
+  // Make phone call
+  Future<void> _makePhoneCall(String phoneNumber) async {
+    final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
+    if (await canLaunchUrl(launchUri)) {
+      await launchUrl(launchUri);
+    } else {
+      _showError('Could not launch phone dialer');
+    }
   }
 
   void _calculateReportData() {
@@ -341,6 +371,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       final query = searchQuery.toLowerCase();
       tempSales = tempSales.where((sale) {
         final customer = (sale['customerInfo'] as String).toLowerCase();
+        final customerPhone = (sale['customerPhone'] as String).toLowerCase();
         final shopName = (sale['shopName'] as String).toLowerCase();
         final type = (sale['type'] as String).toLowerCase();
         final product = (sale['productName'] ?? '').toString().toLowerCase();
@@ -348,6 +379,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         final imei = (sale['imei'] ?? '').toString().toLowerCase();
 
         return customer.contains(query) ||
+            customerPhone.contains(query) ||
             shopName.contains(query) ||
             type.contains(query) ||
             product.contains(query) ||
@@ -411,7 +443,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     fetchSalesData();
   }
 
-  // ==================== PDF BILL GENERATION (SAME AS BILLFORMSCREEN) ====================
+  // ==================== PDF BILL GENERATION ====================
 
   String _amountToWords(String amount) {
     try {
@@ -614,7 +646,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
             gstAmount,
             totalAmount,
           ),
-          // REMOVED THE SEAL - replaced with simple spacer
           pw.SizedBox(height: 280),
           _buildTotalSection(totalAmount, taxableAmount, gstAmount),
           _buildBottomSection(),
@@ -761,6 +792,12 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
             ),
             pw.SizedBox(height: 4),
+            if (customerMobile.isNotEmpty)
+              pw.Text(
+                'Mobile Tel  : $customerMobile',
+                style: pw.TextStyle(fontSize: 11),
+              ),
+            pw.SizedBox(height: 4),
             if (customerAddress.isNotEmpty)
               pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -776,11 +813,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                   ),
                 ],
               ),
-            pw.SizedBox(height: 4),
-            pw.Text(
-              'Mobile Tel  : $customerMobile',
-              style: pw.TextStyle(fontSize: 11),
-            ),
             pw.SizedBox(height: 6),
             if (purchaseMode == 'EMI' && financeType.isNotEmpty)
               pw.Row(
@@ -1112,7 +1144,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
 
   // ==================== SHARE FUNCTIONS ====================
 
-  // Share PDF Bill
   Future<void> _sharePdfBill(Map<String, dynamic> sale) async {
     try {
       _showMessage('Generating PDF bill...', isError: false);
@@ -1138,8 +1169,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     }
   }
 
-  // Generate EMI Share Message (Same as PhoneSaleUpload)
-  // Generate EMI Share Message (Same as PhoneSaleUpload)
   String _generateEmiShareMessage(Map<String, dynamic> sale) {
     final brand = sale['brand']?.toString().toUpperCase() ?? '';
     final model = sale['productModel']?.toString() ?? '';
@@ -1152,7 +1181,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     final balanceReturned =
         (sale['balanceReturnedToCustomer'] as num?)?.toDouble() ?? 0.0;
 
-    // FIX: Properly convert Timestamp to DateTime
     DateTime saleDate;
     if (sale['saleDate'] is Timestamp) {
       saleDate = (sale['saleDate'] as Timestamp).toDate();
@@ -1293,7 +1321,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     return buffer.toString();
   }
 
-  // Share via intent
   void _shareViaIntent(String message) async {
     try {
       await Share.share(message);
@@ -1302,7 +1329,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     }
   }
 
-  // Share to WhatsApp
   void _shareToWhatsApp(String message, {String? phoneNumber}) async {
     try {
       String phone = phoneNumber ?? '';
@@ -1342,7 +1368,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     }
   }
 
-  // Show share options for a phone sale (Only PDF and EMI Details)
   void _showShareOptionsForPhoneSale(Map<String, dynamic> sale) {
     final isEmiMode = sale['purchaseMode']?.toString() == 'EMI';
     final customerPhone = sale['customerPhone']?.toString() ?? '';
@@ -1374,8 +1399,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 20),
-
-              // PDF Bill Button
               _buildShareOption(
                 icon: Icons.picture_as_pdf,
                 label: 'Share PDF Bill',
@@ -1385,10 +1408,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                   _sharePdfBill(sale);
                 },
               ),
-
               const SizedBox(height: 12),
-
-              // EMI Details Share Button (only for EMI mode)
               if (isEmiMode)
                 _buildShareOption(
                   icon: Icons.credit_card,
@@ -1400,7 +1420,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                     _showShareMethodDialog(message, customerPhone);
                   },
                 ),
-
               const SizedBox(height: 16),
               TextButton(
                 onPressed: () => Navigator.pop(context),
@@ -1413,7 +1432,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     );
   }
 
-  // Show share method dialog (Copy, Share, WhatsApp)
   void _showShareMethodDialog(String message, String customerPhone) {
     showDialog(
       context: context,
@@ -1494,7 +1512,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
 
   // ==================== END SHARE FUNCTIONS ====================
 
-  // Delete sale with confirmation
   Future<void> _deleteSale(Map<String, dynamic> sale) async {
     final collection = sale['collection'] as String;
     final saleId = sale['id'] as String;
@@ -2040,14 +2057,14 @@ ${filteredSales.map((sale) {
             )
           : Column(
               children: [
-                // Search Bar
                 Padding(
                   padding: const EdgeInsets.all(10.0),
                   child: TextField(
                     controller: searchController,
                     onChanged: _onSearchChanged,
                     decoration: InputDecoration(
-                      hintText: 'Search by customer, product, brand, IMEI...',
+                      hintText:
+                          'Search by customer, phone, product, brand, IMEI...',
                       hintStyle: const TextStyle(fontSize: 12),
                       prefixIcon: const Icon(Icons.search, size: 20),
                       suffixIcon: searchQuery.isNotEmpty
@@ -2069,8 +2086,6 @@ ${filteredSales.map((sale) {
                     ),
                   ),
                 ),
-
-                // Date Filter Chips
                 Container(
                   padding: const EdgeInsets.symmetric(
                     vertical: 6,
@@ -2112,8 +2127,6 @@ ${filteredSales.map((sale) {
                     ),
                   ),
                 ),
-
-                // Period Info
                 Container(
                   padding: const EdgeInsets.symmetric(
                     vertical: 8,
@@ -2157,8 +2170,6 @@ ${filteredSales.map((sale) {
                     ],
                   ),
                 ),
-
-                // Type Filter Chips
                 Container(
                   padding: const EdgeInsets.symmetric(
                     vertical: 6,
@@ -2205,8 +2216,6 @@ ${filteredSales.map((sale) {
                     ),
                   ),
                 ),
-
-                // Sales List
                 Expanded(
                   child: isLoading
                       ? const Center(child: CircularProgressIndicator())
@@ -2274,7 +2283,6 @@ ${filteredSales.map((sale) {
                           onRefresh: fetchSalesData,
                           child: Column(
                             children: [
-                              // Summary Card
                               Container(
                                 padding: const EdgeInsets.all(10),
                                 margin: const EdgeInsets.all(6),
@@ -2337,8 +2345,6 @@ ${filteredSales.map((sale) {
                                   ],
                                 ),
                               ),
-
-                              // Sales List
                               Expanded(
                                 child: ListView.separated(
                                   itemCount: filteredSales.length,
@@ -2352,6 +2358,8 @@ ${filteredSales.map((sale) {
                                     final color = _getTypeColor(type);
                                     final isPhoneSale =
                                         sale['collection'] == 'phoneSales';
+                                    final customerPhone =
+                                        sale['customerPhone']?.toString() ?? '';
 
                                     return Card(
                                       margin: const EdgeInsets.symmetric(
@@ -2409,6 +2417,53 @@ ${filteredSales.map((sale) {
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
                                             ),
+                                            const SizedBox(height: 2),
+                                            if (isPhoneSale &&
+                                                customerPhone.isNotEmpty)
+                                              GestureDetector(
+                                                onTap: () => _makePhoneCall(
+                                                  customerPhone,
+                                                ),
+                                                child: Container(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 4,
+                                                        vertical: 2,
+                                                      ),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.green.shade50,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          6,
+                                                        ),
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      Icon(
+                                                        Icons.call,
+                                                        size: 10,
+                                                        color: Colors
+                                                            .green
+                                                            .shade700,
+                                                      ),
+                                                      const SizedBox(width: 2),
+                                                      Text(
+                                                        customerPhone,
+                                                        style: TextStyle(
+                                                          fontSize: 9,
+                                                          color: Colors
+                                                              .green
+                                                              .shade700,
+                                                          fontWeight:
+                                                              FontWeight.w500,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
                                             const SizedBox(height: 2),
                                             Text(
                                               '${sale['shopName']} • $type',
@@ -2636,6 +2691,20 @@ ${filteredSales.map((sale) {
     final totalAmount = (sale['displayAmount'] as double).toStringAsFixed(0);
     final paymentInfo = sale['paymentInfo'] as Map<String, dynamic>;
 
+    // Get customer phone - check multiple possible field names
+    String customerPhone = '';
+    if (sale['customerPhone'] != null &&
+        sale['customerPhone'].toString().isNotEmpty) {
+      customerPhone = sale['customerPhone'].toString();
+    } else if (sale['phone'] != null && sale['phone'].toString().isNotEmpty) {
+      customerPhone = sale['phone'].toString();
+    } else if (sale['mobile'] != null && sale['mobile'].toString().isNotEmpty) {
+      customerPhone = sale['mobile'].toString();
+    } else if (sale['customerMobile'] != null &&
+        sale['customerMobile'].toString().isNotEmpty) {
+      customerPhone = sale['customerMobile'].toString();
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -2691,10 +2760,135 @@ ${filteredSales.map((sale) {
               ),
               const SizedBox(height: 16),
               _buildDetailRow('Customer', sale['customerInfo'] as String),
+
+              // Phone number row - shown for phone sales
+              if (isPhoneSale && customerPhone.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 100,
+                        child: Text(
+                          'Phone:',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => _makePhoneCall(customerPhone),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.green.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  customerPhone,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.blue,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Icon(
+                                  Icons.call,
+                                  size: 14,
+                                  color: Colors.green.shade700,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
               _buildDetailRow('Shop', sale['shopName'].toString()),
               _buildDetailRow('Date', sale['displayDate'] as String),
 
-              // Amount Breakdown for Accessories
+              // EMI Mode Display
+              if (isPhoneSale && sale['purchaseMode']?.toString() == 'EMI') ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.purple.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.credit_card,
+                            size: 14,
+                            color: Colors.purple.shade700,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'EMI Details',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.purple.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      if (sale['downPayment'] != null)
+                        _buildEmiDetailRow(
+                          'Down Payment',
+                          sale['downPayment'] as double,
+                        ),
+                      if (sale['perMonthEmi'] != null &&
+                          sale['numberOfEmi'] != null)
+                        _buildEmiDetailRow(
+                          'EMI',
+                          sale['perMonthEmi'] as double,
+                          suffix: ' × ${sale['numberOfEmi']} months',
+                        ),
+                      if (sale['financeType'] != null)
+                        _buildEmiDetailText(
+                          'Finance',
+                          sale['financeType'].toString(),
+                        ),
+                      if (sale['autoDebit'] != null)
+                        _buildEmiDetailText(
+                          'Auto Debit',
+                          sale['autoDebit'] == true ? 'Yes' : 'No',
+                        ),
+                      if (sale['insurance'] != null)
+                        _buildEmiDetailText(
+                          'Insurance',
+                          sale['insurance'] == true ? 'Yes' : 'No',
+                        ),
+                      if (sale['loanId'] != null &&
+                          sale['loanId'].toString().isNotEmpty)
+                        _buildEmiDetailText(
+                          'Loan ID',
+                          sale['loanId'].toString(),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+
               if (isAccessoriesSale) ...[
                 const SizedBox(height: 12),
                 const Text(
@@ -2741,29 +2935,8 @@ ${filteredSales.map((sale) {
               ] else
                 _buildDetailRow('Total Amount', '₹$totalAmount'),
 
-              // Payment Breakdown
-              const SizedBox(height: 16),
-              const Text(
-                'Payment Breakdown',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              ),
               const SizedBox(height: 8),
-              if (isAccessoriesSale) ...[
-                if (paymentInfo['actualCash'] > 0)
-                  _buildPaymentDetailRow('Cash', paymentInfo['actualCash']),
-                if (paymentInfo['actualCard'] > 0)
-                  _buildPaymentDetailRow('Card', paymentInfo['actualCard']),
-                if (paymentInfo['actualGpay'] > 0)
-                  _buildPaymentDetailRow('GPay', paymentInfo['actualGpay']),
-                if (paymentInfo['credit'] > 0)
-                  _buildPaymentDetailRow('Credit', paymentInfo['credit']),
-              ] else
-                ..._buildPaymentDetails(
-                  paymentInfo,
-                  sale['collection'] as String,
-                ),
 
-              // Product Details
               if (sale['collection'] == 'phoneSales') ...[
                 const SizedBox(height: 16),
                 if (sale['productModel'] != null)
@@ -2777,14 +2950,8 @@ ${filteredSales.map((sale) {
                     'Purchase Mode',
                     sale['purchaseMode'].toString(),
                   ),
-                if (sale['financeType'] != null)
-                  _buildDetailRow(
-                    'Finance Type',
-                    sale['financeType'].toString(),
-                  ),
               ],
 
-              // Other product details
               if (sale['productName'] != null &&
                   sale['collection'] != 'phoneSales')
                 _buildDetailRow('Product', sale['productName'].toString()),
@@ -2795,9 +2962,8 @@ ${filteredSales.map((sale) {
               if (sale['notes'] != null && (sale['notes'] as String).isNotEmpty)
                 _buildDetailRow('Notes', sale['notes'].toString()),
 
+              // Show gifts if present
               const SizedBox(height: 20),
-
-              // Action Buttons
               Row(
                 children: [
                   Expanded(
@@ -2843,6 +3009,39 @@ ${filteredSales.map((sale) {
           ),
         );
       },
+    );
+  }
+
+  // Helper methods for EMI details display
+  Widget _buildEmiDetailRow(String label, double amount, {String suffix = ''}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          Text(
+            '₹${amount.toStringAsFixed(0)}$suffix',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmiDetailText(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+          ),
+        ],
+      ),
     );
   }
 
