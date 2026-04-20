@@ -28,6 +28,12 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   List<Map<String, dynamic>> _allBills = [];
   List<Map<String, dynamic>> _phoneBills = [];
   List<Map<String, dynamic>> _accessoriesBills = [];
+  List<Map<String, dynamic>> _tvBills = [];
+
+  // Brand wise data
+  Map<String, List<Map<String, dynamic>>> _brandWiseBills = {};
+  Map<String, Map<String, dynamic>> _brandStats = {};
+  bool _showBrandWise = false;
 
   // Time period filters
   String _selectedTimePeriod = 'monthly'; // Default to monthly
@@ -46,7 +52,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
 
     // Set initial shop filter if provided
     if (widget.initialShopId != null) {
@@ -76,22 +82,32 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       _allBills.clear();
       _phoneBills.clear();
       _accessoriesBills.clear();
+      _tvBills.clear();
 
       for (var doc in billsSnapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
 
         final billType = data['billType'] as String?;
+        final type = data['type'] as String?;
 
         _allBills.add(data);
 
-        // If billType is null or empty, treat as Phone bill
-        if (billType == null || billType.isEmpty) {
-          _phoneBills.add(data);
-        } else if (billType == 'GST Accessories') {
+        // Categorize bills based on priority:
+        // 1. If billType is "GST Accessories" -> Accessories
+        // 2. If type is "tv" -> TV Bills
+        // 3. Everything else -> Phone Bills
+        if (billType == 'GST Accessories') {
           _accessoriesBills.add(data);
+        } else if (type == 'tv') {
+          _tvBills.add(data);
+        } else {
+          // Default to phone bills for all other cases
+          _phoneBills.add(data);
         }
       }
+
+      _processBrandWiseData();
 
       setState(() {
         _isLoading = false;
@@ -106,6 +122,54 @@ class _BillsReportScreenState extends State<BillsReportScreen>
           backgroundColor: Colors.red,
         ),
       );
+    }
+  }
+
+  void _processBrandWiseData() {
+    _brandWiseBills.clear();
+    _brandStats.clear();
+
+    // Filter phone bills by time period and shop
+    var filteredPhoneBills = _filterBillsByTimePeriod(_phoneBills);
+    filteredPhoneBills = _filterBillsByShop(filteredPhoneBills);
+
+    for (var bill in filteredPhoneBills) {
+      // Get brand from originalPhoneData or directly from bill
+      String brand = 'Unknown';
+
+      final originalPhoneData = bill['originalPhoneData'];
+      if (originalPhoneData != null &&
+          originalPhoneData is Map<String, dynamic>) {
+        brand = originalPhoneData['productBrand'] ?? 'Unknown';
+      } else {
+        brand = bill['productBrand'] ?? 'Unknown';
+      }
+
+      if (brand.isEmpty || brand == 'null') brand = 'Unknown';
+
+      // Add to brand-wise list
+      if (!_brandWiseBills.containsKey(brand)) {
+        _brandWiseBills[brand] = [];
+      }
+      _brandWiseBills[brand]!.add(bill);
+    }
+
+    // Calculate stats for each brand
+    for (var entry in _brandWiseBills.entries) {
+      final brand = entry.key;
+      final bills = entry.value;
+
+      final totalAmount = _calculateTotalAmount(bills);
+      final totalTaxable = _calculateTotalTaxableAmount(bills);
+      final totalGst = _calculateTotalGstAmount(bills);
+      final totalBills = bills.length;
+
+      _brandStats[brand] = {
+        'totalAmount': totalAmount,
+        'totalTaxable': totalTaxable,
+        'totalGst': totalGst,
+        'totalBills': totalBills,
+      };
     }
   }
 
@@ -240,6 +304,12 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     return bills;
   }
 
+  List<Map<String, dynamic>> _getFilteredTvBills() {
+    var bills = _filterBillsByTimePeriod(_tvBills);
+    bills = _filterBillsByShop(bills);
+    return bills;
+  }
+
   double _calculateTotalAmount(List<Map<String, dynamic>> bills) {
     return bills.fold(0.0, (sum, bill) {
       final totalAmount = bill['totalAmount'] as num?;
@@ -307,6 +377,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       _customEndDate = pickedEndDate;
       _isCustomPeriod = true;
       _selectedTimePeriod = 'custom';
+      _processBrandWiseData();
     });
   }
 
@@ -316,7 +387,8 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       _customStartDate = null;
       _customEndDate = null;
       _isCustomPeriod = false;
-      _selectedTimePeriod = 'monthly'; // Reset to monthly
+      _selectedTimePeriod = 'monthly';
+      _processBrandWiseData();
     });
   }
 
@@ -374,6 +446,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   Widget build(BuildContext context) {
     final filteredPhoneBills = _getFilteredPhoneBills();
     final filteredAccessoriesBills = _getFilteredAccessoriesBills();
+    final filteredTvBills = _getFilteredTvBills();
 
     return Scaffold(
       backgroundColor: Colors.grey[100],
@@ -394,7 +467,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 children: [
                   Icon(Icons.phone_android, size: 18),
                   SizedBox(width: 6),
-                  Text('Phone Bills'),
+                  Text('Phone '),
                   Container(
                     margin: EdgeInsets.only(left: 6),
                     padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -416,7 +489,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 children: [
                   Icon(Icons.shopping_bag, size: 18),
                   SizedBox(width: 6),
-                  Text('GST Accessories'),
+                  Text(' Accessories'),
                   Container(
                     margin: EdgeInsets.only(left: 6),
                     padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -426,6 +499,28 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                     ),
                     child: Text(
                       '${filteredAccessoriesBills.length}',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Tab(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.tv, size: 18),
+                  SizedBox(width: 6),
+                  Text('TV '),
+                  Container(
+                    margin: EdgeInsets.only(left: 6),
+                    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '${filteredTvBills.length}',
                       style: TextStyle(fontSize: 11),
                     ),
                   ),
@@ -455,11 +550,12 @@ class _BillsReportScreenState extends State<BillsReportScreen>
             child: TabBarView(
               controller: _tabController,
               children: [
-                _buildBillsList(filteredPhoneBills, 'Phone Bills'),
+                _buildPhoneBillsContent(filteredPhoneBills),
                 _buildBillsList(
                   filteredAccessoriesBills,
                   'GST Accessories Bills',
                 ),
+                _buildBillsList(filteredTvBills, 'TV Bills'),
               ],
             ),
           ),
@@ -534,6 +630,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                         setState(() {
                           _selectedTimePeriod = option['value'];
                           _isCustomPeriod = false;
+                          _processBrandWiseData();
                         });
                       }
                     },
@@ -631,6 +728,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
               onChanged: (value) {
                 setState(() {
                   _selectedShopId = value;
+                  _processBrandWiseData();
                 });
               },
             ),
@@ -642,6 +740,564 @@ class _BillsReportScreenState extends State<BillsReportScreen>
             tooltip: 'Reset Filters',
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPhoneBillsContent(List<Map<String, dynamic>> bills) {
+    return Column(
+      children: [
+        // Toggle between Bill List and Brand Wise Report
+        Container(
+          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          color: Colors.white,
+          child: Row(
+            children: [
+              Expanded(
+                child: SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment<bool>(
+                      value: false,
+                      label: Text('Bill List'),
+                      icon: Icon(Icons.list, size: 16),
+                    ),
+                    ButtonSegment<bool>(
+                      value: true,
+                      label: Text('Brand Wise'),
+                      icon: Icon(Icons.branding_watermark, size: 16),
+                    ),
+                  ],
+                  selected: {_showBrandWise},
+                  onSelectionChanged: (Set<bool> newSelection) {
+                    setState(() {
+                      _showBrandWise = newSelection.first;
+                      _processBrandWiseData();
+                    });
+                  },
+                  style: ButtonStyle(
+                    backgroundColor: WidgetStateProperty.resolveWith((states) {
+                      if (states.contains(WidgetState.selected)) {
+                        return primaryGreen;
+                      }
+                      return Colors.grey[200];
+                    }),
+                    foregroundColor: WidgetStateProperty.resolveWith((states) {
+                      if (states.contains(WidgetState.selected)) {
+                        return Colors.white;
+                      }
+                      return Colors.grey[700];
+                    }),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _showBrandWise
+              ? _buildBrandWiseReport()
+              : _buildBillsList(bills, 'Phone Bills'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBrandWiseReport() {
+    // Sort brands by total sales amount
+    final sortedBrands = _brandStats.entries.toList()
+      ..sort((a, b) {
+        final aAmount = (a.value['totalAmount'] as double?) ?? 0.0;
+        final bAmount = (b.value['totalAmount'] as double?) ?? 0.0;
+        return bAmount.compareTo(aAmount);
+      });
+
+    final totalAllAmount = _brandStats.values.fold(0.0, (sum, stat) {
+      return sum + ((stat['totalAmount'] as double?) ?? 0.0);
+    });
+    final totalAllTaxable = _brandStats.values.fold(0.0, (sum, stat) {
+      return sum + ((stat['totalTaxable'] as double?) ?? 0.0);
+    });
+    final totalAllGst = _brandStats.values.fold(0.0, (sum, stat) {
+      return sum + ((stat['totalGst'] as double?) ?? 0.0);
+    });
+    final totalAllBills = _brandStats.values.fold(0, (sum, stat) {
+      return sum + ((stat['totalBills'] as int?) ?? 0);
+    });
+
+    if (sortedBrands.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.bar_chart, size: 64, color: Colors.grey[400]),
+            SizedBox(height: 16),
+            Text(
+              'No phone bills found',
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Try changing your filters',
+              style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView(
+      padding: EdgeInsets.all(12),
+      children: [
+        // Overall Summary Card
+        _buildOverallSummaryCard(
+          totalAllAmount,
+          totalAllTaxable,
+          totalAllGst,
+          totalAllBills,
+        ),
+        SizedBox(height: 12),
+
+        // Brand-wise Summary
+        ...sortedBrands.map((entry) {
+          final brand = entry.key;
+          final stats = entry.value;
+          return _buildBrandCard(
+            brand,
+            stats['totalAmount'] as double? ?? 0.0,
+            stats['totalTaxable'] as double? ?? 0.0,
+            stats['totalGst'] as double? ?? 0.0,
+            stats['totalBills'] as int? ?? 0,
+            _brandWiseBills[brand] ?? [],
+          );
+        }).toList(),
+      ],
+    );
+  }
+
+  Widget _buildOverallSummaryCard(
+    double totalAmount,
+    double totalTaxable,
+    double totalGst,
+    int count,
+  ) {
+    return Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [primaryGreen, secondaryGreen],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _getPeriodLabel(),
+                    style: TextStyle(color: Colors.white70, fontSize: 11),
+                  ),
+                  Text(
+                    _getPeriodDateRange(),
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.8),
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+              Text(
+                'Total Bills: $count',
+                style: TextStyle(color: Colors.white, fontSize: 13),
+              ),
+            ],
+          ),
+          SizedBox(height: 12),
+          Divider(color: Colors.white24, height: 1),
+          SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Taxable Amount',
+                      style: TextStyle(color: Colors.white70, fontSize: 11),
+                    ),
+                    Text(
+                      '₹${widget.formatNumber(totalTaxable)}',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(
+                      'GST Amount',
+                      style: TextStyle(color: Colors.white70, fontSize: 11),
+                    ),
+                    Text(
+                      '₹${widget.formatNumber(totalGst)}',
+                      style: TextStyle(
+                        color: warningColor,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      'Total Sales',
+                      style: TextStyle(color: Colors.white70, fontSize: 11),
+                    ),
+                    Text(
+                      '₹${widget.formatNumber(totalAmount)}',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBrandCard(
+    String brand,
+    double totalAmount,
+    double totalTaxable,
+    double totalGst,
+    int billCount,
+    List<Map<String, dynamic>> bills,
+  ) {
+    return Card(
+      margin: EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        onTap: () {
+          _showBrandDetailsDialog(brand, bills);
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: primaryGreen.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.branding_watermark,
+                      size: 24,
+                      color: primaryGreen,
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          brand,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: primaryGreen,
+                          ),
+                        ),
+                        Text(
+                          '$billCount bills',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '₹${widget.formatNumber(totalAmount)}',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: secondaryGreen,
+                        ),
+                      ),
+                      Text(
+                        'Total Sales',
+                        style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              SizedBox(height: 12),
+              Divider(height: 1),
+              SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Text(
+                          '₹${widget.formatNumber(totalTaxable)}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey[800],
+                          ),
+                        ),
+                        Text(
+                          'Taxable',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey[500],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(width: 1, height: 30, color: Colors.grey[300]),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Text(
+                          '₹${widget.formatNumber(totalGst)}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: warningColor,
+                          ),
+                        ),
+                        Text(
+                          'GST',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey[500],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(width: 1, height: 30, color: Colors.grey[300]),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Text(
+                          totalTaxable > 0
+                              ? '${((totalGst / totalTaxable) * 100).toStringAsFixed(1)}%'
+                              : '0%',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: primaryGreen,
+                          ),
+                        ),
+                        Text(
+                          'Avg GST Rate',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey[500],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showBrandDetailsDialog(String brand, List<Map<String, dynamic>> bills) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Container(
+            width: MediaQuery.of(context).size.width * 0.9,
+            height: MediaQuery.of(context).size.height * 0.7,
+            padding: EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.branding_watermark, color: primaryGreen),
+                        SizedBox(width: 8),
+                        Text(
+                          brand,
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: primaryGreen,
+                          ),
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                Divider(),
+                SizedBox(height: 8),
+                Text(
+                  'Bill Details (${bills.length} bills)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                SizedBox(height: 12),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: bills.length,
+                    itemBuilder: (context, index) {
+                      final bill = bills[index];
+                      return _buildBillItem(bill);
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBillItem(Map<String, dynamic> bill) {
+    final billDate = bill['billDate'] is Timestamp
+        ? (bill['billDate'] as Timestamp).toDate()
+        : (bill['createdAt'] is Timestamp
+              ? (bill['createdAt'] as Timestamp).toDate()
+              : DateTime.now());
+
+    final totalAmount = (bill['totalAmount'] as num?)?.toDouble() ?? 0.0;
+
+    // Get product name
+    String productName = '';
+    final originalPhoneData = bill['originalPhoneData'];
+    if (originalPhoneData != null &&
+        originalPhoneData is Map<String, dynamic>) {
+      productName =
+          originalPhoneData['productName'] ?? bill['productName'] ?? 'N/A';
+    } else {
+      productName = bill['productName'] ?? 'N/A';
+    }
+
+    return Card(
+      margin: EdgeInsets.only(bottom: 8),
+      elevation: 1,
+      child: InkWell(
+        onTap: () {
+          Navigator.pop(context);
+          _showBillDetailsDialog(bill);
+        },
+        child: Padding(
+          padding: EdgeInsets.all(10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      bill['billNumber'] ?? 'N/A',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: primaryGreen,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '₹${widget.formatNumber(totalAmount)}',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: secondaryGreen,
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 4),
+              Text(
+                productName,
+                style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(Icons.person, size: 10, color: Colors.grey[500]),
+                  SizedBox(width: 4),
+                  Text(
+                    bill['customerName'] ?? 'N/A',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                  ),
+                  SizedBox(width: 12),
+                  Icon(Icons.calendar_today, size: 10, color: Colors.grey[500]),
+                  SizedBox(width: 4),
+                  Text(
+                    DateFormat('dd MMM yyyy').format(billDate),
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -843,18 +1499,42 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     double productPrice = 0.0;
     double productDiscount = 0.0;
 
+    final billType = bill['billType'] as String?;
+    final type = bill['type'] as String?;
+    final isTvBill = type == 'tv';
+    final isAccessoriesBill = billType == 'GST Accessories';
+
     if (product != null && product is Map<String, dynamic>) {
       productName = product['productName'] ?? bill['productName'] ?? 'N/A';
       quantity = (product['quantity'] as num?)?.toInt() ?? 1;
       productPrice = (product['price'] as num?)?.toDouble() ?? 0.0;
       productDiscount = (product['discount'] as num?)?.toDouble() ?? 0.0;
     } else {
-      productName = bill['productName'] ?? 'N/A';
+      // For TV bills, check modelName first
+      if (isTvBill) {
+        productName = bill['modelName'] ?? bill['productName'] ?? 'N/A';
+      } else {
+        productName = bill['productName'] ?? 'N/A';
+      }
       quantity = (bill['quantity'] as num?)?.toInt() ?? 1;
       productPrice = (bill['price'] as num?)?.toDouble() ?? 0.0;
     }
 
-    // Get original phone data if available (for phone bills)
+    // Get original TV data if available
+    final originalTvData = bill['originalTvData'];
+    String serialNumber = bill['serialNumber'] ?? '';
+
+    if (originalTvData != null && originalTvData is Map<String, dynamic>) {
+      if (serialNumber.isEmpty) {
+        serialNumber = originalTvData['serialNumber'] ?? '';
+      }
+      // If product name is still empty or N/A, try from originalTvData
+      if (productName == 'N/A' || productName.isEmpty) {
+        productName = originalTvData['modelName'] ?? bill['modelName'] ?? 'N/A';
+      }
+    }
+
+    // Get original phone data if available
     final originalPhoneData = bill['originalPhoneData'];
     String imei = bill['imei'] ?? '';
 
@@ -864,6 +1544,9 @@ class _BillsReportScreenState extends State<BillsReportScreen>
         imei = originalPhoneData['imei'] ?? '';
       }
     }
+
+    final identifier = isTvBill ? 'Serial' : 'IMEI';
+    final identifierValue = isTvBill ? serialNumber : imei;
 
     return Card(
       margin: EdgeInsets.only(bottom: 12),
@@ -892,7 +1575,11 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Icon(
-                            Icons.receipt,
+                            isTvBill
+                                ? Icons.tv
+                                : isAccessoriesBill
+                                ? Icons.shopping_bag
+                                : Icons.phone_android,
                             size: 18,
                             color: primaryGreen,
                           ),
@@ -997,9 +1684,13 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                   ),
                 ],
               ),
-              if (imei.isNotEmpty) ...[
+              if (identifierValue.isNotEmpty && !isAccessoriesBill) ...[
                 SizedBox(height: 6),
-                _buildInfoChip(Icons.qr_code, 'IMEI: $imei', fontSize: 10),
+                _buildInfoChip(
+                  Icons.qr_code,
+                  '$identifier: $identifierValue',
+                  fontSize: 10,
+                ),
               ],
               if (gstRate > 0) ...[
                 SizedBox(height: 6),
@@ -1100,19 +1791,51 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     double productPrice = 0.0;
     double productDiscount = 0.0;
 
+    final billType = bill['billType'] as String?;
+    final type = bill['type'] as String?;
+    final isTvBill = type == 'tv';
+    final isAccessoriesBill = billType == 'GST Accessories';
+
     if (product != null && product is Map<String, dynamic>) {
       productName = product['productName'] ?? bill['productName'] ?? 'N/A';
       quantity = (product['quantity'] as num?)?.toInt() ?? 1;
       productPrice = (product['price'] as num?)?.toDouble() ?? 0.0;
       productDiscount = (product['discount'] as num?)?.toDouble() ?? 0.0;
     } else {
-      productName = bill['productName'] ?? 'N/A';
+      // For TV bills, check modelName first
+      if (isTvBill) {
+        productName = bill['modelName'] ?? bill['productName'] ?? 'N/A';
+      } else {
+        productName = bill['productName'] ?? 'N/A';
+      }
       quantity = (bill['quantity'] as num?)?.toInt() ?? 1;
       productPrice = (bill['price'] as num?)?.toDouble() ?? 0.0;
     }
 
+    // Get original TV data if available
+    final originalTvData = bill['originalTvData'];
+    String serialNumber = bill['serialNumber'] ?? '';
+
+    if (originalTvData != null && originalTvData is Map<String, dynamic>) {
+      if (serialNumber.isEmpty) {
+        serialNumber = originalTvData['serialNumber'] ?? '';
+      }
+      // If product name is still empty or N/A, try from originalTvData
+      if (productName == 'N/A' || productName.isEmpty) {
+        productName = originalTvData['modelName'] ?? bill['modelName'] ?? 'N/A';
+      }
+    }
+
     // Get original phone data if available
     final originalPhoneData = bill['originalPhoneData'];
+    String imei = bill['imei'] ?? '';
+
+    if (originalPhoneData != null &&
+        originalPhoneData is Map<String, dynamic>) {
+      if (imei.isEmpty) {
+        imei = originalPhoneData['imei'] ?? '';
+      }
+    }
 
     showDialog(
       context: context,
@@ -1133,7 +1856,14 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.receipt, color: primaryGreen),
+                        Icon(
+                          isTvBill
+                              ? Icons.tv
+                              : isAccessoriesBill
+                              ? Icons.shopping_bag
+                              : Icons.phone_android,
+                          color: primaryGreen,
+                        ),
                         SizedBox(width: 8),
                         Text(
                           bill['billNumber'] ?? 'Bill Details',
@@ -1204,9 +1934,40 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                             'Discount',
                             '₹${widget.formatNumber(productDiscount)}',
                           ),
-                        if (bill['imei']?.isNotEmpty == true)
-                          _buildDetailRow('IMEI', bill['imei']),
-                        if (originalPhoneData != null) ...[
+                        if (imei.isNotEmpty && !isTvBill && !isAccessoriesBill)
+                          _buildDetailRow('IMEI', imei),
+                        if (serialNumber.isNotEmpty && isTvBill)
+                          _buildDetailRow('Serial Number', serialNumber),
+                        if (originalTvData != null && isTvBill) ...[
+                          SizedBox(height: 8),
+                          Divider(),
+                          SizedBox(height: 8),
+                          Text(
+                            'TV Details',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                          SizedBox(height: 6),
+                          _buildDetailRow(
+                            'Brand',
+                            originalTvData['modelBrand'] ??
+                                originalTvData['brand'] ??
+                                'N/A',
+                          ),
+                          _buildDetailRow(
+                            'Model',
+                            originalTvData['modelName'] ?? 'N/A',
+                          ),
+                          _buildDetailRow(
+                            'Original Price',
+                            '₹${widget.formatNumber(originalTvData['modelPrice']?.toDouble() ?? originalTvData['price']?.toDouble() ?? 0.0)}',
+                          ),
+                        ],
+                        if (originalPhoneData != null &&
+                            !isTvBill &&
+                            !isAccessoriesBill) ...[
                           SizedBox(height: 8),
                           Divider(),
                           SizedBox(height: 8),
@@ -1266,6 +2027,8 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                           isBold: true,
                           color: secondaryGreen,
                         ),
+                        if (bill['financeType']?.isNotEmpty == true)
+                          _buildDetailRow('Finance Type', bill['financeType']),
                         if (bill['sealApplied'] == true)
                           Padding(
                             padding: EdgeInsets.only(top: 8),
