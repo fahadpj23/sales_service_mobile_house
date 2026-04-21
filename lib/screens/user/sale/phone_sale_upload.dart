@@ -487,27 +487,58 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       debugPrint('=== BILL DATA STRUCTURE ===');
       debugPrint('All keys in bill: ${billData.keys.join(', ')}');
 
+      // CRITICAL: Clear ALL existing data first
+      _clearFormData();
+
       final customerName = billData['customerName']?.toString() ?? '';
       final customerPhone = billData['customerMobile']?.toString() ?? '';
-      final imei =
-          billData['serialNumber']?.toString() ??
-          ''; // TV has serialNumber, phones have imei
+
+      // Get serial number/IMEI
+      String serialNumber = billData['serialNumber']?.toString() ?? '';
+
+      // Check for IMEI in phone bill
+      if (serialNumber.isEmpty && billData.containsKey('imei')) {
+        serialNumber = billData['imei']?.toString() ?? '';
+      }
+
+      // Check for original data objects
+      final originalPhoneData =
+          billData['originalPhoneData'] as Map<String, dynamic>?;
+      final originalTvData =
+          billData['originalTvData'] as Map<String, dynamic>?;
+
+      // Determine product type
+      final productType = billData['type']?.toString() ?? '';
+      final isTv = productType.toLowerCase() == 'tv' || originalTvData != null;
+      final isPhone =
+          originalPhoneData != null ||
+          (billData.containsKey('productBrand') &&
+              billData['productBrand'] != null) ||
+          (billData.containsKey('imei') && billData['imei'] != null);
 
       // Get bill date
       Timestamp? billDateTimestamp = billData['billDate'];
       DateTime? billDate = billDateTimestamp?.toDate();
 
-      // Get product brand
+      // === GET BRAND ===
       String? productBrand;
 
+      // For TV: check modelBrand from bill first
       if (billData.containsKey('modelBrand') &&
           billData['modelBrand'] != null) {
         productBrand = billData['modelBrand']?.toString();
-        debugPrint('Brand from modelBrand: $productBrand');
+        debugPrint('Brand from bill.modelBrand: $productBrand');
       }
 
-      final originalTvData =
-          billData['originalTvData'] as Map<String, dynamic>?;
+      // For Phone: check productBrand from bill
+      if ((productBrand == null || productBrand.isEmpty) &&
+          billData.containsKey('productBrand') &&
+          billData['productBrand'] != null) {
+        productBrand = billData['productBrand']?.toString();
+        debugPrint('Brand from bill.productBrand: $productBrand');
+      }
+
+      // Check originalTvData
       if ((productBrand == null || productBrand.isEmpty) &&
           originalTvData != null) {
         productBrand =
@@ -517,31 +548,34 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         debugPrint('Brand from originalTvData: $productBrand');
       }
 
-      if (productBrand == null || productBrand.isEmpty) {
-        final brandFields = [
-          'productBrand',
-          'brand',
-          'Brand',
-          'phoneBrand',
-          'mobileBrand',
-          'deviceBrand',
-        ];
-        for (var field in brandFields) {
-          if (billData.containsKey(field) && billData[field] != null) {
-            productBrand = billData[field]?.toString();
-            if (productBrand != null && productBrand.isNotEmpty) break;
-          }
-        }
+      // Check originalPhoneData
+      if ((productBrand == null || productBrand.isEmpty) &&
+          originalPhoneData != null) {
+        productBrand =
+            originalPhoneData['productBrand']?.toString() ??
+            originalPhoneData['brand']?.toString() ??
+            originalPhoneData['modelBrand']?.toString();
+        debugPrint('Brand from originalPhoneData: $productBrand');
       }
 
-      // Get product model
+      // === GET MODEL ===
       String? productModel;
 
+      // For TV: check modelName from bill
       if (billData.containsKey('modelName') && billData['modelName'] != null) {
         productModel = billData['modelName']?.toString();
-        debugPrint('Model from modelName: $productModel');
+        debugPrint('Model from bill.modelName: $productModel');
       }
 
+      // For Phone: check productName from bill
+      if ((productModel == null || productModel.isEmpty) &&
+          billData.containsKey('productName') &&
+          billData['productName'] != null) {
+        productModel = billData['productName']?.toString();
+        debugPrint('Model from bill.productName: $productModel');
+      }
+
+      // Check originalTvData
       if ((productModel == null || productModel.isEmpty) &&
           originalTvData != null) {
         productModel =
@@ -551,39 +585,38 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         debugPrint('Model from originalTvData: $productModel');
       }
 
-      if (productModel == null || productModel.isEmpty) {
-        final modelFields = [
-          'productName',
-          'productModel',
-          'model',
-          'Model',
-          'phoneModel',
-          'deviceModel',
-        ];
-        for (var field in modelFields) {
-          if (billData.containsKey(field) && billData[field] != null) {
-            productModel = billData[field]?.toString();
-            if (productModel != null && productModel.isNotEmpty) break;
-          }
-        }
+      // Check originalPhoneData
+      if ((productModel == null || productModel.isEmpty) &&
+          originalPhoneData != null) {
+        productModel =
+            originalPhoneData['productName']?.toString() ??
+            originalPhoneData['modelName']?.toString() ??
+            originalPhoneData['productModel']?.toString();
+        debugPrint('Model from originalPhoneData: $productModel');
       }
 
-      // Get price
+      // === GET PRICE ===
       double productPrice = 0.0;
 
+      // Check totalAmount (common for both)
       if (billData.containsKey('totalAmount') &&
           billData['totalAmount'] != null) {
         final priceValue = billData['totalAmount'];
         if (priceValue is num) productPrice = priceValue.toDouble();
         debugPrint('Price from totalAmount: $productPrice');
-      } else if (billData.containsKey('modelPrice') &&
+      }
+
+      // Check modelPrice
+      if (productPrice == 0 &&
+          billData.containsKey('modelPrice') &&
           billData['modelPrice'] != null) {
         final priceValue = billData['modelPrice'];
         if (priceValue is num) productPrice = priceValue.toDouble();
         debugPrint('Price from modelPrice: $productPrice');
       }
 
-      if (productPrice == 0.0 && originalTvData != null) {
+      // Check originalTvData
+      if (productPrice == 0 && originalTvData != null) {
         final priceValue =
             originalTvData['modelPrice'] ??
             originalTvData['price'] ??
@@ -592,50 +625,48 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         debugPrint('Price from originalTvData: $productPrice');
       }
 
-      if (productPrice == 0.0) {
-        final priceFields = [
-          'price',
-          'Price',
-          'amount',
-          'grandTotal',
-          'subtotal',
-        ];
-        for (var field in priceFields) {
-          if (billData.containsKey(field) && billData[field] != null) {
-            final priceValue = billData[field];
-            if (priceValue is num) {
-              productPrice = priceValue.toDouble();
-              break;
-            }
-          }
-        }
+      // Check originalPhoneData
+      if (productPrice == 0 && originalPhoneData != null) {
+        final priceValue =
+            originalPhoneData['productPrice'] ??
+            originalPhoneData['modelPrice'] ??
+            originalPhoneData['price'];
+        if (priceValue is num) productPrice = priceValue.toDouble();
+        debugPrint('Price from originalPhoneData: $productPrice');
       }
 
-      // Get purchase mode
+      // === GET PURCHASE MODE ===
       String? purchaseMode;
-      if (billData.containsKey('purchaseMode')) {
+      if (billData.containsKey('purchaseMode') &&
+          billData['purchaseMode'] != null) {
         purchaseMode = billData['purchaseMode']?.toString();
         debugPrint('Purchase mode found: $purchaseMode');
+      } else if (originalPhoneData != null &&
+          originalPhoneData.containsKey('purchaseMode')) {
+        purchaseMode = originalPhoneData['purchaseMode']?.toString();
+        debugPrint('Purchase mode from originalPhoneData: $purchaseMode');
       }
 
-      // Get finance type
+      // === GET FINANCE TYPE ===
       String? financeType;
-      if (billData.containsKey('financeType')) {
+      if (billData.containsKey('financeType') &&
+          billData['financeType'] != null) {
         financeType = billData['financeType']?.toString();
         debugPrint('Finance type found: $financeType');
       }
 
-      final productType = billData['type']?.toString() ?? '';
-      final isTv = productType.toLowerCase() == 'tv';
-
-      if (isTv) {
-        debugPrint('This bill is for a TV product');
+      // Get IMEI/serial number from original data if not found
+      if (serialNumber.isEmpty && originalPhoneData != null) {
+        serialNumber = originalPhoneData['imei']?.toString() ?? '';
+      }
+      if (serialNumber.isEmpty && originalTvData != null) {
+        serialNumber = originalTvData['serialNumber']?.toString() ?? '';
       }
 
       setState(() {
         _customerNameController.text = customerName;
         _customerPhoneController.text = customerPhone;
-        _imeiController.text = imei;
+        _imeiController.text = serialNumber;
 
         if (productBrand != null && productBrand.isNotEmpty) {
           _selectedBrand = productBrand.toLowerCase();
@@ -741,7 +772,10 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
       if (isTv) {
         autofillMessage +=
-            '\n📺 Note: This is a TV product. Please verify details.';
+            '\n📺 TV Product - Brand: ${productBrand ?? "N/A"}, Model: ${productModel ?? "N/A"}';
+      } else if (isPhone) {
+        autofillMessage +=
+            '\n📱 Phone Product - Brand: ${productBrand ?? "N/A"}, Model: ${productModel ?? "N/A"}';
       }
 
       if (missingFields.isNotEmpty) {
@@ -754,7 +788,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
       debugPrint('=== Bill Autofill Summary ===');
       debugPrint('Bill Number: $billNumber');
-      debugPrint('Product Type: ${isTv ? "TV" : "Unknown"}');
+      debugPrint(
+        'Product Type: ${isTv ? "TV" : (isPhone ? "Phone" : "Unknown")}',
+      );
       debugPrint('Brand Found: ${productBrand ?? "NO"}');
       debugPrint('Model Found: ${productModel ?? "NO"}');
       debugPrint(
@@ -765,6 +801,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       );
       debugPrint('Purchase Mode Found: ${purchaseMode ?? "NO"}');
       debugPrint('Finance Type Found: ${financeType ?? "NO"}');
+      debugPrint(
+        'Serial/IMEI Found: ${serialNumber.isNotEmpty ? "YES" : "NO"}',
+      );
       debugPrint('===========================');
 
       _showMessage(autofillMessage, isError: missingFields.isNotEmpty);
@@ -2665,10 +2704,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                                   setState(() {
                                     _selectedBillNumber = billNumber;
                                     _billSearchController.text = billNumber;
-                                    // Clear old form data before autofilling new bill
-                                    _clearFormData();
                                   });
-                                  Future.microtask(() {
+                                  // Use a short delay to ensure state is updated
+                                  Future.delayed(Duration.zero, () {
                                     _autofillFromBill(billNumber);
                                   });
                                   _billSearchFocusNode.unfocus();
@@ -2749,6 +2787,10 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                             );
                             // Clear old data before re-autofilling
                             _clearFormData();
+                            // Small delay to ensure clear completes
+                            await Future.delayed(
+                              const Duration(milliseconds: 50),
+                            );
                             await _autofillFromBill(_selectedBillNumber);
                           }
                         },

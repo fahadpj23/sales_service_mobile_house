@@ -176,27 +176,53 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     setState(() => isLoading = false);
   }
 
-  // Helper method to get customer phone number
+  // Updated: Improved method to get customer phone number from various field names
   String _getCustomerPhone(Map<String, dynamic> data) {
+    // Check all possible field names that might contain the customer phone
     if (data['customerPhone'] != null &&
-        data['customerPhone'].toString().isNotEmpty) {
+        data['customerPhone'].toString().isNotEmpty &&
+        data['customerPhone'].toString() != 'null') {
       return data['customerPhone'].toString();
     }
-    if (data['phone'] != null && data['phone'].toString().isNotEmpty) {
+    if (data['phone'] != null &&
+        data['phone'].toString().isNotEmpty &&
+        data['phone'].toString() != 'null') {
       return data['phone'].toString();
     }
-    if (data['mobile'] != null && data['mobile'].toString().isNotEmpty) {
+    if (data['mobile'] != null &&
+        data['mobile'].toString().isNotEmpty &&
+        data['mobile'].toString() != 'null') {
       return data['mobile'].toString();
     }
     if (data['customerMobile'] != null &&
-        data['customerMobile'].toString().isNotEmpty) {
+        data['customerMobile'].toString().isNotEmpty &&
+        data['customerMobile'].toString() != 'null') {
       return data['customerMobile'].toString();
+    }
+    if (data['contactNumber'] != null &&
+        data['contactNumber'].toString().isNotEmpty &&
+        data['contactNumber'].toString() != 'null') {
+      return data['contactNumber'].toString();
+    }
+    if (data['customer_phone'] != null &&
+        data['customer_phone'].toString().isNotEmpty &&
+        data['customer_phone'].toString() != 'null') {
+      return data['customer_phone'].toString();
+    }
+    if (data['buyerPhone'] != null &&
+        data['buyerPhone'].toString().isNotEmpty &&
+        data['buyerPhone'].toString() != 'null') {
+      return data['buyerPhone'].toString();
     }
     return '';
   }
 
   // Make phone call
   Future<void> _makePhoneCall(String phoneNumber) async {
+    if (phoneNumber.isEmpty) {
+      _showError('No phone number available');
+      return;
+    }
     final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
     if (await canLaunchUrl(launchUri)) {
       await launchUrl(launchUri);
@@ -2356,10 +2382,12 @@ ${filteredSales.map((sale) {
                                     final sale = filteredSales[index];
                                     final type = sale['type'] as String;
                                     final color = _getTypeColor(type);
-                                    final isPhoneSale =
-                                        sale['collection'] == 'phoneSales';
                                     final customerPhone =
                                         sale['customerPhone']?.toString() ?? '';
+
+                                    // Check if it's a phone sale for share button
+                                    final isPhoneSale =
+                                        sale['collection'] == 'phoneSales';
 
                                     return Card(
                                       margin: const EdgeInsets.symmetric(
@@ -2418,8 +2446,8 @@ ${filteredSales.map((sale) {
                                               overflow: TextOverflow.ellipsis,
                                             ),
                                             const SizedBox(height: 2),
-                                            if (isPhoneSale &&
-                                                customerPhone.isNotEmpty)
+                                            // Show phone number for ALL sale types that have a phone number
+                                            if (customerPhone.isNotEmpty)
                                               GestureDetector(
                                                 onTap: () => _makePhoneCall(
                                                   customerPhone,
@@ -2692,18 +2720,7 @@ ${filteredSales.map((sale) {
     final paymentInfo = sale['paymentInfo'] as Map<String, dynamic>;
 
     // Get customer phone - check multiple possible field names
-    String customerPhone = '';
-    if (sale['customerPhone'] != null &&
-        sale['customerPhone'].toString().isNotEmpty) {
-      customerPhone = sale['customerPhone'].toString();
-    } else if (sale['phone'] != null && sale['phone'].toString().isNotEmpty) {
-      customerPhone = sale['phone'].toString();
-    } else if (sale['mobile'] != null && sale['mobile'].toString().isNotEmpty) {
-      customerPhone = sale['mobile'].toString();
-    } else if (sale['customerMobile'] != null &&
-        sale['customerMobile'].toString().isNotEmpty) {
-      customerPhone = sale['customerMobile'].toString();
-    }
+    String customerPhone = sale['customerPhone']?.toString() ?? '';
 
     showModalBottomSheet(
       context: context,
@@ -2761,8 +2778,8 @@ ${filteredSales.map((sale) {
               const SizedBox(height: 16),
               _buildDetailRow('Customer', sale['customerInfo'] as String),
 
-              // Phone number row - shown for phone sales
-              if (isPhoneSale && customerPhone.isNotEmpty)
+              // Phone number row - shown for ALL sale types that have a phone number
+              if (customerPhone.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Row(
@@ -2952,17 +2969,30 @@ ${filteredSales.map((sale) {
                   ),
               ],
 
+              // Show product details for base model and second phone sales
               if (sale['productName'] != null &&
                   sale['collection'] != 'phoneSales')
                 _buildDetailRow('Product', sale['productName'].toString()),
-              if (sale['brand'] != null && sale['collection'] != 'phoneSales')
+              if (sale['productBrand'] != null &&
+                  sale['productBrand'].toString().isNotEmpty &&
+                  sale['collection'] != 'phoneSales')
+                _buildDetailRow('Brand', sale['productBrand'].toString()),
+              if (sale['modelName'] != null &&
+                  sale['modelName'].toString().isNotEmpty &&
+                  sale['collection'] != 'phoneSales')
+                _buildDetailRow('Model', sale['modelName'].toString()),
+              if (sale['brand'] != null &&
+                  sale['brand'].toString().isNotEmpty &&
+                  sale['collection'] != 'phoneSales')
                 _buildDetailRow('Brand', sale['brand'].toString()),
               if (sale['imei'] != null && sale['collection'] != 'phoneSales')
                 _buildDetailRow('IMEI', sale['imei'].toString()),
+              if (sale['defect'] != null &&
+                  sale['defect'].toString().isNotEmpty)
+                _buildDetailRow('Defect', sale['defect'].toString()),
               if (sale['notes'] != null && (sale['notes'] as String).isNotEmpty)
                 _buildDetailRow('Notes', sale['notes'].toString()),
 
-              // Show gifts if present
               const SizedBox(height: 20),
               Row(
                 children: [

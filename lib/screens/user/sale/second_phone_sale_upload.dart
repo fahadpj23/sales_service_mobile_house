@@ -302,7 +302,7 @@ class _SecondPhoneSaleUploadState extends State<SecondPhoneSaleUpload> {
           'uploadedByEmail': _auth.currentUser?.email,
           // Reference to original base model
           'baseModelId': _modelId,
-          'saleType': 'base_model_sale',
+          'saleType': 'seconds_sale',
         };
 
         // Upload to Firebase Firestore
