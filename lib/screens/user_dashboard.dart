@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:sales_stock/screens/user/incentive/incentiveScreen.dart';
 import 'package:sales_stock/screens/user/inventory/base_model_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/tv_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/appliances_stock_screen.dart'; // Add this import
@@ -1699,6 +1700,20 @@ class _UserDashboardState extends State<UserDashboard> {
                             //   ],
                             // ),
                             // History Section (Sales History only)
+                            _buildDrawerSection(
+                              title: 'SALES Incentiver',
+                              children: [
+                                _buildDrawerTile(
+                                  icon: Icons.emoji_events,
+                                  title: 'Incentive',
+                                  color: Colors.amber,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(const IncentiveScreen());
+                                  },
+                                ),
+                              ],
+                            ),
                             _buildDrawerSection(
                               title: 'SALES HISTORY',
                               children: [
