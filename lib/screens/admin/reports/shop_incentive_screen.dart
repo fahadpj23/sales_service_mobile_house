@@ -131,7 +131,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
       phoneTotalAmount,
     );
 
-    // Calculate Second Phone Incentive
+    // Calculate Second Phone Incentive (Updated: No minimum, 1-10: ₹40, 10+: ₹50)
     List<Sale> secondPhoneSales = sales
         .where((s) => s.type == 'seconds_phone_sale')
         .toList();
@@ -140,7 +140,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
       secondPhoneCount,
     );
 
-    // Calculate Base Model Incentive
+    // Calculate Base Model Incentive (Updated: No minimum, 1-10: ₹30, 10+: ₹40)
     List<Sale> baseModelSales = sales
         .where((s) => s.type == 'base_model_sale')
         .toList();
@@ -208,14 +208,18 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
     return totalIncentive;
   }
 
+  // Updated: Second Phone Incentive - 1-10 pieces: ₹40, Above 10 pieces: ₹50 (No minimum)
   double _calculateSecondPhoneIncentive(int count) {
-    if (count < 5) return 0;
-    return count < 10 ? count * 40 : count * 50;
+    if (count == 0) return 0;
+    // 1-10 pieces: ₹40 per piece, Above 10 pieces: ₹50 per piece
+    return count <= 10 ? count * 40 : count * 50;
   }
 
+  // Updated: Base Model Incentive - 1-10 pieces: ₹30, Above 10 pieces: ₹40 (No minimum)
   double _calculateBaseModelIncentive(int count) {
-    if (count < 5) return 0;
-    return count < 10 ? count * 30 : count * 40;
+    if (count == 0) return 0;
+    // 1-10 pieces: ₹30 per piece, Above 10 pieces: ₹40 per piece
+    return count <= 10 ? count * 30 : count * 40;
   }
 
   List<Map<String, dynamic>> _getPhonePriceDetails(List<Sale> phoneSales) {
@@ -388,14 +392,14 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                             color: Colors.orange,
                             count: data.secondPhoneCount,
                             incentive: data.secondPhoneIncentive,
-                            rule: data.secondPhoneCount < 5
-                                ? 'Need 5+ sales'
-                                : (data.secondPhoneCount < 10
-                                      ? '₹40/piece (5-9)'
-                                      : '₹50/piece (10+)'),
-                            calculation: data.secondPhoneCount >= 5
-                                ? '${data.secondPhoneCount} × ${data.secondPhoneCount < 10 ? '₹40' : '₹50'} = ₹${widget.formatNumber(data.secondPhoneIncentive)}'
-                                : 'Not qualified (need 5+ sales, currently ${data.secondPhoneCount})',
+                            rule: data.secondPhoneCount == 0
+                                ? 'No sales recorded'
+                                : (data.secondPhoneCount <= 10
+                                      ? '₹40/piece (1-10 pieces)'
+                                      : '₹50/piece (10+ pieces)'),
+                            calculation: data.secondPhoneCount > 0
+                                ? '${data.secondPhoneCount} × ${data.secondPhoneCount <= 10 ? '₹40' : '₹50'} = ₹${widget.formatNumber(data.secondPhoneIncentive)}'
+                                : 'No second phone sales',
                           ),
                           const SizedBox(height: 12),
                           _buildIncentiveDetailCard(
@@ -404,14 +408,14 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                             color: Colors.purple,
                             count: data.baseModelCount,
                             incentive: data.baseModelIncentive,
-                            rule: data.baseModelCount < 5
-                                ? 'Need 5+ sales'
-                                : (data.baseModelCount < 10
-                                      ? '₹30/piece (5-9)'
-                                      : '₹40/piece (10+)'),
-                            calculation: data.baseModelCount >= 5
-                                ? '${data.baseModelCount} × ${data.baseModelCount < 10 ? '₹30' : '₹40'} = ₹${widget.formatNumber(data.baseModelIncentive)}'
-                                : 'Not qualified (need 5+ sales, currently ${data.baseModelCount})',
+                            rule: data.baseModelCount == 0
+                                ? 'No sales recorded'
+                                : (data.baseModelCount <= 10
+                                      ? '₹30/piece (1-10 pieces)'
+                                      : '₹40/piece (10+ pieces)'),
+                            calculation: data.baseModelCount > 0
+                                ? '${data.baseModelCount} × ${data.baseModelCount <= 10 ? '₹30' : '₹40'} = ₹${widget.formatNumber(data.baseModelIncentive)}'
+                                : 'No base model sales',
                           ),
                         ],
                       ),

@@ -470,22 +470,24 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
     }
   }
 
+  // Updated: Second Phone Incentive - 1-10 pieces: ₹40, Above 10 pieces: ₹50
   Map<String, dynamic> _calculateSecondPhoneIncentive(
     Map<String, dynamic> salesData,
   ) {
     final saleCount = salesData['count'] as int;
 
-    if (saleCount < 5) {
+    if (saleCount < 1) {
       return {
         'amount': 0.0,
         'breakdown': [
-          {'message': 'Need 5+ sales (currently $saleCount)', 'amount': 0},
+          {'message': 'No sales recorded', 'amount': 0},
         ],
       };
     }
 
-    double perPieceIncentive = saleCount < 10 ? 40 : 50;
-    String rateText = saleCount < 10 ? '₹40 per piece' : '₹50 per piece';
+    // 1-10 pieces: ₹40 per piece, Above 10 pieces: ₹50 per piece
+    double perPieceIncentive = saleCount <= 10 ? 40 : 50;
+    String rateText = saleCount <= 10 ? '₹40 per piece' : '₹50 per piece';
     final totalIncentive = saleCount * perPieceIncentive;
 
     return {
@@ -500,22 +502,24 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
     };
   }
 
+  // Updated: Base Model Incentive - 1-10 pieces: ₹30, Above 10 pieces: ₹40
   Map<String, dynamic> _calculateBaseModelIncentive(
     Map<String, dynamic> salesData,
   ) {
     final saleCount = salesData['count'] as int;
 
-    if (saleCount < 5) {
+    if (saleCount < 1) {
       return {
         'amount': 0.0,
         'breakdown': [
-          {'message': 'Need 5+ sales (currently $saleCount)', 'amount': 0},
+          {'message': 'No sales recorded', 'amount': 0},
         ],
       };
     }
 
-    double perPieceIncentive = saleCount < 10 ? 30 : 40;
-    String rateText = saleCount < 10 ? '₹30 per piece' : '₹40 per piece';
+    // 1-10 pieces: ₹30 per piece, Above 10 pieces: ₹40 per piece
+    double perPieceIncentive = saleCount <= 10 ? 30 : 40;
+    String rateText = saleCount <= 10 ? '₹30 per piece' : '₹40 per piece';
     final totalIncentive = saleCount * perPieceIncentive;
 
     return {
@@ -634,10 +638,10 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                             icon: Icons.phone_android,
                             color: Colors.orange,
                             rules: [
-                              '🎯 Qualification: Minimum 5 sales',
-                              '💰 Incentive Structure:',
-                              '   • 5-9 pieces → ₹40 per piece',
-                              '   • above 10 pieces → ₹50 per piece',
+                              '💰 Incentive Structure (per piece):',
+                              '   • 1-10 pieces → ₹40 per piece',
+                              '   • Above 10 pieces → ₹50 per piece',
+                              '✨ No minimum quantity required',
                             ],
                             currentAmount:
                                 incentiveData?.secondPhoneTotalAmount ?? 0,
@@ -646,8 +650,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                             currentIncentive:
                                 incentiveData?.secondPhoneIncentive ?? 0,
                             unit: '₹',
-                            showQualification: true,
-                            requiredCount: 5,
+                            showQualification: false,
                           ),
                           const SizedBox(height: 12),
 
@@ -656,10 +659,10 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                             icon: Icons.devices,
                             color: Colors.purple,
                             rules: [
-                              '🎯 Qualification: Minimum 5 sales',
-                              '💰 Incentive Structure:',
-                              '   • 5-9 pieces → ₹30 per piece',
-                              '   • above 10 pieces → ₹40 per piece',
+                              '💰 Incentive Structure (per piece):',
+                              '   • 1-10 pieces → ₹30 per piece',
+                              '   • Above 10 pieces → ₹40 per piece',
+                              '✨ No minimum quantity required',
                             ],
                             currentAmount:
                                 incentiveData?.baseModelTotalAmount ?? 0,
@@ -668,8 +671,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                             currentIncentive:
                                 incentiveData?.baseModelIncentive ?? 0,
                             unit: '₹',
-                            showQualification: true,
-                            requiredCount: 5,
+                            showQualification: false,
                           ),
                           const SizedBox(height: 20),
                         ],
@@ -913,7 +915,10 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                       children: [
                         if (requiredCount != null)
                           LinearProgressIndicator(
-                            value: currentCount / requiredCount,
+                            value: (currentCount / requiredCount).clamp(
+                              0.0,
+                              1.0,
+                            ),
                             backgroundColor: Colors.grey.shade200,
                             color: Colors.amber,
                             minHeight: 4,
@@ -1394,11 +1399,9 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
             totalAmount: incentiveData!.secondPhoneTotalAmount,
             saleCount: incentiveData!.secondPhoneSaleCount,
             incentive: incentiveData!.secondPhoneIncentive,
-            ruleText: incentiveData!.secondPhoneSaleCount < 5
-                ? 'Need 5+ sales'
-                : (incentiveData!.secondPhoneSaleCount < 10
-                      ? '₹40/piece (5-9)'
-                      : '₹50/piece (10+)'),
+            ruleText: incentiveData!.secondPhoneSaleCount <= 10
+                ? '₹40/piece (1-10 pieces)'
+                : '₹50/piece (10+ pieces)',
             breakdown: incentiveData!.secondPhoneBreakdown,
             onInfoTap: () => _showCalculationDetails(
               'Second Phones Calculation',
@@ -1415,11 +1418,9 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
             totalAmount: incentiveData!.baseModelTotalAmount,
             saleCount: incentiveData!.baseModelSaleCount,
             incentive: incentiveData!.baseModelIncentive,
-            ruleText: incentiveData!.baseModelSaleCount < 5
-                ? 'Need 5+ sales'
-                : (incentiveData!.baseModelSaleCount < 10
-                      ? '₹30/piece (5-9)'
-                      : '₹40/piece (10+)'),
+            ruleText: incentiveData!.baseModelSaleCount <= 10
+                ? '₹30/piece (1-10 pieces)'
+                : '₹40/piece (10+ pieces)',
             breakdown: incentiveData!.baseModelBreakdown,
             onInfoTap: () => _showCalculationDetails(
               'Base Models Calculation',
