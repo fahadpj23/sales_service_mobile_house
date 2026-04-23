@@ -89,20 +89,20 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
         accessoriesTotalAmount: accessoriesData['totalAmount'] ?? 0,
         accessoriesSaleCount: accessoriesData['count'] ?? 0,
         accessoriesIncentive: accessoriesIncentive['amount'],
-        accessoriesBreakdown: accessoriesIncentive['breakdown'],
+        accessoriesBreakdown: accessoriesIncentive['breakdown'] ?? [],
         phoneTotalAmount: phoneData['totalAmount'] ?? 0,
         phoneSaleCount: phoneData['count'] ?? 0,
         phoneIncentive: phoneIncentive['amount'],
-        phoneBreakdown: phoneIncentive['breakdown'],
+        phoneBreakdown: phoneIncentive['breakdown'] ?? [],
         phonePriceDetails: phoneData['priceDetails'] ?? [],
         secondPhoneTotalAmount: secondPhoneData['totalAmount'] ?? 0,
         secondPhoneSaleCount: secondPhoneData['count'] ?? 0,
         secondPhoneIncentive: secondPhoneIncentive['amount'],
-        secondPhoneBreakdown: secondPhoneIncentive['breakdown'],
+        secondPhoneBreakdown: secondPhoneIncentive['breakdown'] ?? [],
         baseModelTotalAmount: baseModelData['totalAmount'] ?? 0,
         baseModelSaleCount: baseModelData['count'] ?? 0,
         baseModelIncentive: baseModelIncentive['amount'],
-        baseModelBreakdown: baseModelIncentive['breakdown'],
+        baseModelBreakdown: baseModelIncentive['breakdown'] ?? [],
         totalIncentive:
             (accessoriesIncentive['amount'] ?? 0) +
             (phoneIncentive['amount'] ?? 0) +
@@ -405,9 +405,8 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
     final priceDetails =
         salesData['priceDetails'] as List<Map<String, dynamic>>;
 
-    // Check if both conditions are met: count >= 20 AND total amount >= 300000
     if (saleCount >= 20 && totalAmount >= 300000) {
-      double totalIncentive = 0; // Removed the 1000 base incentive
+      double totalIncentive = 0;
       List<Map<String, dynamic>> breakdown = [
         {
           'title': 'Qualification Met',
@@ -418,7 +417,6 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
         },
       ];
 
-      // Group by price bracket
       Map<String, Map<String, dynamic>> bracketGroups = {};
 
       for (var phone in priceDetails) {
@@ -437,13 +435,21 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
         totalIncentive += incentiveAmount;
       }
 
-      // Add bracket-wise breakdown
       for (var entry in bracketGroups.entries) {
         breakdown.add({
           'title': entry.key,
           'calculation':
               '${entry.value['count']} phones × ₹${entry.value['incentivePerPhone']}',
           'amount': entry.value['totalIncentive'],
+        });
+      }
+
+      if (totalIncentive == 0) {
+        breakdown.add({
+          'title': 'Note',
+          'calculation': 'No per-phone incentives earned',
+          'amount': 0,
+          'note': 'Phone prices below incentive brackets',
         });
       }
 
@@ -939,6 +945,96 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
     List<Map<String, dynamic>> breakdown,
     Color color,
   ) {
+    // Check if breakdown is empty or null
+    if (breakdown.isEmpty) {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (context) {
+          return Container(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Icon(Icons.info_outline, color: color, size: 24),
+                    const SizedBox(width: 8),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.calculate,
+                        size: 48,
+                        color: Colors.grey.shade400,
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'No calculation details available',
+                        style: TextStyle(fontSize: 14, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Incentive not earned for this category',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 45),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text('Close', style: TextStyle(fontSize: 14)),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,

@@ -12,6 +12,7 @@ import 'package:sales_stock/screens/admin/inventory/tv_stock_screen.dart';
 import 'package:sales_stock/screens/admin/reports/basemodel_report-screen.dart';
 import 'package:sales_stock/screens/admin/reports/bills_report_screen.dart';
 import 'package:sales_stock/screens/admin/reports/seconds_phone_report.dart';
+import 'package:sales_stock/screens/admin/reports/shop_incentive_screen.dart';
 import 'package:sales_stock/screens/login_screen.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../services/auth_service.dart';
@@ -1846,6 +1847,36 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             },
           ),
           Divider(height: 1),
+
+          // Add this after the "DETAILED REPORTS" section or create a new section:
+          Padding(
+            padding: EdgeInsets.only(left: 16, top: 12, bottom: 6),
+            child: Text(
+              'INCENTIVE REPORTS',
+              style: TextStyle(
+                fontSize: 9,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          _buildDrawerItem(
+            Icons.emoji_events,
+            'Shop Incentive Report',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ShopIncentiveScreen(
+                    shops: shops,
+                    allSales: allSales,
+                    formatNumber: _formatNumber,
+                  ),
+                ),
+              );
+            },
+          ),
           Padding(
             padding: EdgeInsets.only(left: 16, top: 12, bottom: 6),
             child: Text(
