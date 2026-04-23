@@ -131,7 +131,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
       phoneTotalAmount,
     );
 
-    // Calculate Second Phone Incentive (Updated: No minimum, 1-10: ₹40, 10+: ₹50)
+    // Calculate Second Phone Incentive (1-10: ₹40, 10+: ₹50, No minimum)
     List<Sale> secondPhoneSales = sales
         .where((s) => s.type == 'seconds_phone_sale')
         .toList();
@@ -140,7 +140,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
       secondPhoneCount,
     );
 
-    // Calculate Base Model Incentive (Updated: No minimum, 1-10: ₹30, 10+: ₹40)
+    // Calculate Base Model Incentive (1-10: ₹30, 10+: ₹40, No minimum)
     List<Sale> baseModelSales = sales
         .where((s) => s.type == 'base_model_sale')
         .toList();
@@ -208,14 +208,12 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
     return totalIncentive;
   }
 
-  // Updated: Second Phone Incentive - 1-10 pieces: ₹40, Above 10 pieces: ₹50 (No minimum)
   double _calculateSecondPhoneIncentive(int count) {
     if (count == 0) return 0;
     // 1-10 pieces: ₹40 per piece, Above 10 pieces: ₹50 per piece
     return count <= 10 ? count * 40 : count * 50;
   }
 
-  // Updated: Base Model Incentive - 1-10 pieces: ₹30, Above 10 pieces: ₹40 (No minimum)
   double _calculateBaseModelIncentive(int count) {
     if (count == 0) return 0;
     // 1-10 pieces: ₹30 per piece, Above 10 pieces: ₹40 per piece
@@ -260,6 +258,236 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
       });
     }
     return details;
+  }
+
+  // Show Incentive Conditions (same as IncentiveScreen)
+  void _showConditions() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.85,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, scrollController) {
+            return Container(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: const [
+                      Icon(Icons.emoji_events, color: Colors.amber, size: 24),
+                      SizedBox(width: 8),
+                      Text(
+                        'Incentive Conditions',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _getPeriodDisplayText(),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      controller: scrollController,
+                      child: Column(
+                        children: [
+                          _buildConditionCard(
+                            title: 'Accessories & Service',
+                            icon: Icons.shopping_bag,
+                            color: Colors.blue,
+                            rules: [
+                              '🎯 Base Incentive: ₹1,000 when sales exceed ₹1,00,000',
+                              '📈 Additional: ₹300 for every ₹10,000 above ₹1,00,000',
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          _buildConditionCard(
+                            title: 'Phone Sales',
+                            icon: Icons.phone_iphone,
+                            color: Colors.green,
+                            rules: [
+                              '🎯 Qualification: 20+ phones AND ₹3,00,000+ total value',
+                              '📱 Per Phone Incentive (based on price) after qualification:',
+                              '   • Below ₹15,000 → ₹30',
+                              '   • ₹15,000 - ₹24,999 → ₹40',
+                              '   • ₹25,000 - ₹34,999 → ₹50',
+                              '   • ₹35,000 - ₹44,999 → ₹100',
+                              '   • ₹45,000 - ₹59,999 → ₹130',
+                              '   • ₹60,000 - ₹79,999 → ₹150',
+                              '   • ₹80,000+ → ₹200',
+                              '⚠️ Note: No base incentive, only per-phone incentives',
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          _buildConditionCard(
+                            title: 'Second Phones',
+                            icon: Icons.phone_android,
+                            color: Colors.orange,
+                            rules: [
+                              '💰 Incentive Structure (per piece):',
+                              '   • 1-10 pieces → ₹40 per piece',
+                              '   • Above 10 pieces → ₹50 per piece',
+                              '✨ No minimum quantity required',
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          _buildConditionCard(
+                            title: 'Base Models',
+                            icon: Icons.devices,
+                            color: Colors.purple,
+                            rules: [
+                              '💰 Incentive Structure (per piece):',
+                              '   • 1-10 pieces → ₹30 per piece',
+                              '   • Above 10 pieces → ₹40 per piece',
+                              '✨ No minimum quantity required',
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0A4D2E),
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 44),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: const Text('Got it', style: TextStyle(fontSize: 14)),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildConditionCard({
+    required String title,
+    required IconData icon,
+    required Color color,
+    required List<String> rules,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.05),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.08),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(12),
+                topRight: Radius.circular(12),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, color: color, size: 18),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: rules
+                  .map(
+                    (rule) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        rule,
+                        style: const TextStyle(fontSize: 10, height: 1.4),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getPeriodDisplayText() {
+    final now = DateTime.now();
+    if (isCustomPeriod && customStartDate != null && customEndDate != null) {
+      return '${DateFormat('dd MMM yyyy').format(customStartDate!)} - ${DateFormat('dd MMM yyyy').format(customEndDate!)}';
+    }
+    switch (selectedTimePeriod) {
+      case 'daily':
+        return DateFormat('dd MMM yyyy').format(now);
+      case 'monthly':
+        return DateFormat('MMMM yyyy').format(now);
+      case 'yearly':
+        return DateFormat('yyyy').format(now);
+      default:
+        return DateFormat('MMMM yyyy').format(now);
+    }
   }
 
   void _showShopIncentiveDetails(ShopIncentiveData data) {
@@ -778,6 +1006,15 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Calculate total incentive across all shops
+    double totalIncentiveAllShops = shopIncentives.values.fold(
+      0.0,
+      (sum, data) => sum + data.totalIncentive,
+    );
+    int totalShopsWithIncentive = shopIncentives.values
+        .where((data) => data.totalIncentive > 0)
+        .length;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -788,18 +1025,151 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
+            icon: const Icon(Icons.emoji_events),
+            onPressed: _showConditions,
+            tooltip: 'View Conditions',
+          ),
+          IconButton(
             icon: const Icon(Icons.calendar_today),
             onPressed: _showTimePeriodDialog,
+            tooltip: 'Select Period',
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () => _calculateAllShopIncentives(),
+            tooltip: 'Refresh',
           ),
         ],
       ),
       body: Column(
         children: [
           _buildTimePeriodSelector(),
+
+          // Total Incentive Summary Card
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF0A4D2E), Color(0xFF1B6B43)],
+              ),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Total Incentive',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        _getPeriodDisplayText(),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '₹${widget.formatNumber(totalIncentiveAllShops)}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Across ${shopIncentives.length} shops',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.7),
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            '$totalShopsWithIncentive',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            'Earned',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.7),
+                              fontSize: 10,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                if (totalShopsWithIncentive > 0) ...[
+                  const SizedBox(height: 12),
+                  LinearProgressIndicator(
+                    value: totalShopsWithIncentive / shopIncentives.length,
+                    backgroundColor: Colors.white.withOpacity(0.2),
+                    color: Colors.amber,
+                    minHeight: 4,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${(totalShopsWithIncentive / shopIncentives.length * 100).toInt()}% shops earned incentives',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.6),
+                      fontSize: 9,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
           Expanded(
             child: shopIncentives.isEmpty
                 ? Center(
