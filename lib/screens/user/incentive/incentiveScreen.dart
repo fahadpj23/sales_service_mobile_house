@@ -190,15 +190,18 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
             incentiveAmount = 50;
           } else if (amount < 45000) {
             bracket = '₹35,000 - ₹44,999';
-            incentiveAmount = 80;
+            incentiveAmount = 70;
           } else if (amount < 60000) {
             bracket = '₹45,000 - ₹59,999';
-            incentiveAmount = 100;
+            incentiveAmount = 90;
           } else if (amount < 80000) {
             bracket = '₹60,000 - ₹79,999';
+            incentiveAmount = 130;
+          } else if (amount < 100000) {
+            bracket = '₹80,000 - ₹99,999';
             incentiveAmount = 150;
           } else {
-            bracket = '₹80,000+';
+            bracket = '₹1,00,000+';
             incentiveAmount = 200;
           }
 
@@ -383,8 +386,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
 
     final amountAboveLakh = totalAmount - 100000;
     final additionalThousands = (amountAboveLakh / 10000).floor();
-    final additionalIncentive =
-        additionalThousands * 200; // Changed from 300 to 200
+    final additionalIncentive = additionalThousands * 200;
 
     if (additionalThousands > 0) {
       incentive += additionalIncentive;
@@ -618,10 +620,11 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                               '   • Below ₹15,000 → ₹30',
                               '   • ₹15,000 - ₹24,999 → ₹40',
                               '   • ₹25,000 - ₹34,999 → ₹50',
-                              '   • ₹35,000 - ₹44,999 → ₹80',
-                              '   • ₹45,000 - ₹59,999 → ₹100',
-                              '   • ₹60,000 - ₹79,999 → ₹150',
-                              '   • ₹80,000+ → ₹200',
+                              '   • ₹35,000 - ₹44,999 → ₹70',
+                              '   • ₹45,000 - ₹59,999 → ₹90',
+                              '   • ₹60,000 - ₹79,999 → ₹130',
+                              '   • ₹80,000 - ₹99,999 → ₹150',
+                              '   • ₹1,00,000+ → ₹200',
                               '⚠️ Note: No base incentive, only per-phone incentives',
                             ],
                             currentAmount: incentiveData?.phoneTotalAmount ?? 0,

@@ -175,11 +175,12 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
     double incentive = 1000;
     final amountAboveLakh = totalAmount - 100000;
     final additionalThousands = (amountAboveLakh / 10000).floor();
-    incentive += additionalThousands * 200; // Changed from 300 to 200
+    incentive += additionalThousands * 200;
 
     return incentive;
   }
 
+  // Updated: Phone Incentive with new brackets
   double _calculatePhoneIncentive(
     List<Sale> phoneSales,
     int count,
@@ -197,11 +198,13 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
       } else if (price < 35000) {
         totalIncentive += 50;
       } else if (price < 45000) {
-        totalIncentive += 80;
+        totalIncentive += 70; // Changed from 80 to 70
       } else if (price < 60000) {
-        totalIncentive += 100;
+        totalIncentive += 90; // Changed from 100 to 90
       } else if (price < 80000) {
-        totalIncentive += 150;
+        totalIncentive += 130; // Changed from 150 to 130
+      } else if (price < 100000) {
+        totalIncentive += 150; // New bracket
       } else {
         totalIncentive += 200;
       }
@@ -238,15 +241,18 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
         incentive = 50;
       } else if (price < 45000) {
         bracket = '₹35,000 - ₹44,999';
-        incentive = 80;
+        incentive = 70; // Changed from 80 to 70
       } else if (price < 60000) {
         bracket = '₹45,000 - ₹59,999';
-        incentive = 100;
+        incentive = 90; // Changed from 100 to 90
       } else if (price < 80000) {
         bracket = '₹60,000 - ₹79,999';
-        incentive = 150;
+        incentive = 130; // Changed from 150 to 130
+      } else if (price < 100000) {
+        bracket = '₹80,000 - ₹99,999';
+        incentive = 150; // New bracket
       } else {
-        bracket = '₹80,000+';
+        bracket = '₹1,00,000+';
         incentive = 200;
       }
       details.add({
@@ -259,6 +265,10 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
       });
     }
     return details;
+  }
+
+  String _formatNumber(double number) {
+    return NumberFormat('#,###').format(number);
   }
 
   // Show Incentive Conditions (same as IncentiveScreen)
@@ -337,10 +347,11 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                               '   • Below ₹15,000 → ₹30',
                               '   • ₹15,000 - ₹24,999 → ₹40',
                               '   • ₹25,000 - ₹34,999 → ₹50',
-                              '   • ₹35,000 - ₹44,999 → ₹80',
-                              '   • ₹45,000 - ₹59,999 → ₹100',
-                              '   • ₹60,000 - ₹79,999 → ₹150',
-                              '   • ₹80,000+ → ₹200',
+                              '   • ₹35,000 - ₹44,999 → ₹70',
+                              '   • ₹45,000 - ₹59,999 → ₹90',
+                              '   • ₹60,000 - ₹79,999 → ₹130',
+                              '   • ₹80,000 - ₹99,999 → ₹150',
+                              '   • ₹1,00,000+ → ₹200',
                               '⚠️ Note: No base incentive, only per-phone incentives',
                             ],
                           ),
@@ -549,7 +560,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          '₹${widget.formatNumber(data.totalIncentive)}',
+                          '₹${_formatNumber(data.totalIncentive)}',
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -575,7 +586,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          'Total Sales: ₹${widget.formatNumber(data.totalSales)}',
+                          'Total Sales: ₹${_formatNumber(data.totalSales)}',
                           style: TextStyle(
                             fontSize: 11,
                             color: Colors.grey.shade700,
@@ -627,7 +638,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                                       ? '₹30/piece (1-10 pieces)'
                                       : '₹40/piece (10+ pieces)'),
                             calculation: data.secondPhoneCount > 0
-                                ? '${data.secondPhoneCount} × ${data.secondPhoneCount <= 10 ? '₹30' : '₹40'} = ₹${widget.formatNumber(data.secondPhoneIncentive)}'
+                                ? '${data.secondPhoneCount} × ${data.secondPhoneCount <= 10 ? '₹30' : '₹40'} = ₹${_formatNumber(data.secondPhoneIncentive)}'
                                 : 'No second phone sales',
                           ),
                           const SizedBox(height: 12),
@@ -643,7 +654,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                                       ? '₹15/piece (1-10 pieces)'
                                       : '₹25/piece (10+ pieces)'),
                             calculation: data.baseModelCount > 0
-                                ? '${data.baseModelCount} × ${data.baseModelCount <= 10 ? '₹15' : '₹25'} = ₹${widget.formatNumber(data.baseModelIncentive)}'
+                                ? '${data.baseModelCount} × ${data.baseModelCount <= 10 ? '₹15' : '₹25'} = ₹${_formatNumber(data.baseModelIncentive)}'
                                 : 'No base model sales',
                           ),
                         ],
@@ -674,13 +685,13 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
 
   String _getAccessoriesCalculation(double totalAmount) {
     if (totalAmount <= 100000)
-      return 'Not qualified (need > ₹1,00,000, currently ₹${widget.formatNumber(totalAmount)})';
+      return 'Not qualified (need > ₹1,00,000, currently ₹${_formatNumber(totalAmount)})';
     double incentive = 1000;
     final amountAboveLakh = totalAmount - 100000;
     final additionalThousands = (amountAboveLakh / 10000).floor();
     if (additionalThousands > 0) {
-      incentive += additionalThousands * 200; // Changed from 300 to 200
-      return '₹1000 + ($additionalThousands × ₹200) = ₹${widget.formatNumber(incentive)}';
+      incentive += additionalThousands * 200;
+      return '₹1000 + ($additionalThousands × ₹200) = ₹${_formatNumber(incentive)}';
     }
     return '₹1000 base incentive';
   }
@@ -688,14 +699,14 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
   String _getPhoneCalculation(ShopIncentiveData data) {
     if (data.phoneCount < 20 || data.phoneTotalAmount < 300000) {
       if (data.phoneCount < 20 && data.phoneTotalAmount < 300000) {
-        return 'Not qualified (need 20+ phones and ₹3L+ value) | Current: ${data.phoneCount} phones, ₹${widget.formatNumber(data.phoneTotalAmount)}';
+        return 'Not qualified (need 20+ phones and ₹3L+ value) | Current: ${data.phoneCount} phones, ₹${_formatNumber(data.phoneTotalAmount)}';
       } else if (data.phoneCount < 20) {
         return 'Not qualified (need ${20 - data.phoneCount} more phones)';
       } else {
-        return 'Not qualified (need ₹${widget.formatNumber(300000 - data.phoneTotalAmount)} more value)';
+        return 'Not qualified (need ₹${_formatNumber(300000 - data.phoneTotalAmount)} more value)';
       }
     }
-    return 'Qualified! Per-phone incentives total: ₹${widget.formatNumber(data.phoneIncentive)}';
+    return 'Qualified! Per-phone incentives total: ₹${_formatNumber(data.phoneIncentive)}';
   }
 
   Widget _buildIncentiveDetailCard({
@@ -761,7 +772,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    incentive > 0 ? '₹${widget.formatNumber(incentive)}' : '₹0',
+                    incentive > 0 ? '₹${_formatNumber(incentive)}' : '₹0',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.bold,
@@ -801,7 +812,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  '₹${widget.formatNumber(totalAmount)}',
+                                  '₹${_formatNumber(totalAmount)}',
                                   style: TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.bold,
@@ -965,7 +976,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
                                       Text(
-                                        '₹${widget.formatNumber(phone['price'])}',
+                                        '₹${_formatNumber(phone['price'])}',
                                         style: const TextStyle(
                                           fontSize: 10,
                                           fontWeight: FontWeight.w600,
@@ -1103,7 +1114,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '₹${widget.formatNumber(totalIncentiveAllShops)}',
+                            '₹${_formatNumber(totalIncentiveAllShops)}',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 28,
@@ -1284,7 +1295,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                                     ),
                                     child: Text(
                                       entry.totalIncentive > 0
-                                          ? '₹${widget.formatNumber(entry.totalIncentive)}'
+                                          ? '₹${_formatNumber(entry.totalIncentive)}'
                                           : '₹0',
                                       style: TextStyle(
                                         fontSize: 14,
@@ -1392,7 +1403,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
             ),
             const SizedBox(height: 2),
             Text(
-              value > 0 ? '₹${widget.formatNumber(value)}' : '₹0',
+              value > 0 ? '₹${_formatNumber(value)}' : '₹0',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
