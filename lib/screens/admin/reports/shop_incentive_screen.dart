@@ -131,7 +131,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
       phoneTotalAmount,
     );
 
-    // Calculate Second Phone Incentive (1-10: ₹40, 10+: ₹50, No minimum)
+    // Calculate Second Phone Incentive (1-10: ₹30, 10+: ₹40, No minimum)
     List<Sale> secondPhoneSales = sales
         .where((s) => s.type == 'seconds_phone_sale')
         .toList();
@@ -140,7 +140,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
       secondPhoneCount,
     );
 
-    // Calculate Base Model Incentive (1-10: ₹30, 10+: ₹40, No minimum)
+    // Calculate Base Model Incentive (1-10: ₹15, 10+: ₹25, No minimum)
     List<Sale> baseModelSales = sales
         .where((s) => s.type == 'base_model_sale')
         .toList();
@@ -168,13 +168,14 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
     );
   }
 
+  // Updated: Accessories Incentive - ₹1000 base + ₹200 per ₹10,000 above ₹1L
   double _calculateAccessoriesIncentive(double totalAmount) {
     if (totalAmount <= 100000) return 0;
 
     double incentive = 1000;
     final amountAboveLakh = totalAmount - 100000;
     final additionalThousands = (amountAboveLakh / 10000).floor();
-    incentive += additionalThousands * 300;
+    incentive += additionalThousands * 200; // Changed from 300 to 200
 
     return incentive;
   }
@@ -196,9 +197,9 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
       } else if (price < 35000) {
         totalIncentive += 50;
       } else if (price < 45000) {
-        totalIncentive += 100;
+        totalIncentive += 80;
       } else if (price < 60000) {
-        totalIncentive += 130;
+        totalIncentive += 100;
       } else if (price < 80000) {
         totalIncentive += 150;
       } else {
@@ -210,14 +211,14 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
 
   double _calculateSecondPhoneIncentive(int count) {
     if (count == 0) return 0;
-    // 1-10 pieces: ₹40 per piece, Above 10 pieces: ₹50 per piece
-    return count <= 10 ? count * 40 : count * 50;
+    // 1-10 pieces: ₹30 per piece, Above 10 pieces: ₹40 per piece
+    return count <= 10 ? count * 30 : count * 40;
   }
 
   double _calculateBaseModelIncentive(int count) {
     if (count == 0) return 0;
-    // 1-10 pieces: ₹30 per piece, Above 10 pieces: ₹40 per piece
-    return count <= 10 ? count * 30 : count * 40;
+    // 1-10 pieces: ₹15 per piece, Above 10 pieces: ₹25 per piece
+    return count <= 10 ? count * 15 : count * 25;
   }
 
   List<Map<String, dynamic>> _getPhonePriceDetails(List<Sale> phoneSales) {
@@ -237,10 +238,10 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
         incentive = 50;
       } else if (price < 45000) {
         bracket = '₹35,000 - ₹44,999';
-        incentive = 100;
+        incentive = 80;
       } else if (price < 60000) {
         bracket = '₹45,000 - ₹59,999';
-        incentive = 130;
+        incentive = 100;
       } else if (price < 80000) {
         bracket = '₹60,000 - ₹79,999';
         incentive = 150;
@@ -321,7 +322,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                             color: Colors.blue,
                             rules: [
                               '🎯 Base Incentive: ₹1,000 when sales exceed ₹1,00,000',
-                              '📈 Additional: ₹300 for every ₹10,000 above ₹1,00,000',
+                              '📈 Additional: ₹200 for every ₹10,000 above ₹1,00,000',
                             ],
                           ),
                           const SizedBox(height: 12),
@@ -336,8 +337,8 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                               '   • Below ₹15,000 → ₹30',
                               '   • ₹15,000 - ₹24,999 → ₹40',
                               '   • ₹25,000 - ₹34,999 → ₹50',
-                              '   • ₹35,000 - ₹44,999 → ₹100',
-                              '   • ₹45,000 - ₹59,999 → ₹130',
+                              '   • ₹35,000 - ₹44,999 → ₹80',
+                              '   • ₹45,000 - ₹59,999 → ₹100',
                               '   • ₹60,000 - ₹79,999 → ₹150',
                               '   • ₹80,000+ → ₹200',
                               '⚠️ Note: No base incentive, only per-phone incentives',
@@ -351,8 +352,8 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                             color: Colors.orange,
                             rules: [
                               '💰 Incentive Structure (per piece):',
-                              '   • 1-10 pieces → ₹40 per piece',
-                              '   • Above 10 pieces → ₹50 per piece',
+                              '   • 1-10 pieces → ₹30 per piece',
+                              '   • Above 10 pieces → ₹40 per piece',
                               '✨ No minimum quantity required',
                             ],
                           ),
@@ -364,8 +365,8 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                             color: Colors.purple,
                             rules: [
                               '💰 Incentive Structure (per piece):',
-                              '   • 1-10 pieces → ₹30 per piece',
-                              '   • Above 10 pieces → ₹40 per piece',
+                              '   • 1-10 pieces → ₹15 per piece',
+                              '   • Above 10 pieces → ₹25 per piece',
                               '✨ No minimum quantity required',
                             ],
                           ),
@@ -595,7 +596,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                             color: Colors.blue,
                             totalAmount: data.accessoriesTotal,
                             incentive: data.accessoriesIncentive,
-                            rule: 'Above ₹1,00,000: ₹1000 + ₹300/₹10k',
+                            rule: 'Above ₹1,00,000: ₹1000 + ₹200/₹10k',
                             calculation: _getAccessoriesCalculation(
                               data.accessoriesTotal,
                             ),
@@ -623,10 +624,10 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                             rule: data.secondPhoneCount == 0
                                 ? 'No sales recorded'
                                 : (data.secondPhoneCount <= 10
-                                      ? '₹40/piece (1-10 pieces)'
-                                      : '₹50/piece (10+ pieces)'),
+                                      ? '₹30/piece (1-10 pieces)'
+                                      : '₹40/piece (10+ pieces)'),
                             calculation: data.secondPhoneCount > 0
-                                ? '${data.secondPhoneCount} × ${data.secondPhoneCount <= 10 ? '₹40' : '₹50'} = ₹${widget.formatNumber(data.secondPhoneIncentive)}'
+                                ? '${data.secondPhoneCount} × ${data.secondPhoneCount <= 10 ? '₹30' : '₹40'} = ₹${widget.formatNumber(data.secondPhoneIncentive)}'
                                 : 'No second phone sales',
                           ),
                           const SizedBox(height: 12),
@@ -639,10 +640,10 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                             rule: data.baseModelCount == 0
                                 ? 'No sales recorded'
                                 : (data.baseModelCount <= 10
-                                      ? '₹30/piece (1-10 pieces)'
-                                      : '₹40/piece (10+ pieces)'),
+                                      ? '₹15/piece (1-10 pieces)'
+                                      : '₹25/piece (10+ pieces)'),
                             calculation: data.baseModelCount > 0
-                                ? '${data.baseModelCount} × ${data.baseModelCount <= 10 ? '₹30' : '₹40'} = ₹${widget.formatNumber(data.baseModelIncentive)}'
+                                ? '${data.baseModelCount} × ${data.baseModelCount <= 10 ? '₹15' : '₹25'} = ₹${widget.formatNumber(data.baseModelIncentive)}'
                                 : 'No base model sales',
                           ),
                         ],
@@ -678,8 +679,8 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
     final amountAboveLakh = totalAmount - 100000;
     final additionalThousands = (amountAboveLakh / 10000).floor();
     if (additionalThousands > 0) {
-      incentive += additionalThousands * 300;
-      return '₹1000 + ($additionalThousands × ₹300) = ₹${widget.formatNumber(incentive)}';
+      incentive += additionalThousands * 200; // Changed from 300 to 200
+      return '₹1000 + ($additionalThousands × ₹200) = ₹${widget.formatNumber(incentive)}';
     }
     return '₹1000 base incentive';
   }

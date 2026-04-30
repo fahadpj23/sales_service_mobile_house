@@ -712,6 +712,12 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
       double sellingPrice =
           (modelData['productPrice'] as num?)?.toDouble() ?? 0;
 
+      // Create controllers properly
+      final quantityController = TextEditingController(text: '1');
+      final priceController = TextEditingController(
+        text: sellingPrice.toStringAsFixed(0),
+      );
+
       final result = await showDialog<bool>(
         context: context,
         barrierDismissible: false,
@@ -779,8 +785,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
-                        controller: TextEditingController(text: '1')
-                          ..selection = TextSelection.collapsed(offset: 1),
+                        controller: quantityController,
                         keyboardType: TextInputType.number,
                         decoration: const InputDecoration(
                           labelText: 'Quantity to Sell *',
@@ -810,11 +815,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
-                        controller:
-                            TextEditingController(text: sellingPrice.toString())
-                              ..selection = TextSelection.collapsed(
-                                offset: sellingPrice.toString().length,
-                              ),
+                        controller: priceController,
                         keyboardType: TextInputType.number,
                         decoration: const InputDecoration(
                           labelText: 'Selling Price *',
@@ -865,6 +866,8 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                 actions: [
                   TextButton(
                     onPressed: () {
+                      quantityController.dispose();
+                      priceController.dispose();
                       Navigator.pop(context, false);
                     },
                     child: const Text('Cancel'),
@@ -876,6 +879,8 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                           tempPrice > 0) {
                         selectedQuantity = tempQuantity;
                         sellingPrice = tempPrice;
+                        quantityController.dispose();
+                        priceController.dispose();
                         Navigator.pop(context, true);
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -906,19 +911,18 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
         return;
       }
 
-      setState(() {
-        _selectedModelForAction = null;
-      });
-
+      // Now selectedQuantity and sellingPrice have the correct values
       final productData = {
         'productName': modelData['productName'],
         'productBrand': modelData['productBrand'],
-        'productPrice': sellingPrice,
+        'productPrice': modelData['productPrice'],
         'quantity': selectedQuantity,
         'modelId': modelId,
         'sellingPrice': sellingPrice,
         'totalAmount': selectedQuantity * sellingPrice,
         'category': _fixedCategory,
+        'originalQuantity': currentQuantity,
+        'billType': 'applianceSale',
       };
 
       final gstResult = await Navigator.push<bool>(
@@ -935,25 +939,60 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
         final authProvider = Provider.of<AuthProvider>(context, listen: false);
         final user = authProvider.user;
 
-        if (selectedQuantity == currentQuantity) {
-          await _firestore.collection('applianceStock').doc(modelId).update({
-            'status': 'sold',
-            'soldAt': FieldValue.serverTimestamp(),
-            'soldBy': user?.email ?? user?.name ?? 'Unknown',
-            'soldById': user?.uid ?? '',
-            'sellingPrice': sellingPrice,
-            'soldQuantity': selectedQuantity,
-            'billGenerated': true,
-            'billGeneratedAt': FieldValue.serverTimestamp(),
-          });
-        } else {
-          await _firestore.collection('applianceStock').doc(modelId).update({
-            'quantity': currentQuantity - selectedQuantity,
-            'lastUpdatedAt': FieldValue.serverTimestamp(),
-            'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
-          });
+        final DocumentReference stockRef = _firestore
+            .collection('applianceStock')
+            .doc(modelId);
 
-          final soldRecord = {
+        await _firestore.runTransaction((transaction) async {
+          final stockSnapshot = await transaction.get(stockRef);
+
+          if (!stockSnapshot.exists) {
+            throw Exception('Stock record not found');
+          }
+
+          final stockData = stockSnapshot.data() as Map<String, dynamic>;
+          final currentStockQuantity = stockData['quantity'] as int? ?? 0;
+          final currentStockStatus =
+              stockData['status'] as String? ?? 'available';
+
+          if (currentStockStatus != 'available') {
+            throw Exception('This item is no longer available for sale');
+          }
+
+          if (currentStockQuantity < selectedQuantity) {
+            throw Exception(
+              'Insufficient stock. Only $currentStockQuantity units available.',
+            );
+          }
+
+          final newQuantity = currentStockQuantity - selectedQuantity;
+
+          if (newQuantity == 0) {
+            transaction.update(stockRef, {
+              'status': 'sold',
+              'quantity': 0,
+              'soldAt': FieldValue.serverTimestamp(),
+              'soldBy': user?.email ?? user?.name ?? 'Unknown',
+              'soldById': user?.uid ?? '',
+              'sellingPrice': sellingPrice,
+              'soldQuantity': selectedQuantity,
+              'billGenerated': true,
+              'billGeneratedAt': FieldValue.serverTimestamp(),
+              'lastUpdatedAt': FieldValue.serverTimestamp(),
+              'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
+            });
+          } else {
+            transaction.update(stockRef, {
+              'quantity': newQuantity,
+              'lastUpdatedAt': FieldValue.serverTimestamp(),
+              'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
+            });
+          }
+
+          final soldRecordRef = _firestore
+              .collection('applianceSoldRecords')
+              .doc();
+          transaction.set(soldRecordRef, {
             'category': _fixedCategory,
             'productBrand': modelData['productBrand'],
             'productName': modelData['productName'],
@@ -969,20 +1008,22 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
             'originalStockId': modelId,
             'billGenerated': true,
             'billGeneratedAt': FieldValue.serverTimestamp(),
-          };
-
-          await _firestore.collection('applianceSoldRecords').add(soldRecord);
-        }
+            'remainingQuantity': newQuantity,
+          });
+        });
 
         setState(() => _isLoading = false);
-        _showSuccess(
-          '$selectedQuantity unit(s) sold and bill generated successfully!',
-        );
+        _showSuccess('$selectedQuantity unit(s) sold successfully!');
+
+        // Clear the controllers
+        _sellQuantityController.clear();
+        _sellPriceController.clear();
+        setState(() => _selectedModelForAction = null);
       }
     } catch (e) {
       print('Error in _markAsSold: $e');
       if (mounted) {
-        _showError('Failed to process sale: $e');
+        _showError('Failed to process sale: ${e.toString()}');
       }
     } finally {
       if (mounted) {
@@ -1163,68 +1204,86 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
       final currentShopName =
           modelData['shopName'] as String? ?? 'Unknown Shop';
 
-      final existingTargetQuery = await _firestore
+      final DocumentReference stockRef = _firestore
           .collection('applianceStock')
-          .where('shopId', isEqualTo: newShopId)
-          .where('category', isEqualTo: _fixedCategory)
-          .where('productBrand', isEqualTo: modelData['productBrand'])
-          .where('productName', isEqualTo: modelData['productName'])
-          .where('status', isEqualTo: 'available')
-          .limit(1)
-          .get();
+          .doc(modelId);
 
-      if (transferQuantity == currentQuantity) {
-        await _firestore.collection('applianceStock').doc(modelId).update({
-          'shopId': newShopId,
-          'shopName': newShopName,
-          'transferredBy': user?.email ?? user?.name ?? 'Unknown',
-          'transferredById': user?.uid ?? '',
-          'transferredAt': FieldValue.serverTimestamp(),
-          'previousShopId': currentShopId,
-          'previousShopName': currentShopName,
-          'quantity': transferQuantity,
-        });
-      } else {
-        await _firestore.collection('applianceStock').doc(modelId).update({
-          'quantity': currentQuantity - transferQuantity,
-          'lastUpdatedAt': FieldValue.serverTimestamp(),
-          'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
-        });
+      await _firestore.runTransaction((transaction) async {
+        final stockSnapshot = await transaction.get(stockRef);
 
-        if (existingTargetQuery.docs.isNotEmpty) {
-          final targetDoc = existingTargetQuery.docs.first;
-          final targetData = targetDoc.data();
-          final targetQuantity = targetData['quantity'] as int? ?? 0;
+        if (!stockSnapshot.exists) {
+          throw Exception('Stock record not found');
+        }
 
-          await _firestore
-              .collection('applianceStock')
-              .doc(targetDoc.id)
-              .update({
-                'quantity': targetQuantity + transferQuantity,
-                'lastUpdatedAt': FieldValue.serverTimestamp(),
-                'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
-              });
-        } else {
-          final newStockData = {
-            'category': _fixedCategory,
-            'productBrand': modelData['productBrand'],
-            'productName': modelData['productName'],
-            'productPrice': modelData['productPrice'],
-            'quantity': transferQuantity,
+        final freshStockData = stockSnapshot.data() as Map<String, dynamic>;
+        final freshQuantity = freshStockData['quantity'] as int? ?? 0;
+
+        if (freshQuantity < transferQuantity) {
+          throw Exception(
+            'Insufficient stock. Only $freshQuantity units available.',
+          );
+        }
+
+        final existingTargetQuery = await _firestore
+            .collection('applianceStock')
+            .where('shopId', isEqualTo: newShopId)
+            .where('category', isEqualTo: _fixedCategory)
+            .where('productBrand', isEqualTo: modelData['productBrand'])
+            .where('productName', isEqualTo: modelData['productName'])
+            .where('status', isEqualTo: 'available')
+            .limit(1)
+            .get();
+
+        if (transferQuantity == freshQuantity) {
+          transaction.update(stockRef, {
             'shopId': newShopId,
             'shopName': newShopName,
-            'uploadedBy': user?.email ?? user?.name ?? 'Unknown',
-            'uploadedById': user?.uid ?? '',
-            'uploadedAt': FieldValue.serverTimestamp(),
-            'status': 'available',
-            'createdAt': FieldValue.serverTimestamp(),
-            'transferredFrom': currentShopId,
-            'transferredFromName': currentShopName,
+            'transferredBy': user?.email ?? user?.name ?? 'Unknown',
+            'transferredById': user?.uid ?? '',
             'transferredAt': FieldValue.serverTimestamp(),
-          };
-          await _firestore.collection('applianceStock').add(newStockData);
+            'previousShopId': currentShopId,
+            'previousShopName': currentShopName,
+            'quantity': transferQuantity,
+          });
+        } else {
+          transaction.update(stockRef, {
+            'quantity': freshQuantity - transferQuantity,
+            'lastUpdatedAt': FieldValue.serverTimestamp(),
+            'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
+          });
+
+          if (existingTargetQuery.docs.isNotEmpty) {
+            final targetDoc = existingTargetQuery.docs.first;
+            final targetData = targetDoc.data();
+            final targetQuantity = targetData['quantity'] as int? ?? 0;
+
+            transaction.update(targetDoc.reference, {
+              'quantity': targetQuantity + transferQuantity,
+              'lastUpdatedAt': FieldValue.serverTimestamp(),
+              'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
+            });
+          } else {
+            final newStockRef = _firestore.collection('applianceStock').doc();
+            transaction.set(newStockRef, {
+              'category': _fixedCategory,
+              'productBrand': modelData['productBrand'],
+              'productName': modelData['productName'],
+              'productPrice': modelData['productPrice'],
+              'quantity': transferQuantity,
+              'shopId': newShopId,
+              'shopName': newShopName,
+              'uploadedBy': user?.email ?? user?.name ?? 'Unknown',
+              'uploadedById': user?.uid ?? '',
+              'uploadedAt': FieldValue.serverTimestamp(),
+              'status': 'available',
+              'createdAt': FieldValue.serverTimestamp(),
+              'transferredFrom': currentShopId,
+              'transferredFromName': currentShopName,
+              'transferredAt': FieldValue.serverTimestamp(),
+            });
+          }
         }
-      }
+      });
 
       setState(() {
         _selectedModelForAction = null;
@@ -1412,34 +1471,56 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final user = authProvider.user;
 
-      final returnData = {
-        'modelId': modelId,
-        'category': _fixedCategory,
-        'productBrand': modelData['productBrand'] ?? 'Unknown',
-        'productName': modelData['productName'] ?? 'Unknown',
-        'productPrice': modelData['productPrice'] ?? 0,
-        'quantity': returnQuantity,
-        'originalShopId': modelData['shopId'] ?? '',
-        'originalShopName': modelData['shopName'] ?? 'Unknown Shop',
-        'returnedBy': user?.email ?? user?.name ?? 'Unknown',
-        'returnedById': user?.uid ?? '',
-        'returnedAt': FieldValue.serverTimestamp(),
-        'reason': 'returned_to_inventory',
-        'status': 'returned',
-        'createdAt': FieldValue.serverTimestamp(),
-      };
+      final DocumentReference stockRef = _firestore
+          .collection('applianceStock')
+          .doc(modelId);
 
-      await _firestore.collection('applianceReturns').add(returnData);
+      await _firestore.runTransaction((transaction) async {
+        final stockSnapshot = await transaction.get(stockRef);
 
-      if (returnQuantity == currentQuantity) {
-        await _firestore.collection('applianceStock').doc(modelId).delete();
-      } else {
-        await _firestore.collection('applianceStock').doc(modelId).update({
-          'quantity': currentQuantity - returnQuantity,
-          'lastUpdatedAt': FieldValue.serverTimestamp(),
-          'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
-        });
-      }
+        if (!stockSnapshot.exists) {
+          throw Exception('Stock record not found');
+        }
+
+        final freshStockData = stockSnapshot.data() as Map<String, dynamic>;
+        final freshQuantity = freshStockData['quantity'] as int? ?? 0;
+
+        if (freshQuantity < returnQuantity) {
+          throw Exception(
+            'Insufficient stock. Only $freshQuantity units available.',
+          );
+        }
+
+        final returnData = {
+          'modelId': modelId,
+          'category': _fixedCategory,
+          'productBrand': modelData['productBrand'] ?? 'Unknown',
+          'productName': modelData['productName'] ?? 'Unknown',
+          'productPrice': modelData['productPrice'] ?? 0,
+          'quantity': returnQuantity,
+          'originalShopId': modelData['shopId'] ?? '',
+          'originalShopName': modelData['shopName'] ?? 'Unknown Shop',
+          'returnedBy': user?.email ?? user?.name ?? 'Unknown',
+          'returnedById': user?.uid ?? '',
+          'returnedAt': FieldValue.serverTimestamp(),
+          'reason': 'returned_to_inventory',
+          'status': 'returned',
+          'createdAt': FieldValue.serverTimestamp(),
+        };
+
+        final returnRef = _firestore.collection('applianceReturns').doc();
+        transaction.set(returnRef, returnData);
+
+        if (returnQuantity == freshQuantity) {
+          transaction.delete(stockRef);
+        } else {
+          transaction.update(stockRef, {
+            'quantity': freshQuantity - returnQuantity,
+            'lastUpdatedAt': FieldValue.serverTimestamp(),
+            'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
+          });
+        }
+      });
 
       setState(() {
         _selectedModelForAction = null;
@@ -1546,7 +1627,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
     }
   }
 
-  // FIXED: Brand dropdown with black text
   Widget _buildBrandDropdown() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2604,12 +2684,14 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                                 final productData = {
                                   'productName': productName,
                                   'productBrand': productBrand,
-                                  'productPrice': salePrice,
+                                  'productPrice': price,
                                   'quantity': qty,
                                   'modelId': modelId,
                                   'sellingPrice': salePrice,
                                   'totalAmount': qty * salePrice,
                                   'category': _fixedCategory,
+                                  'originalQuantity': quantity,
+                                  'billType': 'applianceSale',
                                 };
 
                                 final gstResult = await Navigator.push<bool>(
@@ -2624,6 +2706,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
 
                                 if (gstResult == true && mounted) {
                                   setState(() => _isLoading = true);
+
                                   final authProvider =
                                       Provider.of<AuthProvider>(
                                         context,
@@ -2631,12 +2714,54 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                                       );
                                   final user = authProvider.user;
 
-                                  if (qty == quantity) {
-                                    await _firestore
-                                        .collection('applianceStock')
-                                        .doc(modelId)
-                                        .update({
+                                  final DocumentReference stockRef = _firestore
+                                      .collection('applianceStock')
+                                      .doc(modelId);
+
+                                  try {
+                                    await _firestore.runTransaction((
+                                      transaction,
+                                    ) async {
+                                      final stockSnapshot = await transaction
+                                          .get(stockRef);
+
+                                      if (!stockSnapshot.exists) {
+                                        throw Exception(
+                                          'Stock record not found',
+                                        );
+                                      }
+
+                                      final currentStockData =
+                                          stockSnapshot.data()
+                                              as Map<String, dynamic>;
+                                      final currentStockQuantity =
+                                          currentStockData['quantity']
+                                              as int? ??
+                                          0;
+                                      final currentStockStatus =
+                                          currentStockData['status']
+                                              as String? ??
+                                          'available';
+
+                                      if (currentStockStatus != 'available') {
+                                        throw Exception(
+                                          'This item is no longer available for sale',
+                                        );
+                                      }
+
+                                      if (currentStockQuantity < qty) {
+                                        throw Exception(
+                                          'Insufficient stock. Only $currentStockQuantity units available.',
+                                        );
+                                      }
+
+                                      final newQuantity =
+                                          currentStockQuantity - qty;
+
+                                      if (newQuantity == 0) {
+                                        transaction.update(stockRef, {
                                           'status': 'sold',
+                                          'quantity': 0,
                                           'soldAt':
                                               FieldValue.serverTimestamp(),
                                           'soldBy':
@@ -2649,13 +2774,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                                           'billGenerated': true,
                                           'billGeneratedAt':
                                               FieldValue.serverTimestamp(),
-                                        });
-                                  } else {
-                                    await _firestore
-                                        .collection('applianceStock')
-                                        .doc(modelId)
-                                        .update({
-                                          'quantity': quantity - qty,
                                           'lastUpdatedAt':
                                               FieldValue.serverTimestamp(),
                                           'lastUpdatedBy':
@@ -2663,38 +2781,55 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                                               user?.name ??
                                               'Unknown',
                                         });
+                                      } else {
+                                        transaction.update(stockRef, {
+                                          'quantity': newQuantity,
+                                          'lastUpdatedAt':
+                                              FieldValue.serverTimestamp(),
+                                          'lastUpdatedBy':
+                                              user?.email ??
+                                              user?.name ??
+                                              'Unknown',
+                                        });
+                                      }
 
-                                    final soldRecord = {
-                                      'category': _fixedCategory,
-                                      'productBrand': productBrand,
-                                      'productName': productName,
-                                      'productPrice': price,
-                                      'quantity': qty,
-                                      'sellingPrice': salePrice,
-                                      'totalAmount': qty * salePrice,
-                                      'shopId': currentShopId,
-                                      'shopName': currentShopName,
-                                      'soldBy':
-                                          user?.email ??
-                                          user?.name ??
-                                          'Unknown',
-                                      'soldById': user?.uid ?? '',
-                                      'soldAt': FieldValue.serverTimestamp(),
-                                      'originalStockId': modelId,
-                                      'billGenerated': true,
-                                      'billGeneratedAt':
-                                          FieldValue.serverTimestamp(),
-                                    };
+                                      final soldRecordRef = _firestore
+                                          .collection('applianceSoldRecords')
+                                          .doc();
+                                      transaction.set(soldRecordRef, {
+                                        'category': _fixedCategory,
+                                        'productBrand': productBrand,
+                                        'productName': productName,
+                                        'productPrice': price,
+                                        'quantity': qty,
+                                        'sellingPrice': salePrice,
+                                        'totalAmount': qty * salePrice,
+                                        'shopId': currentShopId,
+                                        'shopName': currentShopName,
+                                        'soldBy':
+                                            user?.email ??
+                                            user?.name ??
+                                            'Unknown',
+                                        'soldById': user?.uid ?? '',
+                                        'soldAt': FieldValue.serverTimestamp(),
+                                        'originalStockId': modelId,
+                                        'billGenerated': true,
+                                        'billGeneratedAt':
+                                            FieldValue.serverTimestamp(),
+                                        'remainingQuantity': newQuantity,
+                                      });
+                                    });
 
-                                    await _firestore
-                                        .collection('applianceSoldRecords')
-                                        .add(soldRecord);
+                                    setState(() => _isLoading = false);
+                                    _showSuccess(
+                                      '$qty unit(s) sold successfully!',
+                                    );
+                                  } catch (e) {
+                                    setState(() => _isLoading = false);
+                                    _showError(
+                                      'Failed to process sale: ${e.toString()}',
+                                    );
                                   }
-
-                                  setState(() => _isLoading = false);
-                                  _showSuccess(
-                                    '$qty unit(s) sold and bill generated successfully!',
-                                  );
                                 }
                               },
                         style: ElevatedButton.styleFrom(
@@ -4090,16 +4225,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                         modelData: stock,
                         onSell: type == 'available'
                             ? () {
-                                setState(() {
-                                  _selectedModelForAction = {
-                                    ...stock,
-                                    'id': modelId,
-                                  };
-                                  _selectedAction = 'sell';
-                                  _sellQuantityController.text = '1';
-                                  _sellPriceController.text =
-                                      price?.toString() ?? '';
-                                });
+                                _markAsSold(modelId, stock);
                               }
                             : null,
                         onTransfer: type == 'available'

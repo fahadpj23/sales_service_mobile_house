@@ -25,6 +25,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     'phoneSales',
     'base_model_sale',
     'seconds_phone_sale',
+    'bills',
   ];
 
   List<Map<String, dynamic>> allSales = [];
@@ -37,6 +38,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     'Phones',
     'Second Phones',
     'Base Models',
+    'GST Accessories',
   ];
 
   String selectedDateFilter = 'Monthly';
@@ -68,7 +70,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   Uint8List? _logoImage;
   Uint8List? _sealImage;
 
-  // Shop details for sharing
   String? _shopMobileNumber;
   String? _shopWhatsAppNumber;
   String? _shopInstagram;
@@ -149,7 +150,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
 
         for (var sale in periodSales) {
           sale['collection'] = collection;
-          sale['type'] = _getSaleType(collection);
+          sale['type'] = _getSaleType(collection, sale);
           sale['displayDate'] = _formatDate(sale, collection);
           sale['displayAmount'] = _getAmount(sale, collection);
           sale['customerInfo'] = _getCustomerInfo(sale);
@@ -176,9 +177,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     setState(() => isLoading = false);
   }
 
-  // Updated: Improved method to get customer phone number from various field names
   String _getCustomerPhone(Map<String, dynamic> data) {
-    // Check all possible field names that might contain the customer phone
     if (data['customerPhone'] != null &&
         data['customerPhone'].toString().isNotEmpty &&
         data['customerPhone'].toString() != 'null') {
@@ -217,7 +216,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     return '';
   }
 
-  // Make phone call
   Future<void> _makePhoneCall(String phoneNumber) async {
     if (phoneNumber.isEmpty) {
       _showError('No phone number available');
@@ -251,10 +249,17 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     final List<Map<String, dynamic>> sales = [];
 
     try {
-      final snapshot = await FirebaseFirestore.instance
+      Query query = FirebaseFirestore.instance
           .collection(collection)
-          .where('shopId', isEqualTo: widget.shopId)
-          .get();
+          .where('shopId', isEqualTo: widget.shopId);
+
+      if (collection == 'bills') {
+        query = FirebaseFirestore.instance
+            .collection(collection)
+            .where('shopId', isEqualTo: widget.shopId);
+      }
+
+      final snapshot = await query.get();
 
       final dateRange = _getDateRangeForFilter(selectedDateFilter);
       final startDate = dateRange['start']!;
@@ -263,6 +268,10 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       for (var doc in snapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
+
+        if (collection == 'bills' && data['billType'] != 'GST Accessories') {
+          continue;
+        }
 
         final saleDate = _getSaleDate(data, collection);
         if (_isDateInRange(saleDate, startDate, endDate)) {
@@ -388,6 +397,15 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               .where((sale) => sale['collection'] == 'base_model_sale')
               .toList();
           break;
+        case 'GST Accessories':
+          tempSales = allSales
+              .where(
+                (sale) =>
+                    sale['collection'] == 'bills' &&
+                    sale['billType'] == 'GST Accessories',
+              )
+              .toList();
+          break;
         default:
           tempSales = allSales;
       }
@@ -400,9 +418,15 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         final customerPhone = (sale['customerPhone'] as String).toLowerCase();
         final shopName = (sale['shopName'] as String).toLowerCase();
         final type = (sale['type'] as String).toLowerCase();
-        final product = (sale['productName'] ?? '').toString().toLowerCase();
-        final brand = (sale['brand'] ?? '').toString().toLowerCase();
+        final product =
+            (sale['productName'] ?? sale['applianceProductName'] ?? '')
+                .toString()
+                .toLowerCase();
+        final brand = (sale['brand'] ?? sale['applianceBrand'] ?? '')
+            .toString()
+            .toLowerCase();
         final imei = (sale['imei'] ?? '').toString().toLowerCase();
+        final billNumber = (sale['billNumber'] ?? '').toString().toLowerCase();
 
         return customer.contains(query) ||
             customerPhone.contains(query) ||
@@ -410,7 +434,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
             type.contains(query) ||
             product.contains(query) ||
             brand.contains(query) ||
-            imei.contains(query);
+            imei.contains(query) ||
+            billNumber.contains(query);
       }).toList();
     }
 
@@ -468,8 +493,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     });
     fetchSalesData();
   }
-
-  // ==================== PDF BILL GENERATION ====================
 
   String _amountToWords(String amount) {
     try {
@@ -568,6 +591,487 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     }
 
     return words.trim();
+  }
+
+  Future<Uint8List> _generateGstAccessoriesPdf(
+    Map<String, dynamic> sale,
+  ) async {
+    final pdf = pw.Document();
+    final pageFormat = PdfPageFormat.a4;
+    String currentDate = DateFormat('dd MMMM yyyy').format(DateTime.now());
+
+    final billNumber = sale['billNumber']?.toString() ?? 'MH-001';
+    final customerName =
+        sale['customerName']?.toString() ??
+        sale['customerInfo'] ??
+        'Walk-in Customer';
+    final customerMobile =
+        sale['customerMobile']?.toString() ??
+        sale['customerPhone']?.toString() ??
+        '';
+    final customerAddress = sale['customerAddress']?.toString() ?? '';
+    final totalAmount = (sale['totalAmount'] as num?)?.toDouble() ?? 0.0;
+    final taxableAmount = (sale['taxableAmount'] as num?)?.toDouble() ?? 0.0;
+    final gstAmount = (sale['gstAmount'] as num?)?.toDouble() ?? 0.0;
+    final gstRate = (sale['gstRate'] as num?)?.toDouble() ?? 18.0;
+    final shop = sale['shop']?.toString() ?? 'Peringottukara';
+    final productData = sale['product'] as Map<String, dynamic>? ?? {};
+    final productName =
+        productData['productName']?.toString() ??
+        sale['applianceProductName']?.toString() ??
+        'Product';
+    final quantity = (productData['quantity'] as num?)?.toInt() ?? 1;
+    final price = (productData['price'] as num?)?.toDouble() ?? 0.0;
+    final discount = (productData['discount'] as num?)?.toDouble() ?? 0.0;
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: pageFormat,
+        margin: pw.EdgeInsets.all(15),
+        build: (pw.Context context) {
+          return _buildGstAccessoriesInvoiceContent(
+            currentDate: currentDate,
+            billNumber: billNumber,
+            customerName: customerName,
+            customerMobile: customerMobile,
+            customerAddress: customerAddress,
+            productName: productName,
+            quantity: quantity,
+            price: price,
+            discount: discount,
+            totalAmount: totalAmount,
+            taxableAmount: taxableAmount,
+            gstAmount: gstAmount,
+            gstRate: gstRate,
+            shop: shop,
+          );
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  pw.Widget _buildGstAccessoriesInvoiceContent({
+    required String currentDate,
+    required String billNumber,
+    required String customerName,
+    required String customerMobile,
+    required String customerAddress,
+    required String productName,
+    required int quantity,
+    required double price,
+    required double discount,
+    required double totalAmount,
+    required double taxableAmount,
+    required double gstAmount,
+    required double gstRate,
+    required String shop,
+  }) {
+    final selectedShop = shop.contains('Cherpu') ? 'Cherpu' : 'Peringottukara';
+
+    return pw.Container(
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColors.black, width: 1.0),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Padding(
+            padding: pw.EdgeInsets.all(8),
+            child: pw.Align(
+              alignment: pw.Alignment.centerLeft,
+              child: pw.Text(
+                'GSTIN: 32BSGPJ3340H1Z4',
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          pw.Padding(
+            padding: pw.EdgeInsets.all(8),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.center,
+              children: [
+                pw.Column(
+                  children: [
+                    if (_logoImage != null)
+                      pw.SizedBox(
+                        height: 45,
+                        child: pw.Image(
+                          pw.MemoryImage(_logoImage!),
+                          fit: pw.BoxFit.contain,
+                        ),
+                      )
+                    else
+                      pw.Text(
+                        'MOBILE HOUSE',
+                        style: pw.TextStyle(
+                          fontSize: 14,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                    pw.SizedBox(height: 2),
+                    pw.Text(
+                      selectedShop == 'Peringottukara'
+                          ? "3way junction Peringottukara"
+                          : "Cherpu, Thayamkulangara",
+                      style: pw.TextStyle(fontSize: 11),
+                    ),
+                    pw.SizedBox(height: 2),
+                    pw.Text(
+                      selectedShop == 'Peringottukara'
+                          ? "Mob: 9072430483, 8304830868"
+                          : "Mob: 9544466724",
+                      style: pw.TextStyle(fontSize: 11),
+                    ),
+                    pw.SizedBox(height: 2),
+                    pw.Text("Mobile house", style: pw.TextStyle(fontSize: 11)),
+                    pw.SizedBox(height: 2),
+                    pw.Text(
+                      "GST TAX INVOICE (TYPE-B2C) - CASH SALE",
+                      style: pw.TextStyle(fontSize: 9),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          pw.Padding(
+            padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'STATE : KERALA',
+                      style: pw.TextStyle(
+                        fontSize: 11,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 6),
+                    pw.Text(
+                      'Invoice No. : $billNumber',
+                      style: pw.TextStyle(
+                        fontSize: 11,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.end,
+                  children: [
+                    pw.Text(
+                      'STATE CODE : 32',
+                      style: pw.TextStyle(
+                        fontSize: 11,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 6),
+                    pw.Text(
+                      'Invoice Date : $currentDate',
+                      style: pw.TextStyle(
+                        fontSize: 11,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          pw.Divider(color: PdfColors.black, thickness: 0.2, height: 0),
+          pw.Padding(
+            padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            child: pw.Container(
+              padding: pw.EdgeInsets.all(2),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'Customer  : $customerName',
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.SizedBox(height: 4),
+                  if (customerMobile.isNotEmpty)
+                    pw.Text(
+                      'Mobile Tel  : $customerMobile',
+                      style: pw.TextStyle(fontSize: 11),
+                    ),
+                  pw.SizedBox(height: 4),
+                  if (customerAddress.isNotEmpty)
+                    pw.Row(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          'Address     :',
+                          style: pw.TextStyle(fontSize: 11),
+                        ),
+                        pw.SizedBox(width: 4),
+                        pw.Expanded(
+                          child: pw.Text(
+                            customerAddress.isNotEmpty
+                                ? customerAddress
+                                : "N/A",
+                            style: pw.TextStyle(fontSize: 11),
+                            maxLines: 2,
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ),
+          pw.SizedBox(height: 4),
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.black, width: 0.5),
+            columnWidths: {
+              0: pw.FixedColumnWidth(40),
+              1: pw.FlexColumnWidth(2.5),
+              2: pw.FixedColumnWidth(40),
+              3: pw.FixedColumnWidth(40),
+              4: pw.FixedColumnWidth(50),
+              5: pw.FixedColumnWidth(50),
+              6: pw.FixedColumnWidth(50),
+              7: pw.FixedColumnWidth(60),
+              8: pw.FixedColumnWidth(70),
+            },
+            defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
+            children: [
+              pw.TableRow(
+                children: [
+                  _buildTableCell('SLNO', isHeader: true, fontSize: 9),
+                  _buildTableCell('Product Name', isHeader: true, fontSize: 9),
+                  _buildTableCell('HSN', isHeader: true, fontSize: 9),
+                  _buildTableCell('Qty', isHeader: true, fontSize: 9),
+                  _buildTableCell('Rate', isHeader: true, fontSize: 9),
+                  _buildTableCell('Disc%', isHeader: true, fontSize: 9),
+                  _buildTableCell('GST%', isHeader: true, fontSize: 9),
+                  _buildTableCell('GST Amt', isHeader: true, fontSize: 9),
+                  _buildTableCell('Total', isHeader: true, fontSize: 9),
+                ],
+              ),
+              pw.TableRow(
+                children: [
+                  _buildTableCell('1', fontSize: 9),
+                  _buildTableCell(
+                    productName,
+                    textAlign: pw.TextAlign.left,
+                    fontSize: 9,
+                    maxLines: 2,
+                  ),
+                  _buildTableCell('', fontSize: 9),
+                  _buildTableCell(quantity.toString(), fontSize: 9),
+                  _buildTableCell(price.toStringAsFixed(0), fontSize: 9),
+                  _buildTableCell(
+                    discount > 0 ? '${discount.toStringAsFixed(0)}%' : '-',
+                    fontSize: 9,
+                  ),
+                  _buildTableCell('${gstRate.toStringAsFixed(0)}', fontSize: 9),
+                  _buildTableCell(gstAmount.toStringAsFixed(0), fontSize: 9),
+                  _buildTableCell(totalAmount.toStringAsFixed(0), fontSize: 9),
+                ],
+              ),
+            ],
+          ),
+          pw.SizedBox(height: 280),
+          pw.Column(
+            children: [
+              pw.SizedBox(height: 8),
+              pw.Divider(color: PdfColors.black, thickness: 0.5, height: 0),
+              pw.Padding(
+                padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text(
+                      'Qty: 1   ',
+                      style: pw.TextStyle(
+                        fontSize: 10,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.Text(
+                      'Taxable: ${taxableAmount.toStringAsFixed(0)}    ',
+                      style: pw.TextStyle(
+                        fontSize: 10,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.Text(
+                      'GST: ${gstAmount.toStringAsFixed(0)}   ',
+                      style: pw.TextStyle(
+                        fontSize: 10,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.Text(
+                      'Total: ${totalAmount.toStringAsFixed(0)}',
+                      style: pw.TextStyle(
+                        fontSize: 10,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              pw.Divider(color: PdfColors.black, thickness: 0.5, height: 0),
+              pw.Padding(
+                padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'In Words: ${_amountToWords(totalAmount.toStringAsFixed(2))}',
+                      style: pw.TextStyle(fontSize: 10),
+                      maxLines: 2,
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Align(
+                      alignment: pw.Alignment.centerRight,
+                      child: pw.Text(
+                        'Total Amount: ${totalAmount.toStringAsFixed(0)}',
+                        style: pw.TextStyle(
+                          fontSize: 11,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          pw.Padding(
+            padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Expanded(
+                  flex: 2,
+                  child: pw.Container(
+                    padding: pw.EdgeInsets.all(2),
+                    child: pw.Table(
+                      border: pw.TableBorder.all(
+                        color: PdfColors.grey400,
+                        width: 0.5,
+                      ),
+                      columnWidths: {
+                        0: pw.FixedColumnWidth(35),
+                        1: pw.FixedColumnWidth(30),
+                        2: pw.FixedColumnWidth(30),
+                        3: pw.FixedColumnWidth(30),
+                        4: pw.FixedColumnWidth(35),
+                        5: pw.FixedColumnWidth(35),
+                      },
+                      defaultVerticalAlignment:
+                          pw.TableCellVerticalAlignment.middle,
+                      children: [
+                        pw.TableRow(
+                          children: [
+                            _buildTableCell('', isHeader: true, fontSize: 8),
+                            _buildTableCell('0%', isHeader: true, fontSize: 8),
+                            _buildTableCell('5%', isHeader: true, fontSize: 8),
+                            _buildTableCell('12%', isHeader: true, fontSize: 8),
+                            _buildTableCell('18%', isHeader: true, fontSize: 8),
+                            _buildTableCell('28%', isHeader: true, fontSize: 8),
+                          ],
+                        ),
+                        pw.TableRow(
+                          children: [
+                            _buildTableCell('Taxable', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell(
+                              (gstAmount * 100 / 18).toStringAsFixed(0),
+                              fontSize: 8,
+                            ),
+                            _buildTableCell('0', fontSize: 8),
+                          ],
+                        ),
+                        pw.TableRow(
+                          children: [
+                            _buildTableCell('CGST', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell(
+                              (gstAmount / 2).toStringAsFixed(0),
+                              fontSize: 8,
+                            ),
+                            _buildTableCell('0', fontSize: 8),
+                          ],
+                        ),
+                        pw.TableRow(
+                          children: [
+                            _buildTableCell('SGST', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell(
+                              (gstAmount / 2).toStringAsFixed(0),
+                              fontSize: 8,
+                            ),
+                            _buildTableCell('0', fontSize: 8),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                pw.SizedBox(width: 10),
+                pw.Expanded(
+                  flex: 1,
+                  child: pw.Container(
+                    padding: pw.EdgeInsets.all(6),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.end,
+                      children: [
+                        pw.Text(
+                          'Certified that the particulars given above are true and correct',
+                          style: pw.TextStyle(
+                            fontSize: 8,
+                            fontStyle: pw.FontStyle.italic,
+                          ),
+                          textAlign: pw.TextAlign.right,
+                        ),
+                        pw.SizedBox(height: 15),
+                        pw.Text(
+                          'For MOBILE HOUSE',
+                          style: pw.TextStyle(
+                            fontSize: 9,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                        pw.SizedBox(height: 8),
+                        pw.Divider(color: PdfColors.black, thickness: 0.5),
+                        pw.SizedBox(height: 5),
+                        pw.Text(
+                          'Authorised Signatory',
+                          style: pw.TextStyle(fontSize: 7),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<Uint8List> _generatePdf(Map<String, dynamic> sale) async {
@@ -1168,8 +1672,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     );
   }
 
-  // ==================== SHARE FUNCTIONS ====================
-
   Future<void> _sharePdfBill(Map<String, dynamic> sale) async {
     try {
       _showMessage('Generating PDF bill...', isError: false);
@@ -1195,6 +1697,31 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     }
   }
 
+  Future<void> _shareGstAccessoriesPdf(Map<String, dynamic> sale) async {
+    try {
+      _showMessage('Generating GST Accessories bill...', isError: false);
+
+      final pdfBytes = await _generateGstAccessoriesPdf(sale);
+
+      final directory = await getTemporaryDirectory();
+      final fileName =
+          'Bill_${sale['customerName']}_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final filePath = '${directory.path}/$fileName';
+      final file = File(filePath);
+      await file.writeAsBytes(pdfBytes);
+
+      await Share.shareXFiles(
+        [XFile(filePath, mimeType: 'application/pdf', name: fileName)],
+        text: 'Mobile House GST Bill - ${sale['customerName']}',
+        subject: 'Mobile House GST Bill',
+      );
+
+      _showMessage('PDF shared successfully!', isError: false);
+    } catch (e) {
+      _showError('Error sharing PDF: $e');
+    }
+  }
+
   String _generateEmiShareMessage(Map<String, dynamic> sale) {
     final brand = sale['brand']?.toString().toUpperCase() ?? '';
     final model = sale['productModel']?.toString() ?? '';
@@ -1202,8 +1729,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     final discount = (sale['discount'] as num?)?.toDouble() ?? 0.0;
     final exchange = (sale['exchangeValue'] as num?)?.toDouble() ?? 0.0;
     final customerCredit = (sale['customerCredit'] as num?)?.toDouble() ?? 0.0;
-    final effectivePrice = (sale['effectivePrice'] as num?)?.toDouble() ?? 0.0;
-    final amountToPay = (sale['amountToPay'] as num?)?.toDouble() ?? 0.0;
     final balanceReturned =
         (sale['balanceReturnedToCustomer'] as num?)?.toDouble() ?? 0.0;
 
@@ -1246,8 +1771,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     final dateFormat = DateFormat('dd/MM/yyyy');
     final formattedDate = dateFormat.format(saleDate);
 
-    final shopMobile = _shopMobileNumber ?? '9072430483';
-    final shopWhatsApp = _shopWhatsAppNumber ?? shopMobile;
+    final shopWhatsApp = _shopWhatsAppNumber ?? '9072430483';
     final shopInstagram = _shopInstagram ?? 'mobile.house_';
     final shopName = sale['shopName']?.toString() ?? 'MOBILE HOUSE';
 
@@ -1394,9 +1918,14 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     }
   }
 
-  void _showShareOptionsForPhoneSale(Map<String, dynamic> sale) {
-    final isEmiMode = sale['purchaseMode']?.toString() == 'EMI';
-    final customerPhone = sale['customerPhone']?.toString() ?? '';
+  void _showShareOptionsForSale(Map<String, dynamic> sale) {
+    final isPhoneSale = sale['collection'] == 'phoneSales';
+    final isGstAccessories =
+        sale['collection'] == 'bills' && sale['billType'] == 'GST Accessories';
+    final customerPhone =
+        sale['customerPhone']?.toString() ??
+        sale['customerMobile']?.toString() ??
+        '';
 
     showModalBottomSheet(
       context: context,
@@ -1431,11 +1960,15 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                 color: Colors.red,
                 onTap: () {
                   Navigator.pop(context);
-                  _sharePdfBill(sale);
+                  if (isGstAccessories) {
+                    _shareGstAccessoriesPdf(sale);
+                  } else {
+                    _sharePdfBill(sale);
+                  }
                 },
               ),
               const SizedBox(height: 12),
-              if (isEmiMode)
+              if (isPhoneSale)
                 _buildShareOption(
                   icon: Icons.credit_card,
                   label: 'Share EMI Details',
@@ -1535,8 +2068,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       ),
     );
   }
-
-  // ==================== END SHARE FUNCTIONS ====================
 
   Future<void> _deleteSale(Map<String, dynamic> sale) async {
     final collection = sale['collection'] as String;
@@ -1806,6 +2337,9 @@ ${filteredSales.map((sale) {
         case 'seconds_phone_sale':
           dateFields = ['date', 'uploadedAt', 'timestamp'];
           break;
+        case 'bills':
+          dateFields = ['billDate', 'createdAt', 'timestamp'];
+          break;
         default:
           dateFields = ['date', 'uploadedAt', 'timestamp', 'createdAt'];
       }
@@ -1853,7 +2387,11 @@ ${filteredSales.map((sale) {
     }
   }
 
-  String _getSaleType(String collection) {
+  String _getSaleType(String collection, Map<String, dynamic> data) {
+    if (collection == 'bills' && data['billType'] == 'GST Accessories') {
+      return 'GST Accessories';
+    }
+
     switch (collection) {
       case 'accessories_service_sales':
         return 'Accessories & Service';
@@ -1893,6 +2431,8 @@ ${filteredSales.map((sale) {
         case 'base_model_sale':
         case 'seconds_phone_sale':
           return (data['price'] ?? data['totalPayment'] ?? 0).toDouble();
+        case 'bills':
+          return (data['totalAmount'] ?? 0).toDouble();
         default:
           return 0.0;
       }
@@ -1906,8 +2446,17 @@ ${filteredSales.map((sale) {
         data['customerName'].toString().isNotEmpty &&
         data['customerName'].toString().toLowerCase() != 'null') {
       return data['customerName'].toString();
-    } else if (data['customerPhone'] != null) {
+    }
+    if (data['customerInfo'] != null &&
+        data['customerInfo'].toString().isNotEmpty &&
+        data['customerInfo'].toString().toLowerCase() != 'null') {
+      return data['customerInfo'].toString();
+    }
+    if (data['customerPhone'] != null) {
       return data['customerPhone'].toString();
+    }
+    if (data['customerMobile'] != null) {
+      return data['customerMobile'].toString();
     }
     return 'Walk-in Customer';
   }
@@ -1916,8 +2465,14 @@ ${filteredSales.map((sale) {
     if (data['shopName'] != null && data['shopName'].toString().isNotEmpty) {
       return data['shopName'].toString();
     }
+    if (data['shop'] != null && data['shop'].toString().isNotEmpty) {
+      return data['shop'].toString();
+    }
     if (collection == 'phoneSales' && data['shopId'] != null) {
       return data['shopId'].toString();
+    }
+    if (collection == 'bills') {
+      return data['shop']?.toString() ?? 'Mobile House';
     }
     return 'Shop not specified';
   }
@@ -1958,6 +2513,8 @@ ${filteredSales.map((sale) {
         paymentInfo['cash'] = (data['cash'] ?? 0).toDouble();
         paymentInfo['card'] = (data['card'] ?? 0).toDouble();
         paymentInfo['gpay'] = (data['gpay'] ?? 0).toDouble();
+      } else if (collection == 'bills') {
+        paymentInfo['cash'] = (data['totalAmount'] ?? 0).toDouble();
       }
     } catch (e) {
       print('Error getting payment info: $e');
@@ -1976,6 +2533,8 @@ ${filteredSales.map((sale) {
         return Colors.orange;
       case 'Base Model':
         return Colors.purple;
+      case 'GST Accessories':
+        return Colors.teal;
       default:
         return Colors.grey;
     }
@@ -1991,6 +2550,8 @@ ${filteredSales.map((sale) {
         return Icons.phone_android;
       case 'Base Model':
         return Icons.devices;
+      case 'GST Accessories':
+        return Icons.electrical_services;
       default:
         return Icons.receipt;
     }
@@ -2090,7 +2651,7 @@ ${filteredSales.map((sale) {
                     onChanged: _onSearchChanged,
                     decoration: InputDecoration(
                       hintText:
-                          'Search by customer, phone, product, brand, IMEI...',
+                          'Search by customer, phone, product, brand, IMEI, Bill No...',
                       hintStyle: const TextStyle(fontSize: 12),
                       prefixIcon: const Icon(Icons.search, size: 20),
                       suffixIcon: searchQuery.isNotEmpty
@@ -2383,11 +2944,15 @@ ${filteredSales.map((sale) {
                                     final type = sale['type'] as String;
                                     final color = _getTypeColor(type);
                                     final customerPhone =
-                                        sale['customerPhone']?.toString() ?? '';
+                                        sale['customerPhone']?.toString() ??
+                                        sale['customerMobile']?.toString() ??
+                                        '';
 
-                                    // Check if it's a phone sale for share button
-                                    final isPhoneSale =
-                                        sale['collection'] == 'phoneSales';
+                                    final isShareableSale =
+                                        sale['collection'] == 'phoneSales' ||
+                                        (sale['collection'] == 'bills' &&
+                                            sale['billType'] ==
+                                                'GST Accessories');
 
                                     return Card(
                                       margin: const EdgeInsets.symmetric(
@@ -2446,7 +3011,6 @@ ${filteredSales.map((sale) {
                                               overflow: TextOverflow.ellipsis,
                                             ),
                                             const SizedBox(height: 2),
-                                            // Show phone number for ALL sale types that have a phone number
                                             if (customerPhone.isNotEmpty)
                                               GestureDetector(
                                                 onTap: () => _makePhoneCall(
@@ -2493,6 +3057,15 @@ ${filteredSales.map((sale) {
                                                 ),
                                               ),
                                             const SizedBox(height: 2),
+                                            if (sale['billNumber'] != null)
+                                              Text(
+                                                'Bill No: ${sale['billNumber']}',
+                                                style: TextStyle(
+                                                  fontSize: 9,
+                                                  color: Colors.grey.shade600,
+                                                ),
+                                              ),
+                                            const SizedBox(height: 2),
                                             Text(
                                               '${sale['shopName']} • $type',
                                               style: TextStyle(
@@ -2513,7 +3086,7 @@ ${filteredSales.map((sale) {
                                         trailing: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            if (isPhoneSale)
+                                            if (isShareableSale)
                                               IconButton(
                                                 icon: Icon(
                                                   Icons.share,
@@ -2521,7 +3094,7 @@ ${filteredSales.map((sale) {
                                                   color: _shareColor,
                                                 ),
                                                 onPressed: () =>
-                                                    _showShareOptionsForPhoneSale(
+                                                    _showShareOptionsForSale(
                                                       sale,
                                                     ),
                                                 tooltip: 'Share',
@@ -2714,13 +3287,17 @@ ${filteredSales.map((sale) {
   void _showSaleDetails(BuildContext context, Map<String, dynamic> sale) {
     final isAccessoriesSale = sale['collection'] == 'accessories_service_sales';
     final isPhoneSale = sale['collection'] == 'phoneSales';
+    final isGstAccessories =
+        sale['collection'] == 'bills' && sale['billType'] == 'GST Accessories';
     final accessoriesAmount = sale['accessoriesAmount'] as double? ?? 0.0;
     final serviceAmount = sale['serviceAmount'] as double? ?? 0.0;
     final totalAmount = (sale['displayAmount'] as double).toStringAsFixed(0);
     final paymentInfo = sale['paymentInfo'] as Map<String, dynamic>;
 
-    // Get customer phone - check multiple possible field names
-    String customerPhone = sale['customerPhone']?.toString() ?? '';
+    String customerPhone =
+        sale['customerPhone']?.toString() ??
+        sale['customerMobile']?.toString() ??
+        '';
 
     showModalBottomSheet(
       context: context,
@@ -2776,9 +3353,12 @@ ${filteredSales.map((sale) {
                 ],
               ),
               const SizedBox(height: 16),
+
+              if (isGstAccessories && sale['billNumber'] != null)
+                _buildDetailRow('Bill Number', sale['billNumber'].toString()),
+
               _buildDetailRow('Customer', sale['customerInfo'] as String),
 
-              // Phone number row - shown for ALL sale types that have a phone number
               if (customerPhone.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 6),
@@ -2836,7 +3416,84 @@ ${filteredSales.map((sale) {
               _buildDetailRow('Shop', sale['shopName'].toString()),
               _buildDetailRow('Date', sale['displayDate'] as String),
 
-              // EMI Mode Display
+              if (isGstAccessories) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.teal.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.electrical_services,
+                            size: 14,
+                            color: Colors.teal.shade700,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'GST Accessories Details',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.teal.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      if (sale['product'] != null) ...[
+                        _buildGstDetailRow(
+                          'Product',
+                          (sale['product']
+                                      as Map<String, dynamic>)['productName']
+                                  ?.toString() ??
+                              'N/A',
+                        ),
+                        _buildGstDetailRow(
+                          'Quantity',
+                          (sale['product'] as Map<String, dynamic>)['quantity']
+                                  ?.toString() ??
+                              '1',
+                        ),
+                        _buildGstDetailRow(
+                          'Price',
+                          '₹${((sale['product'] as Map<String, dynamic>)['price'] as num?)?.toStringAsFixed(0) ?? '0'}',
+                        ),
+                        () {
+                          final discountValue =
+                              (sale['product']
+                                  as Map<String, dynamic>)['discount'];
+                          final discountNum = discountValue as num?;
+                          final discountDouble = discountNum?.toDouble() ?? 0;
+                          if (discountDouble > 0) {
+                            return _buildGstDetailRow(
+                              'Discount',
+                              '${discountValue}%',
+                            );
+                          }
+                          return const SizedBox.shrink();
+                        }(),
+                      ],
+                      const Divider(height: 12),
+                      _buildGstDetailRow(
+                        'Taxable Amount',
+                        '₹${(sale['taxableAmount'] as num?)?.toStringAsFixed(0) ?? '0'}',
+                      ),
+                      _buildGstDetailRow(
+                        'GST Amount (${(sale['gstRate'] as num?)?.toStringAsFixed(0) ?? '18'}%)',
+                        '₹${(sale['gstAmount'] as num?)?.toStringAsFixed(0) ?? '0'}',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
               if (isPhoneSale && sale['purchaseMode']?.toString() == 'EMI') ...[
                 const SizedBox(height: 8),
                 Container(
@@ -2949,7 +3606,7 @@ ${filteredSales.map((sale) {
                     ],
                   ),
                 ),
-              ] else
+              ] else if (!isGstAccessories)
                 _buildDetailRow('Total Amount', '₹$totalAmount'),
 
               const SizedBox(height: 8),
@@ -2969,23 +3626,28 @@ ${filteredSales.map((sale) {
                   ),
               ],
 
-              // Show product details for base model and second phone sales
               if (sale['productName'] != null &&
-                  sale['collection'] != 'phoneSales')
+                  sale['collection'] != 'phoneSales' &&
+                  !isGstAccessories)
                 _buildDetailRow('Product', sale['productName'].toString()),
               if (sale['productBrand'] != null &&
                   sale['productBrand'].toString().isNotEmpty &&
-                  sale['collection'] != 'phoneSales')
+                  sale['collection'] != 'phoneSales' &&
+                  !isGstAccessories)
                 _buildDetailRow('Brand', sale['productBrand'].toString()),
               if (sale['modelName'] != null &&
                   sale['modelName'].toString().isNotEmpty &&
-                  sale['collection'] != 'phoneSales')
+                  sale['collection'] != 'phoneSales' &&
+                  !isGstAccessories)
                 _buildDetailRow('Model', sale['modelName'].toString()),
               if (sale['brand'] != null &&
                   sale['brand'].toString().isNotEmpty &&
-                  sale['collection'] != 'phoneSales')
+                  sale['collection'] != 'phoneSales' &&
+                  !isGstAccessories)
                 _buildDetailRow('Brand', sale['brand'].toString()),
-              if (sale['imei'] != null && sale['collection'] != 'phoneSales')
+              if (sale['imei'] != null &&
+                  sale['collection'] != 'phoneSales' &&
+                  !isGstAccessories)
                 _buildDetailRow('IMEI', sale['imei'].toString()),
               if (sale['defect'] != null &&
                   sale['defect'].toString().isNotEmpty)
@@ -3011,7 +3673,7 @@ ${filteredSales.map((sale) {
                       ),
                     ),
                   ),
-                  if (!isPhoneSale) ...[
+                  if (!isPhoneSale && !isGstAccessories) ...[
                     const SizedBox(width: 10),
                     Expanded(
                       child: ElevatedButton(
@@ -3042,7 +3704,22 @@ ${filteredSales.map((sale) {
     );
   }
 
-  // Helper methods for EMI details display
+  Widget _buildGstDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEmiDetailRow(String label, double amount, {String suffix = ''}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
