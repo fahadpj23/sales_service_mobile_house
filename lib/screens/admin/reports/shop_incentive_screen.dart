@@ -26,11 +26,52 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
   DateTime? customEndDate;
   bool isCustomPeriod = false;
   Map<String, ShopIncentiveData> shopIncentives = {};
+  Map<String, ShopIncentiveData> lastMonthIncentives =
+      {}; // Added for last month
 
   @override
   void initState() {
     super.initState();
     _calculateAllShopIncentives();
+    _calculateLastMonthIncentives();
+  }
+
+  // New method to calculate last month's incentives
+  void _calculateLastMonthIncentives() {
+    final now = DateTime.now();
+    final lastMonthStart = DateTime(now.year, now.month - 1, 1);
+    final lastMonthEnd = DateTime(now.year, now.month, 0);
+
+    setState(() {
+      lastMonthIncentives.clear();
+
+      for (var shop in widget.shops) {
+        String shopId = shop['id'];
+        String shopName = shop['name'];
+
+        // Filter sales for this shop
+        List<Sale> shopSales = widget.allSales
+            .where((sale) => sale.shopId == shopId || sale.shopName == shopName)
+            .toList();
+
+        // Filter by last month
+        List<Sale> lastMonthSales = shopSales.where((sale) {
+          DateTime saleDate = sale.date;
+          return saleDate.isAfter(
+                lastMonthStart.subtract(const Duration(seconds: 1)),
+              ) &&
+              saleDate.isBefore(lastMonthEnd.add(const Duration(seconds: 1)));
+        }).toList();
+
+        // Calculate incentive for last month
+        ShopIncentiveData incentiveData = _calculateShopIncentive(
+          shopName,
+          lastMonthSales,
+        );
+
+        lastMonthIncentives[shopId] = incentiveData;
+      }
+    });
   }
 
   void _calculateAllShopIncentives() {
@@ -198,13 +239,13 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
       } else if (price < 35000) {
         totalIncentive += 50;
       } else if (price < 45000) {
-        totalIncentive += 70; // Changed from 80 to 70
+        totalIncentive += 70;
       } else if (price < 60000) {
-        totalIncentive += 90; // Changed from 100 to 90
+        totalIncentive += 90;
       } else if (price < 80000) {
-        totalIncentive += 130; // Changed from 150 to 130
+        totalIncentive += 130;
       } else if (price < 100000) {
-        totalIncentive += 150; // New bracket
+        totalIncentive += 150;
       } else {
         totalIncentive += 200;
       }
@@ -214,13 +255,11 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
 
   double _calculateSecondPhoneIncentive(int count) {
     if (count == 0) return 0;
-    // 1-10 pieces: ₹30 per piece, Above 10 pieces: ₹40 per piece
     return count <= 10 ? count * 30 : count * 40;
   }
 
   double _calculateBaseModelIncentive(int count) {
     if (count == 0) return 0;
-    // 1-10 pieces: ₹15 per piece, Above 10 pieces: ₹25 per piece
     return count <= 10 ? count * 15 : count * 25;
   }
 
@@ -241,16 +280,16 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
         incentive = 50;
       } else if (price < 45000) {
         bracket = '₹35,000 - ₹44,999';
-        incentive = 70; // Changed from 80 to 70
+        incentive = 70;
       } else if (price < 60000) {
         bracket = '₹45,000 - ₹59,999';
-        incentive = 90; // Changed from 100 to 90
+        incentive = 90;
       } else if (price < 80000) {
         bracket = '₹60,000 - ₹79,999';
-        incentive = 130; // Changed from 150 to 130
+        incentive = 130;
       } else if (price < 100000) {
         bracket = '₹80,000 - ₹99,999';
-        incentive = 150; // New bracket
+        incentive = 150;
       } else {
         bracket = '₹1,00,000+';
         incentive = 200;
@@ -502,7 +541,21 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
     }
   }
 
+  String _getLastMonthDisplayText() {
+    final now = DateTime.now();
+    final lastMonth = DateTime(now.year, now.month - 1);
+    return DateFormat('MMMM yyyy').format(lastMonth);
+  }
+
   void _showShopIncentiveDetails(ShopIncentiveData data) {
+    // Get last month data for this shop
+    String shopId = widget.shops.firstWhere(
+      (shop) => shop['name'] == data.shopName,
+      orElse: () => {'id': ''},
+    )['id'];
+
+    ShopIncentiveData? lastMonthData = lastMonthIncentives[shopId];
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -511,9 +564,9 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
       ),
       builder: (context) {
         return DraggableScrollableSheet(
-          initialChildSize: 0.7,
+          initialChildSize: 0.85,
           minChildSize: 0.5,
-          maxChildSize: 0.9,
+          maxChildSize: 0.95,
           expand: false,
           builder: (context, scrollController) {
             return Container(
@@ -601,6 +654,14 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                       controller: scrollController,
                       child: Column(
                         children: [
+                          // Current Period Card
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            child: _buildPeriodHeader(
+                              'Current Period - ${_getPeriodDisplayText()}',
+                              Icons.today,
+                            ),
+                          ),
                           _buildIncentiveDetailCard(
                             title: 'Accessories & Service',
                             icon: Icons.shopping_bag,
@@ -657,6 +718,140 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                                 ? '${data.baseModelCount} × ${data.baseModelCount <= 10 ? '₹15' : '₹25'} = ₹${_formatNumber(data.baseModelIncentive)}'
                                 : 'No base model sales',
                           ),
+
+                          const SizedBox(height: 20),
+
+                          // Last Month Section
+                          if (lastMonthData != null) ...[
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              child: _buildPeriodHeader(
+                                'Last Month - ${_getLastMonthDisplayText()}',
+                                Icons.calendar_view_month,
+                              ),
+                            ),
+                            _buildIncentiveDetailCard(
+                              title: 'Accessories & Service',
+                              icon: Icons.shopping_bag,
+                              color: Colors.blue.withOpacity(0.7),
+                              totalAmount: lastMonthData.accessoriesTotal,
+                              incentive: lastMonthData.accessoriesIncentive,
+                              rule: 'Above ₹1,00,000: ₹1000 + ₹200/₹10k',
+                              calculation: _getAccessoriesCalculation(
+                                lastMonthData.accessoriesTotal,
+                              ),
+                              isLastMonth: true,
+                            ),
+                            const SizedBox(height: 12),
+                            _buildIncentiveDetailCard(
+                              title: 'Phone Sales',
+                              icon: Icons.phone_iphone,
+                              color: Colors.green.withOpacity(0.7),
+                              totalAmount: lastMonthData.phoneTotalAmount,
+                              count: lastMonthData.phoneCount,
+                              incentive: lastMonthData.phoneIncentive,
+                              rule:
+                                  '20+ phones & ₹3L+: Only per-phone incentive',
+                              calculation: _getPhoneCalculation(lastMonthData),
+                              showDetails: true,
+                              details: lastMonthData.phonePriceDetails,
+                              isLastMonth: true,
+                            ),
+                            const SizedBox(height: 12),
+                            _buildIncentiveDetailCard(
+                              title: 'Second Phones',
+                              icon: Icons.phone_android,
+                              color: Colors.orange.withOpacity(0.7),
+                              count: lastMonthData.secondPhoneCount,
+                              incentive: lastMonthData.secondPhoneIncentive,
+                              rule: lastMonthData.secondPhoneCount == 0
+                                  ? 'No sales recorded'
+                                  : (lastMonthData.secondPhoneCount <= 10
+                                        ? '₹30/piece (1-10 pieces)'
+                                        : '₹40/piece (10+ pieces)'),
+                              calculation: lastMonthData.secondPhoneCount > 0
+                                  ? '${lastMonthData.secondPhoneCount} × ${lastMonthData.secondPhoneCount <= 10 ? '₹30' : '₹40'} = ₹${_formatNumber(lastMonthData.secondPhoneIncentive)}'
+                                  : 'No second phone sales',
+                              isLastMonth: true,
+                            ),
+                            const SizedBox(height: 12),
+                            _buildIncentiveDetailCard(
+                              title: 'Base Models',
+                              icon: Icons.devices,
+                              color: Colors.purple.withOpacity(0.7),
+                              count: lastMonthData.baseModelCount,
+                              incentive: lastMonthData.baseModelIncentive,
+                              rule: lastMonthData.baseModelCount == 0
+                                  ? 'No sales recorded'
+                                  : (lastMonthData.baseModelCount <= 10
+                                        ? '₹15/piece (1-10 pieces)'
+                                        : '₹25/piece (10+ pieces)'),
+                              calculation: lastMonthData.baseModelCount > 0
+                                  ? '${lastMonthData.baseModelCount} × ${lastMonthData.baseModelCount <= 10 ? '₹15' : '₹25'} = ₹${_formatNumber(lastMonthData.baseModelIncentive)}'
+                                  : 'No base model sales',
+                              isLastMonth: true,
+                            ),
+
+                            // Comparison Summary
+                            const SizedBox(height: 16),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(
+                                  0xFF0A4D2E,
+                                ).withOpacity(0.05),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: const Color(
+                                    0xFF0A4D2E,
+                                  ).withOpacity(0.2),
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    '📊 Month-over-Month Comparison',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF0A4D2E),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _buildComparisonRow(
+                                    'Total Incentive',
+                                    lastMonthData.totalIncentive,
+                                    data.totalIncentive,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  _buildComparisonRow(
+                                    'Phone Sales (Count)',
+                                    lastMonthData.phoneCount.toDouble(),
+                                    data.phoneCount.toDouble(),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  _buildComparisonRow(
+                                    'Phone Sales (Value)',
+                                    lastMonthData.phoneTotalAmount,
+                                    data.phoneTotalAmount,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  _buildComparisonRow(
+                                    'Second Phones',
+                                    lastMonthData.secondPhoneCount.toDouble(),
+                                    data.secondPhoneCount.toDouble(),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  _buildComparisonRow(
+                                    'Base Models',
+                                    lastMonthData.baseModelCount.toDouble(),
+                                    data.baseModelCount.toDouble(),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -680,6 +875,79 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
           },
         );
       },
+    );
+  }
+
+  Widget _buildPeriodHeader(String title, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A4D2E).withOpacity(0.1),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: const Color(0xFF0A4D2E)),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: const Color(0xFF0A4D2E),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildComparisonRow(String label, double lastMonth, double current) {
+    double difference = current - lastMonth;
+    bool isPositive = difference > 0;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+        Row(
+          children: [
+            Text(
+              '₹${_formatNumber(lastMonth)}',
+              style: const TextStyle(fontSize: 10, color: Colors.grey),
+            ),
+            const SizedBox(width: 8),
+            Icon(Icons.arrow_forward, size: 10, color: Colors.grey.shade400),
+            const SizedBox(width: 8),
+            Text(
+              '₹${_formatNumber(current)}',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: isPositive
+                    ? Colors.green
+                    : (difference < 0 ? Colors.red : Colors.grey),
+              ),
+            ),
+            if (difference != 0) ...[
+              const SizedBox(width: 4),
+              Icon(
+                isPositive ? Icons.trending_up : Icons.trending_down,
+                size: 10,
+                color: isPositive ? Colors.green : Colors.red,
+              ),
+              Text(
+                ' ${difference > 0 ? '+' : ''}${_formatNumber(difference.abs())}',
+                style: TextStyle(
+                  fontSize: 9,
+                  color: isPositive ? Colors.green : Colors.red,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ],
     );
   }
 
@@ -720,12 +988,22 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
     required String calculation,
     bool showDetails = false,
     List<Map<String, dynamic>>? details,
+    bool isLastMonth = false,
   }) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color.withOpacity(0.2)),
+        boxShadow: isLastMonth
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.grey.withOpacity(0.05),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
+                ),
+              ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1027,6 +1305,19 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
         .where((data) => data.totalIncentive > 0)
         .length;
 
+    // Calculate total last month incentive
+    double totalLastMonthIncentive = lastMonthIncentives.values.fold(
+      0.0,
+      (sum, data) => sum + data.totalIncentive,
+    );
+    int totalShopsWithLastMonthIncentive = lastMonthIncentives.values
+        .where((data) => data.totalIncentive > 0)
+        .length;
+
+    double incentiveDifference =
+        totalIncentiveAllShops - totalLastMonthIncentive;
+    bool isPositive = incentiveDifference > 0;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -1048,7 +1339,10 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => _calculateAllShopIncentives(),
+            onPressed: () {
+              _calculateAllShopIncentives();
+              _calculateLastMonthIncentives();
+            },
             tooltip: 'Refresh',
           ),
         ],
@@ -1057,130 +1351,70 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
         children: [
           _buildTimePeriodSelector(),
 
-          // Total Incentive Summary Card
+          // Dual Summary Cards
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFF0A4D2E), Color(0xFF1B6B43)],
-              ),
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Column(
+            child: Row(
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Total Incentive',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        _getPeriodDisplayText(),
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 10,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '₹${_formatNumber(totalIncentiveAllShops)}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Across ${shopIncentives.length} shops',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.7),
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Column(
-                        children: [
-                          Text(
-                            '$totalShopsWithIncentive',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Text(
-                            'Earned',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.7),
-                              fontSize: 10,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                if (totalShopsWithIncentive > 0) ...[
-                  const SizedBox(height: 12),
-                  LinearProgressIndicator(
-                    value: totalShopsWithIncentive / shopIncentives.length,
-                    backgroundColor: Colors.white.withOpacity(0.2),
-                    color: Colors.amber,
-                    minHeight: 4,
-                    borderRadius: BorderRadius.circular(2),
+                // Current Period Card
+                Expanded(
+                  child: _buildSummaryCard(
+                    title: _getPeriodDisplayText(),
+                    totalIncentive: totalIncentiveAllShops,
+                    shopsWithIncentive: totalShopsWithIncentive,
+                    totalShops: shopIncentives.length,
+                    icon: Icons.today,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${(totalShopsWithIncentive / shopIncentives.length * 100).toInt()}% shops earned incentives',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.6),
-                      fontSize: 9,
-                    ),
+                ),
+                const SizedBox(width: 8),
+                // Last Month Card
+                Expanded(
+                  child: _buildSummaryCard(
+                    title: _getLastMonthDisplayText(),
+                    totalIncentive: totalLastMonthIncentive,
+                    shopsWithIncentive: totalShopsWithLastMonthIncentive,
+                    totalShops: lastMonthIncentives.length,
+                    icon: Icons.calendar_view_month,
+                    isLastMonth: true,
                   ),
-                ],
+                ),
               ],
             ),
           ),
+
+          // Trend Indicator
+          if (totalLastMonthIncentive > 0 || totalIncentiveAllShops > 0)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: isPositive
+                    ? Colors.green.withOpacity(0.1)
+                    : Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    isPositive ? Icons.trending_up : Icons.trending_down,
+                    size: 16,
+                    color: isPositive ? Colors.green : Colors.red,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    isPositive
+                        ? '↑ ${_formatNumber(incentiveDifference)} increase from last month'
+                        : '↓ ${_formatNumber(incentiveDifference.abs())} decrease from last month',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isPositive ? Colors.green : Colors.red,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
           Expanded(
             child: shopIncentives.isEmpty
@@ -1209,6 +1443,16 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                     itemCount: shopIncentives.length,
                     itemBuilder: (context, index) {
                       final entry = shopIncentives.values.toList()[index];
+                      final shopId = widget.shops.firstWhere(
+                        (shop) => shop['name'] == entry.shopName,
+                        orElse: () => {'id': ''},
+                      )['id'];
+                      final lastMonthData = lastMonthIncentives[shopId];
+                      final lastMonthIncentive =
+                          lastMonthData?.totalIncentive ?? 0;
+                      final incentiveChange =
+                          entry.totalIncentive - lastMonthIncentive;
+
                       return GestureDetector(
                         onTap: () => _showShopIncentiveDetails(entry),
                         child: Container(
@@ -1280,31 +1524,76 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                                       ],
                                     ),
                                   ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 6,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: entry.totalIncentive > 0
-                                          ? const Color(
-                                              0xFF0A4D2E,
-                                            ).withOpacity(0.1)
-                                          : Colors.grey.shade200,
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      entry.totalIncentive > 0
-                                          ? '₹${_formatNumber(entry.totalIncentive)}'
-                                          : '₹0',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
-                                        color: entry.totalIncentive > 0
-                                            ? const Color(0xFF0A4D2E)
-                                            : Colors.grey.shade600,
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 6,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: entry.totalIncentive > 0
+                                              ? const Color(
+                                                  0xFF0A4D2E,
+                                                ).withOpacity(0.1)
+                                              : Colors.grey.shade200,
+                                          borderRadius: BorderRadius.circular(
+                                            20,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          entry.totalIncentive > 0
+                                              ? '₹${_formatNumber(entry.totalIncentive)}'
+                                              : '₹0',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                            color: entry.totalIncentive > 0
+                                                ? const Color(0xFF0A4D2E)
+                                                : Colors.grey.shade600,
+                                          ),
+                                        ),
                                       ),
-                                    ),
+                                      if (lastMonthIncentive > 0 ||
+                                          incentiveChange != 0)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 4,
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                incentiveChange > 0
+                                                    ? Icons.trending_up
+                                                    : Icons.trending_down,
+                                                size: 10,
+                                                color: incentiveChange > 0
+                                                    ? Colors.green
+                                                    : Colors.red,
+                                              ),
+                                              const SizedBox(width: 2),
+                                              Text(
+                                                '${incentiveChange > 0 ? '+' : ''}${_formatNumber(incentiveChange)}',
+                                                style: TextStyle(
+                                                  fontSize: 9,
+                                                  color: incentiveChange > 0
+                                                      ? Colors.green
+                                                      : Colors.red,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                              Text(
+                                                ' vs last month',
+                                                style: TextStyle(
+                                                  fontSize: 8,
+                                                  color: Colors.grey.shade500,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                    ],
                                   ),
                                 ],
                               ),
@@ -1340,7 +1629,38 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 8),
+                              if (lastMonthIncentive > 0)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.shade50,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.calendar_view_month,
+                                          size: 10,
+                                          color: Colors.grey.shade500,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Last month: ₹${_formatNumber(lastMonthIncentive)}',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              const SizedBox(height: 4),
                               Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 8,
@@ -1374,6 +1694,73 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                       );
                     },
                   ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryCard({
+    required String title,
+    required double totalIncentive,
+    required int shopsWithIncentive,
+    required int totalShops,
+    required IconData icon,
+    bool isLastMonth = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        gradient: isLastMonth
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Colors.grey.shade700, Colors.grey.shade600],
+              )
+            : const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF0A4D2E), Color(0xFF1B6B43)],
+              ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 12, color: Colors.white70),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(color: Colors.white70, fontSize: 9),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '₹${_formatNumber(totalIncentive)}',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '$shopsWithIncentive/$totalShops shops',
+            style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 9),
           ),
         ],
       ),
