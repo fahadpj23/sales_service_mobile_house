@@ -367,7 +367,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       final billsSnapshot = await _firestore
           .collection('bills')
           .where('shopId', isEqualTo: _shopId)
-          .limit(100)
           .get();
 
       debugPrint('Found ${billsSnapshot.docs.length} bills');
