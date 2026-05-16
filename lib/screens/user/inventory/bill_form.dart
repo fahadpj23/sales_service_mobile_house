@@ -53,6 +53,10 @@ class _BillFormScreenState extends State<BillFormScreen> {
   String? _selectedFinanceType;
   bool _showFinanceFields = false;
 
+  // Edit mode variables
+  bool _isEditMode = false;
+  String? _currentBillId; // Store the current bill ID for editing
+
   final List<String> _purchaseModes = ['Ready Cash', 'Credit Card', 'EMI'];
   final List<String> _financeCompaniesList = [
     'Bajaj Finance',
@@ -130,11 +134,9 @@ class _BillFormScreenState extends State<BillFormScreen> {
         }
       }
 
-      // Format: MH-372 (simple sequential)
       return nextSequenceNumber.toString();
     } catch (e) {
       print('Error generating bill number: $e');
-      // Fallback to timestamp-based number
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       return timestamp.toString().substring(timestamp.toString().length - 6);
     }
@@ -174,7 +176,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
   Future<bool> _isImeiAlreadySold(String imei) async {
     try {
-      // Check if the IMEI exists in phoneStock collection with status 'sold'
       final querySnapshot = await _firestore
           .collection('phoneStock')
           .where('imei', isEqualTo: imei)
@@ -259,6 +260,161 @@ class _BillFormScreenState extends State<BillFormScreen> {
   }
 
   // ==================== END IMEI VALIDATION ====================
+
+  // ==================== EDIT CURRENT BILL FUNCTIONALITY ====================
+
+  void _enableEditMode() {
+    setState(() {
+      _isEditMode = true;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Edit mode enabled. Make your changes and save.'),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _cancelEdit() {
+    setState(() {
+      _isEditMode = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Edit cancelled'), backgroundColor: Colors.orange),
+    );
+  }
+
+  Future<void> _updateCurrentBill() async {
+    if (!_formKey.currentState!.validate()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please fill all required fields')),
+      );
+      return;
+    }
+
+    if (_selectedPurchaseMode == 'EMI' && _selectedFinanceType == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please select finance company for EMI')),
+      );
+      return;
+    }
+
+    if (billNoController.text.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Please enter bill number')));
+      return;
+    }
+
+    try {
+      setState(() => _isLoading = true);
+
+      await _updateBillRecord();
+      await _updatePhoneStockForEdit();
+
+      final pdfBytes = await _generatePdf();
+      final filePath = await _savePdfToStorage(pdfBytes);
+
+      final pdfFile = File(filePath);
+      setState(() {
+        _savedPdfFile = pdfFile;
+        _isEditMode = false; // Exit edit mode after saving
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Bill updated successfully!'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 3),
+          ),
+        );
+
+        await _sharePdf(pdfFile);
+      }
+    } catch (e) {
+      print('Error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _updateBillRecord() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final user = authProvider.user;
+
+    final billNumber = billNoController.text.startsWith('MH-')
+        ? billNoController.text
+        : 'MH-${billNoController.text}';
+
+    final updateData = {
+      'billNumber': billNumber,
+      'billDate': FieldValue.serverTimestamp(),
+      'customerName': customerNameController.text,
+      'customerMobile': mobileNumberController.text,
+      'customerAddress': addressController.text,
+      'productName': phoneModelController.text,
+      'imei': imei1Controller.text,
+      'totalAmount': double.parse(totalAmountController.text),
+      'taxableAmount': double.parse(taxableAmountController.text),
+      'gstAmount': double.parse(gstAmountController.text),
+      'shop': _selectedShop,
+      'sealApplied': _sealChecked,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedBy': user?.email,
+      'purchaseMode': _selectedPurchaseMode,
+      'financeType': _selectedFinanceType,
+    };
+
+    await _firestore.collection('bills').doc(_currentBillId).update(updateData);
+  }
+
+  Future<void> _updatePhoneStockForEdit() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final user = authProvider.user;
+
+    final billNumber = billNoController.text.startsWith('MH-')
+        ? billNoController.text
+        : 'MH-${billNoController.text}';
+
+    // Find the phone stock by IMEI
+    final imei = imei1Controller.text.trim();
+    if (imei.isNotEmpty) {
+      final querySnapshot = await _firestore
+          .collection('phoneStock')
+          .where('imei', isEqualTo: imei)
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        await _firestore
+            .collection('phoneStock')
+            .doc(querySnapshot.docs.first.id)
+            .update({
+              'soldTo': customerNameController.text,
+              'soldBillNo': billNumber,
+              'soldAmount': double.parse(totalAmountController.text),
+              'soldShop': _selectedShop,
+              'purchaseMode': _selectedPurchaseMode,
+              'financeType': _selectedFinanceType,
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+      }
+    }
+  }
+
+  // ==================== END EDIT CURRENT BILL FUNCTIONALITY ====================
 
   void _autoFillData() {
     if (widget.phoneData != null) {
@@ -390,7 +546,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
       return;
     }
 
-    // Check if IMEI is already sold
     final imei = imei1Controller.text.trim();
     if (imei.isNotEmpty) {
       setState(() => _isLoading = true);
@@ -399,8 +554,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
       if (isSold) {
         setState(() => _isLoading = false);
-
-        // Show error dialog
         _showImeiAlreadySoldDialog();
         return;
       }
@@ -410,7 +563,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
       setState(() => _isLoading = true);
 
       await _markPhoneAsSold();
-      await _saveBillRecord();
+      _currentBillId = await _saveBillRecord();
 
       final pdfBytes = await _generatePdf();
       final filePath = await _savePdfToStorage(pdfBytes);
@@ -418,7 +571,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
       final pdfFile = File(filePath);
       setState(() {
         _savedPdfFile = pdfFile;
-        _isSoldSaved = true; // Mark as saved to disable button
+        _isSoldSaved = true;
       });
 
       if (mounted) {
@@ -453,7 +606,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final user = authProvider.user;
 
-    // Get the bill number without adding another "MH-" prefix
     final billNumber = billNoController.text.startsWith('MH-')
         ? billNoController.text
         : 'MH-${billNoController.text}';
@@ -472,7 +624,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
     };
 
     if (widget.phoneId != null) {
-      // Check if already sold before updating
       final phoneDoc = await _firestore
           .collection('phoneStock')
           .doc(widget.phoneId)
@@ -497,13 +648,11 @@ class _BillFormScreenState extends State<BillFormScreen> {
             .get();
 
         if (querySnapshot.docs.isNotEmpty) {
-          // Check if it's already sold (though we filtered by 'available')
           await _firestore
               .collection('phoneStock')
               .doc(querySnapshot.docs.first.id)
               .update(updateData);
         } else {
-          // Check if it exists but is sold
           final soldCheck = await _firestore
               .collection('phoneStock')
               .where('imei', isEqualTo: imei)
@@ -523,11 +672,10 @@ class _BillFormScreenState extends State<BillFormScreen> {
     }
   }
 
-  Future<void> _saveBillRecord() async {
+  Future<String> _saveBillRecord() async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final user = authProvider.user;
 
-    // Use the generated bill number from controller with MH- prefix
     final billNumber = billNoController.text.startsWith('MH-')
         ? billNoController.text
         : 'MH-${billNoController.text}';
@@ -555,16 +703,14 @@ class _BillFormScreenState extends State<BillFormScreen> {
       'financeType': _selectedFinanceType,
     };
 
-    await _firestore.collection('bills').add(billData);
+    final docRef = await _firestore.collection('bills').add(billData);
+    return docRef.id;
   }
 
   Future<String> _savePdfToStorage(Uint8List pdfBytes) async {
     try {
       if (Platform.isAndroid) {
-        Map<Permission, PermissionStatus> statuses = await [
-          Permission.storage,
-          Permission.manageExternalStorage,
-        ].request();
+        await [Permission.storage, Permission.manageExternalStorage].request();
 
         if (await Permission.storage.isGranted == false) {
           await Permission.storage.request();
@@ -833,7 +979,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
   }
 
   pw.Widget _buildHeader(String currentDate) {
-    // Get the full bill number with MH- prefix
     final fullBillNumber = billNoController.text.startsWith('MH-')
         ? billNoController.text
         : 'MH-${billNoController.text}';
@@ -1344,31 +1489,41 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Determine if form should be read-only (after saved and not in edit mode)
+    final bool isReadOnly = _isSoldSaved && !_isEditMode;
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: Text(
-          'Sales Bill',
+          _isEditMode ? 'Edit Bill' : 'Sales Bill',
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 18,
             color: Colors.white,
           ),
         ),
-        backgroundColor: Colors.green[700],
+        backgroundColor: _isEditMode ? Colors.orange[700] : Colors.green[700],
         elevation: 1,
         leading: IconButton(
           icon: Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            if (_isEditMode) {
+              _cancelEdit();
+            } else {
+              Navigator.pop(context);
+            }
+          },
         ),
         actions: [
-          // Regenerate bill number button
-          IconButton(
-            icon: Icon(Icons.refresh, color: Colors.white),
-            onPressed: _isLoading ? null : () => _regenerateBillNumber(),
-            tooltip: 'Regenerate Bill Number',
-          ),
-          if (_savedPdfFile != null)
+          // Regenerate bill number button - only when not saved and not in edit mode
+          if (!_isSoldSaved && !_isEditMode)
+            IconButton(
+              icon: Icon(Icons.refresh, color: Colors.white),
+              onPressed: _isLoading ? null : () => _regenerateBillNumber(),
+              tooltip: 'Regenerate Bill Number',
+            ),
+          if (_savedPdfFile != null && !_isEditMode)
             IconButton(
               icon: Icon(Icons.share, color: Colors.white),
               onPressed: _shareSavedPdf,
@@ -1376,15 +1531,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
             ),
         ],
       ),
-      body: _isScanning ? _buildScanner() : _buildForm(),
-      floatingActionButton: _savedPdfFile != null
-          ? FloatingActionButton(
-              onPressed: _shareSavedPdf,
-              backgroundColor: Colors.blue,
-              child: Icon(Icons.share, color: Colors.white),
-              tooltip: 'Share Bill',
-            )
-          : null,
+      body: _isScanning ? _buildScanner() : _buildForm(isReadOnly),
     );
   }
 
@@ -1436,8 +1583,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  Widget _buildForm() {
-    final isButtonDisabled = _isLoading || _isSoldSaved;
+  Widget _buildForm(bool isReadOnly) {
+    final isButtonDisabled = (_isLoading || _isSoldSaved) && !_isEditMode;
 
     return SingleChildScrollView(
       padding: EdgeInsets.all(12),
@@ -1451,20 +1598,28 @@ class _BillFormScreenState extends State<BillFormScreen> {
               padding: EdgeInsets.symmetric(vertical: 8, horizontal: 12),
               margin: EdgeInsets.only(bottom: 8),
               decoration: BoxDecoration(
-                color: Colors.blue[50],
+                color: _isEditMode ? Colors.orange[50] : Colors.blue[50],
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue[100]!),
+                border: Border.all(
+                  color: _isEditMode ? Colors.orange[100]! : Colors.blue[100]!,
+                ),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.receipt, color: Colors.blue[700], size: 20),
+                  Icon(
+                    Icons.receipt,
+                    color: _isEditMode ? Colors.orange[700] : Colors.blue[700],
+                    size: 20,
+                  ),
                   SizedBox(width: 8),
                   Text(
                     'Bill Number: ',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
-                      color: Colors.blue[800],
+                      color: _isEditMode
+                          ? Colors.orange[800]
+                          : Colors.blue[800],
                     ),
                   ),
                   Text(
@@ -1472,32 +1627,50 @@ class _BillFormScreenState extends State<BillFormScreen> {
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: Colors.blue[900],
+                      color: _isEditMode
+                          ? Colors.orange[900]
+                          : Colors.blue[900],
                     ),
                   ),
-                  Spacer(),
-                  IconButton(
-                    icon: Icon(
-                      Icons.refresh,
-                      color: Colors.blue[700],
-                      size: 20,
+                  if (!_isSoldSaved && !_isEditMode) Spacer(),
+                  if (!_isSoldSaved && !_isEditMode)
+                    IconButton(
+                      icon: Icon(
+                        Icons.refresh,
+                        color: _isEditMode
+                            ? Colors.orange[700]
+                            : Colors.blue[700],
+                        size: 20,
+                      ),
+                      onPressed: _isLoading
+                          ? null
+                          : () => _regenerateBillNumber(),
+                      tooltip: 'Regenerate',
+                      constraints: BoxConstraints(),
+                      padding: EdgeInsets.all(4),
                     ),
-                    onPressed: _isLoading
-                        ? null
-                        : () => _regenerateBillNumber(),
-                    tooltip: 'Regenerate',
-                    constraints: BoxConstraints(),
-                    padding: EdgeInsets.all(4),
-                  ),
                 ],
               ),
             ),
             SizedBox(height: 16),
-            _buildInputCard(),
+            _buildInputCard(isReadOnly),
             SizedBox(height: 16),
-            _buildActionButton(isButtonDisabled),
+
+            // Show Edit button after bill is saved (not in edit mode)
+            if (_isSoldSaved && !_isEditMode) _buildEditButton(),
+
+            // Show Update button when in edit mode
+            if (_isEditMode) _buildUpdateButton(),
+
+            // Show Save button when creating new bill
+            if (!_isSoldSaved && !_isEditMode)
+              _buildSaveButton(isButtonDisabled),
+
             SizedBox(height: 16),
-            if (_savedPdfFile != null) _buildShareButton(),
+
+            // Share button after bill is saved
+            if (_savedPdfFile != null && !_isEditMode) _buildShareButton(),
+
             SizedBox(height: 20),
           ],
         ),
@@ -1505,7 +1678,161 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  Widget _buildInputCard() {
+  Widget _buildEditButton() {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.orange.withOpacity(0.2),
+            blurRadius: 8,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: SizedBox(
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          onPressed: _enableEditMode,
+          icon: Icon(Icons.edit, size: 22),
+          label: Text('Edit Bill', style: TextStyle(fontSize: 16)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.orange[700],
+            foregroundColor: Colors.white,
+            padding: EdgeInsets.symmetric(vertical: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            elevation: 0,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUpdateButton() {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.orange.withOpacity(0.2),
+            blurRadius: 8,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: SizedBox(
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          onPressed: _isLoading ? null : _updateCurrentBill,
+          icon: _isLoading
+              ? SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : Icon(Icons.update, size: 22),
+          label: Text(
+            _isLoading ? 'Updating...' : 'Update Bill & Save Changes',
+            style: TextStyle(fontSize: 16),
+          ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.orange[700],
+            foregroundColor: Colors.white,
+            padding: EdgeInsets.symmetric(vertical: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            elevation: 0,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSaveButton(bool isButtonDisabled) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: isButtonDisabled
+                ? Colors.grey.withOpacity(0.2)
+                : Colors.green.withOpacity(0.2),
+            blurRadius: 8,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: SizedBox(
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          onPressed: isButtonDisabled ? null : _markAsSoldAndPrint,
+          icon: _isLoading
+              ? SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : Icon(Icons.save, size: 22),
+          label: Text(
+            _isLoading ? 'Processing...' : 'Save Bill & Mark as Sold',
+            style: TextStyle(fontSize: 16),
+          ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: isButtonDisabled ? Colors.grey : Colors.green[700],
+            foregroundColor: Colors.white,
+            padding: EdgeInsets.symmetric(vertical: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            elevation: 0,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShareButton() {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.blue.withOpacity(0.2),
+            blurRadius: 8,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: SizedBox(
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          onPressed: _shareSavedPdf,
+          icon: Icon(Icons.share, size: 22),
+          label: Text('Share Bill Again', style: TextStyle(fontSize: 16)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blue[700],
+            foregroundColor: Colors.white,
+            padding: EdgeInsets.symmetric(vertical: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            elevation: 0,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInputCard(bool isReadOnly) {
     return Card(
       elevation: 1,
       shape: RoundedRectangleBorder(
@@ -1516,14 +1843,14 @@ class _BillFormScreenState extends State<BillFormScreen> {
         padding: EdgeInsets.all(16),
         child: Column(
           children: [
-            _buildShopDropdown(),
+            _buildShopDropdown(isReadOnly),
             SizedBox(height: 12),
             _buildTextField(
               billNoController,
               'Bill No *',
               Icons.receipt,
               validator: _validateRequired,
-              readOnly: true, // Make it read-only since it's auto-generated
+              readOnly: !_isEditMode, // Only editable in edit mode
             ),
             SizedBox(height: 12),
             _buildTextField(
@@ -1531,6 +1858,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
               'Customer Name *',
               Icons.person,
               validator: _validateRequired,
+              readOnly: isReadOnly,
             ),
             SizedBox(height: 12),
             _buildTextField(
@@ -1539,23 +1867,26 @@ class _BillFormScreenState extends State<BillFormScreen> {
               Icons.phone,
               keyboardType: TextInputType.phone,
               validator: _validateMobile,
+              readOnly: isReadOnly,
             ),
             SizedBox(height: 12),
             _buildTextField(
               phoneModelController,
               'Phone Model *',
               Icons.phone_android,
-              readOnly: widget.phoneData != null,
+              readOnly:
+                  (widget.phoneData != null && !_isEditMode) || isReadOnly,
               validator: _validateRequired,
             ),
             SizedBox(height: 12),
-            _buildImeiField(),
+            _buildImeiField(isReadOnly),
             SizedBox(height: 12),
             _buildTextField(
               addressController,
               'Address',
               Icons.location_on,
               maxLines: 2,
+              readOnly: isReadOnly,
             ),
             SizedBox(height: 12),
             _buildTextField(
@@ -1565,25 +1896,26 @@ class _BillFormScreenState extends State<BillFormScreen> {
               keyboardType: TextInputType.numberWithOptions(decimal: true),
               onChanged: (value) => _calculateGST(),
               validator: _validateAmount,
+              readOnly: isReadOnly,
             ),
             SizedBox(height: 12),
-            _buildPurchaseModeDropdown(),
+            _buildPurchaseModeDropdown(isReadOnly),
             SizedBox(height: 12),
             if (_showFinanceFields) ...[
               SizedBox(height: 12),
-              _buildFinanceTypeDropdown(),
+              _buildFinanceTypeDropdown(isReadOnly),
             ],
             SizedBox(height: 12),
             _buildGstInfoCard(),
             SizedBox(height: 12),
-            _buildSealCheckbox(),
+            _buildSealCheckbox(isReadOnly),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildShopDropdown() {
+  Widget _buildShopDropdown(bool isReadOnly) {
     return Container(
       padding: EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
@@ -1613,8 +1945,10 @@ class _BillFormScreenState extends State<BillFormScreen> {
                     child: Text(value, style: TextStyle(fontSize: 13)),
                   );
                 }).toList(),
-                onChanged: (String? newValue) =>
-                    setState(() => _selectedShop = newValue),
+                onChanged: isReadOnly
+                    ? null
+                    : (String? newValue) =>
+                          setState(() => _selectedShop = newValue),
                 icon: Icon(Icons.arrow_drop_down, color: Colors.green[700]),
               ),
             ),
@@ -1625,7 +1959,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  Widget _buildPurchaseModeDropdown() {
+  Widget _buildPurchaseModeDropdown(bool isReadOnly) {
     return Container(
       padding: EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
@@ -1655,7 +1989,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
                     child: Text(value, style: TextStyle(fontSize: 13)),
                   );
                 }).toList(),
-                onChanged: _onPurchaseModeSelected,
+                onChanged: isReadOnly ? null : _onPurchaseModeSelected,
                 icon: Icon(Icons.arrow_drop_down, color: Colors.grey[700]),
               ),
             ),
@@ -1666,7 +2000,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  Widget _buildFinanceTypeDropdown() {
+  Widget _buildFinanceTypeDropdown(bool isReadOnly) {
     return Container(
       padding: EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
@@ -1700,8 +2034,10 @@ class _BillFormScreenState extends State<BillFormScreen> {
                     child: Text(value, style: TextStyle(fontSize: 13)),
                   );
                 }).toList(),
-                onChanged: (String? newValue) =>
-                    setState(() => _selectedFinanceType = newValue),
+                onChanged: isReadOnly
+                    ? null
+                    : (String? newValue) =>
+                          setState(() => _selectedFinanceType = newValue),
                 icon: Icon(Icons.arrow_drop_down, color: Colors.grey[700]),
               ),
             ),
@@ -1753,7 +2089,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  Widget _buildImeiField() {
+  Widget _buildImeiField(bool isReadOnly) {
     return Row(
       children: [
         Expanded(
@@ -1761,12 +2097,12 @@ class _BillFormScreenState extends State<BillFormScreen> {
             imei1Controller,
             'IMEI *',
             Icons.qr_code,
-            readOnly: widget.phoneData != null,
+            readOnly: (widget.phoneData != null && !_isEditMode) || isReadOnly,
             validator: _validateImei,
           ),
         ),
         SizedBox(width: 8),
-        if (widget.phoneData == null)
+        if ((widget.phoneData == null || _isEditMode) && !isReadOnly)
           Container(
             decoration: BoxDecoration(
               color: Colors.green,
@@ -1829,7 +2165,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  Widget _buildSealCheckbox() {
+  Widget _buildSealCheckbox(bool isReadOnly) {
     return Container(
       padding: EdgeInsets.all(8),
       decoration: BoxDecoration(
@@ -1841,7 +2177,9 @@ class _BillFormScreenState extends State<BillFormScreen> {
         children: [
           Checkbox(
             value: _sealChecked,
-            onChanged: (value) => setState(() => _sealChecked = value ?? false),
+            onChanged: isReadOnly
+                ? null
+                : (value) => setState(() => _sealChecked = value ?? false),
             activeColor: Colors.green,
           ),
           SizedBox(width: 4),
@@ -1849,88 +2187,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
             child: Text('Apply Seal on Bill', style: TextStyle(fontSize: 13)),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildActionButton(bool isButtonDisabled) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: [
-          BoxShadow(
-            color: isButtonDisabled
-                ? Colors.grey.withOpacity(0.2)
-                : Colors.green.withOpacity(0.2),
-            blurRadius: 8,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: SizedBox(
-        width: double.infinity,
-        child: ElevatedButton.icon(
-          onPressed: isButtonDisabled ? null : _markAsSoldAndPrint,
-          icon: _isLoading
-              ? SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : Icon(Icons.save, size: 22),
-          label: Text(
-            _isLoading
-                ? 'Processing...'
-                : _isSoldSaved
-                ? 'Bill Already Saved'
-                : 'Save Bill & Mark as Sold',
-            style: TextStyle(fontSize: 16),
-          ),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: isButtonDisabled ? Colors.grey : Colors.green[700],
-            foregroundColor: Colors.white,
-            padding: EdgeInsets.symmetric(vertical: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            elevation: 0,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildShareButton() {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.blue.withOpacity(0.2),
-            blurRadius: 8,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: SizedBox(
-        width: double.infinity,
-        child: ElevatedButton.icon(
-          onPressed: _shareSavedPdf,
-          icon: Icon(Icons.share, size: 22),
-          label: Text('Share Bill Again', style: TextStyle(fontSize: 16)),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.blue[700],
-            foregroundColor: Colors.white,
-            padding: EdgeInsets.symmetric(vertical: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            elevation: 0,
-          ),
-        ),
       ),
     );
   }

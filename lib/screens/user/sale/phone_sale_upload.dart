@@ -137,6 +137,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     {'name': 'airpod', 'icon': Icons.headphones},
     {'name': 'neckband', 'icon': Icons.headset},
     {'name': 'headset', 'icon': Icons.headset_mic},
+    {'name': 'adapter', 'icon': Icons.usb_off},
     {'name': 'speaker', 'icon': Icons.speaker},
     {'name': 'watch', 'icon': Icons.watch},
     {'name': 'charger', 'icon': Icons.battery_charging_full},
