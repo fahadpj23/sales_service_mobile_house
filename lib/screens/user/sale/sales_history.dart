@@ -39,6 +39,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     'Second Phones',
     'Base Models',
     'GST Accessories',
+    'TV Sales',
+    'Appliance Sales',
   ];
 
   String selectedDateFilter = 'Monthly';
@@ -269,8 +271,28 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
 
-        if (collection == 'bills' && data['billType'] != 'GST Accessories') {
-          continue;
+        if (collection == 'bills') {
+          final billType = data['billType']?.toString() ?? '';
+          final typeValue = data['type']?.toString().toLowerCase() ?? '';
+
+          // CRITICAL FIX: Check for TV sales with type "tv"
+          final isTvSale = (typeValue == 'tv');
+          final isGstAccessories = (billType == 'GST Accessories');
+          final isApplianceSale = (billType == 'Appliances');
+          final isBillTypeTv = (billType == 'TV');
+
+          // Allow all valid bill types including TV sales with type "tv"
+          if (!isGstAccessories &&
+              !isApplianceSale &&
+              !isBillTypeTv &&
+              !isTvSale) {
+            continue;
+          }
+
+          // Store a flag for TV sales
+          if (isTvSale) {
+            data['isTvSale'] = true;
+          }
         }
 
         final saleDate = _getSaleDate(data, collection);
@@ -406,6 +428,26 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               )
               .toList();
           break;
+        case 'TV Sales':
+          tempSales = allSales
+              .where(
+                (sale) =>
+                    sale['collection'] == 'bills' &&
+                    (sale['type']?.toString() == 'TV Sale' ||
+                        sale['type']?.toString().toLowerCase() == 'tv' ||
+                        sale['billType'] == 'TV'),
+              )
+              .toList();
+          break;
+        case 'Appliance Sales':
+          tempSales = allSales
+              .where(
+                (sale) =>
+                    sale['collection'] == 'bills' &&
+                    sale['billType'] == 'Appliances',
+              )
+              .toList();
+          break;
         default:
           tempSales = allSales;
       }
@@ -419,7 +461,10 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         final shopName = (sale['shopName'] as String).toLowerCase();
         final type = (sale['type'] as String).toLowerCase();
         final product =
-            (sale['productName'] ?? sale['applianceProductName'] ?? '')
+            (sale['productName'] ??
+                    sale['applianceProductName'] ??
+                    sale['modelName'] ??
+                    '')
                 .toString()
                 .toLowerCase();
         final brand = (sale['brand'] ?? sale['applianceBrand'] ?? '')
@@ -591,6 +636,495 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     }
 
     return words.trim();
+  }
+
+  Future<Uint8List> _generateTvAppliancePdf(
+    Map<String, dynamic> sale,
+    String billType,
+  ) async {
+    final pdf = pw.Document();
+    final pageFormat = PdfPageFormat.a4;
+    String currentDate = DateFormat('dd MMMM yyyy').format(DateTime.now());
+
+    final billNumber = sale['billNumber']?.toString() ?? 'MH-001';
+    final customerName =
+        sale['customerName']?.toString() ??
+        sale['customerInfo'] ??
+        'Walk-in Customer';
+    final customerMobile =
+        sale['customerMobile']?.toString() ??
+        sale['customerPhone']?.toString() ??
+        '';
+    final customerAddress = sale['customerAddress']?.toString() ?? '';
+    final totalAmount = (sale['totalAmount'] as num?)?.toDouble() ?? 0.0;
+    final taxableAmount = (sale['taxableAmount'] as num?)?.toDouble() ?? 0.0;
+    final gstAmount = (sale['gstAmount'] as num?)?.toDouble() ?? 0.0;
+    final gstRate = (sale['gstRate'] as num?)?.toDouble() ?? 18.0;
+    final shop = sale['shop']?.toString() ?? 'Peringottukara';
+    final productData = sale['product'] as Map<String, dynamic>? ?? {};
+    final productName =
+        productData['productName']?.toString() ??
+        sale['modelName']?.toString() ??
+        sale['applianceProductName']?.toString() ??
+        sale['productName']?.toString() ??
+        (billType == 'TV' ? 'Television' : 'Appliance');
+    final quantity = (productData['quantity'] as num?)?.toInt() ?? 1;
+    final price = (productData['price'] as num?)?.toDouble() ?? 0.0;
+    final discount = (productData['discount'] as num?)?.toDouble() ?? 0.0;
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: pageFormat,
+        margin: pw.EdgeInsets.all(15),
+        build: (pw.Context context) {
+          return _buildTvApplianceInvoiceContent(
+            currentDate: currentDate,
+            billNumber: billNumber,
+            customerName: customerName,
+            customerMobile: customerMobile,
+            customerAddress: customerAddress,
+            productName: productName,
+            quantity: quantity,
+            price: price,
+            discount: discount,
+            totalAmount: totalAmount,
+            taxableAmount: taxableAmount,
+            gstAmount: gstAmount,
+            gstRate: gstRate,
+            shop: shop,
+            billType: billType,
+          );
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  pw.Widget _buildTvApplianceInvoiceContent({
+    required String currentDate,
+    required String billNumber,
+    required String customerName,
+    required String customerMobile,
+    required String customerAddress,
+    required String productName,
+    required int quantity,
+    required double price,
+    required double discount,
+    required double totalAmount,
+    required double taxableAmount,
+    required double gstAmount,
+    required double gstRate,
+    required String shop,
+    required String billType,
+  }) {
+    final selectedShop = shop.contains('Cherpu') ? 'Cherpu' : 'Peringottukara';
+    final title = billType == 'TV'
+        ? 'TV SALE INVOICE'
+        : 'APPLIANCE SALE INVOICE';
+
+    return pw.Container(
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColors.black, width: 1.0),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Padding(
+            padding: pw.EdgeInsets.all(8),
+            child: pw.Align(
+              alignment: pw.Alignment.centerLeft,
+              child: pw.Text(
+                'GSTIN: 32BSGPJ3340H1Z4',
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          pw.Padding(
+            padding: pw.EdgeInsets.all(8),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.center,
+              children: [
+                pw.Column(
+                  children: [
+                    if (_logoImage != null)
+                      pw.SizedBox(
+                        height: 45,
+                        child: pw.Image(
+                          pw.MemoryImage(_logoImage!),
+                          fit: pw.BoxFit.contain,
+                        ),
+                      )
+                    else
+                      pw.Text(
+                        'MOBILE HOUSE',
+                        style: pw.TextStyle(
+                          fontSize: 14,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                    pw.SizedBox(height: 2),
+                    pw.Text(
+                      selectedShop == 'Peringottukara'
+                          ? "3way junction Peringottukara"
+                          : "Cherpu, Thayamkulangara",
+                      style: pw.TextStyle(fontSize: 11),
+                    ),
+                    pw.SizedBox(height: 2),
+                    pw.Text(
+                      selectedShop == 'Peringottukara'
+                          ? "Mob: 9072430483, 8304830868"
+                          : "Mob: 9544466724",
+                      style: pw.TextStyle(fontSize: 11),
+                    ),
+                    pw.SizedBox(height: 2),
+                    pw.Text("Mobile house", style: pw.TextStyle(fontSize: 11)),
+                    pw.SizedBox(height: 2),
+                    pw.Text(
+                      "GST TAX INVOICE (TYPE-B2C) - $title",
+                      style: pw.TextStyle(fontSize: 9),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          pw.Padding(
+            padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'STATE : KERALA',
+                      style: pw.TextStyle(
+                        fontSize: 11,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 6),
+                    pw.Text(
+                      'Invoice No. : $billNumber',
+                      style: pw.TextStyle(
+                        fontSize: 11,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.end,
+                  children: [
+                    pw.Text(
+                      'STATE CODE : 32',
+                      style: pw.TextStyle(
+                        fontSize: 11,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 6),
+                    pw.Text(
+                      'Invoice Date : $currentDate',
+                      style: pw.TextStyle(
+                        fontSize: 11,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          pw.Divider(color: PdfColors.black, thickness: 0.2, height: 0),
+          pw.Padding(
+            padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            child: pw.Container(
+              padding: pw.EdgeInsets.all(2),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'Customer  : $customerName',
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.SizedBox(height: 4),
+                  if (customerMobile.isNotEmpty)
+                    pw.Text(
+                      'Mobile Tel  : $customerMobile',
+                      style: pw.TextStyle(fontSize: 11),
+                    ),
+                  pw.SizedBox(height: 4),
+                  if (customerAddress.isNotEmpty)
+                    pw.Row(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          'Address     :',
+                          style: pw.TextStyle(fontSize: 11),
+                        ),
+                        pw.SizedBox(width: 4),
+                        pw.Expanded(
+                          child: pw.Text(
+                            customerAddress.isNotEmpty
+                                ? customerAddress
+                                : "N/A",
+                            style: pw.TextStyle(fontSize: 11),
+                            maxLines: 2,
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ),
+          pw.SizedBox(height: 4),
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.black, width: 0.5),
+            columnWidths: {
+              0: pw.FixedColumnWidth(40),
+              1: pw.FlexColumnWidth(2.5),
+              2: pw.FixedColumnWidth(40),
+              3: pw.FixedColumnWidth(40),
+              4: pw.FixedColumnWidth(50),
+              5: pw.FixedColumnWidth(50),
+              6: pw.FixedColumnWidth(50),
+              7: pw.FixedColumnWidth(60),
+              8: pw.FixedColumnWidth(70),
+            },
+            defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
+            children: [
+              pw.TableRow(
+                children: [
+                  _buildTableCell('SLNO', isHeader: true, fontSize: 9),
+                  _buildTableCell('Product Name', isHeader: true, fontSize: 9),
+                  _buildTableCell('HSN', isHeader: true, fontSize: 9),
+                  _buildTableCell('Qty', isHeader: true, fontSize: 9),
+                  _buildTableCell('Rate', isHeader: true, fontSize: 9),
+                  _buildTableCell('Disc%', isHeader: true, fontSize: 9),
+                  _buildTableCell('GST%', isHeader: true, fontSize: 9),
+                  _buildTableCell('GST Amt', isHeader: true, fontSize: 9),
+                  _buildTableCell('Total', isHeader: true, fontSize: 9),
+                ],
+              ),
+              pw.TableRow(
+                children: [
+                  _buildTableCell('1', fontSize: 9),
+                  _buildTableCell(
+                    productName,
+                    textAlign: pw.TextAlign.left,
+                    fontSize: 9,
+                    maxLines: 2,
+                  ),
+                  _buildTableCell('', fontSize: 9),
+                  _buildTableCell(quantity.toString(), fontSize: 9),
+                  _buildTableCell(price.toStringAsFixed(0), fontSize: 9),
+                  _buildTableCell(
+                    discount > 0 ? '${discount.toStringAsFixed(0)}%' : '-',
+                    fontSize: 9,
+                  ),
+                  _buildTableCell('${gstRate.toStringAsFixed(0)}', fontSize: 9),
+                  _buildTableCell(gstAmount.toStringAsFixed(0), fontSize: 9),
+                  _buildTableCell(totalAmount.toStringAsFixed(0), fontSize: 9),
+                ],
+              ),
+            ],
+          ),
+          pw.SizedBox(height: 280),
+          pw.Column(
+            children: [
+              pw.SizedBox(height: 8),
+              pw.Divider(color: PdfColors.black, thickness: 0.5, height: 0),
+              pw.Padding(
+                padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text(
+                      'Qty: 1   ',
+                      style: pw.TextStyle(
+                        fontSize: 10,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.Text(
+                      'Taxable: ${taxableAmount.toStringAsFixed(0)}    ',
+                      style: pw.TextStyle(
+                        fontSize: 10,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.Text(
+                      'GST: ${gstAmount.toStringAsFixed(0)}   ',
+                      style: pw.TextStyle(
+                        fontSize: 10,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.Text(
+                      'Total: ${totalAmount.toStringAsFixed(0)}',
+                      style: pw.TextStyle(
+                        fontSize: 10,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              pw.Divider(color: PdfColors.black, thickness: 0.5, height: 0),
+              pw.Padding(
+                padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'In Words: ${_amountToWords(totalAmount.toStringAsFixed(2))}',
+                      style: pw.TextStyle(fontSize: 10),
+                      maxLines: 2,
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Align(
+                      alignment: pw.Alignment.centerRight,
+                      child: pw.Text(
+                        'Total Amount: ${totalAmount.toStringAsFixed(0)}',
+                        style: pw.TextStyle(
+                          fontSize: 11,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          pw.Padding(
+            padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Expanded(
+                  flex: 2,
+                  child: pw.Container(
+                    padding: pw.EdgeInsets.all(2),
+                    child: pw.Table(
+                      border: pw.TableBorder.all(
+                        color: PdfColors.grey400,
+                        width: 0.5,
+                      ),
+                      columnWidths: {
+                        0: pw.FixedColumnWidth(35),
+                        1: pw.FixedColumnWidth(30),
+                        2: pw.FixedColumnWidth(30),
+                        3: pw.FixedColumnWidth(30),
+                        4: pw.FixedColumnWidth(35),
+                        5: pw.FixedColumnWidth(35),
+                      },
+                      defaultVerticalAlignment:
+                          pw.TableCellVerticalAlignment.middle,
+                      children: [
+                        pw.TableRow(
+                          children: [
+                            _buildTableCell('', isHeader: true, fontSize: 8),
+                            _buildTableCell('0%', isHeader: true, fontSize: 8),
+                            _buildTableCell('5%', isHeader: true, fontSize: 8),
+                            _buildTableCell('12%', isHeader: true, fontSize: 8),
+                            _buildTableCell('18%', isHeader: true, fontSize: 8),
+                            _buildTableCell('28%', isHeader: true, fontSize: 8),
+                          ],
+                        ),
+                        pw.TableRow(
+                          children: [
+                            _buildTableCell('Taxable', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell(
+                              taxableAmount.toStringAsFixed(0),
+                              fontSize: 8,
+                            ),
+                            _buildTableCell('0', fontSize: 8),
+                          ],
+                        ),
+                        pw.TableRow(
+                          children: [
+                            _buildTableCell('CGST', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell(
+                              (gstAmount / 2).toStringAsFixed(0),
+                              fontSize: 8,
+                            ),
+                            _buildTableCell('0', fontSize: 8),
+                          ],
+                        ),
+                        pw.TableRow(
+                          children: [
+                            _buildTableCell('SGST', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell('0', fontSize: 8),
+                            _buildTableCell(
+                              (gstAmount / 2).toStringAsFixed(0),
+                              fontSize: 8,
+                            ),
+                            _buildTableCell('0', fontSize: 8),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                pw.SizedBox(width: 10),
+                pw.Expanded(
+                  flex: 1,
+                  child: pw.Container(
+                    padding: pw.EdgeInsets.all(6),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.end,
+                      children: [
+                        pw.Text(
+                          'Certified that the particulars given above are true and correct',
+                          style: pw.TextStyle(
+                            fontSize: 8,
+                            fontStyle: pw.FontStyle.italic,
+                          ),
+                          textAlign: pw.TextAlign.right,
+                        ),
+                        pw.SizedBox(height: 15),
+                        pw.Text(
+                          'For MOBILE HOUSE',
+                          style: pw.TextStyle(
+                            fontSize: 9,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                        pw.SizedBox(height: 8),
+                        pw.Divider(color: PdfColors.black, thickness: 0.5),
+                        pw.SizedBox(height: 5),
+                        pw.Text(
+                          'Authorised Signatory',
+                          style: pw.TextStyle(fontSize: 7),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<Uint8List> _generateGstAccessoriesPdf(
@@ -995,7 +1529,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                             _buildTableCell('0', fontSize: 8),
                             _buildTableCell('0', fontSize: 8),
                             _buildTableCell(
-                              (gstAmount * 100 / 18).toStringAsFixed(0),
+                              taxableAmount.toStringAsFixed(0),
                               fontSize: 8,
                             ),
                             _buildTableCell('0', fontSize: 8),
@@ -1697,6 +2231,37 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     }
   }
 
+  Future<void> _shareTvAppliancePdf(
+    Map<String, dynamic> sale,
+    String billType,
+  ) async {
+    try {
+      _showMessage(
+        'Generating ${billType == 'TV' ? 'TV' : 'Appliance'} bill...',
+        isError: false,
+      );
+
+      final pdfBytes = await _generateTvAppliancePdf(sale, billType);
+
+      final directory = await getTemporaryDirectory();
+      final fileName =
+          '${billType}_Bill_${sale['customerName']}_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final filePath = '${directory.path}/$fileName';
+      final file = File(filePath);
+      await file.writeAsBytes(pdfBytes);
+
+      await Share.shareXFiles(
+        [XFile(filePath, mimeType: 'application/pdf', name: fileName)],
+        text: 'Mobile House ${billType} Bill - ${sale['customerName']}',
+        subject: 'Mobile House ${billType} Bill',
+      );
+
+      _showMessage('PDF shared successfully!', isError: false);
+    } catch (e) {
+      _showError('Error sharing PDF: $e');
+    }
+  }
+
   Future<void> _shareGstAccessoriesPdf(Map<String, dynamic> sale) async {
     try {
       _showMessage('Generating GST Accessories bill...', isError: false);
@@ -1922,6 +2487,13 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     final isPhoneSale = sale['collection'] == 'phoneSales';
     final isGstAccessories =
         sale['collection'] == 'bills' && sale['billType'] == 'GST Accessories';
+    final typeValue = sale['type']?.toString().toLowerCase() ?? '';
+    final billTypeValue = sale['billType']?.toString() ?? '';
+    final isTvSale =
+        sale['collection'] == 'bills' &&
+        (typeValue == 'tv' || billTypeValue == 'TV');
+    final isApplianceSale =
+        sale['collection'] == 'bills' && sale['billType'] == 'Appliances';
     final customerPhone =
         sale['customerPhone']?.toString() ??
         sale['customerMobile']?.toString() ??
@@ -1962,6 +2534,10 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                   Navigator.pop(context);
                   if (isGstAccessories) {
                     _shareGstAccessoriesPdf(sale);
+                  } else if (isTvSale) {
+                    _shareTvAppliancePdf(sale, 'TV');
+                  } else if (isApplianceSale) {
+                    _shareTvAppliancePdf(sale, 'Appliances');
                   } else {
                     _sharePdfBill(sale);
                   }
@@ -2388,8 +2964,25 @@ ${filteredSales.map((sale) {
   }
 
   String _getSaleType(String collection, Map<String, dynamic> data) {
-    if (collection == 'bills' && data['billType'] == 'GST Accessories') {
-      return 'GST Accessories';
+    if (collection == 'bills') {
+      // CRITICAL FIX: Check type field first for TV sales with type "tv"
+      final typeValue = data['type']?.toString().toLowerCase() ?? '';
+      if (typeValue == 'tv') {
+        return 'TV Sale';
+      }
+
+      // Then check billType field
+      final billType = data['billType']?.toString() ?? '';
+      switch (billType) {
+        case 'GST Accessories':
+          return 'GST Accessories';
+        case 'TV':
+          return 'TV Sale';
+        case 'Appliances':
+          return 'Appliance Sale';
+        default:
+          return 'Bill Sale';
+      }
     }
 
     switch (collection) {
@@ -2535,6 +3128,10 @@ ${filteredSales.map((sale) {
         return Colors.purple;
       case 'GST Accessories':
         return Colors.teal;
+      case 'TV Sale':
+        return Colors.red;
+      case 'Appliance Sale':
+        return Colors.deepOrange;
       default:
         return Colors.grey;
     }
@@ -2552,6 +3149,10 @@ ${filteredSales.map((sale) {
         return Icons.devices;
       case 'GST Accessories':
         return Icons.electrical_services;
+      case 'TV Sale':
+        return Icons.tv;
+      case 'Appliance Sale':
+        return Icons.kitchen;
       default:
         return Icons.receipt;
     }
@@ -2948,11 +3549,22 @@ ${filteredSales.map((sale) {
                                         sale['customerMobile']?.toString() ??
                                         '';
 
+                                    final typeValue =
+                                        sale['type']
+                                            ?.toString()
+                                            .toLowerCase() ??
+                                        '';
+                                    final billTypeValue =
+                                        sale['billType']?.toString() ?? '';
                                     final isShareableSale =
                                         sale['collection'] == 'phoneSales' ||
                                         (sale['collection'] == 'bills' &&
-                                            sale['billType'] ==
-                                                'GST Accessories');
+                                            (sale['billType'] ==
+                                                    'GST Accessories' ||
+                                                typeValue == 'tv' ||
+                                                billTypeValue == 'TV' ||
+                                                sale['billType'] ==
+                                                    'Appliances'));
 
                                     return Card(
                                       margin: const EdgeInsets.symmetric(
@@ -3287,8 +3899,15 @@ ${filteredSales.map((sale) {
   void _showSaleDetails(BuildContext context, Map<String, dynamic> sale) {
     final isAccessoriesSale = sale['collection'] == 'accessories_service_sales';
     final isPhoneSale = sale['collection'] == 'phoneSales';
+    final typeValue = sale['type']?.toString().toLowerCase() ?? '';
+    final billTypeValue = sale['billType']?.toString() ?? '';
     final isGstAccessories =
         sale['collection'] == 'bills' && sale['billType'] == 'GST Accessories';
+    final isTvSale =
+        sale['collection'] == 'bills' &&
+        (typeValue == 'tv' || billTypeValue == 'TV');
+    final isApplianceSale =
+        sale['collection'] == 'bills' && sale['billType'] == 'Appliances';
     final accessoriesAmount = sale['accessoriesAmount'] as double? ?? 0.0;
     final serviceAmount = sale['serviceAmount'] as double? ?? 0.0;
     final totalAmount = (sale['displayAmount'] as double).toStringAsFixed(0);
@@ -3354,7 +3973,8 @@ ${filteredSales.map((sale) {
               ),
               const SizedBox(height: 16),
 
-              if (isGstAccessories && sale['billNumber'] != null)
+              if ((isGstAccessories || isTvSale || isApplianceSale) &&
+                  sale['billNumber'] != null)
                 _buildDetailRow('Bill Number', sale['billNumber'].toString()),
 
               _buildDetailRow('Customer', sale['customerInfo'] as String),
@@ -3416,14 +4036,24 @@ ${filteredSales.map((sale) {
               _buildDetailRow('Shop', sale['shopName'].toString()),
               _buildDetailRow('Date', sale['displayDate'] as String),
 
-              if (isGstAccessories) ...[
+              if (isGstAccessories || isTvSale || isApplianceSale) ...[
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.teal.shade50,
+                    color: isTvSale
+                        ? Colors.red.shade50
+                        : (isApplianceSale
+                              ? Colors.deepOrange.shade50
+                              : Colors.teal.shade50),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.teal.shade200),
+                    border: Border.all(
+                      color: isTvSale
+                          ? Colors.red.shade200
+                          : (isApplianceSale
+                                ? Colors.deepOrange.shade200
+                                : Colors.teal.shade200),
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -3431,28 +4061,46 @@ ${filteredSales.map((sale) {
                       Row(
                         children: [
                           Icon(
-                            Icons.electrical_services,
+                            isTvSale
+                                ? Icons.tv
+                                : (isApplianceSale
+                                      ? Icons.kitchen
+                                      : Icons.electrical_services),
                             size: 14,
-                            color: Colors.teal.shade700,
+                            color: isTvSale
+                                ? Colors.red.shade700
+                                : (isApplianceSale
+                                      ? Colors.deepOrange.shade700
+                                      : Colors.teal.shade700),
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            'GST Accessories Details',
+                            isTvSale
+                                ? 'TV Sale Details'
+                                : (isApplianceSale
+                                      ? 'Appliance Sale Details'
+                                      : 'GST Accessories Details'),
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.bold,
-                              color: Colors.teal.shade700,
+                              color: isTvSale
+                                  ? Colors.red.shade700
+                                  : (isApplianceSale
+                                        ? Colors.deepOrange.shade700
+                                        : Colors.teal.shade700),
                             ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 6),
+                      // Check for product data or direct fields
                       if (sale['product'] != null) ...[
                         _buildGstDetailRow(
                           'Product',
                           (sale['product']
                                       as Map<String, dynamic>)['productName']
                                   ?.toString() ??
+                              sale['modelName']?.toString() ??
                               'N/A',
                         ),
                         _buildGstDetailRow(
@@ -3463,22 +4111,18 @@ ${filteredSales.map((sale) {
                         ),
                         _buildGstDetailRow(
                           'Price',
-                          '₹${((sale['product'] as Map<String, dynamic>)['price'] as num?)?.toStringAsFixed(0) ?? '0'}',
+                          '₹${((sale['product'] as Map<String, dynamic>)['price'] as num?)?.toStringAsFixed(0) ?? sale['totalAmount']?.toString() ?? '0'}',
                         ),
-                        () {
-                          final discountValue =
-                              (sale['product']
-                                  as Map<String, dynamic>)['discount'];
-                          final discountNum = discountValue as num?;
-                          final discountDouble = discountNum?.toDouble() ?? 0;
-                          if (discountDouble > 0) {
-                            return _buildGstDetailRow(
-                              'Discount',
-                              '${discountValue}%',
-                            );
-                          }
-                          return const SizedBox.shrink();
-                        }(),
+                      ] else if (sale['modelName'] != null) ...[
+                        _buildGstDetailRow(
+                          'Product',
+                          sale['modelName'].toString(),
+                        ),
+                        _buildGstDetailRow('Quantity', '1'),
+                        _buildGstDetailRow(
+                          'Price',
+                          '₹${sale['totalAmount']?.toString() ?? '0'}',
+                        ),
                       ],
                       const Divider(height: 12),
                       _buildGstDetailRow(
@@ -3606,7 +4250,7 @@ ${filteredSales.map((sale) {
                     ],
                   ),
                 ),
-              ] else if (!isGstAccessories)
+              ] else if (!isGstAccessories && !isTvSale && !isApplianceSale)
                 _buildDetailRow('Total Amount', '₹$totalAmount'),
 
               const SizedBox(height: 8),
@@ -3626,28 +4270,70 @@ ${filteredSales.map((sale) {
                   ),
               ],
 
+              if ((isTvSale || isApplianceSale) && sale['product'] != null) ...[
+                const SizedBox(height: 16),
+                _buildDetailRow(
+                  'Product Name',
+                  ((sale['product'] as Map<String, dynamic>)['productName']
+                          ?.toString() ??
+                      sale['modelName']?.toString() ??
+                      'N/A'),
+                ),
+                if (((sale['product'] as Map<String, dynamic>)['brand']
+                            ?.toString() ??
+                        '')
+                    .isNotEmpty)
+                  _buildDetailRow(
+                    'Brand',
+                    (sale['product'] as Map<String, dynamic>)['brand']
+                        .toString(),
+                  ),
+                if (((sale['product'] as Map<String, dynamic>)['model']
+                            ?.toString() ??
+                        '')
+                    .isNotEmpty)
+                  _buildDetailRow(
+                    'Model',
+                    (sale['product'] as Map<String, dynamic>)['model']
+                        .toString(),
+                  ),
+                if (sale['serialNumber'] != null &&
+                    sale['serialNumber'].toString().isNotEmpty)
+                  _buildDetailRow('Serial No', sale['serialNumber'].toString()),
+              ],
+
               if (sale['productName'] != null &&
                   sale['collection'] != 'phoneSales' &&
-                  !isGstAccessories)
+                  !isGstAccessories &&
+                  !isTvSale &&
+                  !isApplianceSale)
                 _buildDetailRow('Product', sale['productName'].toString()),
               if (sale['productBrand'] != null &&
                   sale['productBrand'].toString().isNotEmpty &&
                   sale['collection'] != 'phoneSales' &&
-                  !isGstAccessories)
+                  !isGstAccessories &&
+                  !isTvSale &&
+                  !isApplianceSale)
                 _buildDetailRow('Brand', sale['productBrand'].toString()),
               if (sale['modelName'] != null &&
                   sale['modelName'].toString().isNotEmpty &&
                   sale['collection'] != 'phoneSales' &&
-                  !isGstAccessories)
+                  !isGstAccessories &&
+                  !isTvSale &&
+                  !isApplianceSale)
                 _buildDetailRow('Model', sale['modelName'].toString()),
               if (sale['brand'] != null &&
                   sale['brand'].toString().isNotEmpty &&
                   sale['collection'] != 'phoneSales' &&
-                  !isGstAccessories)
+                  !isGstAccessories &&
+                  !isTvSale &&
+                  !isApplianceSale)
                 _buildDetailRow('Brand', sale['brand'].toString()),
               if (sale['imei'] != null &&
                   sale['collection'] != 'phoneSales' &&
-                  !isGstAccessories)
+                  !isGstAccessories &&
+                  !isTvSale &&
+                  !isApplianceSale)
                 _buildDetailRow('IMEI', sale['imei'].toString()),
               if (sale['defect'] != null &&
                   sale['defect'].toString().isNotEmpty)
@@ -3673,7 +4359,10 @@ ${filteredSales.map((sale) {
                       ),
                     ),
                   ),
-                  if (!isPhoneSale && !isGstAccessories) ...[
+                  if (!isPhoneSale &&
+                      !isGstAccessories &&
+                      !isTvSale &&
+                      !isApplianceSale) ...[
                     const SizedBox(width: 10),
                     Expanded(
                       child: ElevatedButton(

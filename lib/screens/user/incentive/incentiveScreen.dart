@@ -49,32 +49,26 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
     final now = DateTime.now();
 
     if (selectedTimePeriod == 'last_month') {
-      // Last month
       currentStartDate = DateTime(now.year, now.month - 1, 1, 0, 0, 0);
       currentEndDate = DateTime(now.year, now.month, 0, 23, 59, 59, 999);
       currentPeriodName = DateFormat('MMMM yyyy').format(currentStartDate);
     } else if (selectedTimePeriod == 'last_year') {
-      // Last year
       currentStartDate = DateTime(now.year - 1, 1, 1, 0, 0, 0);
       currentEndDate = DateTime(now.year - 1, 12, 31, 23, 59, 59, 999);
       currentPeriodName = '${now.year - 1}';
     } else if (selectedTimePeriod == 'current_month') {
-      // Current month
       currentStartDate = DateTime(now.year, now.month, 1, 0, 0, 0);
       currentEndDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999);
       currentPeriodName = DateFormat('MMMM yyyy').format(now);
     } else if (selectedTimePeriod == 'current_year') {
-      // Current year
       currentStartDate = DateTime(now.year, 1, 1, 0, 0, 0);
       currentEndDate = DateTime(now.year, 12, 31, 23, 59, 59, 999);
       currentPeriodName = '${now.year}';
     } else if (selectedTimePeriod == 'daily') {
-      // Today
       currentStartDate = DateTime(now.year, now.month, now.day, 0, 0, 0);
       currentEndDate = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
       currentPeriodName = DateFormat('dd MMM yyyy').format(now);
     } else if (selectedTimePeriod == 'custom' && isCustomPeriod) {
-      // Custom range
       currentStartDate = DateTime(
         customStartDate!.year,
         customStartDate!.month,
@@ -114,6 +108,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
         isLoading = false;
       });
     } catch (e) {
+      print('Error fetching data: $e');
       setState(() {
         isLoading = false;
         errorMessage = 'Error fetching data: $e';
@@ -126,22 +121,19 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
     DateTime startDate,
     DateTime endDate,
   ) async {
-    final accessoriesData = await _fetchAccessoriesSalesWithDetails(
+    final accessoriesData = await _fetchAccessoriesSales(
       shopId,
       startDate,
       endDate,
     );
-    final phoneData = await _fetchPhoneSalesWithDetails(
+    final phoneData = await _fetchPhoneSales(shopId, startDate, endDate);
+    final tvData = await _fetchTvSales(shopId, startDate, endDate);
+    final secondPhoneData = await _fetchSecondPhoneSales(
       shopId,
       startDate,
       endDate,
     );
-    final secondPhoneData = await _fetchSecondPhoneSalesWithDetails(
-      shopId,
-      startDate,
-      endDate,
-    );
-    final baseModelData = await _fetchBaseModelSalesWithDetails(
+    final baseModelData = await _fetchBaseModelSales(
       shopId,
       startDate,
       endDate,
@@ -151,48 +143,80 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
       accessoriesData,
     );
     final phoneIncentive = _calculatePhoneIncentive(phoneData);
+    final tvIncentive = _calculateTvIncentive(tvData);
     final secondPhoneIncentive = _calculateSecondPhoneIncentive(
       secondPhoneData,
     );
     final baseModelIncentive = _calculateBaseModelIncentive(baseModelData);
 
     return IncentiveData(
-      accessoriesTotalAmount: accessoriesData['totalAmount'] ?? 0,
-      accessoriesSaleCount: accessoriesData['count'] ?? 0,
-      accessoriesIncentive: accessoriesIncentive['amount'],
-      accessoriesBreakdown: accessoriesIncentive['breakdown'] ?? [],
-      phoneTotalAmount: phoneData['totalAmount'] ?? 0,
-      phoneSaleCount: phoneData['count'] ?? 0,
-      phoneIncentive: phoneIncentive['amount'],
-      phoneBreakdown: phoneIncentive['breakdown'] ?? [],
-      phonePriceDetails: phoneData['priceDetails'] ?? [],
-      phoneSalesList: phoneData['sales'] ?? [],
-      secondPhoneTotalAmount: secondPhoneData['totalAmount'] ?? 0,
-      secondPhoneSaleCount: secondPhoneData['count'] ?? 0,
-      secondPhoneIncentive: secondPhoneIncentive['amount'],
-      secondPhoneBreakdown: secondPhoneIncentive['breakdown'] ?? [],
-      secondPhoneSalesList: secondPhoneData['sales'] ?? [],
-      baseModelTotalAmount: baseModelData['totalAmount'] ?? 0,
-      baseModelSaleCount: baseModelData['count'] ?? 0,
-      baseModelIncentive: baseModelIncentive['amount'],
-      baseModelBreakdown: baseModelIncentive['breakdown'] ?? [],
-      baseModelSalesList: baseModelData['sales'] ?? [],
+      accessoriesTotalAmount: accessoriesData['totalAmount'] as double? ?? 0,
+      accessoriesSaleCount: accessoriesData['count'] as int? ?? 0,
+      accessoriesIncentive: accessoriesIncentive['amount'] as double? ?? 0,
+      accessoriesBreakdown: List<Map<String, dynamic>>.from(
+        accessoriesIncentive['breakdown'] as List? ?? [],
+      ),
+      accessoriesSalesList: List<Map<String, dynamic>>.from(
+        accessoriesData['sales'] as List? ?? [],
+      ),
+      phoneTotalAmount: phoneData['totalAmount'] as double? ?? 0,
+      phoneSaleCount: phoneData['count'] as int? ?? 0,
+      phoneIncentive: phoneIncentive['amount'] as double? ?? 0,
+      phoneBreakdown: List<Map<String, dynamic>>.from(
+        phoneIncentive['breakdown'] as List? ?? [],
+      ),
+      phonePriceDetails: List<Map<String, dynamic>>.from(
+        phoneData['priceDetails'] as List? ?? [],
+      ),
+      phoneSalesList: List<Map<String, dynamic>>.from(
+        phoneData['sales'] as List? ?? [],
+      ),
+      tvTotalAmount: tvData['totalAmount'] as double? ?? 0,
+      tvSaleCount: tvData['count'] as int? ?? 0,
+      tvIncentive: tvIncentive['amount'] as double? ?? 0,
+      tvBreakdown: List<Map<String, dynamic>>.from(
+        tvIncentive['breakdown'] as List? ?? [],
+      ),
+      tvSalesList: List<Map<String, dynamic>>.from(
+        tvData['sales'] as List? ?? [],
+      ),
+      secondPhoneTotalAmount: secondPhoneData['totalAmount'] as double? ?? 0,
+      secondPhoneSaleCount: secondPhoneData['count'] as int? ?? 0,
+      secondPhoneIncentive: secondPhoneIncentive['amount'] as double? ?? 0,
+      secondPhoneBreakdown: List<Map<String, dynamic>>.from(
+        secondPhoneIncentive['breakdown'] as List? ?? [],
+      ),
+      secondPhoneSalesList: List<Map<String, dynamic>>.from(
+        secondPhoneData['sales'] as List? ?? [],
+      ),
+      baseModelTotalAmount: baseModelData['totalAmount'] as double? ?? 0,
+      baseModelSaleCount: baseModelData['count'] as int? ?? 0,
+      baseModelIncentive: baseModelIncentive['amount'] as double? ?? 0,
+      baseModelBreakdown: List<Map<String, dynamic>>.from(
+        baseModelIncentive['breakdown'] as List? ?? [],
+      ),
+      baseModelSalesList: List<Map<String, dynamic>>.from(
+        baseModelData['sales'] as List? ?? [],
+      ),
       totalIncentive:
-          (accessoriesIncentive['amount'] ?? 0) +
-          (phoneIncentive['amount'] ?? 0) +
-          (secondPhoneIncentive['amount'] ?? 0) +
-          (baseModelIncentive['amount'] ?? 0),
+          (accessoriesIncentive['amount'] as double? ?? 0) +
+          (phoneIncentive['amount'] as double? ?? 0) +
+          (tvIncentive['amount'] as double? ?? 0) +
+          (secondPhoneIncentive['amount'] as double? ?? 0) +
+          (baseModelIncentive['amount'] as double? ?? 0),
     );
   }
 
-  Future<Map<String, dynamic>> _fetchAccessoriesSalesWithDetails(
+  Future<Map<String, dynamic>> _fetchAccessoriesSales(
     String shopId,
     DateTime startDate,
     DateTime endDate,
   ) async {
-    double totalAmount = 0;
-    int count = 0;
-    List<Map<String, dynamic>> sales = [];
+    final Map<String, dynamic> data = {
+      'totalAmount': 0.0,
+      'count': 0,
+      'sales': <Map<String, dynamic>>[],
+    };
 
     try {
       final snapshot = await FirebaseFirestore.instance
@@ -201,37 +225,82 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
           .get();
 
       for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final saleDate = _getSaleDate(data);
+        final saleData = doc.data();
+        final saleDate = _getSaleDate(saleData);
+        final dateStr = _formatDate(saleDate);
 
-        if (_isDateInRange(saleDate, startDate, endDate)) {
-          final amount = (data['totalSaleAmount'] ?? 0).toDouble();
-          totalAmount += amount;
-          count++;
-          sales.add({
+        final isInRange = _isDateInRange(saleDate, startDate, endDate);
+
+        if (isInRange) {
+          // Calculate amount - prioritize totalSaleAmount
+          final totalSaleAmount =
+              (saleData['totalSaleAmount'] as num?)?.toDouble() ?? 0;
+          final accessoriesAmount =
+              (saleData['accessoriesAmount'] as num?)?.toDouble() ?? 0;
+          final serviceAmount =
+              (saleData['serviceAmount'] as num?)?.toDouble() ?? 0;
+
+          double amount;
+          if (totalSaleAmount > 0) {
+            amount = totalSaleAmount;
+            print('Using totalSaleAmount: $amount');
+          } else {
+            amount = accessoriesAmount + serviceAmount;
+            print('Using sum (accessories + service): $amount');
+          }
+
+          data['totalAmount'] = (data['totalAmount'] as double) + amount;
+          data['count'] = (data['count'] as int) + 1;
+
+          (data['sales'] as List<Map<String, dynamic>>).add({
             'amount': amount,
             'date': saleDate,
-            'customerName': data['customerName'] ?? 'Walk-in Customer',
-            'items': data['items'] ?? [],
+            'customerName': saleData['customerName'] ?? 'Walk-in Customer',
+            'productName': 'Accessories & Service',
+            'accessoriesAmount': accessoriesAmount,
+            'serviceAmount': serviceAmount,
+            'totalSaleAmount': totalSaleAmount,
+            'items': saleData['items'] ?? [],
+            'paymentBreakdown': {
+              'cash': saleData['cashAmount'] ?? 0,
+              'gpay': saleData['gpayAmount'] ?? 0,
+              'card': saleData['cardAmount'] ?? 0,
+            },
           });
+
+          print('✓ INCLUDED - Amount: $amount');
+          print('  Running total: ${data['totalAmount']}');
+          print('  Running count: ${data['count']}');
+        } else {
+          print('✗ EXCLUDED - Date out of range');
+          print(
+            '  Required between: ${_formatDate(startDate)} and ${_formatDate(endDate)}',
+          );
         }
       }
+
+      print('\n========== ACCESSORIES SUMMARY ==========');
+      print('Total Amount: ${data['totalAmount']}');
+      print('Total Count: ${data['count']}');
+      print('========================================\n');
     } catch (e) {
       print('Error fetching accessories sales: $e');
     }
 
-    return {'totalAmount': totalAmount, 'count': count, 'sales': sales};
+    return data;
   }
 
-  Future<Map<String, dynamic>> _fetchPhoneSalesWithDetails(
+  Future<Map<String, dynamic>> _fetchPhoneSales(
     String shopId,
     DateTime startDate,
     DateTime endDate,
   ) async {
-    double totalAmount = 0;
-    int count = 0;
-    List<Map<String, dynamic>> priceDetails = [];
-    List<Map<String, dynamic>> sales = [];
+    final Map<String, dynamic> data = {
+      'totalAmount': 0.0,
+      'count': 0,
+      'priceDetails': <Map<String, dynamic>>[],
+      'sales': <Map<String, dynamic>>[],
+    };
 
     try {
       final snapshot = await FirebaseFirestore.instance
@@ -240,34 +309,37 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
           .get();
 
       for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final saleDate = _getSaleDate(data);
+        final saleData = doc.data();
+        final saleDate = _getSaleDate(saleData);
 
         if (_isDateInRange(saleDate, startDate, endDate)) {
-          final amount = (data['effectivePrice'] ?? data['price'] ?? 0)
-              .toDouble();
-          totalAmount += amount;
-          count++;
+          final amount =
+              (saleData['effectivePrice'] as num?)?.toDouble() ??
+              (saleData['price'] as num?)?.toDouble() ??
+              0;
+
+          data['totalAmount'] = (data['totalAmount'] as double) + amount;
+          data['count'] = (data['count'] as int) + 1;
 
           final incentiveInfo = _getPhoneIncentiveInfo(amount);
 
-          priceDetails.add({
+          (data['priceDetails'] as List<Map<String, dynamic>>).add({
             'amount': amount,
-            'bracket': incentiveInfo['bracket'],
-            'incentive': incentiveInfo['incentive'],
+            'bracket': incentiveInfo['bracket'] as String,
+            'incentive': incentiveInfo['incentive'] as double,
             'productName':
-                data['productModel'] ?? data['productName'] ?? 'Phone',
+                saleData['productModel'] ?? saleData['productName'] ?? 'Phone',
             'date': saleDate,
           });
 
-          sales.add({
+          (data['sales'] as List<Map<String, dynamic>>).add({
             'amount': amount,
             'productName':
-                data['productModel'] ?? data['productName'] ?? 'Phone',
-            'customerName': data['customerName'] ?? 'Walk-in Customer',
+                saleData['productModel'] ?? saleData['productName'] ?? 'Phone',
+            'customerName': saleData['customerName'] ?? 'Walk-in Customer',
             'date': saleDate,
-            'bracket': incentiveInfo['bracket'],
-            'incentive': incentiveInfo['incentive'],
+            'bracket': incentiveInfo['bracket'] as String,
+            'incentive': incentiveInfo['incentive'] as double,
           });
         }
       }
@@ -275,12 +347,150 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
       print('Error fetching phone sales: $e');
     }
 
-    return {
-      'totalAmount': totalAmount,
-      'count': count,
-      'priceDetails': priceDetails,
-      'sales': sales,
+    return data;
+  }
+
+  Future<Map<String, dynamic>> _fetchTvSales(
+    String shopId,
+    DateTime startDate,
+    DateTime endDate,
+  ) async {
+    final Map<String, dynamic> data = {
+      'totalAmount': 0.0,
+      'count': 0,
+      'sales': <Map<String, dynamic>>[],
     };
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('bills')
+          .where('shopId', isEqualTo: shopId)
+          .where('type', isEqualTo: 'tv')
+          .get();
+
+      for (var doc in snapshot.docs) {
+        final saleData = doc.data();
+        final saleDate = _getSaleDate(saleData);
+
+        if (_isDateInRange(saleDate, startDate, endDate)) {
+          final amount = (saleData['totalAmount'] as num?)?.toDouble() ?? 0;
+
+          data['totalAmount'] = (data['totalAmount'] as double) + amount;
+          data['count'] = (data['count'] as int) + 1;
+
+          (data['sales'] as List<Map<String, dynamic>>).add({
+            'amount': amount,
+            'productName':
+                saleData['modelName'] ?? saleData['productName'] ?? 'TV',
+            'customerName': saleData['customerName'] ?? 'Walk-in Customer',
+            'date': saleDate,
+            'modelBrand':
+                saleData['originalTvData']?['modelBrand'] ?? 'Unknown',
+            'serialNumber': saleData['serialNumber'] ?? '',
+          });
+        }
+      }
+    } catch (e) {
+      print('Error fetching TV sales: $e');
+    }
+
+    return data;
+  }
+
+  Future<Map<String, dynamic>> _fetchSecondPhoneSales(
+    String shopId,
+    DateTime startDate,
+    DateTime endDate,
+  ) async {
+    final Map<String, dynamic> data = {
+      'totalAmount': 0.0,
+      'count': 0,
+      'sales': <Map<String, dynamic>>[],
+    };
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('seconds_phone_sale')
+          .where('shopId', isEqualTo: shopId)
+          .get();
+
+      for (var doc in snapshot.docs) {
+        final saleData = doc.data();
+        final saleDate = _getSaleDate(saleData);
+
+        if (_isDateInRange(saleDate, startDate, endDate)) {
+          final amount =
+              (saleData['price'] as num?)?.toDouble() ??
+              (saleData['totalPayment'] as num?)?.toDouble() ??
+              0;
+
+          data['totalAmount'] = (data['totalAmount'] as double) + amount;
+          data['count'] = (data['count'] as int) + 1;
+
+          (data['sales'] as List<Map<String, dynamic>>).add({
+            'amount': amount,
+            'productName': saleData['productName'] ?? 'Second Phone',
+            'customerName': saleData['customerName'] ?? 'Walk-in Customer',
+            'date': saleDate,
+            'imei': saleData['imei'] ?? '',
+            'brand': saleData['brand'] ?? '',
+          });
+        }
+      }
+    } catch (e) {
+      print('Error fetching second phone sales: $e');
+    }
+
+    return data;
+  }
+
+  Future<Map<String, dynamic>> _fetchBaseModelSales(
+    String shopId,
+    DateTime startDate,
+    DateTime endDate,
+  ) async {
+    final Map<String, dynamic> data = {
+      'totalAmount': 0.0,
+      'count': 0,
+      'sales': <Map<String, dynamic>>[],
+    };
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('base_model_sale')
+          .where('shopId', isEqualTo: shopId)
+          .get();
+
+      for (var doc in snapshot.docs) {
+        final saleData = doc.data();
+        final saleDate = _getSaleDate(saleData);
+
+        if (_isDateInRange(saleDate, startDate, endDate)) {
+          final amount =
+              (saleData['price'] as num?)?.toDouble() ??
+              (saleData['totalPayment'] as num?)?.toDouble() ??
+              0;
+
+          data['totalAmount'] = (data['totalAmount'] as double) + amount;
+          data['count'] = (data['count'] as int) + 1;
+
+          (data['sales'] as List<Map<String, dynamic>>).add({
+            'amount': amount,
+            'productName':
+                saleData['modelName'] ??
+                saleData['productName'] ??
+                'Base Model',
+            'customerName': saleData['customerName'] ?? 'Walk-in Customer',
+            'date': saleDate,
+            'brand': saleData['brand'] ?? '',
+          });
+        }
+      }
+    } catch (e) {
+      print('Error fetching base model sales: $e');
+    }
+
+    return data;
   }
 
   Map<String, dynamic> _getPhoneIncentiveInfo(double amount) {
@@ -314,145 +524,72 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
     return {'bracket': bracket, 'incentive': incentive};
   }
 
-  Future<Map<String, dynamic>> _fetchSecondPhoneSalesWithDetails(
-    String shopId,
-    DateTime startDate,
-    DateTime endDate,
-  ) async {
-    double totalAmount = 0;
-    int count = 0;
-    List<Map<String, dynamic>> sales = [];
-
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('seconds_phone_sale')
-          .where('shopId', isEqualTo: shopId)
-          .get();
-
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final saleDate = _getSaleDate(data);
-
-        if (_isDateInRange(saleDate, startDate, endDate)) {
-          final amount = (data['price'] ?? data['totalPayment'] ?? 0)
-              .toDouble();
-          totalAmount += amount;
-          count++;
-          sales.add({
-            'amount': amount,
-            'date': saleDate,
-            'customerName': data['customerName'] ?? 'Walk-in Customer',
-            'productName': data['productName'] ?? 'Second Phone',
-            'imei': data['imei'] ?? '',
-          });
-        }
-      }
-    } catch (e) {
-      print('Error fetching second phone sales: $e');
-    }
-
-    return {'totalAmount': totalAmount, 'count': count, 'sales': sales};
-  }
-
-  Future<Map<String, dynamic>> _fetchBaseModelSalesWithDetails(
-    String shopId,
-    DateTime startDate,
-    DateTime endDate,
-  ) async {
-    double totalAmount = 0;
-    int count = 0;
-    List<Map<String, dynamic>> sales = [];
-
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('base_model_sale')
-          .where('shopId', isEqualTo: shopId)
-          .get();
-
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final saleDate = _getSaleDate(data);
-
-        if (_isDateInRange(saleDate, startDate, endDate)) {
-          final amount = (data['price'] ?? data['totalPayment'] ?? 0)
-              .toDouble();
-          totalAmount += amount;
-          count++;
-          sales.add({
-            'amount': amount,
-            'date': saleDate,
-            'customerName': data['customerName'] ?? 'Walk-in Customer',
-            'productName':
-                data['productModel'] ?? data['productName'] ?? 'Base Model',
-          });
-        }
-      }
-    } catch (e) {
-      print('Error fetching base model sales: $e');
-    }
-
-    return {'totalAmount': totalAmount, 'count': count, 'sales': sales};
-  }
-
   DateTime _getSaleDate(Map<String, dynamic> data) {
-    try {
-      List<String> dateFields = [
-        'date',
-        'uploadedAt',
-        'timestamp',
-        'saleDate',
-        'addedAt',
-        'createdAt',
-      ];
-
-      for (var field in dateFields) {
-        if (data[field] != null) {
-          if (data[field] is Timestamp) {
-            return (data[field] as Timestamp).toDate();
-          } else if (data[field] is int) {
-            return DateTime.fromMillisecondsSinceEpoch(data[field]);
-          } else if (data[field] is String) {
-            try {
-              return DateTime.parse(data[field]);
-            } catch (_) {
-              return _parseDateString(data[field].toString());
-            }
-          }
-        }
-      }
-      return DateTime.now();
-    } catch (e) {
-      return DateTime.now();
+    // Try to get date from Timestamp fields
+    if (data['date'] is Timestamp) {
+      return (data['date'] as Timestamp).toDate();
     }
+    if (data['uploadedAt'] is Timestamp) {
+      return (data['uploadedAt'] as Timestamp).toDate();
+    }
+    if (data['billDate'] is Timestamp) {
+      return (data['billDate'] as Timestamp).toDate();
+    }
+    if (data['timestamp'] is Timestamp) {
+      return (data['timestamp'] as Timestamp).toDate();
+    }
+    if (data['saleDate'] is Timestamp) {
+      return (data['saleDate'] as Timestamp).toDate();
+    }
+
+    // Try dateString field
+    if (data['dateString'] != null && data['dateString'] is String) {
+      try {
+        return DateTime.parse(data['dateString']);
+      } catch (e) {
+        print('Error parsing dateString: $e');
+      }
+    }
+
+    // Try individual date components
+    if (data['year'] != null && data['month'] != null && data['day'] != null) {
+      try {
+        return DateTime(
+          (data['year'] as num).toInt(),
+          (data['month'] as num).toInt(),
+          (data['day'] as num).toInt(),
+        );
+      } catch (e) {
+        print('Error parsing date components: $e');
+      }
+    }
+
+    // Fallback to current date
+    print('Could not parse date from data: $data');
+    return DateTime.now();
   }
 
-  DateTime _parseDateString(String dateString) {
-    try {
-      if (dateString.contains('/')) {
-        final parts = dateString.split('/');
-        if (parts.length >= 3) {
-          final day = int.tryParse(parts[0]) ?? 1;
-          final month = int.tryParse(parts[1]) ?? 1;
-          final year = int.tryParse(parts[2]) ?? DateTime.now().year;
-          return DateTime(year, month, day);
-        }
-      }
-      return DateTime.parse(dateString);
-    } catch (_) {
-      return DateTime.now();
-    }
+  String _formatDate(DateTime date) {
+    return DateFormat('yyyy-MM-dd').format(date);
   }
 
   bool _isDateInRange(DateTime date, DateTime startDate, DateTime endDate) {
-    return date.isAfter(startDate.subtract(const Duration(seconds: 1))) &&
-        date.isBefore(endDate.add(const Duration(seconds: 1)));
+    // Create date-only versions (without time)
+    final dateOnly = DateTime(date.year, date.month, date.day);
+    final startOnly = DateTime(startDate.year, startDate.month, startDate.day);
+    final endOnly = DateTime(endDate.year, endDate.month, endDate.day);
+
+    // Check if date is between start and end (inclusive)
+    return dateOnly.isAfter(startOnly.subtract(const Duration(days: 1))) &&
+        dateOnly.isBefore(endOnly.add(const Duration(days: 1)));
   }
 
-  // Updated: Accessories Incentive - ₹1000 base + ₹200 per ₹10,000 above ₹1L
   Map<String, dynamic> _calculateAccessoriesIncentive(
     Map<String, dynamic> salesData,
   ) {
-    final totalAmount = salesData['totalAmount'] as double;
+    final totalAmount = salesData['totalAmount'] as double? ?? 0;
+
+    print('Accessories Incentive Calculation - Total Amount: $totalAmount');
 
     if (totalAmount <= 100000) {
       return {
@@ -489,16 +626,18 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
       });
     }
 
+    print('Accessories Incentive Calculated: $incentive');
     return {'amount': incentive, 'breakdown': breakdown};
   }
 
   Map<String, dynamic> _calculatePhoneIncentive(
     Map<String, dynamic> salesData,
   ) {
-    final totalAmount = salesData['totalAmount'] as double;
-    final saleCount = salesData['count'] as int;
-    final priceDetails =
-        salesData['priceDetails'] as List<Map<String, dynamic>>;
+    final totalAmount = salesData['totalAmount'] as double? ?? 0;
+    final saleCount = salesData['count'] as int? ?? 0;
+    final priceDetails = List<Map<String, dynamic>>.from(
+      salesData['priceDetails'] as List? ?? [],
+    );
 
     if (saleCount >= 20 && totalAmount >= 300000) {
       double totalIncentive = 0;
@@ -515,8 +654,8 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
       Map<String, Map<String, dynamic>> bracketGroups = {};
 
       for (var phone in priceDetails) {
-        final bracket = phone['bracket'];
-        final incentiveAmount = phone['incentive'];
+        final bracket = phone['bracket'] as String;
+        final incentiveAmount = phone['incentive'] as double;
 
         if (!bracketGroups.containsKey(bracket)) {
           bracketGroups[bracket] = {
@@ -525,8 +664,11 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
             'incentivePerPhone': incentiveAmount,
           };
         }
-        bracketGroups[bracket]!['count']++;
-        bracketGroups[bracket]!['totalIncentive'] += incentiveAmount;
+        bracketGroups[bracket]!['count'] =
+            (bracketGroups[bracket]!['count'] as int) + 1;
+        bracketGroups[bracket]!['totalIncentive'] =
+            (bracketGroups[bracket]!['totalIncentive'] as double) +
+            incentiveAmount;
         totalIncentive += incentiveAmount;
       }
 
@@ -556,16 +698,44 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
     }
   }
 
-  Map<String, dynamic> _calculateSecondPhoneIncentive(
-    Map<String, dynamic> salesData,
-  ) {
-    final saleCount = salesData['count'] as int;
+  Map<String, dynamic> _calculateTvIncentive(Map<String, dynamic> salesData) {
+    final saleCount = salesData['count'] as int? ?? 0;
 
     if (saleCount < 1) {
       return {
         'amount': 0.0,
         'breakdown': [
-          {'message': 'No sales recorded', 'amount': 0},
+          {'message': 'No TV sales recorded', 'amount': 0},
+        ],
+      };
+    }
+
+    double perPieceIncentive = saleCount <= 10 ? 30 : 50;
+    String rateText = saleCount <= 10 ? '₹30 per piece' : '₹50 per piece';
+    final totalIncentive = saleCount * perPieceIncentive;
+
+    return {
+      'amount': totalIncentive,
+      'breakdown': [
+        {
+          'title': 'TV Sales Incentive',
+          'calculation': '$saleCount × $rateText',
+          'amount': totalIncentive,
+        },
+      ],
+    };
+  }
+
+  Map<String, dynamic> _calculateSecondPhoneIncentive(
+    Map<String, dynamic> salesData,
+  ) {
+    final saleCount = salesData['count'] as int? ?? 0;
+
+    if (saleCount < 1) {
+      return {
+        'amount': 0.0,
+        'breakdown': [
+          {'message': 'No second phone sales recorded', 'amount': 0},
         ],
       };
     }
@@ -589,13 +759,13 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
   Map<String, dynamic> _calculateBaseModelIncentive(
     Map<String, dynamic> salesData,
   ) {
-    final saleCount = salesData['count'] as int;
+    final saleCount = salesData['count'] as int? ?? 0;
 
     if (saleCount < 1) {
       return {
         'amount': 0.0,
         'breakdown': [
-          {'message': 'No sales recorded', 'amount': 0},
+          {'message': 'No base model sales recorded', 'amount': 0},
         ],
       };
     }
@@ -635,7 +805,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
     switch (type) {
       case 'accessories':
         breakdown = data.accessoriesBreakdown;
-        salesList = [];
+        salesList = data.accessoriesSalesList;
         totalAmount = data.accessoriesTotalAmount;
         saleCount = data.accessoriesSaleCount;
         incentive = data.accessoriesIncentive;
@@ -646,6 +816,13 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
         totalAmount = data.phoneTotalAmount;
         saleCount = data.phoneSaleCount;
         incentive = data.phoneIncentive;
+        break;
+      case 'tv':
+        breakdown = data.tvBreakdown;
+        salesList = data.tvSalesList;
+        totalAmount = data.tvTotalAmount;
+        saleCount = data.tvSaleCount;
+        incentive = data.tvIncentive;
         break;
       case 'secondPhone':
         breakdown = data.secondPhoneBreakdown;
@@ -756,13 +933,10 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                       controller: scrollController,
                       child: Column(
                         children: [
-                          // Breakdown Section
                           Container(
                             margin: const EdgeInsets.only(bottom: 12),
                             child: _buildBreakdownSection(breakdown, color),
                           ),
-
-                          // Sales Details Section
                           if (salesList.isNotEmpty)
                             _buildSalesDetailsSection(salesList, title, color),
                         ],
@@ -796,9 +970,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
     Color color,
   ) {
     if (breakdown.isEmpty ||
-        (breakdown.length == 1 &&
-            breakdown[0].containsKey('message') &&
-            breakdown[0]['message'] == 'No sales recorded')) {
+        (breakdown.length == 1 && breakdown[0].containsKey('message'))) {
       return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -811,7 +983,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
             const SizedBox(height: 8),
             Text(
               breakdown.isNotEmpty
-                  ? breakdown[0]['message']
+                  ? breakdown[0]['message'] as String
                   : 'No calculation details available',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
               textAlign: TextAlign.center,
@@ -871,7 +1043,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            item['message'],
+                            item['message'] as String,
                             style: TextStyle(
                               fontSize: 11,
                               color: Colors.amber.shade800,
@@ -893,7 +1065,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              item['title'],
+                              item['title'] as String,
                               style: const TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w500,
@@ -901,7 +1073,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                             ),
                             if (item['calculation'] != null)
                               Text(
-                                item['calculation'],
+                                item['calculation'] as String,
                                 style: TextStyle(
                                   fontSize: 10,
                                   color: Colors.grey.shade600,
@@ -909,7 +1081,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                               ),
                             if (item['note'] != null)
                               Text(
-                                item['note'],
+                                item['note'] as String,
                                 style: TextStyle(
                                   fontSize: 9,
                                   color: Colors.orange.shade700,
@@ -921,11 +1093,11 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                       ),
                       if (item['amount'] != null)
                         Text(
-                          '₹${_formatNumber(item['amount'].toDouble())}',
+                          '₹${_formatNumber((item['amount'] as num).toDouble())}',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
-                            color: item['amount'] > 0
+                            color: (item['amount'] as num) > 0
                                 ? Colors.green.shade700
                                 : Colors.grey.shade600,
                           ),
@@ -994,7 +1166,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                         children: [
                           Expanded(
                             child: Text(
-                              sale['productName'] ?? 'Product',
+                              sale['productName'] as String? ?? 'Product',
                               style: const TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w500,
@@ -1004,7 +1176,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                             ),
                           ),
                           Text(
-                            '₹${_formatNumber(sale['amount'])}',
+                            '₹${_formatNumber((sale['amount'] as num).toDouble())}',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
@@ -1023,7 +1195,8 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            sale['customerName'] ?? 'Walk-in Customer',
+                            sale['customerName'] as String? ??
+                                'Walk-in Customer',
                             style: TextStyle(
                               fontSize: 9,
                               color: Colors.grey.shade600,
@@ -1037,7 +1210,9 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            DateFormat('dd MMM').format(sale['date']),
+                            DateFormat(
+                              'dd MMM',
+                            ).format(sale['date'] as DateTime),
                             style: TextStyle(
                               fontSize: 9,
                               color: Colors.grey.shade600,
@@ -1045,6 +1220,73 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                           ),
                         ],
                       ),
+                      if (sale['accessoriesAmount'] != null ||
+                          sale['serviceAmount'] != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.build,
+                                size: 10,
+                                color: Colors.blue.shade600,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Accessories: ₹${_formatNumber((sale['accessoriesAmount'] as num).toDouble())} | Service: ₹${_formatNumber((sale['serviceAmount'] as num).toDouble())}',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (sale['paymentBreakdown'] != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.payment,
+                                size: 10,
+                                color: Colors.green.shade600,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Cash: ₹${_formatNumber((sale['paymentBreakdown']['cash'] as num).toDouble())} | GPay: ₹${_formatNumber((sale['paymentBreakdown']['gpay'] as num).toDouble())} | Card: ₹${_formatNumber((sale['paymentBreakdown']['card'] as num).toDouble())}',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (sale['brand'] != null &&
+                          sale['brand'].toString().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Brand: ${sale['brand']}',
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ),
+                      if (sale['imei'] != null &&
+                          sale['imei'].toString().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            'IMEI: ${sale['imei']}',
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ),
                       if (sale['bracket'] != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
@@ -1061,6 +1303,27 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                                 style: TextStyle(
                                   fontSize: 9,
                                   color: Colors.green.shade700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (sale['modelBrand'] != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.tv,
+                                size: 10,
+                                color: Colors.blue.shade600,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Brand: ${sale['modelBrand']} | SN: ${sale['serialNumber']}',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  color: Colors.grey.shade600,
                                 ),
                               ),
                             ],
@@ -1148,6 +1411,8 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                             rules: [
                               '🎯 Base Incentive: ₹1,000 when sales exceed ₹1,00,000',
                               '📈 Additional: ₹200 for every ₹10,000 above ₹1,00,000',
+                              '📦 Source: accessories_service_sale collection',
+                              '💰 Amount = totalSaleAmount OR accessoriesAmount + serviceAmount',
                             ],
                           ),
                           const SizedBox(height: 12),
@@ -1167,6 +1432,20 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                               '   • ₹80,000 - ₹99,999 → ₹150',
                               '   • ₹1,00,000+ → ₹200',
                               '⚠️ Note: No base incentive, only per-phone incentives',
+                              '📦 Source: phoneSales collection',
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          _buildConditionCard(
+                            title: 'TV Sales',
+                            icon: Icons.tv,
+                            color: Colors.red,
+                            rules: [
+                              '💰 Incentive Structure (per piece):',
+                              '   • 1-10 pieces → ₹30 per piece',
+                              '   • Above 10 pieces → ₹50 per piece',
+                              '✨ No minimum quantity required',
+                              '📦 Source: bills collection (type: "tv")',
                             ],
                           ),
                           const SizedBox(height: 12),
@@ -1179,6 +1458,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                               '   • 1-10 pieces → ₹30 per piece',
                               '   • Above 10 pieces → ₹40 per piece',
                               '✨ No minimum quantity required',
+                              '📦 Source: seconds_phone_sale collection',
                             ],
                           ),
                           const SizedBox(height: 12),
@@ -1191,6 +1471,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                               '   • 1-10 pieces → ₹15 per piece',
                               '   • Above 10 pieces → ₹25 per piece',
                               '✨ No minimum quantity required',
+                              '📦 Source: base_model_sale collection',
                             ],
                           ),
                           const SizedBox(height: 20),
@@ -1305,35 +1586,30 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
     final lastYear = '${now.year - 1}';
 
     return Container(
-      padding: const EdgeInsets.all(8), // Reduced from 12
+      padding: const EdgeInsets.all(8),
       child: Card(
-        elevation: 1, // Reduced from 2
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ), // Reduced from 12
+        elevation: 1,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 10,
-            vertical: 6,
-          ), // Reduced padding
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           child: Row(
             children: [
               const Icon(
                 Icons.calendar_today,
-                size: 14, // Reduced from 18
+                size: 14,
                 color: Color(0xFF0A4D2E),
               ),
-              const SizedBox(width: 6), // Reduced from 8
+              const SizedBox(width: 6),
               Expanded(
                 child: DropdownButton<String>(
                   value: selectedTimePeriod,
                   isExpanded: true,
                   underline: const SizedBox(),
                   style: const TextStyle(
-                    fontSize: 11, // Added smaller font size for dropdown text
+                    fontSize: 11,
                     color: Color(0xFF0A4D2E),
                   ),
-                  iconSize: 16, // Reduced icon size
+                  iconSize: 16,
                   items: [
                     const DropdownMenuItem(
                       value: 'current_month',
@@ -1416,10 +1692,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
               if (isCustomPeriod && customStartDate != null)
                 Text(
                   '${DateFormat('dd/MM').format(customStartDate!)} - ${DateFormat('dd/MM').format(customEndDate!)}',
-                  style: const TextStyle(
-                    fontSize: 9, // Reduced from 11
-                    color: Color(0xFF0A4D2E),
-                  ),
+                  style: const TextStyle(fontSize: 9, color: Color(0xFF0A4D2E)),
                 ),
             ],
           ),
@@ -1554,8 +1827,6 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
     return Column(
       children: [
         _buildTimePeriodSelector(),
-
-        // Period Name Card
         Container(
           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Container(
@@ -1608,7 +1879,6 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
             ),
           ),
         ),
-
         Expanded(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(12),
@@ -1639,6 +1909,20 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                     currentIncentiveData!,
                     Colors.green,
                     'phone',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _buildIncentiveCard(
+                  title: 'TV Sales',
+                  icon: Icons.tv,
+                  color: Colors.red,
+                  data: currentIncentiveData!,
+                  type: 'tv',
+                  onTap: () => _showDetailedCalculation(
+                    'TV Sales Incentive',
+                    currentIncentiveData!,
+                    Colors.red,
+                    'tv',
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -1702,6 +1986,14 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
         saleCount = data.phoneSaleCount;
         incentive = data.phoneIncentive;
         ruleText = '20+ phones & ₹3L+: Per-phone incentive';
+        break;
+      case 'tv':
+        totalAmount = data.tvTotalAmount;
+        saleCount = data.tvSaleCount;
+        incentive = data.tvIncentive;
+        ruleText = saleCount <= 10
+            ? '₹30/piece (1-10 pieces)'
+            : '₹50/piece (10+ pieces)';
         break;
       case 'secondPhone':
         totalAmount = data.secondPhoneTotalAmount;
@@ -1902,6 +2194,7 @@ class IncentiveData {
   final int accessoriesSaleCount;
   final double accessoriesIncentive;
   final List<Map<String, dynamic>> accessoriesBreakdown;
+  final List<Map<String, dynamic>> accessoriesSalesList;
 
   final double phoneTotalAmount;
   final int phoneSaleCount;
@@ -1909,6 +2202,12 @@ class IncentiveData {
   final List<Map<String, dynamic>> phoneBreakdown;
   final List<Map<String, dynamic>> phonePriceDetails;
   final List<Map<String, dynamic>> phoneSalesList;
+
+  final double tvTotalAmount;
+  final int tvSaleCount;
+  final double tvIncentive;
+  final List<Map<String, dynamic>> tvBreakdown;
+  final List<Map<String, dynamic>> tvSalesList;
 
   final double secondPhoneTotalAmount;
   final int secondPhoneSaleCount;
@@ -1929,12 +2228,18 @@ class IncentiveData {
     required this.accessoriesSaleCount,
     required this.accessoriesIncentive,
     required this.accessoriesBreakdown,
+    required this.accessoriesSalesList,
     required this.phoneTotalAmount,
     required this.phoneSaleCount,
     required this.phoneIncentive,
     required this.phoneBreakdown,
     required this.phonePriceDetails,
     required this.phoneSalesList,
+    required this.tvTotalAmount,
+    required this.tvSaleCount,
+    required this.tvIncentive,
+    required this.tvBreakdown,
+    required this.tvSalesList,
     required this.secondPhoneTotalAmount,
     required this.secondPhoneSaleCount,
     required this.secondPhoneIncentive,

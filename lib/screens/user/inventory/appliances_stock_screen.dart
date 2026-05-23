@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../../../providers/auth_provider.dart';
-import '../sale/gst_accessories_sale_upload.dart';
+import './appliance_bill_form.dart';
 
 class AppliancesStockScreen extends StatefulWidget {
   const AppliancesStockScreen({super.key});
@@ -712,7 +712,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
       double sellingPrice =
           (modelData['productPrice'] as num?)?.toDouble() ?? 0;
 
-      // Create controllers properly
       final quantityController = TextEditingController(text: '1');
       final priceController = TextEditingController(
         text: sellingPrice.toStringAsFixed(0),
@@ -911,38 +910,19 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
         return;
       }
 
-      // Now selectedQuantity and sellingPrice have the correct values
-      final productData = {
-        'productName': modelData['productName'],
-        'productBrand': modelData['productBrand'],
-        'productPrice': modelData['productPrice'],
-        'quantity': selectedQuantity,
-        'modelId': modelId,
-        'sellingPrice': sellingPrice,
-        'totalAmount': selectedQuantity * sellingPrice,
-        'category': _fixedCategory,
-        'originalQuantity': currentQuantity,
-        'billType': 'applianceSale',
-      };
+      setState(() => _isLoading = true);
 
-      final gstResult = await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(
-          builder: (context) =>
-              GSTAccessoriesSaleUpload(productData: productData),
-        ),
-      );
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final user = authProvider.user;
 
-      if (gstResult == true && mounted) {
-        setState(() => _isLoading = true);
+      final DocumentReference stockRef = _firestore
+          .collection('applianceStock')
+          .doc(modelId);
 
-        final authProvider = Provider.of<AuthProvider>(context, listen: false);
-        final user = authProvider.user;
+      bool stockUpdated = false;
+      int newQuantityAfterSale = 0;
 
-        final DocumentReference stockRef = _firestore
-            .collection('applianceStock')
-            .doc(modelId);
-
+      try {
         await _firestore.runTransaction((transaction) async {
           final stockSnapshot = await transaction.get(stockRef);
 
@@ -965,9 +945,9 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
             );
           }
 
-          final newQuantity = currentStockQuantity - selectedQuantity;
+          newQuantityAfterSale = currentStockQuantity - selectedQuantity;
 
-          if (newQuantity == 0) {
+          if (newQuantityAfterSale == 0) {
             transaction.update(stockRef, {
               'status': 'sold',
               'quantity': 0,
@@ -983,7 +963,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
             });
           } else {
             transaction.update(stockRef, {
-              'quantity': newQuantity,
+              'quantity': newQuantityAfterSale,
               'lastUpdatedAt': FieldValue.serverTimestamp(),
               'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
             });
@@ -1008,17 +988,55 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
             'originalStockId': modelId,
             'billGenerated': true,
             'billGeneratedAt': FieldValue.serverTimestamp(),
-            'remainingQuantity': newQuantity,
+            'remainingQuantity': newQuantityAfterSale,
           });
+
+          stockUpdated = true;
         });
 
-        setState(() => _isLoading = false);
-        _showSuccess('$selectedQuantity unit(s) sold successfully!');
+        if (!stockUpdated) {
+          throw Exception('Stock update failed');
+        }
 
-        // Clear the controllers
+        final productDataForBill = {
+          'productName': modelData['productName'],
+          'productBrand': modelData['productBrand'],
+          'productPrice': modelData['productPrice'],
+          'quantity': selectedQuantity,
+          'modelId': modelId,
+          'sellingPrice': sellingPrice,
+          'totalAmount': selectedQuantity * sellingPrice,
+          'category': _fixedCategory,
+          'originalQuantity': currentQuantity,
+          'billType': 'applianceSale',
+          'stockAlreadyUpdated': true,
+          'newStockQuantity': newQuantityAfterSale,
+        };
+
+        final gstResult = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ApplianaceSaleUpload(
+              productData: productDataForBill,
+              isStockAlreadyUpdated: true,
+            ),
+          ),
+        );
+
+        if (gstResult == true && mounted) {
+          _showSuccess('$selectedQuantity unit(s) sold successfully!');
+        } else if (gstResult == false && mounted) {
+          _showSuccess(
+            'Stock has been updated. Please complete the bill to finish the sale.',
+          );
+        }
+
         _sellQuantityController.clear();
         _sellPriceController.clear();
         setState(() => _selectedModelForAction = null);
+      } catch (e) {
+        print('Error updating stock: $e');
+        _showError('Failed to update stock: ${e.toString()}');
       }
     } catch (e) {
       print('Error in _markAsSold: $e');
@@ -2692,15 +2710,16 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                                   'category': _fixedCategory,
                                   'originalQuantity': quantity,
                                   'billType': 'applianceSale',
+                                  'stockAlreadyUpdated': true,
                                 };
 
                                 final gstResult = await Navigator.push<bool>(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (context) =>
-                                        GSTAccessoriesSaleUpload(
-                                          productData: productData,
-                                        ),
+                                    builder: (context) => ApplianaceSaleUpload(
+                                      productData: productData,
+                                      isStockAlreadyUpdated: true,
+                                    ),
                                   ),
                                 );
 
