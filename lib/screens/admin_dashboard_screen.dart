@@ -1533,7 +1533,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
           _buildDrawerItem(
             Icons.inventory,
-            'Inventory Details',
+            'Phone Stock',
             onTap: () {
               Navigator.pop(context);
               Navigator.push(
