@@ -1,9 +1,9 @@
-// screens/user/incentive/incentive_screen.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../providers/auth_provider.dart';
+import '../../../models/sale.dart';
 
 class IncentiveScreen extends StatefulWidget {
   const IncentiveScreen({super.key});
@@ -17,13 +17,11 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
   IncentiveData? currentIncentiveData;
   String? errorMessage;
 
-  // Time period selection
   String selectedTimePeriod = 'current_month';
   DateTime? customStartDate;
   DateTime? customEndDate;
   bool isCustomPeriod = false;
 
-  // Date ranges
   DateTime currentStartDate = DateTime.now();
   DateTime currentEndDate = DateTime.now();
   String currentPeriodName = '';
@@ -232,7 +230,6 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
         final isInRange = _isDateInRange(saleDate, startDate, endDate);
 
         if (isInRange) {
-          // Calculate amount - prioritize totalSaleAmount
           final totalSaleAmount =
               (saleData['totalSaleAmount'] as num?)?.toDouble() ?? 0;
           final accessoriesAmount =
@@ -525,7 +522,6 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
   }
 
   DateTime _getSaleDate(Map<String, dynamic> data) {
-    // Try to get date from Timestamp fields
     if (data['date'] is Timestamp) {
       return (data['date'] as Timestamp).toDate();
     }
@@ -542,7 +538,6 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
       return (data['saleDate'] as Timestamp).toDate();
     }
 
-    // Try dateString field
     if (data['dateString'] != null && data['dateString'] is String) {
       try {
         return DateTime.parse(data['dateString']);
@@ -551,7 +546,6 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
       }
     }
 
-    // Try individual date components
     if (data['year'] != null && data['month'] != null && data['day'] != null) {
       try {
         return DateTime(
@@ -564,7 +558,6 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
       }
     }
 
-    // Fallback to current date
     print('Could not parse date from data: $data');
     return DateTime.now();
   }
@@ -574,12 +567,10 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
   }
 
   bool _isDateInRange(DateTime date, DateTime startDate, DateTime endDate) {
-    // Create date-only versions (without time)
     final dateOnly = DateTime(date.year, date.month, date.day);
     final startOnly = DateTime(startDate.year, startDate.month, startDate.day);
     final endOnly = DateTime(endDate.year, endDate.month, endDate.day);
 
-    // Check if date is between start and end (inclusive)
     return dateOnly.isAfter(startOnly.subtract(const Duration(days: 1))) &&
         dateOnly.isBefore(endOnly.add(const Duration(days: 1)));
   }

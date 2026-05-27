@@ -121,12 +121,10 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     'Samsung Finance',
     'Oppo Finance',
     'Vivo Finance',
-    'Mi Finance',
     'yoga kshema Finance',
+    'MI Finance',
     'First credit private Finance',
-    'ICICI Bank',
-    'HDFC Bank',
-    'Axis Bank',
+    'Chola Murugappa',
     'Other',
   ];
 

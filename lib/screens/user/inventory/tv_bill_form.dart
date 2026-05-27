@@ -63,14 +63,12 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
     'TVS Credit',
     'HDB Financial',
     'Samsung Finance',
-    'LG Finance',
-    'Sony Finance',
+    'Oppo Finance',
+    'Vivo Finance',
     'yoga kshema Finance',
     'MI Finance',
     'First credit private Finance',
-    'ICICI Bank',
-    'HDFC Bank',
-    'Axis Bank',
+    'Chola Murugappa',
     'Other',
   ];
 

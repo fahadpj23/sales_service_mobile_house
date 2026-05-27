@@ -26,759 +26,286 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
   DateTime? customEndDate;
   bool isCustomPeriod = false;
   Map<String, ShopIncentiveData> shopIncentives = {};
-  Map<String, bool> shopLoadingStatus = {};
-  bool isLoading = false;
-  bool isInitialLoad = true;
+  Map<String, ShopIncentiveData> lastMonthIncentives = {};
 
   @override
   void initState() {
     super.initState();
     _calculateAllShopIncentives();
+    _calculateLastMonthIncentives();
   }
 
-  Future<void> _calculateAllShopIncentives() async {
-    setState(() {
-      isLoading = true;
-      isInitialLoad = true;
-      shopIncentives.clear();
-      shopLoadingStatus.clear();
+  void _calculateLastMonthIncentives() {
+    final now = DateTime.now();
+    final lastMonthStart = DateTime(now.year, now.month - 1, 1);
+    final lastMonthEnd = DateTime(now.year, now.month, 0);
 
-      // Initialize loading status for all shops
+    setState(() {
+      lastMonthIncentives.clear();
+
       for (var shop in widget.shops) {
         String shopId = shop['id'];
-        shopLoadingStatus[shopId] = true;
+        String shopName = shop['name'];
+
+        List<Sale> shopSales = widget.allSales
+            .where((sale) => sale.shopId == shopId || sale.shopName == shopName)
+            .toList();
+
+        List<Sale> lastMonthSales = shopSales.where((sale) {
+          DateTime saleDate = sale.date;
+          return saleDate.isAfter(
+                lastMonthStart.subtract(const Duration(seconds: 1)),
+              ) &&
+              saleDate.isBefore(lastMonthEnd.add(const Duration(seconds: 1)));
+        }).toList();
+
+        ShopIncentiveData incentiveData = _calculateShopIncentive(
+          shopName,
+          lastMonthSales,
+        );
+
+        lastMonthIncentives[shopId] = incentiveData;
       }
     });
+  }
 
-    // Fetch data for all shops in parallel
-    final List<Future> fetchFutures = [];
-    for (var shop in widget.shops) {
-      String shopId = shop['id'];
-      String shopName = shop['name'];
-      fetchFutures.add(_fetchShopData(shopId, shopName));
-    }
-
-    await Future.wait(fetchFutures);
-
+  void _calculateAllShopIncentives() {
     setState(() {
-      isLoading = false;
-      isInitialLoad = false;
+      shopIncentives.clear();
+
+      for (var shop in widget.shops) {
+        String shopId = shop['id'];
+        String shopName = shop['name'];
+
+        List<Sale> shopSales = widget.allSales
+            .where((sale) => sale.shopId == shopId || sale.shopName == shopName)
+            .toList();
+
+        List<Sale> filteredSales = _filterSalesByPeriod(shopSales);
+
+        ShopIncentiveData incentiveData = _calculateShopIncentive(
+          shopName,
+          filteredSales,
+        );
+
+        shopIncentives[shopId] = incentiveData;
+      }
     });
   }
 
-  Future<void> _fetchShopData(String shopId, String shopName) async {
-    try {
-      DateTime startDate;
-      DateTime endDate;
-      final now = DateTime.now();
+  List<Sale> _filterSalesByPeriod(List<Sale> sales) {
+    DateTime startDate;
+    DateTime endDate;
+    final now = DateTime.now();
 
-      if (isCustomPeriod && customStartDate != null && customEndDate != null) {
-        startDate = DateTime(
-          customStartDate!.year,
-          customStartDate!.month,
-          customStartDate!.day,
-          0,
-          0,
-          0,
-        );
-        endDate = DateTime(
-          customEndDate!.year,
-          customEndDate!.month,
-          customEndDate!.day,
-          23,
-          59,
-          59,
-          999,
-        );
-      } else {
-        switch (selectedTimePeriod) {
-          case 'daily':
-            startDate = DateTime(now.year, now.month, now.day, 0, 0, 0);
-            endDate = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
-            break;
-          case 'monthly':
-            startDate = DateTime(now.year, now.month, 1, 0, 0, 0);
-            endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999);
-            break;
-          case 'yearly':
-            startDate = DateTime(now.year, 1, 1, 0, 0, 0);
-            endDate = DateTime(now.year, 12, 31, 23, 59, 59, 999);
-            break;
-          default:
-            startDate = DateTime(now.year, now.month, 1, 0, 0, 0);
-            endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999);
-        }
-      }
-
-      // Fetch all sales data from Firestore collections in parallel
-      final results = await Future.wait([
-        _fetchAccessoriesSales(shopId, startDate, endDate),
-        _fetchPhoneSales(shopId, startDate, endDate),
-        _fetchTvSales(shopId, startDate, endDate),
-        _fetchSecondPhoneSales(shopId, startDate, endDate),
-        _fetchBaseModelSales(shopId, startDate, endDate),
-      ]);
-
-      final accessoriesData = results[0];
-      final phoneData = results[1];
-      final tvData = results[2];
-      final secondPhoneData = results[3];
-      final baseModelData = results[4];
-
-      final accessoriesIncentive = _calculateAccessoriesIncentive(
-        accessoriesData,
+    if (isCustomPeriod && customStartDate != null && customEndDate != null) {
+      startDate = DateTime(
+        customStartDate!.year,
+        customStartDate!.month,
+        customStartDate!.day,
+        0,
+        0,
+        0,
       );
-      final phoneIncentive = _calculatePhoneIncentive(phoneData);
-      final tvIncentive = _calculateTvIncentive(tvData);
-      final secondPhoneIncentive = _calculateSecondPhoneIncentive(
-        secondPhoneData,
+      endDate = DateTime(
+        customEndDate!.year,
+        customEndDate!.month,
+        customEndDate!.day,
+        23,
+        59,
+        59,
+        999,
       );
-      final baseModelIncentive = _calculateBaseModelIncentive(baseModelData);
-
-      final incentiveData = ShopIncentiveData(
-        shopName: shopName,
-        totalSales:
-            (accessoriesData['totalAmount'] as double? ?? 0) +
-            (phoneData['totalAmount'] as double? ?? 0) +
-            (tvData['totalAmount'] as double? ?? 0) +
-            (secondPhoneData['totalAmount'] as double? ?? 0) +
-            (baseModelData['totalAmount'] as double? ?? 0),
-        accessoriesTotal: accessoriesData['totalAmount'] as double? ?? 0,
-        accessoriesIncentive: accessoriesIncentive['amount'] as double? ?? 0,
-        accessoriesBreakdown: List<Map<String, dynamic>>.from(
-          accessoriesIncentive['breakdown'] as List? ?? [],
-        ),
-        accessoriesSalesList: List<Map<String, dynamic>>.from(
-          accessoriesData['sales'] as List? ?? [],
-        ),
-        phoneTotalAmount: phoneData['totalAmount'] as double? ?? 0,
-        phoneCount: phoneData['count'] as int? ?? 0,
-        phoneIncentive: phoneIncentive['amount'] as double? ?? 0,
-        phoneBreakdown: List<Map<String, dynamic>>.from(
-          phoneIncentive['breakdown'] as List? ?? [],
-        ),
-        phonePriceDetails: List<Map<String, dynamic>>.from(
-          phoneData['priceDetails'] as List? ?? [],
-        ),
-        phoneSalesList: List<Map<String, dynamic>>.from(
-          phoneData['sales'] as List? ?? [],
-        ),
-        tvTotalAmount: tvData['totalAmount'] as double? ?? 0,
-        tvCount: tvData['count'] as int? ?? 0,
-        tvIncentive: tvIncentive['amount'] as double? ?? 0,
-        tvBreakdown: List<Map<String, dynamic>>.from(
-          tvIncentive['breakdown'] as List? ?? [],
-        ),
-        tvSalesList: List<Map<String, dynamic>>.from(
-          tvData['sales'] as List? ?? [],
-        ),
-        secondPhoneTotalAmount: secondPhoneData['totalAmount'] as double? ?? 0,
-        secondPhoneCount: secondPhoneData['count'] as int? ?? 0,
-        secondPhoneIncentive: secondPhoneIncentive['amount'] as double? ?? 0,
-        secondPhoneBreakdown: List<Map<String, dynamic>>.from(
-          secondPhoneIncentive['breakdown'] as List? ?? [],
-        ),
-        secondPhoneSalesList: List<Map<String, dynamic>>.from(
-          secondPhoneData['sales'] as List? ?? [],
-        ),
-        baseModelTotalAmount: baseModelData['totalAmount'] as double? ?? 0,
-        baseModelCount: baseModelData['count'] as int? ?? 0,
-        baseModelIncentive: baseModelIncentive['amount'] as double? ?? 0,
-        baseModelBreakdown: List<Map<String, dynamic>>.from(
-          baseModelIncentive['breakdown'] as List? ?? [],
-        ),
-        baseModelSalesList: List<Map<String, dynamic>>.from(
-          baseModelData['sales'] as List? ?? [],
-        ),
-        totalIncentive:
-            (accessoriesIncentive['amount'] as double? ?? 0) +
-            (phoneIncentive['amount'] as double? ?? 0) +
-            (tvIncentive['amount'] as double? ?? 0) +
-            (secondPhoneIncentive['amount'] as double? ?? 0) +
-            (baseModelIncentive['amount'] as double? ?? 0),
-      );
-
-      setState(() {
-        shopIncentives[shopId] = incentiveData;
-        shopLoadingStatus[shopId] = false;
-      });
-    } catch (e) {
-      print('Error fetching data for shop $shopName: $e');
-      setState(() {
-        shopIncentives[shopId] = ShopIncentiveData(
-          shopName: shopName,
-          totalSales: 0,
-          accessoriesTotal: 0,
-          accessoriesIncentive: 0,
-          accessoriesBreakdown: [],
-          accessoriesSalesList: [],
-          phoneTotalAmount: 0,
-          phoneCount: 0,
-          phoneIncentive: 0,
-          phoneBreakdown: [],
-          phonePriceDetails: [],
-          phoneSalesList: [],
-          tvTotalAmount: 0,
-          tvCount: 0,
-          tvIncentive: 0,
-          tvBreakdown: [],
-          tvSalesList: [],
-          secondPhoneTotalAmount: 0,
-          secondPhoneCount: 0,
-          secondPhoneIncentive: 0,
-          secondPhoneBreakdown: [],
-          secondPhoneSalesList: [],
-          baseModelTotalAmount: 0,
-          baseModelCount: 0,
-          baseModelIncentive: 0,
-          baseModelBreakdown: [],
-          baseModelSalesList: [],
-          totalIncentive: 0,
-        );
-        shopLoadingStatus[shopId] = false;
-      });
-    }
-  }
-
-  Future<Map<String, dynamic>> _fetchAccessoriesSales(
-    String shopId,
-    DateTime startDate,
-    DateTime endDate,
-  ) async {
-    final Map<String, dynamic> data = {
-      'totalAmount': 0.0,
-      'count': 0,
-      'sales': <Map<String, dynamic>>[],
-    };
-
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('accessories_service_sales')
-          .where('shopId', isEqualTo: shopId)
-          .get();
-
-      for (var doc in snapshot.docs) {
-        final saleData = doc.data();
-        final saleDate = _getSaleDate(saleData);
-
-        if (_isDateInRange(saleDate, startDate, endDate)) {
-          final totalSaleAmount =
-              (saleData['totalSaleAmount'] as num?)?.toDouble() ?? 0;
-          final accessoriesAmount =
-              (saleData['accessoriesAmount'] as num?)?.toDouble() ?? 0;
-          final serviceAmount =
-              (saleData['serviceAmount'] as num?)?.toDouble() ?? 0;
-
-          double amount;
-          if (totalSaleAmount > 0) {
-            amount = totalSaleAmount;
-          } else {
-            amount = accessoriesAmount + serviceAmount;
-          }
-
-          data['totalAmount'] = (data['totalAmount'] as double) + amount;
-          data['count'] = (data['count'] as int) + 1;
-
-          (data['sales'] as List<Map<String, dynamic>>).add({
-            'amount': amount,
-            'date': saleDate,
-            'customerName': saleData['customerName'] ?? 'Walk-in Customer',
-            'productName': 'Accessories & Service',
-            'accessoriesAmount': accessoriesAmount,
-            'serviceAmount': serviceAmount,
-            'totalSaleAmount': totalSaleAmount,
-            'items': saleData['items'] ?? [],
-            'paymentBreakdown': {
-              'cash': saleData['cashAmount'] ?? 0,
-              'gpay': saleData['gpayAmount'] ?? 0,
-              'card': saleData['cardAmount'] ?? 0,
-            },
-          });
-        }
-      }
-    } catch (e) {
-      print('Error fetching accessories sales: $e');
-    }
-
-    return data;
-  }
-
-  Future<Map<String, dynamic>> _fetchPhoneSales(
-    String shopId,
-    DateTime startDate,
-    DateTime endDate,
-  ) async {
-    final Map<String, dynamic> data = {
-      'totalAmount': 0.0,
-      'count': 0,
-      'priceDetails': <Map<String, dynamic>>[],
-      'sales': <Map<String, dynamic>>[],
-    };
-
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('phoneSales')
-          .where('shopId', isEqualTo: shopId)
-          .get();
-
-      for (var doc in snapshot.docs) {
-        final saleData = doc.data();
-        final saleDate = _getSaleDate(saleData);
-
-        if (_isDateInRange(saleDate, startDate, endDate)) {
-          final amount =
-              (saleData['effectivePrice'] as num?)?.toDouble() ??
-              (saleData['price'] as num?)?.toDouble() ??
-              0;
-
-          data['totalAmount'] = (data['totalAmount'] as double) + amount;
-          data['count'] = (data['count'] as int) + 1;
-
-          final incentiveInfo = _getPhoneIncentiveInfo(amount);
-
-          (data['priceDetails'] as List<Map<String, dynamic>>).add({
-            'amount': amount,
-            'bracket': incentiveInfo['bracket'] as String,
-            'incentive': incentiveInfo['incentive'] as double,
-            'productName':
-                saleData['productModel'] ?? saleData['productName'] ?? 'Phone',
-            'date': saleDate,
-          });
-
-          (data['sales'] as List<Map<String, dynamic>>).add({
-            'amount': amount,
-            'productName':
-                saleData['productModel'] ?? saleData['productName'] ?? 'Phone',
-            'customerName': saleData['customerName'] ?? 'Walk-in Customer',
-            'date': saleDate,
-            'bracket': incentiveInfo['bracket'] as String,
-            'incentive': incentiveInfo['incentive'] as double,
-          });
-        }
-      }
-    } catch (e) {
-      print('Error fetching phone sales: $e');
-    }
-
-    return data;
-  }
-
-  Future<Map<String, dynamic>> _fetchTvSales(
-    String shopId,
-    DateTime startDate,
-    DateTime endDate,
-  ) async {
-    final Map<String, dynamic> data = {
-      'totalAmount': 0.0,
-      'count': 0,
-      'sales': <Map<String, dynamic>>[],
-    };
-
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('bills')
-          .where('shopId', isEqualTo: shopId)
-          .where('type', isEqualTo: 'tv')
-          .get();
-
-      for (var doc in snapshot.docs) {
-        final saleData = doc.data();
-        final saleDate = _getSaleDate(saleData);
-
-        if (_isDateInRange(saleDate, startDate, endDate)) {
-          final amount = (saleData['totalAmount'] as num?)?.toDouble() ?? 0;
-
-          data['totalAmount'] = (data['totalAmount'] as double) + amount;
-          data['count'] = (data['count'] as int) + 1;
-
-          (data['sales'] as List<Map<String, dynamic>>).add({
-            'amount': amount,
-            'productName':
-                saleData['modelName'] ?? saleData['productName'] ?? 'TV',
-            'customerName': saleData['customerName'] ?? 'Walk-in Customer',
-            'date': saleDate,
-            'modelBrand':
-                saleData['originalTvData']?['modelBrand'] ?? 'Unknown',
-            'serialNumber': saleData['serialNumber'] ?? '',
-          });
-        }
-      }
-    } catch (e) {
-      print('Error fetching TV sales: $e');
-    }
-
-    return data;
-  }
-
-  Future<Map<String, dynamic>> _fetchSecondPhoneSales(
-    String shopId,
-    DateTime startDate,
-    DateTime endDate,
-  ) async {
-    final Map<String, dynamic> data = {
-      'totalAmount': 0.0,
-      'count': 0,
-      'sales': <Map<String, dynamic>>[],
-    };
-
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('seconds_phone_sale')
-          .where('shopId', isEqualTo: shopId)
-          .get();
-
-      for (var doc in snapshot.docs) {
-        final saleData = doc.data();
-        final saleDate = _getSaleDate(saleData);
-
-        if (_isDateInRange(saleDate, startDate, endDate)) {
-          final amount =
-              (saleData['price'] as num?)?.toDouble() ??
-              (saleData['totalPayment'] as num?)?.toDouble() ??
-              0;
-
-          data['totalAmount'] = (data['totalAmount'] as double) + amount;
-          data['count'] = (data['count'] as int) + 1;
-
-          (data['sales'] as List<Map<String, dynamic>>).add({
-            'amount': amount,
-            'productName': saleData['productName'] ?? 'Second Phone',
-            'customerName': saleData['customerName'] ?? 'Walk-in Customer',
-            'date': saleDate,
-            'imei': saleData['imei'] ?? '',
-            'brand': saleData['brand'] ?? '',
-          });
-        }
-      }
-    } catch (e) {
-      print('Error fetching second phone sales: $e');
-    }
-
-    return data;
-  }
-
-  Future<Map<String, dynamic>> _fetchBaseModelSales(
-    String shopId,
-    DateTime startDate,
-    DateTime endDate,
-  ) async {
-    final Map<String, dynamic> data = {
-      'totalAmount': 0.0,
-      'count': 0,
-      'sales': <Map<String, dynamic>>[],
-    };
-
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('base_model_sale')
-          .where('shopId', isEqualTo: shopId)
-          .get();
-
-      for (var doc in snapshot.docs) {
-        final saleData = doc.data();
-        final saleDate = _getSaleDate(saleData);
-
-        if (_isDateInRange(saleDate, startDate, endDate)) {
-          final amount =
-              (saleData['price'] as num?)?.toDouble() ??
-              (saleData['totalPayment'] as num?)?.toDouble() ??
-              0;
-
-          data['totalAmount'] = (data['totalAmount'] as double) + amount;
-          data['count'] = (data['count'] as int) + 1;
-
-          (data['sales'] as List<Map<String, dynamic>>).add({
-            'amount': amount,
-            'productName':
-                saleData['modelName'] ??
-                saleData['productName'] ??
-                'Base Model',
-            'customerName': saleData['customerName'] ?? 'Walk-in Customer',
-            'date': saleDate,
-            'brand': saleData['brand'] ?? '',
-          });
-        }
-      }
-    } catch (e) {
-      print('Error fetching base model sales: $e');
-    }
-
-    return data;
-  }
-
-  Map<String, dynamic> _getPhoneIncentiveInfo(double amount) {
-    String bracket;
-    double incentive;
-    if (amount < 15000) {
-      bracket = 'Below ₹15,000';
-      incentive = 30;
-    } else if (amount < 25000) {
-      bracket = '₹15,000 - ₹24,999';
-      incentive = 40;
-    } else if (amount < 35000) {
-      bracket = '₹25,000 - ₹34,999';
-      incentive = 50;
-    } else if (amount < 45000) {
-      bracket = '₹35,000 - ₹44,999';
-      incentive = 70;
-    } else if (amount < 60000) {
-      bracket = '₹45,000 - ₹59,999';
-      incentive = 90;
-    } else if (amount < 80000) {
-      bracket = '₹60,000 - ₹79,999';
-      incentive = 130;
-    } else if (amount < 100000) {
-      bracket = '₹80,000 - ₹99,999';
-      incentive = 150;
     } else {
-      bracket = '₹1,00,000+';
-      incentive = 200;
-    }
-    return {'bracket': bracket, 'incentive': incentive};
-  }
-
-  DateTime _getSaleDate(Map<String, dynamic> data) {
-    if (data['date'] is Timestamp) {
-      return (data['date'] as Timestamp).toDate();
-    }
-    if (data['uploadedAt'] is Timestamp) {
-      return (data['uploadedAt'] as Timestamp).toDate();
-    }
-    if (data['billDate'] is Timestamp) {
-      return (data['billDate'] as Timestamp).toDate();
-    }
-    if (data['timestamp'] is Timestamp) {
-      return (data['timestamp'] as Timestamp).toDate();
-    }
-    if (data['saleDate'] is Timestamp) {
-      return (data['saleDate'] as Timestamp).toDate();
-    }
-    if (data['dateString'] != null && data['dateString'] is String) {
-      try {
-        return DateTime.parse(data['dateString']);
-      } catch (e) {
-        print('Error parsing dateString: $e');
+      switch (selectedTimePeriod) {
+        case 'daily':
+          startDate = DateTime(now.year, now.month, now.day, 0, 0, 0);
+          endDate = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
+          break;
+        case 'monthly':
+          startDate = DateTime(now.year, now.month, 1, 0, 0, 0);
+          endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999);
+          break;
+        case 'yearly':
+          startDate = DateTime(now.year, 1, 1, 0, 0, 0);
+          endDate = DateTime(now.year, 12, 31, 23, 59, 59, 999);
+          break;
+        default:
+          startDate = DateTime(now.year, now.month, 1, 0, 0, 0);
+          endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999);
       }
     }
-    if (data['year'] != null && data['month'] != null && data['day'] != null) {
-      try {
-        return DateTime(
-          (data['year'] as num).toInt(),
-          (data['month'] as num).toInt(),
-          (data['day'] as num).toInt(),
-        );
-      } catch (e) {
-        print('Error parsing date components: $e');
-      }
-    }
-    return DateTime.now();
+
+    return sales.where((sale) {
+      DateTime saleDate = sale.date;
+      return saleDate.isAfter(startDate.subtract(const Duration(seconds: 1))) &&
+          saleDate.isBefore(endDate.add(const Duration(seconds: 1)));
+    }).toList();
   }
 
-  bool _isDateInRange(DateTime date, DateTime startDate, DateTime endDate) {
-    final dateOnly = DateTime(date.year, date.month, date.day);
-    final startOnly = DateTime(startDate.year, startDate.month, startDate.day);
-    final endOnly = DateTime(endDate.year, endDate.month, endDate.day);
-    return dateOnly.isAfter(startOnly.subtract(const Duration(days: 1))) &&
-        dateOnly.isBefore(endOnly.add(const Duration(days: 1)));
-  }
+  ShopIncentiveData _calculateShopIncentive(String shopName, List<Sale> sales) {
+    // Calculate Accessories & Service Incentive
+    double accessoriesTotal = sales
+        .where((s) => s.type == 'accessories_service_sale')
+        .fold(0.0, (sum, s) => sum + s.amount);
 
-  Map<String, dynamic> _calculateAccessoriesIncentive(
-    Map<String, dynamic> salesData,
-  ) {
-    final totalAmount = salesData['totalAmount'] as double? ?? 0;
-
-    if (totalAmount <= 100000) {
-      return {
-        'amount': 0.0,
-        'breakdown': [
-          {
-            'message': 'Total sales below ₹1,00,000 - No incentive',
-            'amount': 0,
-          },
-        ],
-      };
-    }
-
-    double incentive = 1000;
-    List<Map<String, dynamic>> breakdown = [
-      {
-        'title': 'Base Incentive',
-        'calculation': 'Sales > ₹1,00,000',
-        'amount': 1000,
-      },
-    ];
-
-    final amountAboveLakh = totalAmount - 100000;
-    final additionalThousands = (amountAboveLakh / 10000).floor();
-    final additionalIncentive = additionalThousands * 200;
-
-    if (additionalThousands > 0) {
-      incentive += additionalIncentive;
-      breakdown.add({
-        'title': 'Additional Incentive',
-        'calculation':
-            '₹${amountAboveLakh.toStringAsFixed(0)} above → ${additionalThousands} × ₹200',
-        'amount': additionalIncentive,
-      });
-    }
-
-    return {'amount': incentive, 'breakdown': breakdown};
-  }
-
-  Map<String, dynamic> _calculatePhoneIncentive(
-    Map<String, dynamic> salesData,
-  ) {
-    final totalAmount = salesData['totalAmount'] as double? ?? 0;
-    final saleCount = salesData['count'] as int? ?? 0;
-    final priceDetails = List<Map<String, dynamic>>.from(
-      salesData['priceDetails'] as List? ?? [],
+    double accessoriesIncentive = _calculateAccessoriesIncentive(
+      accessoriesTotal,
     );
 
-    if (saleCount >= 20 && totalAmount >= 300000) {
-      double totalIncentive = 0;
-      List<Map<String, dynamic>> breakdown = [
-        {
-          'title': 'Qualification Met',
-          'calculation':
-              '$saleCount phones | ₹${(totalAmount / 1000).toStringAsFixed(0)}k',
-          'amount': 0,
-          'note': 'No base incentive, only per-phone incentives apply',
-        },
-      ];
+    // Calculate Phone Sales Incentive
+    List<Sale> phoneSales = sales.where((s) => s.type == 'phone_sale').toList();
+    double phoneTotalAmount = phoneSales.fold(0.0, (sum, s) => sum + s.amount);
+    int phoneCount = phoneSales.length;
+    double phoneIncentive = _calculatePhoneIncentive(
+      phoneSales,
+      phoneCount,
+      phoneTotalAmount,
+    );
 
-      Map<String, Map<String, dynamic>> bracketGroups = {};
+    // Calculate TV Sales Incentive
+    List<Sale> tvSales = sales.where((s) => s.type == 'tv_sale').toList();
+    int tvCount = tvSales.length;
+    double tvIncentive = _calculateTvIncentive(tvCount);
 
-      for (var phone in priceDetails) {
-        final bracket = phone['bracket'] as String;
-        final incentiveAmount = phone['incentive'] as double;
+    // Calculate Second Phone Incentive
+    List<Sale> secondPhoneSales = sales
+        .where((s) => s.type == 'seconds_phone_sale')
+        .toList();
+    int secondPhoneCount = secondPhoneSales.length;
+    double secondPhoneIncentive = _calculateSecondPhoneIncentive(
+      secondPhoneCount,
+    );
 
-        if (!bracketGroups.containsKey(bracket)) {
-          bracketGroups[bracket] = {
-            'count': 0,
-            'totalIncentive': 0,
-            'incentivePerPhone': incentiveAmount,
-          };
-        }
-        bracketGroups[bracket]!['count'] =
-            (bracketGroups[bracket]!['count'] as int) + 1;
-        bracketGroups[bracket]!['totalIncentive'] =
-            (bracketGroups[bracket]!['totalIncentive'] as double) +
-            incentiveAmount;
-        totalIncentive += incentiveAmount;
-      }
+    // Calculate Base Model Incentive
+    List<Sale> baseModelSales = sales
+        .where((s) => s.type == 'base_model_sale')
+        .toList();
+    int baseModelCount = baseModelSales.length;
+    double baseModelIncentive = _calculateBaseModelIncentive(baseModelCount);
 
-      for (var entry in bracketGroups.entries) {
-        breakdown.add({
-          'title': entry.key,
-          'calculation':
-              '${entry.value['count']} phones × ₹${entry.value['incentivePerPhone']}',
-          'amount': entry.value['totalIncentive'],
-        });
-      }
-
-      return {'amount': totalIncentive, 'breakdown': breakdown};
-    } else {
-      String reason = saleCount < 20 && totalAmount < 300000
-          ? 'Need 20+ phones ($saleCount) AND ₹3L+ value (₹${(totalAmount / 1000).toStringAsFixed(0)}k)'
-          : saleCount < 20
-          ? 'Need 20+ phones (currently $saleCount)'
-          : 'Need ₹3,00,000+ value (currently ₹${(totalAmount / 1000).toStringAsFixed(0)}k)';
-
-      return {
-        'amount': 0.0,
-        'breakdown': [
-          {'message': reason, 'amount': 0},
-        ],
-      };
-    }
+    return ShopIncentiveData(
+      shopName: shopName,
+      totalSales: sales.fold(0.0, (sum, s) => sum + s.amount),
+      accessoriesTotal: accessoriesTotal,
+      accessoriesIncentive: accessoriesIncentive,
+      phoneTotalAmount: phoneTotalAmount,
+      phoneCount: phoneCount,
+      phoneIncentive: phoneIncentive,
+      phonePriceDetails: _getPhonePriceDetails(phoneSales),
+      tvCount: tvCount,
+      tvIncentive: tvIncentive,
+      secondPhoneCount: secondPhoneCount,
+      secondPhoneIncentive: secondPhoneIncentive,
+      baseModelCount: baseModelCount,
+      baseModelIncentive: baseModelIncentive,
+      totalIncentive:
+          accessoriesIncentive +
+          phoneIncentive +
+          tvIncentive +
+          secondPhoneIncentive +
+          baseModelIncentive,
+    );
   }
 
-  Map<String, dynamic> _calculateTvIncentive(Map<String, dynamic> salesData) {
-    final saleCount = salesData['count'] as int? ?? 0;
+  double _calculateAccessoriesIncentive(double totalAmount) {
+    if (totalAmount <= 100000) return 0;
 
-    if (saleCount < 1) {
-      return {
-        'amount': 0.0,
-        'breakdown': [
-          {'message': 'No TV sales recorded', 'amount': 0},
-        ],
-      };
-    }
+    double incentive = 1000;
+    final amountAboveLakh = totalAmount - 100000;
+    final additionalThousands = (amountAboveLakh / 10000).floor();
+    incentive += additionalThousands * 200;
 
-    double perPieceIncentive = saleCount <= 10 ? 30 : 50;
-    String rateText = saleCount <= 10 ? '₹30 per piece' : '₹50 per piece';
-    final totalIncentive = saleCount * perPieceIncentive;
-
-    return {
-      'amount': totalIncentive,
-      'breakdown': [
-        {
-          'title': 'TV Sales Incentive',
-          'calculation': '$saleCount × $rateText',
-          'amount': totalIncentive,
-        },
-      ],
-    };
+    return incentive;
   }
 
-  Map<String, dynamic> _calculateSecondPhoneIncentive(
-    Map<String, dynamic> salesData,
+  double _calculatePhoneIncentive(
+    List<Sale> phoneSales,
+    int count,
+    double totalAmount,
   ) {
-    final saleCount = salesData['count'] as int? ?? 0;
+    if (count < 20 || totalAmount < 300000) return 0;
 
-    if (saleCount < 1) {
-      return {
-        'amount': 0.0,
-        'breakdown': [
-          {'message': 'No second phone sales recorded', 'amount': 0},
-        ],
-      };
+    double totalIncentive = 0;
+    for (var sale in phoneSales) {
+      double price = sale.amount;
+      if (price < 15000) {
+        totalIncentive += 30;
+      } else if (price < 25000) {
+        totalIncentive += 40;
+      } else if (price < 35000) {
+        totalIncentive += 50;
+      } else if (price < 45000) {
+        totalIncentive += 70;
+      } else if (price < 60000) {
+        totalIncentive += 90;
+      } else if (price < 80000) {
+        totalIncentive += 130;
+      } else if (price < 100000) {
+        totalIncentive += 150;
+      } else {
+        totalIncentive += 200;
+      }
     }
-
-    double perPieceIncentive = saleCount <= 10 ? 30 : 40;
-    String rateText = saleCount <= 10 ? '₹30 per piece' : '₹40 per piece';
-    final totalIncentive = saleCount * perPieceIncentive;
-
-    return {
-      'amount': totalIncentive,
-      'breakdown': [
-        {
-          'title': 'Quantity Bonus',
-          'calculation': '$saleCount × $rateText',
-          'amount': totalIncentive,
-        },
-      ],
-    };
+    return totalIncentive;
   }
 
-  Map<String, dynamic> _calculateBaseModelIncentive(
-    Map<String, dynamic> salesData,
-  ) {
-    final saleCount = salesData['count'] as int? ?? 0;
+  double _calculateTvIncentive(int count) {
+    if (count == 0) return 0;
+    return count <= 10 ? count * 30 : count * 50;
+  }
 
-    if (saleCount < 1) {
-      return {
-        'amount': 0.0,
-        'breakdown': [
-          {'message': 'No base model sales recorded', 'amount': 0},
-        ],
-      };
+  double _calculateSecondPhoneIncentive(int count) {
+    if (count == 0) return 0;
+    return count <= 10 ? count * 30 : count * 40;
+  }
+
+  double _calculateBaseModelIncentive(int count) {
+    if (count == 0) return 0;
+    return count <= 10 ? count * 15 : count * 25;
+  }
+
+  List<Map<String, dynamic>> _getPhonePriceDetails(List<Sale> phoneSales) {
+    List<Map<String, dynamic>> details = [];
+    for (var sale in phoneSales) {
+      double price = sale.amount;
+      String bracket;
+      double incentive;
+      if (price < 15000) {
+        bracket = 'Below ₹15,000';
+        incentive = 30;
+      } else if (price < 25000) {
+        bracket = '₹15,000 - ₹24,999';
+        incentive = 40;
+      } else if (price < 35000) {
+        bracket = '₹25,000 - ₹34,999';
+        incentive = 50;
+      } else if (price < 45000) {
+        bracket = '₹35,000 - ₹44,999';
+        incentive = 70;
+      } else if (price < 60000) {
+        bracket = '₹45,000 - ₹59,999';
+        incentive = 90;
+      } else if (price < 80000) {
+        bracket = '₹60,000 - ₹79,999';
+        incentive = 130;
+      } else if (price < 100000) {
+        bracket = '₹80,000 - ₹99,999';
+        incentive = 150;
+      } else {
+        bracket = '₹1,00,000+';
+        incentive = 200;
+      }
+      details.add({
+        'productName': sale.itemName,
+        'price': price,
+        'bracket': bracket,
+        'incentive': incentive,
+        'customerName': sale.customerName,
+        'date': sale.date,
+      });
     }
-
-    double perPieceIncentive = saleCount <= 10 ? 15 : 25;
-    String rateText = saleCount <= 10 ? '₹15 per piece' : '₹25 per piece';
-    final totalIncentive = saleCount * perPieceIncentive;
-
-    return {
-      'amount': totalIncentive,
-      'breakdown': [
-        {
-          'title': 'Quantity Bonus',
-          'calculation': '$saleCount × $rateText',
-          'amount': totalIncentive,
-        },
-      ],
-    };
+    return details;
   }
 
   String _formatNumber(double number) {
@@ -828,6 +355,11 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _getPeriodDisplayText(),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
                   const SizedBox(height: 16),
                   Expanded(
                     child: SingleChildScrollView(
@@ -841,7 +373,6 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                             rules: [
                               '🎯 Base Incentive: ₹1,000 when sales exceed ₹1,00,000',
                               '📈 Additional: ₹200 for every ₹10,000 above ₹1,00,000',
-                              '📦 Source: accessories_service_sale collection',
                             ],
                           ),
                           const SizedBox(height: 12),
@@ -861,7 +392,6 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                               '   • ₹80,000 - ₹99,999 → ₹150',
                               '   • ₹1,00,000+ → ₹200',
                               '⚠️ Note: No base incentive, only per-phone incentives',
-                              '📦 Source: phoneSales collection',
                             ],
                           ),
                           const SizedBox(height: 12),
@@ -874,7 +404,6 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                               '   • 1-10 pieces → ₹30 per piece',
                               '   • Above 10 pieces → ₹50 per piece',
                               '✨ No minimum quantity required',
-                              '📦 Source: bills collection (type: "tv")',
                             ],
                           ),
                           const SizedBox(height: 12),
@@ -887,7 +416,6 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                               '   • 1-10 pieces → ₹30 per piece',
                               '   • Above 10 pieces → ₹40 per piece',
                               '✨ No minimum quantity required',
-                              '📦 Source: seconds_phone_sale collection',
                             ],
                           ),
                           const SizedBox(height: 12),
@@ -900,7 +428,6 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                               '   • 1-10 pieces → ₹15 per piece',
                               '   • Above 10 pieces → ₹25 per piece',
                               '✨ No minimum quantity required',
-                              '📦 Source: base_model_sale collection',
                             ],
                           ),
                           const SizedBox(height: 20),
@@ -1024,7 +551,20 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
     }
   }
 
+  String _getLastMonthDisplayText() {
+    final now = DateTime.now();
+    final lastMonth = DateTime(now.year, now.month - 1);
+    return DateFormat('MMMM yyyy').format(lastMonth);
+  }
+
   void _showShopIncentiveDetails(ShopIncentiveData data) {
+    String shopId = widget.shops.firstWhere(
+      (shop) => shop['name'] == data.shopName,
+      orElse: () => {'id': ''},
+    )['id'];
+
+    ShopIncentiveData? lastMonthData = lastMonthIncentives[shopId];
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1126,7 +666,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                           Container(
                             margin: const EdgeInsets.only(bottom: 8),
                             child: _buildPeriodHeader(
-                              _getPeriodDisplayText(),
+                              'Current Period - ${_getPeriodDisplayText()}',
                               Icons.today,
                             ),
                           ),
@@ -1136,9 +676,10 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                             color: Colors.blue,
                             totalAmount: data.accessoriesTotal,
                             incentive: data.accessoriesIncentive,
-                            breakdown: data.accessoriesBreakdown,
-                            salesList: data.accessoriesSalesList,
                             rule: 'Above ₹1,00,000: ₹1000 + ₹200/₹10k',
+                            calculation: _getAccessoriesCalculation(
+                              data.accessoriesTotal,
+                            ),
                           ),
                           const SizedBox(height: 12),
                           _buildIncentiveDetailCard(
@@ -1148,11 +689,10 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                             totalAmount: data.phoneTotalAmount,
                             count: data.phoneCount,
                             incentive: data.phoneIncentive,
-                            breakdown: data.phoneBreakdown,
-                            salesList: data.phoneSalesList,
                             rule: '20+ phones & ₹3L+: Only per-phone incentive',
-                            showPriceDetails: true,
-                            priceDetails: data.phonePriceDetails,
+                            calculation: _getPhoneCalculation(data),
+                            showDetails: true,
+                            details: data.phonePriceDetails,
                           ),
                           const SizedBox(height: 12),
                           _buildIncentiveDetailCard(
@@ -1161,14 +701,14 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                             color: Colors.red,
                             count: data.tvCount,
                             incentive: data.tvIncentive,
-                            breakdown: data.tvBreakdown,
-                            salesList: data.tvSalesList,
                             rule: data.tvCount == 0
                                 ? 'No sales recorded'
                                 : (data.tvCount <= 10
                                       ? '₹30/piece (1-10 pieces)'
                                       : '₹50/piece (10+ pieces)'),
-                            detailType: 'tv',
+                            calculation: data.tvCount > 0
+                                ? '${data.tvCount} × ${data.tvCount <= 10 ? '₹30' : '₹50'} = ₹${_formatNumber(data.tvIncentive)}'
+                                : 'No TV sales',
                           ),
                           const SizedBox(height: 12),
                           _buildIncentiveDetailCard(
@@ -1177,13 +717,14 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                             color: Colors.orange,
                             count: data.secondPhoneCount,
                             incentive: data.secondPhoneIncentive,
-                            breakdown: data.secondPhoneBreakdown,
-                            salesList: data.secondPhoneSalesList,
                             rule: data.secondPhoneCount == 0
                                 ? 'No sales recorded'
                                 : (data.secondPhoneCount <= 10
                                       ? '₹30/piece (1-10 pieces)'
                                       : '₹40/piece (10+ pieces)'),
+                            calculation: data.secondPhoneCount > 0
+                                ? '${data.secondPhoneCount} × ${data.secondPhoneCount <= 10 ? '₹30' : '₹40'} = ₹${_formatNumber(data.secondPhoneIncentive)}'
+                                : 'No second phone sales',
                           ),
                           const SizedBox(height: 12),
                           _buildIncentiveDetailCard(
@@ -1192,14 +733,167 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                             color: Colors.purple,
                             count: data.baseModelCount,
                             incentive: data.baseModelIncentive,
-                            breakdown: data.baseModelBreakdown,
-                            salesList: data.baseModelSalesList,
                             rule: data.baseModelCount == 0
                                 ? 'No sales recorded'
                                 : (data.baseModelCount <= 10
                                       ? '₹15/piece (1-10 pieces)'
                                       : '₹25/piece (10+ pieces)'),
+                            calculation: data.baseModelCount > 0
+                                ? '${data.baseModelCount} × ${data.baseModelCount <= 10 ? '₹15' : '₹25'} = ₹${_formatNumber(data.baseModelIncentive)}'
+                                : 'No base model sales',
                           ),
+                          const SizedBox(height: 20),
+                          if (lastMonthData != null) ...[
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              child: _buildPeriodHeader(
+                                'Last Month - ${_getLastMonthDisplayText()}',
+                                Icons.calendar_view_month,
+                              ),
+                            ),
+                            _buildIncentiveDetailCard(
+                              title: 'Accessories & Service',
+                              icon: Icons.shopping_bag,
+                              color: Colors.blue.withOpacity(0.7),
+                              totalAmount: lastMonthData.accessoriesTotal,
+                              incentive: lastMonthData.accessoriesIncentive,
+                              rule: 'Above ₹1,00,000: ₹1000 + ₹200/₹10k',
+                              calculation: _getAccessoriesCalculation(
+                                lastMonthData.accessoriesTotal,
+                              ),
+                              isLastMonth: true,
+                            ),
+                            const SizedBox(height: 12),
+                            _buildIncentiveDetailCard(
+                              title: 'Phone Sales',
+                              icon: Icons.phone_iphone,
+                              color: Colors.green.withOpacity(0.7),
+                              totalAmount: lastMonthData.phoneTotalAmount,
+                              count: lastMonthData.phoneCount,
+                              incentive: lastMonthData.phoneIncentive,
+                              rule:
+                                  '20+ phones & ₹3L+: Only per-phone incentive',
+                              calculation: _getPhoneCalculation(lastMonthData),
+                              showDetails: true,
+                              details: lastMonthData.phonePriceDetails,
+                              isLastMonth: true,
+                            ),
+                            const SizedBox(height: 12),
+                            _buildIncentiveDetailCard(
+                              title: 'TV Sales',
+                              icon: Icons.tv,
+                              color: Colors.red.withOpacity(0.7),
+                              count: lastMonthData.tvCount,
+                              incentive: lastMonthData.tvIncentive,
+                              rule: lastMonthData.tvCount == 0
+                                  ? 'No sales recorded'
+                                  : (lastMonthData.tvCount <= 10
+                                        ? '₹30/piece (1-10 pieces)'
+                                        : '₹50/piece (10+ pieces)'),
+                              calculation: lastMonthData.tvCount > 0
+                                  ? '${lastMonthData.tvCount} × ${lastMonthData.tvCount <= 10 ? '₹30' : '₹50'} = ₹${_formatNumber(lastMonthData.tvIncentive)}'
+                                  : 'No TV sales',
+                              isLastMonth: true,
+                            ),
+                            const SizedBox(height: 12),
+                            _buildIncentiveDetailCard(
+                              title: 'Second Phones',
+                              icon: Icons.phone_android,
+                              color: Colors.orange.withOpacity(0.7),
+                              count: lastMonthData.secondPhoneCount,
+                              incentive: lastMonthData.secondPhoneIncentive,
+                              rule: lastMonthData.secondPhoneCount == 0
+                                  ? 'No sales recorded'
+                                  : (lastMonthData.secondPhoneCount <= 10
+                                        ? '₹30/piece (1-10 pieces)'
+                                        : '₹40/piece (10+ pieces)'),
+                              calculation: lastMonthData.secondPhoneCount > 0
+                                  ? '${lastMonthData.secondPhoneCount} × ${lastMonthData.secondPhoneCount <= 10 ? '₹30' : '₹40'} = ₹${_formatNumber(lastMonthData.secondPhoneIncentive)}'
+                                  : 'No second phone sales',
+                              isLastMonth: true,
+                            ),
+                            const SizedBox(height: 12),
+                            _buildIncentiveDetailCard(
+                              title: 'Base Models',
+                              icon: Icons.devices,
+                              color: Colors.purple.withOpacity(0.7),
+                              count: lastMonthData.baseModelCount,
+                              incentive: lastMonthData.baseModelIncentive,
+                              rule: lastMonthData.baseModelCount == 0
+                                  ? 'No sales recorded'
+                                  : (lastMonthData.baseModelCount <= 10
+                                        ? '₹15/piece (1-10 pieces)'
+                                        : '₹25/piece (10+ pieces)'),
+                              calculation: lastMonthData.baseModelCount > 0
+                                  ? '${lastMonthData.baseModelCount} × ${lastMonthData.baseModelCount <= 10 ? '₹15' : '₹25'} = ₹${_formatNumber(lastMonthData.baseModelIncentive)}'
+                                  : 'No base model sales',
+                              isLastMonth: true,
+                            ),
+                            const SizedBox(height: 16),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(
+                                  0xFF0A4D2E,
+                                ).withOpacity(0.05),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: const Color(
+                                    0xFF0A4D2E,
+                                  ).withOpacity(0.2),
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    '📊 Month-over-Month Comparison',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF0A4D2E),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _buildComparisonRow(
+                                    'Total Incentive',
+                                    lastMonthData.totalIncentive,
+                                    data.totalIncentive,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  _buildComparisonRow(
+                                    'Phone Sales (Count)',
+                                    lastMonthData.phoneCount.toDouble(),
+                                    data.phoneCount.toDouble(),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  _buildComparisonRow(
+                                    'Phone Sales (Value)',
+                                    lastMonthData.phoneTotalAmount,
+                                    data.phoneTotalAmount,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  _buildComparisonRow(
+                                    'TV Sales',
+                                    lastMonthData.tvCount.toDouble(),
+                                    data.tvCount.toDouble(),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  _buildComparisonRow(
+                                    'Second Phones',
+                                    lastMonthData.secondPhoneCount.toDouble(),
+                                    data.secondPhoneCount.toDouble(),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  _buildComparisonRow(
+                                    'Base Models',
+                                    lastMonthData.baseModelCount.toDouble(),
+                                    data.baseModelCount.toDouble(),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -1250,6 +944,81 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
     );
   }
 
+  Widget _buildComparisonRow(String label, double lastMonth, double current) {
+    double difference = current - lastMonth;
+    bool isPositive = difference > 0;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+        Row(
+          children: [
+            Text(
+              '₹${_formatNumber(lastMonth)}',
+              style: const TextStyle(fontSize: 10, color: Colors.grey),
+            ),
+            const SizedBox(width: 8),
+            Icon(Icons.arrow_forward, size: 10, color: Colors.grey.shade400),
+            const SizedBox(width: 8),
+            Text(
+              '₹${_formatNumber(current)}',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: isPositive
+                    ? Colors.green
+                    : (difference < 0 ? Colors.red : Colors.grey),
+              ),
+            ),
+            if (difference != 0) ...[
+              const SizedBox(width: 4),
+              Icon(
+                isPositive ? Icons.trending_up : Icons.trending_down,
+                size: 10,
+                color: isPositive ? Colors.green : Colors.red,
+              ),
+              Text(
+                ' ${difference > 0 ? '+' : ''}${_formatNumber(difference.abs())}',
+                style: TextStyle(
+                  fontSize: 9,
+                  color: isPositive ? Colors.green : Colors.red,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
+  String _getAccessoriesCalculation(double totalAmount) {
+    if (totalAmount <= 100000)
+      return 'Not qualified (need > ₹1,00,000, currently ₹${_formatNumber(totalAmount)})';
+    double incentive = 1000;
+    final amountAboveLakh = totalAmount - 100000;
+    final additionalThousands = (amountAboveLakh / 10000).floor();
+    if (additionalThousands > 0) {
+      incentive += additionalThousands * 200;
+      return '₹1000 + ($additionalThousands × ₹200) = ₹${_formatNumber(incentive)}';
+    }
+    return '₹1000 base incentive';
+  }
+
+  String _getPhoneCalculation(ShopIncentiveData data) {
+    if (data.phoneCount < 20 || data.phoneTotalAmount < 300000) {
+      if (data.phoneCount < 20 && data.phoneTotalAmount < 300000) {
+        return 'Not qualified (need 20+ phones and ₹3L+ value) | Current: ${data.phoneCount} phones, ₹${_formatNumber(data.phoneTotalAmount)}';
+      } else if (data.phoneCount < 20) {
+        return 'Not qualified (need ${20 - data.phoneCount} more phones)';
+      } else {
+        return 'Not qualified (need ₹${_formatNumber(300000 - data.phoneTotalAmount)} more value)';
+      }
+    }
+    return 'Qualified! Per-phone incentives total: ₹${_formatNumber(data.phoneIncentive)}';
+  }
+
   Widget _buildIncentiveDetailCard({
     required String title,
     required IconData icon,
@@ -1257,25 +1026,26 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
     double totalAmount = 0,
     int count = 0,
     double incentive = 0,
-    required List<Map<String, dynamic>> breakdown,
-    required List<Map<String, dynamic>> salesList,
     required String rule,
-    bool showPriceDetails = false,
-    List<Map<String, dynamic>>? priceDetails,
-    String detailType = 'default',
+    required String calculation,
+    bool showDetails = false,
+    List<Map<String, dynamic>>? details,
+    bool isLastMonth = false,
   }) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color.withOpacity(0.2)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.05),
-            blurRadius: 4,
-            offset: const Offset(0, 1),
-          ),
-        ],
+        boxShadow: isLastMonth
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.grey.withOpacity(0.05),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
+                ),
+              ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1401,6 +1171,26 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                               ],
                             ),
                           ),
+                        if (totalAmount == 0 && count == 0)
+                          Expanded(
+                            child: Column(
+                              children: [
+                                Icon(
+                                  Icons.info_outline,
+                                  size: 16,
+                                  color: Colors.grey.shade400,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'No sales data',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -1425,445 +1215,120 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                _buildBreakdownSection(breakdown, color),
-                if (salesList.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  _buildSalesDetailsSection(
-                    salesList,
-                    title,
-                    color,
-                    detailType,
-                  ),
-                ],
-                if (showPriceDetails &&
-                    priceDetails != null &&
-                    priceDetails.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  _buildPriceDetailsSection(priceDetails, color),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBreakdownSection(
-    List<Map<String, dynamic>> breakdown,
-    Color color,
-  ) {
-    if (breakdown.isEmpty ||
-        (breakdown.length == 1 && breakdown[0].containsKey('message'))) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade50,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            Icon(Icons.info_outline, size: 32, color: Colors.grey.shade400),
-            const SizedBox(height: 8),
-            Text(
-              breakdown.isNotEmpty
-                  ? breakdown[0]['message'] as String
-                  : 'No calculation details available',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.08),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(12),
-                topRight: Radius.circular(12),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.calculate, size: 16, color: color),
-                const SizedBox(width: 8),
-                const Text(
-                  'Calculation Breakdown',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              children: breakdown.map((item) {
-                if (item.containsKey('message')) {
-                  return Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.amber.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          size: 14,
-                          color: Colors.amber.shade700,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            item['message'] as String,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.amber.shade800,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item['title'] as String,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            if (item['calculation'] != null)
-                              Text(
-                                item['calculation'] as String,
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                            if (item['note'] != null)
-                              Text(
-                                item['note'] as String,
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  color: Colors.orange.shade700,
-                                  fontStyle: FontStyle.italic,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                      if (item['amount'] != null)
-                        Text(
-                          '₹${_formatNumber((item['amount'] as num).toDouble())}',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: (item['amount'] as num) > 0
-                                ? Colors.green.shade700
-                                : Colors.grey.shade600,
-                          ),
-                        ),
-                    ],
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSalesDetailsSection(
-    List<Map<String, dynamic>> salesList,
-    String title,
-    Color color,
-    String detailType,
-  ) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.08),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(12),
-                topRight: Radius.circular(12),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.list_alt, size: 16, color: color),
-                const SizedBox(width: 8),
-                const Text(
-                  'Sales Details',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              children: salesList.take(10).map((sale) {
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 8),
+                Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              sale['productName'] as String? ?? 'Product',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Text(
-                            '₹${_formatNumber((sale['amount'] as num).toDouble())}',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              color: color,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.person,
-                            size: 10,
-                            color: Colors.grey.shade500,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            sale['customerName'] as String? ??
-                                'Walk-in Customer',
-                            style: TextStyle(
-                              fontSize: 9,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Icon(
-                            Icons.calendar_today,
-                            size: 10,
-                            color: Colors.grey.shade500,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            DateFormat(
-                              'dd MMM',
-                            ).format(sale['date'] as DateTime),
-                            style: TextStyle(
-                              fontSize: 9,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (detailType == 'tv' && sale['modelBrand'] != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.tv,
-                                size: 10,
-                                color: Colors.blue.shade600,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Brand: ${sale['modelBrand']} | SN: ${sale['serialNumber']}',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      if (sale['brand'] != null &&
-                          sale['brand'].toString().isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
-                            'Brand: ${sale['brand']}',
-                            style: TextStyle(
-                              fontSize: 9,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                        ),
-                      if (sale['imei'] != null &&
-                          sale['imei'].toString().isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
-                            'IMEI: ${sale['imei']}',
-                            style: TextStyle(
-                              fontSize: 9,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-          if (salesList.length > 10)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Center(
-                child: Text(
-                  '+ ${salesList.length - 10} more items',
-                  style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPriceDetailsSection(
-    List<Map<String, dynamic>> priceDetails,
-    Color color,
-  ) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.08),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(12),
-                topRight: Radius.circular(12),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.emoji_events, size: 16, color: color),
-                const SizedBox(width: 8),
-                const Text(
-                  'Phone-wise Breakdown',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              children: priceDetails.take(10).map((phone) {
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 4),
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
+                    color: Colors.blue.withOpacity(0.05),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              phone['productName'],
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w500,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            Text(
-                              phone['bracket'],
-                              style: TextStyle(
-                                fontSize: 8,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
-                        ),
+                      Icon(
+                        Icons.calculate,
+                        size: 12,
+                        color: Colors.blue.shade600,
                       ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            '₹${_formatNumber(phone['amount'])}',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                            ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          calculation,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.blue.shade700,
                           ),
-                          Text(
-                            '+₹${phone['incentive']}',
-                            style: TextStyle(
-                              fontSize: 9,
-                              color: Colors.green.shade700,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ],
                   ),
-                );
-              }).toList(),
+                ),
+                if (showDetails && details != null && details.isNotEmpty)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Phone-wise Breakdown:',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      ...details
+                          .take(5)
+                          .map(
+                            (phone) => Container(
+                              margin: const EdgeInsets.only(bottom: 4),
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          phone['productName'],
+                                          style: const TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        Text(
+                                          phone['bracket'],
+                                          style: TextStyle(
+                                            fontSize: 8,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        '₹${_formatNumber(phone['price'])}',
+                                        style: const TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      Text(
+                                        '+₹${phone['incentive']}',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          color: Colors.green.shade700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      if (details.length > 5)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            '+ ${details.length - 5} more phones',
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: Colors.grey.shade500,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+              ],
             ),
           ),
         ],
@@ -1880,6 +1345,18 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
     int totalShopsWithIncentive = shopIncentives.values
         .where((data) => data.totalIncentive > 0)
         .length;
+
+    double totalLastMonthIncentive = lastMonthIncentives.values.fold(
+      0.0,
+      (sum, data) => sum + data.totalIncentive,
+    );
+    int totalShopsWithLastMonthIncentive = lastMonthIncentives.values
+        .where((data) => data.totalIncentive > 0)
+        .length;
+
+    double incentiveDifference =
+        totalIncentiveAllShops - totalLastMonthIncentive;
+    bool isPositive = incentiveDifference > 0;
 
     return Scaffold(
       appBar: AppBar(
@@ -1901,17 +1378,11 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
             tooltip: 'Select Period',
           ),
           IconButton(
-            icon: isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.refresh),
-            onPressed: isLoading ? null : _calculateAllShopIncentives,
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              _calculateAllShopIncentives();
+              _calculateLastMonthIncentives();
+            },
             tooltip: 'Refresh',
           ),
         ],
@@ -1919,415 +1390,350 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
       body: Column(
         children: [
           _buildTimePeriodSelector(),
-          if (!isInitialLoad && shopIncentives.isNotEmpty)
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: _buildSummaryCard(
-                title: _getPeriodDisplayText(),
-                totalIncentive: totalIncentiveAllShops,
-                shopsWithIncentive: totalShopsWithIncentive,
-                totalShops: shopIncentives.length,
-                icon: Icons.today,
-              ),
-            ),
-          Expanded(child: _buildMainContent()),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMainContent() {
-    // Show initial loading state
-    if (isInitialLoad && shopIncentives.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 40,
-              height: 40,
-              child: CircularProgressIndicator(
-                strokeWidth: 3,
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0A4D2E)),
-              ),
-            ),
-            SizedBox(height: 16),
-            Text(
-              'Loading shop data...',
-              style: TextStyle(fontSize: 14, color: Colors.grey),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Show loading state while refreshing but shops already exist
-    if (isLoading && shopIncentives.isNotEmpty) {
-      return Stack(
-        children: [
-          _buildShopList(),
           Container(
-            color: Colors.black.withOpacity(0.3),
-            child: const Center(
-              child: Card(
-                elevation: 4,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(12)),
-                ),
-                child: Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          Color(0xFF0A4D2E),
-                        ),
-                      ),
-                      SizedBox(height: 12),
-                      Text(
-                        'Refreshing data...',
-                        style: TextStyle(fontSize: 14),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      );
-    }
-
-    // Show empty state if no shops
-    if (shopIncentives.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.store, size: 64, color: Colors.grey),
-            SizedBox(height: 16),
-            Text(
-              'No shops available',
-              style: TextStyle(fontSize: 14, color: Colors.grey),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Show the shop list
-    return _buildShopList();
-  }
-
-  Widget _buildShopList() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: widget.shops.length,
-      itemBuilder: (context, index) {
-        final shop = widget.shops[index];
-        final String shopId = shop['id'];
-        final bool isShopLoading = shopLoadingStatus[shopId] ?? false;
-        final ShopIncentiveData? entry = shopIncentives[shopId];
-
-        // Show loading skeleton for shops still loading
-        if (isShopLoading || entry == null) {
-          return _buildLoadingShopCard(shop['name'] ?? 'Loading...');
-        }
-
-        return GestureDetector(
-          onTap: () => _showShopIncentiveDetails(entry),
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: entry.totalIncentive > 0
-                  ? Colors.white
-                  : Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.grey.withOpacity(0.1),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-              border: Border.all(
-                color: entry.totalIncentive > 0
-                    ? const Color(0xFF0A4D2E).withOpacity(0.2)
-                    : Colors.grey.shade200,
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: entry.totalIncentive > 0
-                                  ? const Color(0xFF0A4D2E).withOpacity(0.1)
-                                  : Colors.grey.shade200,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Icon(
-                              Icons.store,
-                              color: entry.totalIncentive > 0
-                                  ? const Color(0xFF0A4D2E)
-                                  : Colors.grey.shade500,
-                              size: 18,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              entry.shopName,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: entry.totalIncentive > 0
-                                    ? const Color(0xFF0A4D2E)
-                                    : Colors.grey.shade700,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: entry.totalIncentive > 0
-                            ? const Color(0xFF0A4D2E).withOpacity(0.1)
-                            : Colors.grey.shade200,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        entry.totalIncentive > 0
-                            ? '₹${_formatNumber(entry.totalIncentive)}'
-                            : '₹0',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: entry.totalIncentive > 0
-                              ? const Color(0xFF0A4D2E)
-                              : Colors.grey.shade600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _buildMiniStat(
-                      'Accessories',
-                      entry.accessoriesIncentive,
-                      Colors.blue,
-                      entry.totalIncentive > 0,
-                    ),
-                    const SizedBox(width: 8),
-                    _buildMiniStat(
-                      'Phones',
-                      entry.phoneIncentive,
-                      Colors.green,
-                      entry.totalIncentive > 0,
-                    ),
-                    const SizedBox(width: 8),
-                    _buildMiniStat(
-                      'TV',
-                      entry.tvIncentive,
-                      Colors.red,
-                      entry.totalIncentive > 0,
-                    ),
-                    const SizedBox(width: 8),
-                    _buildMiniStat(
-                      'Second',
-                      entry.secondPhoneIncentive,
-                      Colors.orange,
-                      entry.totalIncentive > 0,
-                    ),
-                    const SizedBox(width: 8),
-                    _buildMiniStat(
-                      'Base',
-                      entry.baseModelIncentive,
-                      Colors.purple,
-                      entry.totalIncentive > 0,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.touch_app,
-                        size: 12,
-                        color: Colors.grey.shade500,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Tap to view detailed calculation',
-                        style: TextStyle(
-                          fontSize: 9,
-                          color: Colors.grey.shade500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildLoadingShopCard(String shopName) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade200,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.store,
-                        color: Colors.grey,
-                        size: 18,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        shopName,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade200,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const SizedBox(
-                  width: 40,
-                  height: 14,
-                  child: Center(
-                    child: SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: List.generate(5, (index) {
-              return Expanded(
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 8,
-                        color: Colors.grey.shade200,
-                      ),
-                      const SizedBox(height: 4),
-                      Container(
-                        width: 30,
-                        height: 12,
-                        color: Colors.grey.shade200,
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-          ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(6),
-            ),
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Row(
               children: [
-                Icon(Icons.touch_app, size: 12, color: Colors.grey.shade400),
-                const SizedBox(width: 4),
-                Text(
-                  'Loading data...',
-                  style: TextStyle(fontSize: 9, color: Colors.grey.shade400),
+                Expanded(
+                  child: _buildSummaryCard(
+                    title: _getPeriodDisplayText(),
+                    totalIncentive: totalIncentiveAllShops,
+                    shopsWithIncentive: totalShopsWithIncentive,
+                    totalShops: shopIncentives.length,
+                    icon: Icons.today,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildSummaryCard(
+                    title: _getLastMonthDisplayText(),
+                    totalIncentive: totalLastMonthIncentive,
+                    shopsWithIncentive: totalShopsWithLastMonthIncentive,
+                    totalShops: lastMonthIncentives.length,
+                    icon: Icons.calendar_view_month,
+                    isLastMonth: true,
+                  ),
                 ),
               ],
             ),
+          ),
+          if (totalLastMonthIncentive > 0 || totalIncentiveAllShops > 0)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: isPositive
+                    ? Colors.green.withOpacity(0.1)
+                    : Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    isPositive ? Icons.trending_up : Icons.trending_down,
+                    size: 16,
+                    color: isPositive ? Colors.green : Colors.red,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    isPositive
+                        ? '↑ ${_formatNumber(incentiveDifference)} increase from last month'
+                        : '↓ ${_formatNumber(incentiveDifference.abs())} decrease from last month',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isPositive ? Colors.green : Colors.red,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: shopIncentives.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.store,
+                          size: 64,
+                          color: Colors.grey.shade300,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No shops available',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: shopIncentives.length,
+                    itemBuilder: (context, index) {
+                      final entry = shopIncentives.values.toList()[index];
+                      final shopId = widget.shops.firstWhere(
+                        (shop) => shop['name'] == entry.shopName,
+                        orElse: () => {'id': ''},
+                      )['id'];
+                      final lastMonthData = lastMonthIncentives[shopId];
+                      final lastMonthIncentive =
+                          lastMonthData?.totalIncentive ?? 0;
+                      final incentiveChange =
+                          entry.totalIncentive - lastMonthIncentive;
+
+                      return GestureDetector(
+                        onTap: () => _showShopIncentiveDetails(entry),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: entry.totalIncentive > 0
+                                ? Colors.white
+                                : Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.grey.withOpacity(0.1),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                            border: Border.all(
+                              color: entry.totalIncentive > 0
+                                  ? const Color(0xFF0A4D2E).withOpacity(0.2)
+                                  : Colors.grey.shade200,
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: entry.totalIncentive > 0
+                                                ? const Color(
+                                                    0xFF0A4D2E,
+                                                  ).withOpacity(0.1)
+                                                : Colors.grey.shade200,
+                                            borderRadius: BorderRadius.circular(
+                                              10,
+                                            ),
+                                          ),
+                                          child: Icon(
+                                            Icons.store,
+                                            color: entry.totalIncentive > 0
+                                                ? const Color(0xFF0A4D2E)
+                                                : Colors.grey.shade500,
+                                            size: 18,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Text(
+                                            entry.shopName,
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.bold,
+                                              color: entry.totalIncentive > 0
+                                                  ? const Color(0xFF0A4D2E)
+                                                  : Colors.grey.shade700,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 6,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: entry.totalIncentive > 0
+                                              ? const Color(
+                                                  0xFF0A4D2E,
+                                                ).withOpacity(0.1)
+                                              : Colors.grey.shade200,
+                                          borderRadius: BorderRadius.circular(
+                                            20,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          entry.totalIncentive > 0
+                                              ? '₹${_formatNumber(entry.totalIncentive)}'
+                                              : '₹0',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                            color: entry.totalIncentive > 0
+                                                ? const Color(0xFF0A4D2E)
+                                                : Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      ),
+                                      if (lastMonthIncentive > 0 ||
+                                          incentiveChange != 0)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 4,
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                incentiveChange > 0
+                                                    ? Icons.trending_up
+                                                    : Icons.trending_down,
+                                                size: 10,
+                                                color: incentiveChange > 0
+                                                    ? Colors.green
+                                                    : Colors.red,
+                                              ),
+                                              const SizedBox(width: 2),
+                                              Text(
+                                                '${incentiveChange > 0 ? '+' : ''}${_formatNumber(incentiveChange)}',
+                                                style: TextStyle(
+                                                  fontSize: 9,
+                                                  color: incentiveChange > 0
+                                                      ? Colors.green
+                                                      : Colors.red,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                              Text(
+                                                ' vs last month',
+                                                style: TextStyle(
+                                                  fontSize: 8,
+                                                  color: Colors.grey.shade500,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  _buildMiniStat(
+                                    'Accessories',
+                                    entry.accessoriesIncentive,
+                                    Colors.blue,
+                                    entry.totalIncentive > 0,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _buildMiniStat(
+                                    'Phones',
+                                    entry.phoneIncentive,
+                                    Colors.green,
+                                    entry.totalIncentive > 0,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _buildMiniStat(
+                                    'TV',
+                                    entry.tvIncentive,
+                                    Colors.red,
+                                    entry.totalIncentive > 0,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _buildMiniStat(
+                                    'Second',
+                                    entry.secondPhoneIncentive,
+                                    Colors.orange,
+                                    entry.totalIncentive > 0,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _buildMiniStat(
+                                    'Base',
+                                    entry.baseModelIncentive,
+                                    Colors.purple,
+                                    entry.totalIncentive > 0,
+                                  ),
+                                ],
+                              ),
+                              if (lastMonthIncentive > 0)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.shade50,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.calendar_view_month,
+                                          size: 10,
+                                          color: Colors.grey.shade500,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Last month: ₹${_formatNumber(lastMonthIncentive)}',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              const SizedBox(height: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade50,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.touch_app,
+                                      size: 12,
+                                      color: Colors.grey.shade500,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Tap to view detailed calculation',
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        color: Colors.grey.shade500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -2340,15 +1746,22 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
     required int shopsWithIncentive,
     required int totalShops,
     required IconData icon,
+    bool isLastMonth = false,
   }) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF0A4D2E), Color(0xFF1B6B43)],
-        ),
+        gradient: isLastMonth
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Colors.grey.shade700, Colors.grey.shade600],
+              )
+            : const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF0A4D2E), Color(0xFF1B6B43)],
+              ),
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
@@ -2604,42 +2017,18 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
 class ShopIncentiveData {
   final String shopName;
   final double totalSales;
-
-  // Accessories
   final double accessoriesTotal;
   final double accessoriesIncentive;
-  final List<Map<String, dynamic>> accessoriesBreakdown;
-  final List<Map<String, dynamic>> accessoriesSalesList;
-
-  // Phone
   final double phoneTotalAmount;
   final int phoneCount;
   final double phoneIncentive;
-  final List<Map<String, dynamic>> phoneBreakdown;
   final List<Map<String, dynamic>> phonePriceDetails;
-  final List<Map<String, dynamic>> phoneSalesList;
-
-  // TV
-  final double tvTotalAmount;
   final int tvCount;
   final double tvIncentive;
-  final List<Map<String, dynamic>> tvBreakdown;
-  final List<Map<String, dynamic>> tvSalesList;
-
-  // Second Phone
-  final double secondPhoneTotalAmount;
   final int secondPhoneCount;
   final double secondPhoneIncentive;
-  final List<Map<String, dynamic>> secondPhoneBreakdown;
-  final List<Map<String, dynamic>> secondPhoneSalesList;
-
-  // Base Model
-  final double baseModelTotalAmount;
   final int baseModelCount;
   final double baseModelIncentive;
-  final List<Map<String, dynamic>> baseModelBreakdown;
-  final List<Map<String, dynamic>> baseModelSalesList;
-
   final double totalIncentive;
 
   ShopIncentiveData({
@@ -2647,29 +2036,16 @@ class ShopIncentiveData {
     required this.totalSales,
     required this.accessoriesTotal,
     required this.accessoriesIncentive,
-    required this.accessoriesBreakdown,
-    required this.accessoriesSalesList,
     required this.phoneTotalAmount,
     required this.phoneCount,
     required this.phoneIncentive,
-    required this.phoneBreakdown,
     required this.phonePriceDetails,
-    required this.phoneSalesList,
-    required this.tvTotalAmount,
     required this.tvCount,
     required this.tvIncentive,
-    required this.tvBreakdown,
-    required this.tvSalesList,
-    required this.secondPhoneTotalAmount,
     required this.secondPhoneCount,
     required this.secondPhoneIncentive,
-    required this.secondPhoneBreakdown,
-    required this.secondPhoneSalesList,
-    required this.baseModelTotalAmount,
     required this.baseModelCount,
     required this.baseModelIncentive,
-    required this.baseModelBreakdown,
-    required this.baseModelSalesList,
     required this.totalIncentive,
   });
 }
