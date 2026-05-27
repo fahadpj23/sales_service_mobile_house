@@ -27,70 +27,273 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
   bool isCustomPeriod = false;
   Map<String, ShopIncentiveData> shopIncentives = {};
   Map<String, ShopIncentiveData> lastMonthIncentives = {};
+  bool isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _calculateAllShopIncentives();
-    _calculateLastMonthIncentives();
+    _loadAllData();
   }
 
-  void _calculateLastMonthIncentives() {
+  Future<void> _loadAllData() async {
+    setState(() {
+      isLoading = true;
+    });
+    await _calculateAllShopIncentives();
+    await _calculateLastMonthIncentives();
+    setState(() {
+      isLoading = false;
+    });
+  }
+
+  Future<void> _calculateLastMonthIncentives() async {
     final now = DateTime.now();
     final lastMonthStart = DateTime(now.year, now.month - 1, 1);
     final lastMonthEnd = DateTime(now.year, now.month, 0);
 
+    final Map<String, ShopIncentiveData> tempData = {};
+
+    for (var shop in widget.shops) {
+      String shopId = shop['id'];
+      String shopName = shop['name'];
+
+      // Get regular sales
+      List<Sale> shopSales = widget.allSales
+          .where((sale) => sale.shopId == shopId || sale.shopName == shopName)
+          .toList();
+
+      // Fetch TV sales directly from Firestore for last month
+      List<Sale> tvSales = await _fetchTvSalesForShop(
+        shopId,
+        lastMonthStart,
+        lastMonthEnd,
+      );
+      shopSales.addAll(tvSales);
+
+      // Filter for last month
+      List<Sale> lastMonthSales = shopSales.where((sale) {
+        DateTime saleDate = sale.date;
+        return saleDate.isAfter(
+              lastMonthStart.subtract(const Duration(seconds: 1)),
+            ) &&
+            saleDate.isBefore(lastMonthEnd.add(const Duration(seconds: 1)));
+      }).toList();
+
+      ShopIncentiveData incentiveData = _calculateShopIncentive(
+        shopName,
+        lastMonthSales,
+        shopId,
+      );
+      tempData[shopId] = incentiveData;
+    }
+
     setState(() {
-      lastMonthIncentives.clear();
-
-      for (var shop in widget.shops) {
-        String shopId = shop['id'];
-        String shopName = shop['name'];
-
-        List<Sale> shopSales = widget.allSales
-            .where((sale) => sale.shopId == shopId || sale.shopName == shopName)
-            .toList();
-
-        List<Sale> lastMonthSales = shopSales.where((sale) {
-          DateTime saleDate = sale.date;
-          return saleDate.isAfter(
-                lastMonthStart.subtract(const Duration(seconds: 1)),
-              ) &&
-              saleDate.isBefore(lastMonthEnd.add(const Duration(seconds: 1)));
-        }).toList();
-
-        ShopIncentiveData incentiveData = _calculateShopIncentive(
-          shopName,
-          lastMonthSales,
-        );
-
-        lastMonthIncentives[shopId] = incentiveData;
-      }
+      lastMonthIncentives = tempData;
     });
   }
 
-  void _calculateAllShopIncentives() {
-    setState(() {
-      shopIncentives.clear();
+  Future<void> _calculateAllShopIncentives() async {
+    final Map<String, ShopIncentiveData> tempData = {};
 
-      for (var shop in widget.shops) {
-        String shopId = shop['id'];
-        String shopName = shop['name'];
+    for (var shop in widget.shops) {
+      String shopId = shop['id'];
+      String shopName = shop['name'];
 
-        List<Sale> shopSales = widget.allSales
-            .where((sale) => sale.shopId == shopId || sale.shopName == shopName)
-            .toList();
+      // Get regular sales
+      List<Sale> shopSales = widget.allSales
+          .where((sale) => sale.shopId == shopId || sale.shopName == shopName)
+          .toList();
 
-        List<Sale> filteredSales = _filterSalesByPeriod(shopSales);
+      // Fetch TV sales directly from Firestore for current period
+      List<Sale> tvSales = await _fetchTvSalesForCurrentPeriod(shopId);
 
-        ShopIncentiveData incentiveData = _calculateShopIncentive(
-          shopName,
-          filteredSales,
+      // Debug print
+      print('=== SHOP INCENTIVE CALCULATION ===');
+      print('Shop: $shopName (ID: $shopId)');
+      print('Regular Sales found: ${shopSales.length}');
+      print('TV Sales found: ${tvSales.length}');
+      for (var tv in tvSales) {
+        print(
+          '  - TV: ${tv.itemName}, Amount: ${tv.amount}, Date: ${tv.date}, Shop: ${tv.shopName}',
         );
-
-        shopIncentives[shopId] = incentiveData;
       }
+
+      shopSales.addAll(tvSales);
+
+      List<Sale> filteredSales = _filterSalesByPeriod(shopSales);
+
+      ShopIncentiveData incentiveData = _calculateShopIncentive(
+        shopName,
+        filteredSales,
+        shopId,
+      );
+      tempData[shopId] = incentiveData;
+
+      print('Total TV count for $shopName: ${incentiveData.tvCount}');
+      print('Total TV incentive for $shopName: ${incentiveData.tvIncentive}');
+      print('================================');
+    }
+
+    setState(() {
+      shopIncentives = tempData;
     });
+  }
+
+  Future<List<Sale>> _fetchTvSalesForCurrentPeriod(String shopId) async {
+    DateTime startDate;
+    DateTime endDate;
+    final now = DateTime.now();
+
+    if (isCustomPeriod && customStartDate != null && customEndDate != null) {
+      startDate = DateTime(
+        customStartDate!.year,
+        customStartDate!.month,
+        customStartDate!.day,
+      );
+      endDate = DateTime(
+        customEndDate!.year,
+        customEndDate!.month,
+        customEndDate!.day,
+        23,
+        59,
+        59,
+      );
+    } else {
+      switch (selectedTimePeriod) {
+        case 'daily':
+          startDate = DateTime(now.year, now.month, now.day);
+          endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
+          break;
+        case 'monthly':
+          startDate = DateTime(now.year, now.month, 1);
+          endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+          break;
+        case 'yearly':
+          startDate = DateTime(now.year, 1, 1);
+          endDate = DateTime(now.year, 12, 31, 23, 59, 59);
+          break;
+        default:
+          startDate = DateTime(now.year, now.month, 1);
+          endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+      }
+    }
+
+    return await _fetchTvSalesForShop(shopId, startDate, endDate);
+  }
+
+  Future<List<Sale>> _fetchTvSalesForShop(
+    String shopId,
+    DateTime startDate,
+    DateTime endDate,
+  ) async {
+    List<Sale> tvSales = [];
+
+    try {
+      // Fetch all TV sales from Firestore
+      QuerySnapshot snapshot = await FirebaseFirestore.instance
+          .collection('bills')
+          .where('type', isEqualTo: 'tv')
+          .get();
+
+      print('=== FETCHING TV SALES ===');
+      print('Looking for shop ID: $shopId');
+      print('Total TV documents found: ${snapshot.docs.length}');
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final saleDate = _getSaleDateFromMap(data);
+
+        // Get shop information from document
+        String docShopId = data['shopId']?.toString() ?? '';
+        String docShopName = data['shopName'] ?? '';
+
+        // Check if this TV belongs to the current shop
+        bool isMatchingShop =
+            (docShopId == shopId) ||
+            (docShopName.isNotEmpty && docShopName == getShopNameById(shopId));
+
+        if (isMatchingShop && _isDateInRange(saleDate, startDate, endDate)) {
+          final amount = _toDouble(data['totalAmount']);
+
+          tvSales.add(
+            Sale(
+              id: doc.id,
+              shopId: shopId,
+              shopName: getShopNameById(shopId),
+              amount: amount,
+              date: saleDate,
+              type: 'tv_sale',
+              category: 'Electronics',
+              itemName: data['modelName'] ?? data['productName'] ?? 'TV',
+              customerName: data['customerName'] ?? 'Walk-in Customer',
+              createdAt: saleDate,
+              updatedAt: saleDate,
+            ),
+          );
+
+          print('✓ TV SALE ASSIGNED TO: ${getShopNameById(shopId)}');
+          print('  - Document shopId: $docShopId');
+          print('  - Document shopName: $docShopName');
+          print('  - Amount: $amount');
+          print('  - Date: $saleDate');
+        } else if (isMatchingShop) {
+          print(
+            '✗ TV SALE EXCLUDED - Date out of range for ${getShopNameById(shopId)}',
+          );
+          print('  - Sale date: $saleDate');
+          print('  - Range: $startDate to $endDate');
+        }
+      }
+    } catch (e) {
+      print('Error fetching TV sales for shop $shopId: $e');
+    }
+
+    print(
+      'Total TV sales for ${getShopNameById(shopId)} in period: ${tvSales.length}',
+    );
+    return tvSales;
+  }
+
+  String getShopNameById(String shopId) {
+    for (var shop in widget.shops) {
+      if (shop['id'] == shopId) {
+        return shop['name'];
+      }
+    }
+    return '';
+  }
+
+  double _toDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is num) return value.toDouble();
+    return 0.0;
+  }
+
+  DateTime _getSaleDateFromMap(Map<String, dynamic> data) {
+    if (data['date'] is Timestamp) {
+      return (data['date'] as Timestamp).toDate();
+    }
+    if (data['billDate'] is Timestamp) {
+      return (data['billDate'] as Timestamp).toDate();
+    }
+    if (data['uploadedAt'] is Timestamp) {
+      return (data['uploadedAt'] as Timestamp).toDate();
+    }
+    if (data['createdAt'] is Timestamp) {
+      return (data['createdAt'] as Timestamp).toDate();
+    }
+    return DateTime.now();
+  }
+
+  bool _isDateInRange(DateTime date, DateTime startDate, DateTime endDate) {
+    final dateOnly = DateTime(date.year, date.month, date.day);
+    final startOnly = DateTime(startDate.year, startDate.month, startDate.day);
+    final endOnly = DateTime(endDate.year, endDate.month, endDate.day);
+
+    return dateOnly.isAfter(startOnly.subtract(const Duration(days: 1))) &&
+        dateOnly.isBefore(endOnly.add(const Duration(days: 1)));
   }
 
   List<Sale> _filterSalesByPeriod(List<Sale> sales) {
@@ -143,7 +346,11 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
     }).toList();
   }
 
-  ShopIncentiveData _calculateShopIncentive(String shopName, List<Sale> sales) {
+  ShopIncentiveData _calculateShopIncentive(
+    String shopName,
+    List<Sale> sales,
+    String shopId,
+  ) {
     // Calculate Accessories & Service Incentive
     double accessoriesTotal = sales
         .where((s) => s.type == 'accessories_service_sale')
@@ -163,10 +370,27 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
       phoneTotalAmount,
     );
 
-    // Calculate TV Sales Incentive
-    List<Sale> tvSales = sales.where((s) => s.type == 'tv_sale').toList();
+    // Calculate TV Sales Incentive - ONLY for this specific shop
+    List<Sale> tvSales = sales
+        .where(
+          (s) =>
+              s.type == 'tv_sale' &&
+              (s.shopId == shopId || s.shopName == shopName),
+        )
+        .toList();
     int tvCount = tvSales.length;
     double tvIncentive = _calculateTvIncentive(tvCount);
+
+    // Debug print for TV sales
+    print('=== TV INCENTIVE CALCULATION FOR $shopName ===');
+    print('TV Count: $tvCount');
+    print('TV Incentive: $tvIncentive');
+    for (var tv in tvSales) {
+      print(
+        '  TV Sale: ${tv.itemName}, Amount: ${tv.amount}, Date: ${tv.date}, Shop: ${tv.shopName}',
+      );
+    }
+    print('============================================');
 
     // Calculate Second Phone Incentive
     List<Sale> secondPhoneSales = sales
@@ -210,12 +434,10 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
 
   double _calculateAccessoriesIncentive(double totalAmount) {
     if (totalAmount <= 100000) return 0;
-
     double incentive = 1000;
     final amountAboveLakh = totalAmount - 100000;
     final additionalThousands = (amountAboveLakh / 10000).floor();
     incentive += additionalThousands * 200;
-
     return incentive;
   }
 
@@ -404,6 +626,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                               '   • 1-10 pieces → ₹30 per piece',
                               '   • Above 10 pieces → ₹50 per piece',
                               '✨ No minimum quantity required',
+                              '📌 Each shop gets incentive only for their own TV sales',
                             ],
                           ),
                           const SizedBox(height: 12),
@@ -1338,6 +1561,49 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (isLoading) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text(
+            'Shop Incentive Report',
+            style: TextStyle(fontSize: 18),
+          ),
+          backgroundColor: const Color(0xFF0A4D2E),
+          foregroundColor: Colors.white,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.emoji_events),
+              onPressed: _showConditions,
+              tooltip: 'View Conditions',
+            ),
+            IconButton(
+              icon: const Icon(Icons.calendar_today),
+              onPressed: _showTimePeriodDialog,
+              tooltip: 'Select Period',
+            ),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: () => _loadAllData(),
+              tooltip: 'Refresh',
+            ),
+          ],
+        ),
+        body: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(
+                color: Color(0xFF0A4D2E),
+                strokeWidth: 2,
+              ),
+              SizedBox(height: 12),
+              Text('Calculating incentives...', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
+      );
+    }
+
     double totalIncentiveAllShops = shopIncentives.values.fold(
       0.0,
       (sum, data) => sum + data.totalIncentive,
@@ -1379,10 +1645,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () {
-              _calculateAllShopIncentives();
-              _calculateLastMonthIncentives();
-            },
+            onPressed: () => _loadAllData(),
             tooltip: 'Refresh',
           ),
         ],
@@ -1873,15 +2136,16 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                       child: Text('Custom Range'),
                     ),
                   ],
-                  onChanged: (value) {
+                  onChanged: (value) async {
                     if (value == 'custom') {
-                      _showCustomDateRangePicker();
+                      await _showCustomDateRangePicker();
                     } else {
                       setState(() {
                         selectedTimePeriod = value!;
                         isCustomPeriod = false;
-                        _calculateAllShopIncentives();
                       });
+                      await _calculateAllShopIncentives();
+                      await _calculateLastMonthIncentives();
                     }
                   },
                 ),
@@ -1941,8 +2205,9 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
       customEndDate = end;
       isCustomPeriod = true;
       selectedTimePeriod = 'custom';
-      _calculateAllShopIncentives();
     });
+    await _calculateAllShopIncentives();
+    await _calculateLastMonthIncentives();
   }
 
   void _showTimePeriodDialog() {
@@ -1965,36 +2230,39 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
               ListTile(
                 leading: const Icon(Icons.today),
                 title: const Text('Daily'),
-                onTap: () {
+                onTap: () async {
                   setState(() {
                     selectedTimePeriod = 'daily';
                     isCustomPeriod = false;
-                    _calculateAllShopIncentives();
                   });
+                  await _calculateAllShopIncentives();
+                  await _calculateLastMonthIncentives();
                   Navigator.pop(context);
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.calendar_month),
                 title: const Text('Monthly'),
-                onTap: () {
+                onTap: () async {
                   setState(() {
                     selectedTimePeriod = 'monthly';
                     isCustomPeriod = false;
-                    _calculateAllShopIncentives();
                   });
+                  await _calculateAllShopIncentives();
+                  await _calculateLastMonthIncentives();
                   Navigator.pop(context);
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.calendar_today),
                 title: const Text('Yearly'),
-                onTap: () {
+                onTap: () async {
                   setState(() {
                     selectedTimePeriod = 'yearly';
                     isCustomPeriod = false;
-                    _calculateAllShopIncentives();
                   });
+                  await _calculateAllShopIncentives();
+                  await _calculateLastMonthIncentives();
                   Navigator.pop(context);
                 },
               ),

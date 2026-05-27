@@ -3,7 +3,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../providers/auth_provider.dart';
-import '../../../models/sale.dart';
 
 class IncentiveScreen extends StatefulWidget {
   const IncentiveScreen({super.key});
@@ -17,11 +16,13 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
   IncentiveData? currentIncentiveData;
   String? errorMessage;
 
+  // Time period selection
   String selectedTimePeriod = 'current_month';
   DateTime? customStartDate;
   DateTime? customEndDate;
   bool isCustomPeriod = false;
 
+  // Date ranges
   DateTime currentStartDate = DateTime.now();
   DateTime currentEndDate = DateTime.now();
   String currentPeriodName = '';
@@ -89,6 +90,23 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
     }
   }
 
+  // Helper function to safely convert num to double
+  double _toDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is num) return value.toDouble();
+    return 0.0;
+  }
+
+  int _toInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is double) return value.toInt();
+    if (value is num) return value.toInt();
+    return 0;
+  }
+
   Future<void> _fetchData(String shopId) async {
     setState(() {
       isLoading = true;
@@ -148,18 +166,18 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
     final baseModelIncentive = _calculateBaseModelIncentive(baseModelData);
 
     return IncentiveData(
-      accessoriesTotalAmount: accessoriesData['totalAmount'] as double? ?? 0,
-      accessoriesSaleCount: accessoriesData['count'] as int? ?? 0,
-      accessoriesIncentive: accessoriesIncentive['amount'] as double? ?? 0,
+      accessoriesTotalAmount: _toDouble(accessoriesData['totalAmount']),
+      accessoriesSaleCount: _toInt(accessoriesData['count']),
+      accessoriesIncentive: _toDouble(accessoriesIncentive['amount']),
       accessoriesBreakdown: List<Map<String, dynamic>>.from(
         accessoriesIncentive['breakdown'] as List? ?? [],
       ),
       accessoriesSalesList: List<Map<String, dynamic>>.from(
         accessoriesData['sales'] as List? ?? [],
       ),
-      phoneTotalAmount: phoneData['totalAmount'] as double? ?? 0,
-      phoneSaleCount: phoneData['count'] as int? ?? 0,
-      phoneIncentive: phoneIncentive['amount'] as double? ?? 0,
+      phoneTotalAmount: _toDouble(phoneData['totalAmount']),
+      phoneSaleCount: _toInt(phoneData['count']),
+      phoneIncentive: _toDouble(phoneIncentive['amount']),
       phoneBreakdown: List<Map<String, dynamic>>.from(
         phoneIncentive['breakdown'] as List? ?? [],
       ),
@@ -169,27 +187,27 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
       phoneSalesList: List<Map<String, dynamic>>.from(
         phoneData['sales'] as List? ?? [],
       ),
-      tvTotalAmount: tvData['totalAmount'] as double? ?? 0,
-      tvSaleCount: tvData['count'] as int? ?? 0,
-      tvIncentive: tvIncentive['amount'] as double? ?? 0,
+      tvTotalAmount: _toDouble(tvData['totalAmount']),
+      tvSaleCount: _toInt(tvData['count']),
+      tvIncentive: _toDouble(tvIncentive['amount']),
       tvBreakdown: List<Map<String, dynamic>>.from(
         tvIncentive['breakdown'] as List? ?? [],
       ),
       tvSalesList: List<Map<String, dynamic>>.from(
         tvData['sales'] as List? ?? [],
       ),
-      secondPhoneTotalAmount: secondPhoneData['totalAmount'] as double? ?? 0,
-      secondPhoneSaleCount: secondPhoneData['count'] as int? ?? 0,
-      secondPhoneIncentive: secondPhoneIncentive['amount'] as double? ?? 0,
+      secondPhoneTotalAmount: _toDouble(secondPhoneData['totalAmount']),
+      secondPhoneSaleCount: _toInt(secondPhoneData['count']),
+      secondPhoneIncentive: _toDouble(secondPhoneIncentive['amount']),
       secondPhoneBreakdown: List<Map<String, dynamic>>.from(
         secondPhoneIncentive['breakdown'] as List? ?? [],
       ),
       secondPhoneSalesList: List<Map<String, dynamic>>.from(
         secondPhoneData['sales'] as List? ?? [],
       ),
-      baseModelTotalAmount: baseModelData['totalAmount'] as double? ?? 0,
-      baseModelSaleCount: baseModelData['count'] as int? ?? 0,
-      baseModelIncentive: baseModelIncentive['amount'] as double? ?? 0,
+      baseModelTotalAmount: _toDouble(baseModelData['totalAmount']),
+      baseModelSaleCount: _toInt(baseModelData['count']),
+      baseModelIncentive: _toDouble(baseModelIncentive['amount']),
       baseModelBreakdown: List<Map<String, dynamic>>.from(
         baseModelIncentive['breakdown'] as List? ?? [],
       ),
@@ -197,11 +215,11 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
         baseModelData['sales'] as List? ?? [],
       ),
       totalIncentive:
-          (accessoriesIncentive['amount'] as double? ?? 0) +
-          (phoneIncentive['amount'] as double? ?? 0) +
-          (tvIncentive['amount'] as double? ?? 0) +
-          (secondPhoneIncentive['amount'] as double? ?? 0) +
-          (baseModelIncentive['amount'] as double? ?? 0),
+          _toDouble(accessoriesIncentive['amount']) +
+          _toDouble(phoneIncentive['amount']) +
+          _toDouble(tvIncentive['amount']) +
+          _toDouble(secondPhoneIncentive['amount']) +
+          _toDouble(baseModelIncentive['amount']),
     );
   }
 
@@ -225,29 +243,21 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
       for (var doc in snapshot.docs) {
         final saleData = doc.data();
         final saleDate = _getSaleDate(saleData);
-        final dateStr = _formatDate(saleDate);
 
-        final isInRange = _isDateInRange(saleDate, startDate, endDate);
-
-        if (isInRange) {
-          final totalSaleAmount =
-              (saleData['totalSaleAmount'] as num?)?.toDouble() ?? 0;
-          final accessoriesAmount =
-              (saleData['accessoriesAmount'] as num?)?.toDouble() ?? 0;
-          final serviceAmount =
-              (saleData['serviceAmount'] as num?)?.toDouble() ?? 0;
+        if (_isDateInRange(saleDate, startDate, endDate)) {
+          final totalSaleAmount = _toDouble(saleData['totalSaleAmount']);
+          final accessoriesAmount = _toDouble(saleData['accessoriesAmount']);
+          final serviceAmount = _toDouble(saleData['serviceAmount']);
 
           double amount;
           if (totalSaleAmount > 0) {
             amount = totalSaleAmount;
-            print('Using totalSaleAmount: $amount');
           } else {
             amount = accessoriesAmount + serviceAmount;
-            print('Using sum (accessories + service): $amount');
           }
 
-          data['totalAmount'] = (data['totalAmount'] as double) + amount;
-          data['count'] = (data['count'] as int) + 1;
+          data['totalAmount'] = _toDouble(data['totalAmount']) + amount;
+          data['count'] = _toInt(data['count']) + 1;
 
           (data['sales'] as List<Map<String, dynamic>>).add({
             'amount': amount,
@@ -259,27 +269,13 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
             'totalSaleAmount': totalSaleAmount,
             'items': saleData['items'] ?? [],
             'paymentBreakdown': {
-              'cash': saleData['cashAmount'] ?? 0,
-              'gpay': saleData['gpayAmount'] ?? 0,
-              'card': saleData['cardAmount'] ?? 0,
+              'cash': _toDouble(saleData['cashAmount']),
+              'gpay': _toDouble(saleData['gpayAmount']),
+              'card': _toDouble(saleData['cardAmount']),
             },
           });
-
-          print('✓ INCLUDED - Amount: $amount');
-          print('  Running total: ${data['totalAmount']}');
-          print('  Running count: ${data['count']}');
-        } else {
-          print('✗ EXCLUDED - Date out of range');
-          print(
-            '  Required between: ${_formatDate(startDate)} and ${_formatDate(endDate)}',
-          );
         }
       }
-
-      print('\n========== ACCESSORIES SUMMARY ==========');
-      print('Total Amount: ${data['totalAmount']}');
-      print('Total Count: ${data['count']}');
-      print('========================================\n');
     } catch (e) {
       print('Error fetching accessories sales: $e');
     }
@@ -310,13 +306,12 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
         final saleDate = _getSaleDate(saleData);
 
         if (_isDateInRange(saleDate, startDate, endDate)) {
-          final amount =
-              (saleData['effectivePrice'] as num?)?.toDouble() ??
-              (saleData['price'] as num?)?.toDouble() ??
-              0;
+          final amount = _toDouble(saleData['effectivePrice']) > 0
+              ? _toDouble(saleData['effectivePrice'])
+              : _toDouble(saleData['price']);
 
-          data['totalAmount'] = (data['totalAmount'] as double) + amount;
-          data['count'] = (data['count'] as int) + 1;
+          data['totalAmount'] = _toDouble(data['totalAmount']) + amount;
+          data['count'] = _toInt(data['count']) + 1;
 
           final incentiveInfo = _getPhoneIncentiveInfo(amount);
 
@@ -370,10 +365,10 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
         final saleDate = _getSaleDate(saleData);
 
         if (_isDateInRange(saleDate, startDate, endDate)) {
-          final amount = (saleData['totalAmount'] as num?)?.toDouble() ?? 0;
+          final amount = _toDouble(saleData['totalAmount']);
 
-          data['totalAmount'] = (data['totalAmount'] as double) + amount;
-          data['count'] = (data['count'] as int) + 1;
+          data['totalAmount'] = _toDouble(data['totalAmount']) + amount;
+          data['count'] = _toInt(data['count']) + 1;
 
           (data['sales'] as List<Map<String, dynamic>>).add({
             'amount': amount,
@@ -416,13 +411,12 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
         final saleDate = _getSaleDate(saleData);
 
         if (_isDateInRange(saleDate, startDate, endDate)) {
-          final amount =
-              (saleData['price'] as num?)?.toDouble() ??
-              (saleData['totalPayment'] as num?)?.toDouble() ??
-              0;
+          final amount = _toDouble(saleData['price']) > 0
+              ? _toDouble(saleData['price'])
+              : _toDouble(saleData['totalPayment']);
 
-          data['totalAmount'] = (data['totalAmount'] as double) + amount;
-          data['count'] = (data['count'] as int) + 1;
+          data['totalAmount'] = _toDouble(data['totalAmount']) + amount;
+          data['count'] = _toInt(data['count']) + 1;
 
           (data['sales'] as List<Map<String, dynamic>>).add({
             'amount': amount,
@@ -463,13 +457,12 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
         final saleDate = _getSaleDate(saleData);
 
         if (_isDateInRange(saleDate, startDate, endDate)) {
-          final amount =
-              (saleData['price'] as num?)?.toDouble() ??
-              (saleData['totalPayment'] as num?)?.toDouble() ??
-              0;
+          final amount = _toDouble(saleData['price']) > 0
+              ? _toDouble(saleData['price'])
+              : _toDouble(saleData['totalPayment']);
 
-          data['totalAmount'] = (data['totalAmount'] as double) + amount;
-          data['count'] = (data['count'] as int) + 1;
+          data['totalAmount'] = _toDouble(data['totalAmount']) + amount;
+          data['count'] = _toInt(data['count']) + 1;
 
           (data['sales'] as List<Map<String, dynamic>>).add({
             'amount': amount,
@@ -537,6 +530,9 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
     if (data['saleDate'] is Timestamp) {
       return (data['saleDate'] as Timestamp).toDate();
     }
+    if (data['createdAt'] is Timestamp) {
+      return (data['createdAt'] as Timestamp).toDate();
+    }
 
     if (data['dateString'] != null && data['dateString'] is String) {
       try {
@@ -549,9 +545,9 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
     if (data['year'] != null && data['month'] != null && data['day'] != null) {
       try {
         return DateTime(
-          (data['year'] as num).toInt(),
-          (data['month'] as num).toInt(),
-          (data['day'] as num).toInt(),
+          _toInt(data['year']),
+          _toInt(data['month']),
+          _toInt(data['day']),
         );
       } catch (e) {
         print('Error parsing date components: $e');
@@ -578,9 +574,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
   Map<String, dynamic> _calculateAccessoriesIncentive(
     Map<String, dynamic> salesData,
   ) {
-    final totalAmount = salesData['totalAmount'] as double? ?? 0;
-
-    print('Accessories Incentive Calculation - Total Amount: $totalAmount');
+    final totalAmount = _toDouble(salesData['totalAmount']);
 
     if (totalAmount <= 100000) {
       return {
@@ -617,15 +611,14 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
       });
     }
 
-    print('Accessories Incentive Calculated: $incentive');
     return {'amount': incentive, 'breakdown': breakdown};
   }
 
   Map<String, dynamic> _calculatePhoneIncentive(
     Map<String, dynamic> salesData,
   ) {
-    final totalAmount = salesData['totalAmount'] as double? ?? 0;
-    final saleCount = salesData['count'] as int? ?? 0;
+    final totalAmount = _toDouble(salesData['totalAmount']);
+    final saleCount = _toInt(salesData['count']);
     final priceDetails = List<Map<String, dynamic>>.from(
       salesData['priceDetails'] as List? ?? [],
     );
@@ -646,19 +639,19 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
 
       for (var phone in priceDetails) {
         final bracket = phone['bracket'] as String;
-        final incentiveAmount = phone['incentive'] as double;
+        final incentiveAmount = _toDouble(phone['incentive']);
 
         if (!bracketGroups.containsKey(bracket)) {
           bracketGroups[bracket] = {
             'count': 0,
-            'totalIncentive': 0,
+            'totalIncentive': 0.0,
             'incentivePerPhone': incentiveAmount,
           };
         }
         bracketGroups[bracket]!['count'] =
-            (bracketGroups[bracket]!['count'] as int) + 1;
+            _toInt(bracketGroups[bracket]!['count']) + 1;
         bracketGroups[bracket]!['totalIncentive'] =
-            (bracketGroups[bracket]!['totalIncentive'] as double) +
+            _toDouble(bracketGroups[bracket]!['totalIncentive']) +
             incentiveAmount;
         totalIncentive += incentiveAmount;
       }
@@ -690,7 +683,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
   }
 
   Map<String, dynamic> _calculateTvIncentive(Map<String, dynamic> salesData) {
-    final saleCount = salesData['count'] as int? ?? 0;
+    final saleCount = _toInt(salesData['count']);
 
     if (saleCount < 1) {
       return {
@@ -720,7 +713,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
   Map<String, dynamic> _calculateSecondPhoneIncentive(
     Map<String, dynamic> salesData,
   ) {
-    final saleCount = salesData['count'] as int? ?? 0;
+    final saleCount = _toInt(salesData['count']);
 
     if (saleCount < 1) {
       return {
@@ -750,7 +743,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
   Map<String, dynamic> _calculateBaseModelIncentive(
     Map<String, dynamic> salesData,
   ) {
-    final saleCount = salesData['count'] as int? ?? 0;
+    final saleCount = _toInt(salesData['count']);
 
     if (saleCount < 1) {
       return {
@@ -1084,11 +1077,11 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                       ),
                       if (item['amount'] != null)
                         Text(
-                          '₹${_formatNumber((item['amount'] as num).toDouble())}',
+                          '₹${_formatNumber(_toDouble(item['amount']))}',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
-                            color: (item['amount'] as num) > 0
+                            color: _toDouble(item['amount']) > 0
                                 ? Colors.green.shade700
                                 : Colors.grey.shade600,
                           ),
@@ -1167,7 +1160,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                             ),
                           ),
                           Text(
-                            '₹${_formatNumber((sale['amount'] as num).toDouble())}',
+                            '₹${_formatNumber(_toDouble(sale['amount']))}',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
@@ -1224,7 +1217,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                'Accessories: ₹${_formatNumber((sale['accessoriesAmount'] as num).toDouble())} | Service: ₹${_formatNumber((sale['serviceAmount'] as num).toDouble())}',
+                                'Accessories: ₹${_formatNumber(_toDouble(sale['accessoriesAmount']))} | Service: ₹${_formatNumber(_toDouble(sale['serviceAmount']))}',
                                 style: TextStyle(
                                   fontSize: 9,
                                   color: Colors.grey.shade600,
@@ -1245,7 +1238,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                'Cash: ₹${_formatNumber((sale['paymentBreakdown']['cash'] as num).toDouble())} | GPay: ₹${_formatNumber((sale['paymentBreakdown']['gpay'] as num).toDouble())} | Card: ₹${_formatNumber((sale['paymentBreakdown']['card'] as num).toDouble())}',
+                                'Cash: ₹${_formatNumber(_toDouble(sale['paymentBreakdown']['cash']))} | GPay: ₹${_formatNumber(_toDouble(sale['paymentBreakdown']['gpay']))} | Card: ₹${_formatNumber(_toDouble(sale['paymentBreakdown']['card']))}',
                                 style: TextStyle(
                                   fontSize: 9,
                                   color: Colors.grey.shade600,
