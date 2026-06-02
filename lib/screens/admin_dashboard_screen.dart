@@ -26,7 +26,6 @@ import 'admin/sales/phone_sales_details_screen.dart';
 import 'admin/sales/phone_sales_reports_screen.dart';
 import 'admin/sales/accessories_service_report_screen.dart';
 import 'admin/inventory/inventory_details_screen.dart';
-import 'admin/reports/specific_report_screen.dart';
 import 'admin/reports/shop_wise_report_screen.dart';
 import 'admin/reports/category_details_screen.dart';
 import '../../models/sale.dart';
@@ -1872,117 +1871,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     shops: shops,
                     allSales: allSales,
                     formatNumber: _formatNumber,
-                  ),
-                ),
-              );
-            },
-          ),
-          Padding(
-            padding: EdgeInsets.only(left: 16, top: 12, bottom: 6),
-            child: Text(
-              'SPECIFIC REPORTS',
-              style: TextStyle(
-                fontSize: 9,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          _buildDrawerItem(
-            Icons.today,
-            'Daily Report',
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => SpecificReportScreen(
-                    title: 'Daily Report',
-                    timePeriod: 'daily',
-                    allSales: allSales,
-                    formatNumber: _formatNumber,
-                    shops: shops,
-                    getCategoryColor: _getCategoryColor,
-                  ),
-                ),
-              );
-            },
-          ),
-          _buildDrawerItem(
-            Icons.history,
-            'Yesterday Report',
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => SpecificReportScreen(
-                    title: 'Yesterday Report',
-                    timePeriod: 'yesterday',
-                    allSales: allSales,
-                    formatNumber: _formatNumber,
-                    shops: shops,
-                    getCategoryColor: _getCategoryColor,
-                  ),
-                ),
-              );
-            },
-          ),
-          _buildDrawerItem(
-            Icons.calendar_view_month,
-            'Last Month Report',
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => SpecificReportScreen(
-                    title: 'Last Month Report',
-                    timePeriod: 'last_month',
-                    allSales: allSales,
-                    formatNumber: _formatNumber,
-                    shops: shops,
-                    getCategoryColor: _getCategoryColor,
-                  ),
-                ),
-              );
-            },
-          ),
-          _buildDrawerItem(
-            Icons.calendar_month,
-            'Monthly Report',
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => SpecificReportScreen(
-                    title: 'Monthly Report',
-                    timePeriod: 'monthly',
-                    allSales: allSales,
-                    formatNumber: _formatNumber,
-                    shops: shops,
-                    getCategoryColor: _getCategoryColor,
-                  ),
-                ),
-              );
-            },
-          ),
-          _buildDrawerItem(
-            Icons.calendar_today,
-            'Yearly Report',
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => SpecificReportScreen(
-                    title: 'Yearly Report',
-                    timePeriod: 'yearly',
-                    allSales: allSales,
-                    formatNumber: _formatNumber,
-                    shops: shops,
-                    getCategoryColor: _getCategoryColor,
                   ),
                 ),
               );

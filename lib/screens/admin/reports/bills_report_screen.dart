@@ -1234,6 +1234,15 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       productName = bill['productName'] ?? 'N/A';
     }
 
+    // Get IMEI
+    String imei = bill['imei'] ?? '';
+    if (originalPhoneData != null &&
+        originalPhoneData is Map<String, dynamic>) {
+      if (imei.isEmpty) {
+        imei = originalPhoneData['imei'] ?? '';
+      }
+    }
+
     return Card(
       margin: EdgeInsets.only(bottom: 8),
       elevation: 1,
@@ -1284,6 +1293,24 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                   SizedBox(width: 4),
                   Text(
                     bill['customerName'] ?? 'N/A',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                  ),
+                  SizedBox(width: 12),
+                  Icon(Icons.phone, size: 10, color: Colors.grey[500]),
+                  SizedBox(width: 4),
+                  Text(
+                    bill['customerMobile'] ?? 'N/A',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+              SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(Icons.qr_code, size: 10, color: Colors.grey[500]),
+                  SizedBox(width: 4),
+                  Text(
+                    'IMEI: ${imei.isNotEmpty ? imei : 'N/A'}',
                     style: TextStyle(fontSize: 10, color: Colors.grey[600]),
                   ),
                   SizedBox(width: 12),
