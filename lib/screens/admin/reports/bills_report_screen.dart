@@ -2,6 +2,15 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'dart:io';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:pdf/pdf.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import '../../../providers/auth_provider.dart';
+import 'dart:typed_data';
 
 class BillsReportScreen extends StatefulWidget {
   final Function(double) formatNumber;
@@ -36,7 +45,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   bool _showBrandWise = false;
 
   // Time period filters
-  String _selectedTimePeriod = 'monthly'; // Default to monthly
+  String _selectedTimePeriod = 'monthly';
   DateTime? _customStartDate;
   DateTime? _customEndDate;
   bool _isCustomPeriod = false;
@@ -44,28 +53,75 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   // Shop filter
   String? _selectedShopId;
 
+  // Edit mode variables
+  bool _isEditMode = false;
+  Map<String, dynamic>? _editingBill;
+  final _editFormKey = GlobalKey<FormState>();
+
+  // Edit form controllers
+  late TextEditingController _editCustomerNameController;
+  late TextEditingController _editMobileController;
+  late TextEditingController _editAddressController;
+  late TextEditingController _editTotalAmountController;
+  late TextEditingController _editTaxableAmountController;
+  late TextEditingController _editGstAmountController;
+  String? _editSelectedPurchaseMode;
+  String? _editSelectedFinanceType;
+  bool _editSealChecked = false;
+  bool _isUpdating = false;
+
+  // PDF assets
+  Uint8List? _logoImage;
+  Uint8List? _sealImage;
+
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final Color primaryGreen = Color(0xFF0A4D2E);
-  final Color secondaryGreen = Color(0xFF1A7D4A);
-  final Color warningColor = Color(0xFFFFC107);
+  final Color primaryGreen = const Color(0xFF0A4D2E);
+  final Color secondaryGreen = const Color(0xFF1A7D4A);
+  final Color warningColor = const Color(0xFFFFC107);
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
 
-    // Set initial shop filter if provided
+    // Initialize edit controllers
+    _editCustomerNameController = TextEditingController();
+    _editMobileController = TextEditingController();
+    _editAddressController = TextEditingController();
+    _editTotalAmountController = TextEditingController();
+    _editTaxableAmountController = TextEditingController();
+    _editGstAmountController = TextEditingController();
+
     if (widget.initialShopId != null) {
       _selectedShopId = widget.initialShopId;
     }
 
+    _loadImages();
     _fetchAllBills();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _editCustomerNameController.dispose();
+    _editMobileController.dispose();
+    _editAddressController.dispose();
+    _editTotalAmountController.dispose();
+    _editTaxableAmountController.dispose();
+    _editGstAmountController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadImages() async {
+    try {
+      final logoByteData = await rootBundle.load('assets/mobileHouseLogo.png');
+      _logoImage = logoByteData.buffer.asUint8List();
+
+      final sealByteData = await rootBundle.load('assets/mobileHouseSeal.jpeg');
+      _sealImage = sealByteData.buffer.asUint8List();
+    } catch (e) {
+      print('Error loading images: $e');
+    }
   }
 
   Future<void> _fetchAllBills() async {
@@ -93,16 +149,11 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
         _allBills.add(data);
 
-        // Categorize bills based on priority:
-        // 1. If billType is "GST Accessories" -> Accessories
-        // 2. If type is "tv" -> TV Bills
-        // 3. Everything else -> Phone Bills
         if (billType == 'GST Accessories') {
           _accessoriesBills.add(data);
         } else if (type == 'tv') {
           _tvBills.add(data);
         } else {
-          // Default to phone bills for all other cases
           _phoneBills.add(data);
         }
       }
@@ -129,12 +180,10 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     _brandWiseBills.clear();
     _brandStats.clear();
 
-    // Filter phone bills by time period and shop
     var filteredPhoneBills = _filterBillsByTimePeriod(_phoneBills);
     filteredPhoneBills = _filterBillsByShop(filteredPhoneBills);
 
     for (var bill in filteredPhoneBills) {
-      // Get brand from originalPhoneData or directly from bill
       String brand = 'Unknown';
 
       final originalPhoneData = bill['originalPhoneData'];
@@ -147,14 +196,12 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
       if (brand.isEmpty || brand == 'null') brand = 'Unknown';
 
-      // Add to brand-wise list
       if (!_brandWiseBills.containsKey(brand)) {
         _brandWiseBills[brand] = [];
       }
       _brandWiseBills[brand]!.add(bill);
     }
 
-    // Calculate stats for each brand
     for (var entry in _brandWiseBills.entries) {
       final brand = entry.key;
       final bills = entry.value;
@@ -177,7 +224,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     List<Map<String, dynamic>> bills,
   ) {
     return bills.where((bill) {
-      // Get bill date
       DateTime billDate;
       if (bill['billDate'] is Timestamp) {
         billDate = (bill['billDate'] as Timestamp).toDate();
@@ -331,6 +377,989 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     });
   }
 
+  // ==================== EDIT BILL FUNCTIONALITY ====================
+
+  void _startEditBill(Map<String, dynamic> bill) {
+    // Only allow editing phone bills (not accessories or TV)
+    final billType = bill['billType'] as String?;
+    final type = bill['type'] as String?;
+
+    if (billType == 'GST Accessories' || type == 'tv') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Only phone bills can be edited'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _editingBill = bill;
+      _isEditMode = true;
+
+      // Populate controllers
+      _editCustomerNameController.text = bill['customerName'] ?? '';
+      _editMobileController.text = bill['customerMobile'] ?? '';
+      _editAddressController.text = bill['customerAddress'] ?? '';
+      _editTotalAmountController.text =
+          (bill['totalAmount'] as num?)?.toString() ?? '0';
+      _editTaxableAmountController.text =
+          (bill['taxableAmount'] as num?)?.toString() ?? '0';
+      _editGstAmountController.text =
+          (bill['gstAmount'] as num?)?.toString() ?? '0';
+      _editSelectedPurchaseMode = bill['purchaseMode'] ?? 'Ready Cash';
+      _editSelectedFinanceType = bill['financeType'];
+      _editSealChecked = bill['sealApplied'] == true;
+    });
+  }
+
+  void _calculateEditGST() {
+    if (_editTotalAmountController.text.isNotEmpty) {
+      try {
+        double totalAmount = double.parse(_editTotalAmountController.text);
+        double gstPercent = 18.0;
+        double taxableAmount = totalAmount / (1 + gstPercent / 100);
+        double gstAmount = totalAmount - taxableAmount;
+
+        setState(() {
+          _editTaxableAmountController.text = taxableAmount.toStringAsFixed(2);
+          _editGstAmountController.text = gstAmount.toStringAsFixed(2);
+        });
+      } catch (e) {
+        setState(() {
+          _editTaxableAmountController.text = '';
+          _editGstAmountController.text = '';
+        });
+      }
+    } else {
+      setState(() {
+        _editTaxableAmountController.text = '';
+        _editGstAmountController.text = '';
+      });
+    }
+  }
+
+  Future<void> _updateBill() async {
+    if (!_editFormKey.currentState!.validate()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please fill all required fields')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isUpdating = true;
+    });
+
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final user = authProvider.user;
+
+      final updateData = {
+        'customerName': _editCustomerNameController.text,
+        'customerMobile': _editMobileController.text,
+        'customerAddress': _editAddressController.text,
+        'totalAmount': double.parse(_editTotalAmountController.text),
+        'taxableAmount': double.parse(_editTaxableAmountController.text),
+        'gstAmount': double.parse(_editGstAmountController.text),
+        'purchaseMode': _editSelectedPurchaseMode,
+        'financeType': _editSelectedFinanceType,
+        'sealApplied': _editSealChecked,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedBy': user?.email,
+      };
+
+      await _firestore
+          .collection('bills')
+          .doc(_editingBill!['id'])
+          .update(updateData);
+
+      // Update phone stock if IMEI exists
+      final imei = _editingBill!['imei'];
+      if (imei != null && imei.isNotEmpty) {
+        final querySnapshot = await _firestore
+            .collection('phoneStock')
+            .where('imei', isEqualTo: imei)
+            .limit(1)
+            .get();
+
+        if (querySnapshot.docs.isNotEmpty) {
+          await _firestore
+              .collection('phoneStock')
+              .doc(querySnapshot.docs.first.id)
+              .update({
+                'soldTo': _editCustomerNameController.text,
+                'soldAmount': double.parse(_editTotalAmountController.text),
+                'purchaseMode': _editSelectedPurchaseMode,
+                'financeType': _editSelectedFinanceType,
+                'updatedAt': FieldValue.serverTimestamp(),
+              });
+        }
+      }
+
+      // Refresh bills list
+      await _fetchAllBills();
+
+      setState(() {
+        _isEditMode = false;
+        _editingBill = null;
+        _isUpdating = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Bill updated successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      setState(() {
+        _isUpdating = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating bill: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _cancelEdit() {
+    setState(() {
+      _isEditMode = false;
+      _editingBill = null;
+    });
+  }
+
+  // ==================== PDF GENERATION ====================
+
+  Future<void> _printAndShareBill(Map<String, dynamic> bill) async {
+    try {
+      setState(() {
+        _isLoading = true;
+      });
+
+      final pdfBytes = await _generateBillPdf(bill);
+      final filePath = await _savePdfToStorage(pdfBytes, bill);
+      final pdfFile = File(filePath);
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      // Show options dialog
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Bill Actions'),
+          content: Text('What would you like to do with the bill?'),
+          actions: [
+            TextButton.icon(
+              onPressed: () async {
+                Navigator.pop(context);
+                await _sharePdf(pdfFile);
+              },
+              icon: Icon(Icons.share, color: Colors.blue),
+              label: Text('Share'),
+            ),
+            TextButton.icon(
+              onPressed: () async {
+                Navigator.pop(context);
+                await _printPdf(pdfFile);
+              },
+              icon: Icon(Icons.print, color: Colors.green),
+              label: Text('Print'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error generating PDF: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<Uint8List> _generateBillPdf(Map<String, dynamic> bill) async {
+    final pdf = pw.Document();
+    final pageFormat = PdfPageFormat.a4;
+    String currentDate = DateFormat('dd MMMM yyyy').format(DateTime.now());
+    String billDate = bill['billDate'] is Timestamp
+        ? DateFormat(
+            'dd MMMM yyyy',
+          ).format((bill['billDate'] as Timestamp).toDate())
+        : currentDate;
+
+    final billNumber = bill['billNumber'] ?? 'N/A';
+    final customerName = bill['customerName'] ?? 'N/A';
+    final customerMobile = bill['customerMobile'] ?? 'N/A';
+    final customerAddress = bill['customerAddress'] ?? 'N/A';
+    final productName = bill['productName'] ?? 'N/A';
+    final imei = bill['imei'] ?? 'N/A';
+    final totalAmount = (bill['totalAmount'] as num?)?.toDouble() ?? 0.0;
+    final taxableAmount = (bill['taxableAmount'] as num?)?.toDouble() ?? 0.0;
+    final gstAmount = (bill['gstAmount'] as num?)?.toDouble() ?? 0.0;
+    final shop = bill['shop'] ?? 'Peringottukara';
+    final purchaseMode = bill['purchaseMode'] ?? 'Ready Cash';
+    final financeType = bill['financeType'];
+    final sealApplied = bill['sealApplied'] == true;
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: pageFormat,
+        margin: pw.EdgeInsets.all(15),
+        build: (pw.Context context) {
+          return pw.Container(
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.black, width: 1.0),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                _buildPdfHeader(currentDate, billNumber, shop),
+                _buildPdfCustomerDetails(
+                  customerName,
+                  customerMobile,
+                  customerAddress,
+                  purchaseMode,
+                  financeType,
+                ),
+                pw.SizedBox(height: 4),
+                _buildPdfMainTable(
+                  productName,
+                  imei,
+                  taxableAmount,
+                  gstAmount,
+                  totalAmount,
+                ),
+                pw.Container(
+                  height: 280,
+                  child: pw.Stack(
+                    children: [
+                      if (sealApplied && _sealImage != null)
+                        pw.Positioned(
+                          right: 15,
+                          bottom: 18,
+                          child: pw.Transform.rotate(
+                            angle: 25 * 3.14159 / 180,
+                            child: pw.SizedBox(
+                              width: 150,
+                              height: 150,
+                              child: pw.Image(
+                                pw.MemoryImage(_sealImage!),
+                                fit: pw.BoxFit.contain,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                _buildPdfTotalSection(totalAmount, taxableAmount, gstAmount),
+                _buildPdfBottomSection(),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  pw.Widget _buildPdfHeader(
+    String currentDate,
+    String billNumber,
+    String shop,
+  ) {
+    return pw.Column(
+      children: [
+        pw.Padding(
+          padding: pw.EdgeInsets.all(8),
+          child: pw.Align(
+            alignment: pw.Alignment.centerLeft,
+            child: pw.Text(
+              'GSTIN: 32BSGPJ3340H1Z4',
+              style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+            ),
+          ),
+        ),
+        pw.Padding(
+          padding: pw.EdgeInsets.all(8),
+          child: pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.center,
+            children: [
+              pw.Column(
+                children: [
+                  if (_logoImage != null)
+                    pw.SizedBox(
+                      height: 45,
+                      child: pw.Image(
+                        pw.MemoryImage(_logoImage!),
+                        fit: pw.BoxFit.contain,
+                      ),
+                    )
+                  else
+                    pw.Text(
+                      'MOBILE HOUSE',
+                      style: pw.TextStyle(
+                        fontSize: 14,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  pw.SizedBox(height: 2),
+                  pw.Text(
+                    shop == 'Peringottukara'
+                        ? "3way junction Peringottukara"
+                        : "Cherpu, Thayamkulangara",
+                    style: pw.TextStyle(fontSize: 11),
+                  ),
+                  pw.SizedBox(height: 2),
+                  pw.Text(
+                    shop == 'Peringottukara'
+                        ? "Mob: 9072430483, 8304830868"
+                        : "Mob: 9544466724",
+                    style: pw.TextStyle(fontSize: 11),
+                  ),
+                  pw.SizedBox(height: 2),
+                  pw.Text("Mobile house", style: pw.TextStyle(fontSize: 11)),
+                  pw.SizedBox(height: 2),
+                  pw.Text(
+                    "GST TAX INVOICE (TYPE-B2C) - CASH SALE",
+                    style: pw.TextStyle(fontSize: 9),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        pw.Padding(
+          padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'STATE : KERALA',
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.SizedBox(height: 6),
+                  pw.Text(
+                    'Invoice No. : $billNumber',
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Text(
+                    'STATE CODE : 32',
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.SizedBox(height: 6),
+                  pw.Text(
+                    'Invoice Date : $currentDate',
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        pw.Divider(color: PdfColors.black, thickness: 0.2, height: 0),
+      ],
+    );
+  }
+
+  pw.Widget _buildPdfCustomerDetails(
+    String name,
+    String mobile,
+    String address,
+    String purchaseMode,
+    String? financeType,
+  ) {
+    return pw.Padding(
+      padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: pw.Container(
+        padding: pw.EdgeInsets.all(2),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+              'Customer  : $name',
+              style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.SizedBox(height: 4),
+            if (address.isNotEmpty && address != 'N/A')
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text('Address     :', style: pw.TextStyle(fontSize: 11)),
+                  pw.SizedBox(width: 4),
+                  pw.Expanded(
+                    child: pw.Text(
+                      address.isNotEmpty ? address : "N/A",
+                      style: pw.TextStyle(fontSize: 11),
+                      maxLines: 2,
+                    ),
+                  ),
+                ],
+              ),
+            pw.SizedBox(height: 4),
+            pw.Text('Mobile Tel  : $mobile', style: pw.TextStyle(fontSize: 11)),
+            pw.SizedBox(height: 6),
+            if (purchaseMode == 'EMI' && financeType != null)
+              pw.Row(
+                children: [
+                  pw.Text(
+                    'Finance       : ',
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.Text(
+                    financeType,
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.normal,
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  pw.Widget _buildPdfMainTable(
+    String productName,
+    String imei,
+    double taxableAmount,
+    double gstAmount,
+    double totalAmount,
+  ) {
+    return pw.Table(
+      border: pw.TableBorder.all(color: PdfColors.black, width: 0.5),
+      columnWidths: {
+        0: pw.FixedColumnWidth(40),
+        1: pw.FlexColumnWidth(2.5),
+        2: pw.FixedColumnWidth(60),
+        3: pw.FixedColumnWidth(25),
+        4: pw.FixedColumnWidth(50),
+        5: pw.FixedColumnWidth(70),
+        6: pw.FixedColumnWidth(45),
+        7: pw.FixedColumnWidth(50),
+        8: pw.FixedColumnWidth(60),
+      },
+      defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
+      children: [
+        pw.TableRow(
+          children: [
+            _buildPdfTableCell('SLNO', isHeader: true),
+            _buildPdfTableCell('Name of Item/Commodity', isHeader: true),
+            _buildPdfTableCell('HSNCode', isHeader: true),
+            _buildPdfTableCell('Qty', isHeader: true),
+            _buildPdfTableCell(' Rate', isHeader: true),
+            _buildPdfTableCell(' Discount', isHeader: true),
+            _buildPdfTableCell('GST%', isHeader: true),
+            _buildPdfTableCell('GST Amt', isHeader: true),
+            _buildPdfTableCell('Total ', isHeader: true),
+          ],
+        ),
+        pw.TableRow(
+          children: [
+            _buildPdfTableCell('1'),
+            _buildPdfTableCell(
+              '$productName\nIMEI: $imei',
+              textAlign: pw.TextAlign.left,
+              fontSize: 11,
+              maxLines: 3,
+            ),
+            _buildPdfTableCell('85171300'),
+            _buildPdfTableCell('1'),
+            _buildPdfTableCell(taxableAmount.toStringAsFixed(2)),
+            _buildPdfTableCell('0.00'),
+            _buildPdfTableCell('18'),
+            _buildPdfTableCell(gstAmount.toStringAsFixed(2)),
+            _buildPdfTableCell(totalAmount.toStringAsFixed(2)),
+          ],
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _buildPdfTotalSection(
+    double totalAmount,
+    double taxableAmount,
+    double gstAmount,
+  ) {
+    String amountInWords = _amountToWords(totalAmount.toString());
+
+    return pw.Column(
+      children: [
+        pw.SizedBox(height: 8),
+        pw.Divider(color: PdfColors.black, thickness: 0.5, height: 0),
+        pw.Padding(
+          padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text(
+                'Total',
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.Text(
+                '1',
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.Text(
+                taxableAmount.toStringAsFixed(2),
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.Text(
+                gstAmount.toStringAsFixed(2),
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.Text(
+                totalAmount.toStringAsFixed(2),
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+        pw.Divider(color: PdfColors.black, thickness: 0.5, height: 0),
+        pw.Padding(
+          padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'In Words: $amountInWords',
+                style: pw.TextStyle(fontSize: 11),
+                maxLines: 2,
+              ),
+              pw.SizedBox(height: 4),
+              pw.Align(
+                alignment: pw.Alignment.centerRight,
+                child: pw.Text(
+                  'Total Amount: ${totalAmount.toStringAsFixed(2)}',
+                  style: pw.TextStyle(
+                    fontSize: 11,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _buildPdfBottomSection() {
+    return pw.Padding(
+      padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Expanded(
+            flex: 2,
+            child: pw.Container(
+              padding: pw.EdgeInsets.all(2),
+              child: _buildPdfGstBreakdownTable(),
+            ),
+          ),
+          pw.SizedBox(width: 10),
+          pw.Expanded(
+            flex: 1,
+            child: pw.Container(
+              padding: pw.EdgeInsets.all(6),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Text(
+                    'Certified that the particulars given above are true and correct',
+                    style: pw.TextStyle(
+                      fontSize: 9,
+                      fontStyle: pw.FontStyle.italic,
+                    ),
+                    textAlign: pw.TextAlign.right,
+                  ),
+                  pw.SizedBox(height: 15),
+                  pw.Text(
+                    'For MOBILE HOUSE',
+                    style: pw.TextStyle(
+                      fontSize: 9,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.SizedBox(height: 8),
+                  pw.Divider(color: PdfColors.black, thickness: 0.5),
+                  pw.SizedBox(height: 5),
+                  pw.Text(
+                    'Authorised Signatory',
+                    style: pw.TextStyle(fontSize: 8),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  pw.Table _buildPdfGstBreakdownTable() {
+    return pw.Table(
+      border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+      columnWidths: {
+        0: pw.FixedColumnWidth(40),
+        1: pw.FixedColumnWidth(35),
+        2: pw.FixedColumnWidth(35),
+        3: pw.FixedColumnWidth(35),
+        4: pw.FixedColumnWidth(40),
+        5: pw.FixedColumnWidth(40),
+      },
+      defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
+      children: [
+        pw.TableRow(
+          children: [
+            _buildPdfTableCell('', isHeader: true, fontSize: 9),
+            _buildPdfTableCell('GST 0%', isHeader: true, fontSize: 9),
+            _buildPdfTableCell('GST 5%', isHeader: true, fontSize: 9),
+            _buildPdfTableCell('GST 12%', isHeader: true, fontSize: 9),
+            _buildPdfTableCell('GST 18%', isHeader: true, fontSize: 9),
+            _buildPdfTableCell('GST 28%', isHeader: true, fontSize: 9),
+          ],
+        ),
+        pw.TableRow(
+          children: [
+            _buildPdfTableCell('Taxable', fontSize: 9),
+            _buildPdfTableCell('0.00', fontSize: 9),
+            _buildPdfTableCell('0.00', fontSize: 9),
+            _buildPdfTableCell('0.00', fontSize: 9),
+            _buildPdfTableCell('0.00', fontSize: 9),
+            _buildPdfTableCell('0.00', fontSize: 9),
+          ],
+        ),
+        pw.TableRow(
+          children: [
+            _buildPdfTableCell('CGST Amt', fontSize: 9),
+            _buildPdfTableCell('0.00', fontSize: 9),
+            _buildPdfTableCell('0.00', fontSize: 9),
+            _buildPdfTableCell('0.00', fontSize: 9),
+            _buildPdfTableCell('0.00', fontSize: 9),
+            _buildPdfTableCell('0.00', fontSize: 9),
+          ],
+        ),
+        pw.TableRow(
+          children: [
+            _buildPdfTableCell('SGST Amt', fontSize: 9),
+            _buildPdfTableCell('0.00', fontSize: 9),
+            _buildPdfTableCell('0.00', fontSize: 9),
+            _buildPdfTableCell('0.00', fontSize: 9),
+            _buildPdfTableCell('0.00', fontSize: 9),
+            _buildPdfTableCell('0.00', fontSize: 9),
+          ],
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _buildPdfTableCell(
+    String text, {
+    bool isHeader = false,
+    double fontSize = 11,
+    pw.TextAlign textAlign = pw.TextAlign.center,
+    int maxLines = 1,
+  }) {
+    final lines = text.split('\n');
+
+    if (maxLines <= 1 || lines.length <= 1) {
+      return pw.Container(
+        alignment: pw.Alignment.center,
+        padding: pw.EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+        child: pw.Text(
+          text,
+          style: pw.TextStyle(
+            fontSize: fontSize,
+            fontWeight: isHeader ? pw.FontWeight.bold : pw.FontWeight.normal,
+          ),
+          textAlign: textAlign,
+          maxLines: maxLines,
+        ),
+      );
+    }
+
+    return pw.Container(
+      alignment: pw.Alignment.center,
+      padding: pw.EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+      child: pw.Column(
+        mainAxisSize: pw.MainAxisSize.min,
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: [
+          pw.Text(
+            lines[0],
+            style: pw.TextStyle(
+              fontSize: fontSize,
+              fontWeight: isHeader ? pw.FontWeight.bold : pw.FontWeight.bold,
+            ),
+            textAlign: pw.TextAlign.center,
+          ),
+          pw.SizedBox(height: 3),
+          for (int i = 1; i < lines.length && i < maxLines; i++)
+            pw.Text(
+              lines[i],
+              style: pw.TextStyle(
+                fontSize: fontSize * 0.9,
+                fontWeight: pw.FontWeight.normal,
+              ),
+              textAlign: pw.TextAlign.center,
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _amountToWords(String amount) {
+    try {
+      double value = double.parse(amount);
+      if (value == 0) return 'Zero Rupees Only';
+
+      int rupees = value.toInt();
+      int paise = ((value - rupees) * 100).round();
+
+      String rupeeWords = _convertNumberToWords(rupees);
+      String paiseWords = paise > 0
+          ? ' and ${_convertNumberToWords(paise)} Paise'
+          : '';
+
+      return '${rupeeWords.trim()} Rupees$paiseWords Only';
+    } catch (e) {
+      return 'Amount in words conversion failed';
+    }
+  }
+
+  String _convertNumberToWords(int number) {
+    if (number == 0) return 'Zero';
+
+    List<String> units = [
+      '',
+      'One',
+      'Two',
+      'Three',
+      'Four',
+      'Five',
+      'Six',
+      'Seven',
+      'Eight',
+      'Nine',
+    ];
+    List<String> teens = [
+      'Ten',
+      'Eleven',
+      'Twelve',
+      'Thirteen',
+      'Fourteen',
+      'Fifteen',
+      'Sixteen',
+      'Seventeen',
+      'Eighteen',
+      'Nineteen',
+    ];
+    List<String> tens = [
+      '',
+      '',
+      'Twenty',
+      'Thirty',
+      'Forty',
+      'Fifty',
+      'Sixty',
+      'Seventy',
+      'Eighty',
+      'Ninety',
+    ];
+
+    String words = '';
+
+    if (number >= 10000000) {
+      words += '${_convertNumberToWords(number ~/ 10000000)} Crore ';
+      number %= 10000000;
+    }
+
+    if (number >= 100000) {
+      words += '${_convertNumberToWords(number ~/ 100000)} Lakh ';
+      number %= 100000;
+    }
+
+    if (number >= 1000) {
+      words += '${_convertNumberToWords(number ~/ 1000)} Thousand ';
+      number %= 1000;
+    }
+
+    if (number >= 100) {
+      words += '${_convertNumberToWords(number ~/ 100)} Hundred ';
+      number %= 100;
+    }
+
+    if (number > 0) {
+      if (words.isNotEmpty) words += 'and ';
+
+      if (number < 10) {
+        words += units[number];
+      } else if (number < 20) {
+        words += teens[number - 10];
+      } else {
+        words += tens[number ~/ 10];
+        if (number % 10 > 0) {
+          words += ' ${units[number % 10]}';
+        }
+      }
+    }
+
+    return words.trim();
+  }
+
+  Future<String> _savePdfToStorage(
+    Uint8List pdfBytes,
+    Map<String, dynamic> bill,
+  ) async {
+    try {
+      Directory directory;
+      if (Platform.isAndroid) {
+        try {
+          directory = Directory('/storage/emulated/0/Download');
+          if (!await directory.exists()) {
+            directory = Directory('/storage/emulated/0/Downloads');
+            if (!await directory.exists()) {
+              directory =
+                  await getExternalStorageDirectory() ??
+                  await getApplicationDocumentsDirectory();
+            }
+          }
+        } catch (e) {
+          directory = await getApplicationDocumentsDirectory();
+        }
+      } else {
+        directory = await getApplicationDocumentsDirectory();
+      }
+
+      final mobileHouseDir = Directory('${directory.path}/MobileHouse');
+      if (!await mobileHouseDir.exists()) {
+        await mobileHouseDir.create(recursive: true);
+      }
+
+      final billNo =
+          bill['billNumber']?.toString().replaceAll('MH-', '') ?? 'bill';
+      final customerName = (bill['customerName'] ?? 'customer')
+          .toString()
+          .replaceAll(RegExp(r'[^\w\s-]'), '_')
+          .replaceAll(' ', '_');
+      final fileName = 'MH_${billNo}_${customerName}.pdf';
+
+      final filePath = '${mobileHouseDir.path}/$fileName';
+      final file = File(filePath);
+
+      await file.writeAsBytes(pdfBytes, flush: true);
+      return filePath;
+    } catch (e) {
+      final appDir = await getApplicationDocumentsDirectory();
+      final fileName = 'MH_${bill['billNumber']}.pdf';
+      final filePath = '${appDir.path}/$fileName';
+      final file = File(filePath);
+      await file.writeAsBytes(pdfBytes, flush: true);
+      return filePath;
+    }
+  }
+
+  Future<void> _sharePdf(File pdfFile) async {
+    try {
+      if (!await pdfFile.exists()) {
+        throw Exception('PDF file not found');
+      }
+
+      final fileName = pdfFile.path.split('/').last;
+
+      await Share.shareXFiles(
+        [XFile(pdfFile.path, mimeType: 'application/pdf', name: fileName)],
+        text: 'Mobile House Bill',
+        subject: 'Mobile House Bill',
+      );
+    } catch (e) {
+      print('Error sharing PDF: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error sharing PDF: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _printPdf(File pdfFile) async {
+    try {
+      // For printing, we'll use the share intent which often includes print options
+      await Share.shareXFiles([
+        XFile(pdfFile.path, mimeType: 'application/pdf'),
+      ], text: 'Print Mobile House Bill');
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // ==================== UI METHODS ====================
+
   Future<void> _showCustomDateRangePicker() async {
     DateTime startDate =
         _customStartDate ?? DateTime.now().subtract(Duration(days: 30));
@@ -452,115 +1481,146 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
         title: Text(
-          'Bills Report',
+          _isEditMode ? 'Edit Bill' : 'Bills Report',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
-        backgroundColor: primaryGreen,
+        backgroundColor: _isEditMode ? Colors.orange[700] : primaryGreen,
         foregroundColor: Colors.white,
         elevation: 4,
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: [
-            Tab(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.phone_android, size: 18),
-                  SizedBox(width: 6),
-                  Text('Phone '),
-                  Container(
-                    margin: EdgeInsets.only(left: 6),
-                    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(10),
+        leading: _isEditMode
+            ? IconButton(icon: Icon(Icons.arrow_back), onPressed: _cancelEdit)
+            : null,
+        bottom: _isEditMode
+            ? null
+            : TabBar(
+                controller: _tabController,
+                tabs: [
+                  Tab(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.phone_android, size: 18),
+                        SizedBox(width: 6),
+                        Text('Phone '),
+                        Container(
+                          margin: EdgeInsets.only(left: 6),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '${filteredPhoneBills.length}',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                        ),
+                      ],
                     ),
-                    child: Text(
-                      '${filteredPhoneBills.length}',
-                      style: TextStyle(fontSize: 11),
+                  ),
+                  Tab(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.shopping_bag, size: 18),
+                        SizedBox(width: 6),
+                        Text(' Accessories'),
+                        Container(
+                          margin: EdgeInsets.only(left: 6),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '${filteredAccessoriesBills.length}',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Tab(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.tv, size: 18),
+                        SizedBox(width: 6),
+                        Text('TV '),
+                        Container(
+                          margin: EdgeInsets.only(left: 6),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '${filteredTvBills.length}',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.white70,
+                indicatorColor: Colors.white,
+                indicatorWeight: 3,
               ),
-            ),
-            Tab(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.shopping_bag, size: 18),
-                  SizedBox(width: 6),
-                  Text(' Accessories'),
-                  Container(
-                    margin: EdgeInsets.only(left: 6),
-                    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      '${filteredAccessoriesBills.length}',
-                      style: TextStyle(fontSize: 11),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Tab(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.tv, size: 18),
-                  SizedBox(width: 6),
-                  Text('TV '),
-                  Container(
-                    margin: EdgeInsets.only(left: 6),
-                    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      '${filteredTvBills.length}',
-                      style: TextStyle(fontSize: 11),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          indicatorColor: Colors.white,
-          indicatorWeight: 3,
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.refresh),
-            onPressed: _fetchAllBills,
-            tooltip: 'Refresh',
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          _buildTimePeriodSelector(),
-          SizedBox(height: 8),
-          _buildFilterBar(),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildPhoneBillsContent(filteredPhoneBills),
-                _buildBillsList(
-                  filteredAccessoriesBills,
-                  'GST Accessories Bills',
+        actions: _isEditMode
+            ? []
+            : [
+                IconButton(
+                  icon: Icon(Icons.refresh),
+                  onPressed: _fetchAllBills,
+                  tooltip: 'Refresh',
                 ),
-                _buildBillsList(filteredTvBills, 'TV Bills'),
               ],
-            ),
-          ),
-        ],
       ),
+      body: _isEditMode
+          ? _buildEditForm()
+          : _buildMainContent(
+              filteredPhoneBills,
+              filteredAccessoriesBills,
+              filteredTvBills,
+            ),
+    );
+  }
+
+  Widget _buildMainContent(
+    List<Map<String, dynamic>> filteredPhoneBills,
+    List<Map<String, dynamic>> filteredAccessoriesBills,
+    List<Map<String, dynamic>> filteredTvBills,
+  ) {
+    return Column(
+      children: [
+        _buildTimePeriodSelector(),
+        SizedBox(height: 8),
+        _buildFilterBar(),
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              _buildPhoneBillsContent(filteredPhoneBills),
+              _buildBillsList(
+                filteredAccessoriesBills,
+                'GST Accessories Bills',
+                false,
+              ),
+              _buildBillsList(filteredTvBills, 'TV Bills', false),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -747,7 +1807,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   Widget _buildPhoneBillsContent(List<Map<String, dynamic>> bills) {
     return Column(
       children: [
-        // Toggle between Bill List and Brand Wise Report
         Container(
           padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           color: Colors.white,
@@ -796,14 +1855,13 @@ class _BillsReportScreenState extends State<BillsReportScreen>
         Expanded(
           child: _showBrandWise
               ? _buildBrandWiseReport()
-              : _buildBillsList(bills, 'Phone Bills'),
+              : _buildBillsList(bills, 'Phone Bills', true),
         ),
       ],
     );
   }
 
   Widget _buildBrandWiseReport() {
-    // Sort brands by total sales amount
     final sortedBrands = _brandStats.entries.toList()
       ..sort((a, b) {
         final aAmount = (a.value['totalAmount'] as double?) ?? 0.0;
@@ -848,7 +1906,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     return ListView(
       padding: EdgeInsets.all(12),
       children: [
-        // Overall Summary Card
         _buildOverallSummaryCard(
           totalAllAmount,
           totalAllTaxable,
@@ -856,8 +1913,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
           totalAllBills,
         ),
         SizedBox(height: 12),
-
-        // Brand-wise Summary
         ...sortedBrands.map((entry) {
           final brand = entry.key;
           final stats = entry.value;
@@ -1223,7 +2278,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
     final totalAmount = (bill['totalAmount'] as num?)?.toDouble() ?? 0.0;
 
-    // Get product name
     String productName = '';
     final originalPhoneData = bill['originalPhoneData'];
     if (originalPhoneData != null &&
@@ -1234,7 +2288,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       productName = bill['productName'] ?? 'N/A';
     }
 
-    // Get IMEI
     String imei = bill['imei'] ?? '';
     if (originalPhoneData != null &&
         originalPhoneData is Map<String, dynamic>) {
@@ -1329,7 +2382,11 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     );
   }
 
-  Widget _buildBillsList(List<Map<String, dynamic>> bills, String title) {
+  Widget _buildBillsList(
+    List<Map<String, dynamic>> bills,
+    String title,
+    bool showEditOption,
+  ) {
     if (_isLoading) {
       return Center(
         child: Column(
@@ -1377,7 +2434,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
             itemCount: bills.length,
             itemBuilder: (context, index) {
               final bill = bills[index];
-              return _buildBillCard(bill);
+              return _buildBillCard(bill, showEditOption);
             },
           ),
         ),
@@ -1506,7 +2563,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     );
   }
 
-  Widget _buildBillCard(Map<String, dynamic> bill) {
+  Widget _buildBillCard(Map<String, dynamic> bill, bool showEditOption) {
     final billDate = bill['billDate'] is Timestamp
         ? (bill['billDate'] as Timestamp).toDate()
         : (bill['createdAt'] is Timestamp
@@ -1519,13 +2576,8 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final gstRate = (bill['gstRate'] as num?)?.toDouble() ?? 0.0;
     final sealApplied = bill['sealApplied'] == true;
 
-    // Get product details
-    final product = bill['product'];
     String productName = '';
-    int quantity = 1;
-    double productPrice = 0.0;
-    double productDiscount = 0.0;
-
+    final product = bill['product'];
     final billType = bill['billType'] as String?;
     final type = bill['type'] as String?;
     final isTvBill = type == 'tv';
@@ -1533,21 +2585,14 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
     if (product != null && product is Map<String, dynamic>) {
       productName = product['productName'] ?? bill['productName'] ?? 'N/A';
-      quantity = (product['quantity'] as num?)?.toInt() ?? 1;
-      productPrice = (product['price'] as num?)?.toDouble() ?? 0.0;
-      productDiscount = (product['discount'] as num?)?.toDouble() ?? 0.0;
     } else {
-      // For TV bills, check modelName first
       if (isTvBill) {
         productName = bill['modelName'] ?? bill['productName'] ?? 'N/A';
       } else {
         productName = bill['productName'] ?? 'N/A';
       }
-      quantity = (bill['quantity'] as num?)?.toInt() ?? 1;
-      productPrice = (bill['price'] as num?)?.toDouble() ?? 0.0;
     }
 
-    // Get original TV data if available
     final originalTvData = bill['originalTvData'];
     String serialNumber = bill['serialNumber'] ?? '';
 
@@ -1555,13 +2600,11 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       if (serialNumber.isEmpty) {
         serialNumber = originalTvData['serialNumber'] ?? '';
       }
-      // If product name is still empty or N/A, try from originalTvData
       if (productName == 'N/A' || productName.isEmpty) {
         productName = originalTvData['modelName'] ?? bill['modelName'] ?? 'N/A';
       }
     }
 
-    // Get original phone data if available
     final originalPhoneData = bill['originalPhoneData'];
     String imei = bill['imei'] ?? '';
 
@@ -1579,195 +2622,209 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       margin: EdgeInsets.only(bottom: 12),
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: InkWell(
-        onTap: () {
-          _showBillDetailsDialog(bill);
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Column(
+        children: [
+          InkWell(
+            onTap: () {
+              _showBillDetailsDialog(bill);
+            },
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: primaryGreen.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Icon(
-                            isTvBill
-                                ? Icons.tv
-                                : isAccessoriesBill
-                                ? Icons.shopping_bag
-                                : Icons.phone_android,
-                            size: 18,
-                            color: primaryGreen,
-                          ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: primaryGreen.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                isTvBill
+                                    ? Icons.tv
+                                    : isAccessoriesBill
+                                    ? Icons.shopping_bag
+                                    : Icons.phone_android,
+                                size: 18,
+                                color: primaryGreen,
+                              ),
+                            ),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    bill['billNumber'] ?? 'N/A',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: primaryGreen,
+                                    ),
+                                  ),
+                                  Text(
+                                    productName,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                        SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                bill['billNumber'] ?? 'N/A',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                  color: primaryGreen,
-                                ),
-                              ),
-                              Text(
-                                productName,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            '₹${widget.formatNumber(totalAmount)}',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: secondaryGreen,
+                            ),
                           ),
+                          if (sealApplied)
+                            Container(
+                              margin: EdgeInsets.only(top: 4),
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: warningColor.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                'Seal Applied',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  color: warningColor,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 8),
+                  Divider(height: 1),
+                  SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildInfoChip(
+                          Icons.person,
+                          bill['customerName'] ?? 'N/A',
+                        ),
+                      ),
+                      Expanded(
+                        child: _buildInfoChip(
+                          Icons.phone,
+                          bill['customerMobile'] ?? 'N/A',
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildInfoChip(
+                          Icons.store,
+                          bill['shopName'] ?? bill['shop'] ?? 'N/A',
+                        ),
+                      ),
+                      Expanded(
+                        child: _buildInfoChip(
+                          Icons.calendar_today,
+                          DateFormat('dd MMM yyyy, hh:mm a').format(billDate),
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (identifierValue.isNotEmpty && !isAccessoriesBill) ...[
+                    SizedBox(height: 6),
+                    _buildInfoChip(
+                      Icons.qr_code,
+                      '$identifier: $identifierValue',
+                      fontSize: 10,
+                    ),
+                  ],
+                  if (gstRate > 0) ...[
+                    SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        _buildInfoChip(
+                          Icons.calculate,
+                          'GST: ${gstRate.toStringAsFixed(0)}%',
+                          fontSize: 10,
+                        ),
+                        _buildInfoChip(
+                          Icons.currency_rupee,
+                          'Taxable: ₹${widget.formatNumber(taxableAmount)}',
+                          fontSize: 10,
+                        ),
+                        _buildInfoChip(
+                          Icons.account_balance_wallet,
+                          'GST: ₹${widget.formatNumber(gstAmount)}',
+                          fontSize: 10,
                         ),
                       ],
                     ),
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        '₹${widget.formatNumber(totalAmount)}',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: secondaryGreen,
-                        ),
-                      ),
-                      if (sealApplied)
-                        Container(
-                          margin: EdgeInsets.only(top: 4),
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: warningColor.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            'Seal Applied',
-                            style: TextStyle(
-                              fontSize: 9,
-                              color: warningColor,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-              SizedBox(height: 8),
-              Divider(height: 1),
-              SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildInfoChip(
-                      Icons.person,
-                      bill['customerName'] ?? 'N/A',
-                    ),
-                  ),
-                  Expanded(
-                    child: _buildInfoChip(
-                      Icons.phone,
-                      bill['customerMobile'] ?? 'N/A',
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 6),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildInfoChip(
-                      Icons.store,
-                      bill['shopName'] ?? bill['shop'] ?? 'N/A',
-                    ),
-                  ),
-                  Expanded(
-                    child: _buildInfoChip(
-                      Icons.calendar_today,
-                      DateFormat('dd MMM yyyy, hh:mm a').format(billDate),
-                      fontSize: 10,
-                    ),
-                  ),
-                ],
-              ),
-              if (identifierValue.isNotEmpty && !isAccessoriesBill) ...[
-                SizedBox(height: 6),
-                _buildInfoChip(
-                  Icons.qr_code,
-                  '$identifier: $identifierValue',
-                  fontSize: 10,
-                ),
-              ],
-              if (gstRate > 0) ...[
-                SizedBox(height: 6),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    _buildInfoChip(
-                      Icons.calculate,
-                      'GST: ${gstRate.toStringAsFixed(0)}%',
-                      fontSize: 10,
-                    ),
-                    _buildInfoChip(
-                      Icons.currency_rupee,
-                      'Taxable: ₹${widget.formatNumber(taxableAmount)}',
-                      fontSize: 10,
-                    ),
-                    _buildInfoChip(
-                      Icons.account_balance_wallet,
-                      'GST: ₹${widget.formatNumber(gstAmount)}',
-                      fontSize: 10,
-                    ),
                   ],
-                ),
-              ],
-              if (quantity > 1 || productDiscount > 0) ...[
-                SizedBox(height: 6),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    if (quantity > 1)
-                      _buildInfoChip(
-                        Icons.production_quantity_limits,
-                        'Qty: $quantity',
-                        fontSize: 10,
-                      ),
-                    if (productDiscount > 0)
-                      _buildInfoChip(
-                        Icons.local_offer,
-                        'Discount: ₹${widget.formatNumber(productDiscount)}',
-                        fontSize: 10,
-                        color: Colors.orange,
-                      ),
-                  ],
-                ),
-              ],
-            ],
+                ],
+              ),
+            ),
           ),
-        ),
+          if (showEditOption && !isTvBill && !isAccessoriesBill)
+            Container(
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: Colors.grey[200]!)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextButton.icon(
+                      onPressed: () => _printAndShareBill(bill),
+                      icon: Icon(Icons.print, size: 18, color: Colors.blue),
+                      label: Text(
+                        'Print/Share',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      style: TextButton.styleFrom(foregroundColor: Colors.blue),
+                    ),
+                  ),
+                  Container(height: 30, width: 1, color: Colors.grey[200]),
+                  Expanded(
+                    child: TextButton.icon(
+                      onPressed: () => _startEditBill(bill),
+                      icon: Icon(Icons.edit, size: 18, color: Colors.orange),
+                      label: Text('Edit', style: TextStyle(fontSize: 12)),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.orange,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1811,7 +2868,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final gstAmount = (bill['gstAmount'] as num?)?.toDouble() ?? 0.0;
     final gstRate = (bill['gstRate'] as num?)?.toDouble() ?? 0.0;
 
-    // Get product details
     final product = bill['product'];
     String productName = '';
     int quantity = 1;
@@ -1829,7 +2885,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       productPrice = (product['price'] as num?)?.toDouble() ?? 0.0;
       productDiscount = (product['discount'] as num?)?.toDouble() ?? 0.0;
     } else {
-      // For TV bills, check modelName first
       if (isTvBill) {
         productName = bill['modelName'] ?? bill['productName'] ?? 'N/A';
       } else {
@@ -1839,7 +2894,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       productPrice = (bill['price'] as num?)?.toDouble() ?? 0.0;
     }
 
-    // Get original TV data if available
     final originalTvData = bill['originalTvData'];
     String serialNumber = bill['serialNumber'] ?? '';
 
@@ -1847,13 +2901,11 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       if (serialNumber.isEmpty) {
         serialNumber = originalTvData['serialNumber'] ?? '';
       }
-      // If product name is still empty or N/A, try from originalTvData
       if (productName == 'N/A' || productName.isEmpty) {
         productName = originalTvData['modelName'] ?? bill['modelName'] ?? 'N/A';
       }
     }
 
-    // Get original phone data if available
     final originalPhoneData = bill['originalPhoneData'];
     String imei = bill['imei'] ?? '';
 
@@ -2130,6 +3182,373 @@ class _BillsReportScreenState extends State<BillsReportScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // ==================== EDIT FORM ====================
+
+  Widget _buildEditForm() {
+    final List<String> purchaseModes = ['Ready Cash', 'Credit Card', 'EMI'];
+    final List<String> financeCompaniesList = [
+      'Bajaj Finance',
+      'TVS Credit',
+      'HDB Financial',
+      'Samsung Finance',
+      'Oppo Finance',
+      'Vivo Finance',
+      'yoga kshema Finance',
+      'MI Finance',
+      'First credit private Finance',
+      'Chola Murugappa',
+      'Other',
+    ];
+
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(12),
+      child: Form(
+        key: _editFormKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Bill info header
+            Container(
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange[50],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.orange[200]!),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.receipt, color: Colors.orange[700], size: 24),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Editing Bill',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.orange[700],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        Text(
+                          _editingBill?['billNumber'] ?? 'N/A',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.orange[800],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.orange[100],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      _editingBill?['productName'] ?? 'Phone',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.orange[800],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: 16),
+
+            // Customer details card
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Customer Details',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: primaryGreen,
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    TextFormField(
+                      controller: _editCustomerNameController,
+                      decoration: InputDecoration(
+                        labelText: 'Customer Name *',
+                        prefixIcon: Icon(Icons.person, color: primaryGreen),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      validator: (value) =>
+                          value?.isEmpty == true ? 'Required' : null,
+                    ),
+                    SizedBox(height: 12),
+                    TextFormField(
+                      controller: _editMobileController,
+                      decoration: InputDecoration(
+                        labelText: 'Mobile Number *',
+                        prefixIcon: Icon(Icons.phone, color: primaryGreen),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      keyboardType: TextInputType.phone,
+                      validator: (value) {
+                        if (value?.isEmpty == true) return 'Required';
+                        if (value?.length != 10) return 'Enter 10-digit number';
+                        return null;
+                      },
+                    ),
+                    SizedBox(height: 12),
+                    TextFormField(
+                      controller: _editAddressController,
+                      decoration: InputDecoration(
+                        labelText: 'Address',
+                        prefixIcon: Icon(
+                          Icons.location_on,
+                          color: primaryGreen,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      maxLines: 2,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            SizedBox(height: 16),
+
+            // Amount details card
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Amount Details',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: primaryGreen,
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    TextFormField(
+                      controller: _editTotalAmountController,
+                      decoration: InputDecoration(
+                        labelText: 'Total Amount *',
+                        prefixIcon: Icon(
+                          Icons.currency_rupee,
+                          color: primaryGreen,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      keyboardType: TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      onChanged: (value) => _calculateEditGST(),
+                      validator: (value) {
+                        if (value?.isEmpty == true) return 'Required';
+                        if (double.tryParse(value!) == null)
+                          return 'Invalid amount';
+                        return null;
+                      },
+                    ),
+                    SizedBox(height: 12),
+                    Container(
+                      padding: EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.green[50],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Taxable Amount (18% GST):'),
+                              Text(
+                                '₹${_editTaxableAmountController.text}',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('GST Amount:'),
+                              Text(
+                                '₹${_editGstAmountController.text}',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: warningColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            SizedBox(height: 16),
+
+            // Payment details card
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Payment Details',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: primaryGreen,
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: _editSelectedPurchaseMode,
+                      decoration: InputDecoration(
+                        labelText: 'Purchase Mode',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      items: purchaseModes.map((mode) {
+                        return DropdownMenuItem(value: mode, child: Text(mode));
+                      }).toList(),
+                      onChanged: (value) {
+                        setState(() {
+                          _editSelectedPurchaseMode = value;
+                        });
+                      },
+                    ),
+                    if (_editSelectedPurchaseMode == 'EMI') ...[
+                      SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: _editSelectedFinanceType,
+                        decoration: InputDecoration(
+                          labelText: 'Finance Company',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        items: financeCompaniesList.map((company) {
+                          return DropdownMenuItem(
+                            value: company,
+                            child: Text(company),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setState(() {
+                            _editSelectedFinanceType = value;
+                          });
+                        },
+                      ),
+                    ],
+                    SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Checkbox(
+                          value: _editSealChecked,
+                          onChanged: (value) {
+                            setState(() {
+                              _editSealChecked = value ?? false;
+                            });
+                          },
+                          activeColor: primaryGreen,
+                        ),
+                        Text('Apply Seal on Bill'),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            SizedBox(height: 24),
+
+            // Action buttons
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _cancelEdit,
+                    icon: Icon(Icons.cancel),
+                    label: Text('Cancel'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      padding: EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _isUpdating ? null : _updateBill,
+                    icon: _isUpdating
+                        ? SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Icon(Icons.save),
+                    label: Text(_isUpdating ? 'Updating...' : 'Update Bill'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange[700],
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 20),
+          ],
+        ),
       ),
     );
   }
