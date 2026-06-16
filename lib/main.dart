@@ -68,8 +68,8 @@ class AuthWrapper extends StatelessWidget {
         return const UserDashboard();
       case 'finance':
         return FinanceDashboard();
-      // case 'purchaser': // Add this case
-      //   return PurchaseDashboard();
+      case 'purchaser':
+        return PurchaseDashboardScreen();
       default:
         return const LoginScreen();
     }

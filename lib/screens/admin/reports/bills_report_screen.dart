@@ -65,10 +65,14 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   late TextEditingController _editTotalAmountController;
   late TextEditingController _editTaxableAmountController;
   late TextEditingController _editGstAmountController;
+  late TextEditingController _editProductNameController;
+  late TextEditingController _editImeiController;
+  late TextEditingController _editSerialController;
   String? _editSelectedPurchaseMode;
   String? _editSelectedFinanceType;
   bool _editSealChecked = false;
   bool _isUpdating = false;
+  String? _editBillType; // 'phone', 'accessories', 'tv'
 
   // PDF assets
   Uint8List? _logoImage;
@@ -78,6 +82,8 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   final Color primaryGreen = const Color(0xFF0A4D2E);
   final Color secondaryGreen = const Color(0xFF1A7D4A);
   final Color warningColor = const Color(0xFFFFC107);
+  final Color editPrimaryColor = const Color(0xFF2563EB); // Blue for edit mode
+  final Color editSecondaryColor = const Color(0xFF3B82F6);
 
   @override
   void initState() {
@@ -91,6 +97,9 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     _editTotalAmountController = TextEditingController();
     _editTaxableAmountController = TextEditingController();
     _editGstAmountController = TextEditingController();
+    _editProductNameController = TextEditingController();
+    _editImeiController = TextEditingController();
+    _editSerialController = TextEditingController();
 
     if (widget.initialShopId != null) {
       _selectedShopId = widget.initialShopId;
@@ -109,6 +118,9 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     _editTotalAmountController.dispose();
     _editTaxableAmountController.dispose();
     _editGstAmountController.dispose();
+    _editProductNameController.dispose();
+    _editImeiController.dispose();
+    _editSerialController.dispose();
     super.dispose();
   }
 
@@ -377,21 +389,60 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     });
   }
 
-  // ==================== EDIT BILL FUNCTIONALITY ====================
+  // ==================== EDIT BILL FUNCTIONALITY FOR ALL TYPES ====================
 
   void _startEditBill(Map<String, dynamic> bill) {
-    // Only allow editing phone bills (not accessories or TV)
+    // Determine bill type
     final billType = bill['billType'] as String?;
     final type = bill['type'] as String?;
 
-    if (billType == 'GST Accessories' || type == 'tv') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Only phone bills can be edited'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
+    if (billType == 'GST Accessories') {
+      _editBillType = 'accessories';
+    } else if (type == 'tv') {
+      _editBillType = 'tv';
+    } else {
+      _editBillType = 'phone';
+    }
+
+    // Get product details
+    String productName = '';
+    String imei = '';
+    String serialNumber = '';
+
+    if (_editBillType == 'phone') {
+      final originalPhoneData = bill['originalPhoneData'];
+      if (originalPhoneData != null &&
+          originalPhoneData is Map<String, dynamic>) {
+        productName =
+            originalPhoneData['productName'] ?? bill['productName'] ?? '';
+      } else {
+        productName = bill['productName'] ?? '';
+      }
+      imei = bill['imei'] ?? '';
+      if (originalPhoneData != null &&
+          originalPhoneData is Map<String, dynamic>) {
+        if (imei.isEmpty) imei = originalPhoneData['imei'] ?? '';
+      }
+    } else if (_editBillType == 'tv') {
+      final originalTvData = bill['originalTvData'];
+      if (originalTvData != null && originalTvData is Map<String, dynamic>) {
+        productName =
+            originalTvData['modelName'] ??
+            bill['modelName'] ??
+            bill['productName'] ??
+            '';
+      } else {
+        productName = bill['modelName'] ?? bill['productName'] ?? '';
+      }
+      serialNumber = bill['serialNumber'] ?? '';
+      if (originalTvData != null && originalTvData is Map<String, dynamic>) {
+        if (serialNumber.isEmpty)
+          serialNumber = originalTvData['serialNumber'] ?? '';
+      }
+    } else {
+      // Accessories
+      productName = bill['productName'] ?? '';
+      imei = bill['imei'] ?? '';
     }
 
     setState(() {
@@ -408,6 +459,9 @@ class _BillsReportScreenState extends State<BillsReportScreen>
           (bill['taxableAmount'] as num?)?.toString() ?? '0';
       _editGstAmountController.text =
           (bill['gstAmount'] as num?)?.toString() ?? '0';
+      _editProductNameController.text = productName;
+      _editImeiController.text = imei;
+      _editSerialController.text = serialNumber;
       _editSelectedPurchaseMode = bill['purchaseMode'] ?? 'Ready Cash';
       _editSelectedFinanceType = bill['financeType'];
       _editSealChecked = bill['sealApplied'] == true;
@@ -470,31 +524,71 @@ class _BillsReportScreenState extends State<BillsReportScreen>
         'updatedBy': user?.email,
       };
 
+      // Add type-specific fields
+      if (_editBillType == 'phone') {
+        updateData['productName'] = _editProductNameController.text;
+        updateData['imei'] = _editImeiController.text;
+      } else if (_editBillType == 'tv') {
+        updateData['modelName'] = _editProductNameController.text;
+        updateData['serialNumber'] = _editSerialController.text;
+        updateData['productName'] = _editProductNameController.text;
+      } else {
+        updateData['productName'] = _editProductNameController.text;
+        if (_editImeiController.text.isNotEmpty) {
+          updateData['imei'] = _editImeiController.text;
+        }
+      }
+
       await _firestore
           .collection('bills')
           .doc(_editingBill!['id'])
           .update(updateData);
 
-      // Update phone stock if IMEI exists
-      final imei = _editingBill!['imei'];
-      if (imei != null && imei.isNotEmpty) {
-        final querySnapshot = await _firestore
-            .collection('phoneStock')
-            .where('imei', isEqualTo: imei)
-            .limit(1)
-            .get();
-
-        if (querySnapshot.docs.isNotEmpty) {
-          await _firestore
+      // Update phone stock if phone bill
+      if (_editBillType == 'phone') {
+        final imei = _editImeiController.text.trim();
+        if (imei.isNotEmpty) {
+          final querySnapshot = await _firestore
               .collection('phoneStock')
-              .doc(querySnapshot.docs.first.id)
-              .update({
-                'soldTo': _editCustomerNameController.text,
-                'soldAmount': double.parse(_editTotalAmountController.text),
-                'purchaseMode': _editSelectedPurchaseMode,
-                'financeType': _editSelectedFinanceType,
-                'updatedAt': FieldValue.serverTimestamp(),
-              });
+              .where('imei', isEqualTo: imei)
+              .limit(1)
+              .get();
+
+          if (querySnapshot.docs.isNotEmpty) {
+            await _firestore
+                .collection('phoneStock')
+                .doc(querySnapshot.docs.first.id)
+                .update({
+                  'soldTo': _editCustomerNameController.text,
+                  'soldAmount': double.parse(_editTotalAmountController.text),
+                  'purchaseMode': _editSelectedPurchaseMode,
+                  'financeType': _editSelectedFinanceType,
+                  'updatedAt': FieldValue.serverTimestamp(),
+                });
+          }
+        }
+      }
+
+      // Update TV stock if TV bill
+      if (_editBillType == 'tv') {
+        final serialNumber = _editSerialController.text.trim();
+        if (serialNumber.isNotEmpty) {
+          final querySnapshot = await _firestore
+              .collection('tvStock')
+              .where('serialNumber', isEqualTo: serialNumber)
+              .limit(1)
+              .get();
+
+          if (querySnapshot.docs.isNotEmpty) {
+            await _firestore
+                .collection('tvStock')
+                .doc(querySnapshot.docs.first.id)
+                .update({
+                  'soldTo': _editCustomerNameController.text,
+                  'soldAmount': double.parse(_editTotalAmountController.text),
+                  'updatedAt': FieldValue.serverTimestamp(),
+                });
+          }
         }
       }
 
@@ -530,6 +624,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     setState(() {
       _isEditMode = false;
       _editingBill = null;
+      _editBillType = null;
     });
   }
 
@@ -549,7 +644,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
         _isLoading = false;
       });
 
-      // Show options dialog
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -596,18 +690,11 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final pdf = pw.Document();
     final pageFormat = PdfPageFormat.a4;
     String currentDate = DateFormat('dd MMMM yyyy').format(DateTime.now());
-    String billDate = bill['billDate'] is Timestamp
-        ? DateFormat(
-            'dd MMMM yyyy',
-          ).format((bill['billDate'] as Timestamp).toDate())
-        : currentDate;
 
     final billNumber = bill['billNumber'] ?? 'N/A';
     final customerName = bill['customerName'] ?? 'N/A';
     final customerMobile = bill['customerMobile'] ?? 'N/A';
     final customerAddress = bill['customerAddress'] ?? 'N/A';
-    final productName = bill['productName'] ?? 'N/A';
-    final imei = bill['imei'] ?? 'N/A';
     final totalAmount = (bill['totalAmount'] as num?)?.toDouble() ?? 0.0;
     final taxableAmount = (bill['taxableAmount'] as num?)?.toDouble() ?? 0.0;
     final gstAmount = (bill['gstAmount'] as num?)?.toDouble() ?? 0.0;
@@ -615,6 +702,42 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final purchaseMode = bill['purchaseMode'] ?? 'Ready Cash';
     final financeType = bill['financeType'];
     final sealApplied = bill['sealApplied'] == true;
+
+    // Get product details based on type
+    String productName = bill['productName'] ?? '';
+    String identifier = '';
+    String identifierLabel = '';
+
+    final billType = bill['billType'] as String?;
+    final type = bill['type'] as String?;
+
+    if (billType == 'GST Accessories') {
+      productName = bill['productName'] ?? '';
+      identifier = bill['imei'] ?? '';
+      identifierLabel = 'IMEI';
+    } else if (type == 'tv') {
+      productName = bill['modelName'] ?? bill['productName'] ?? '';
+      identifier = bill['serialNumber'] ?? '';
+      identifierLabel = 'Serial No';
+      final originalTvData = bill['originalTvData'];
+      if (originalTvData != null && originalTvData is Map<String, dynamic>) {
+        if (productName.isEmpty)
+          productName = originalTvData['modelName'] ?? '';
+        if (identifier.isEmpty)
+          identifier = originalTvData['serialNumber'] ?? '';
+      }
+    } else {
+      productName = bill['productName'] ?? '';
+      identifier = bill['imei'] ?? '';
+      identifierLabel = 'IMEI';
+      final originalPhoneData = bill['originalPhoneData'];
+      if (originalPhoneData != null &&
+          originalPhoneData is Map<String, dynamic>) {
+        if (productName.isEmpty)
+          productName = originalPhoneData['productName'] ?? '';
+        if (identifier.isEmpty) identifier = originalPhoneData['imei'] ?? '';
+      }
+    }
 
     pdf.addPage(
       pw.Page(
@@ -639,7 +762,8 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 pw.SizedBox(height: 4),
                 _buildPdfMainTable(
                   productName,
-                  imei,
+                  identifier,
+                  identifierLabel,
                   taxableAmount,
                   gstAmount,
                   totalAmount,
@@ -862,7 +986,8 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
   pw.Widget _buildPdfMainTable(
     String productName,
-    String imei,
+    String identifier,
+    String identifierLabel,
     double taxableAmount,
     double gstAmount,
     double totalAmount,
@@ -899,7 +1024,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
           children: [
             _buildPdfTableCell('1'),
             _buildPdfTableCell(
-              '$productName\nIMEI: $imei',
+              '$productName\n$identifierLabel: $identifier',
               textAlign: pw.TextAlign.left,
               fontSize: 11,
               maxLines: 3,
@@ -1344,7 +1469,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
   Future<void> _printPdf(File pdfFile) async {
     try {
-      // For printing, we'll use the share intent which often includes print options
       await Share.shareXFiles([
         XFile(pdfFile.path, mimeType: 'application/pdf'),
       ], text: 'Print Mobile House Bill');
@@ -1482,9 +1606,12 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       appBar: AppBar(
         title: Text(
           _isEditMode ? 'Edit Bill' : 'Bills Report',
-          style: TextStyle(fontWeight: FontWeight.bold),
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: _isEditMode ? 16 : 18,
+          ),
         ),
-        backgroundColor: _isEditMode ? Colors.orange[700] : primaryGreen,
+        backgroundColor: _isEditMode ? editPrimaryColor : primaryGreen,
         foregroundColor: Colors.white,
         elevation: 4,
         leading: _isEditMode
@@ -1614,9 +1741,9 @@ class _BillsReportScreenState extends State<BillsReportScreen>
               _buildBillsList(
                 filteredAccessoriesBills,
                 'GST Accessories Bills',
-                false,
+                true,
               ),
-              _buildBillsList(filteredTvBills, 'TV Bills', false),
+              _buildBillsList(filteredTvBills, 'TV Bills', true),
             ],
           ),
         ),
@@ -2792,7 +2919,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
               ),
             ),
           ),
-          if (showEditOption && !isTvBill && !isAccessoriesBill)
+          if (showEditOption)
             Container(
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: Colors.grey[200]!)),
@@ -2805,19 +2932,23 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                       icon: Icon(Icons.print, size: 18, color: Colors.blue),
                       label: Text(
                         'Print/Share',
-                        style: TextStyle(fontSize: 12),
+                        style: TextStyle(fontSize: 11),
                       ),
-                      style: TextButton.styleFrom(foregroundColor: Colors.blue),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.blue,
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                      ),
                     ),
                   ),
-                  Container(height: 30, width: 1, color: Colors.grey[200]),
+                  Container(height: 25, width: 1, color: Colors.grey[200]),
                   Expanded(
                     child: TextButton.icon(
                       onPressed: () => _startEditBill(bill),
-                      icon: Icon(Icons.edit, size: 18, color: Colors.orange),
-                      label: Text('Edit', style: TextStyle(fontSize: 12)),
+                      icon: Icon(Icons.edit, size: 18, color: editPrimaryColor),
+                      label: Text('Edit', style: TextStyle(fontSize: 11)),
                       style: TextButton.styleFrom(
-                        foregroundColor: Colors.orange,
+                        foregroundColor: editPrimaryColor,
+                        padding: EdgeInsets.symmetric(vertical: 8),
                       ),
                     ),
                   ),
@@ -2832,15 +2963,15 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   Widget _buildInfoChip(
     IconData icon,
     String text, {
-    double fontSize = 11,
+    double fontSize = 10,
     Color? color,
   }) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 12, color: color ?? Colors.grey[600]),
+          Icon(icon, size: 11, color: color ?? Colors.grey[600]),
           SizedBox(width: 4),
           Text(
             text,
@@ -3165,7 +3296,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
             child: Text(
               label,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 color: Colors.grey[600],
                 fontWeight: FontWeight.w500,
               ),
@@ -3175,7 +3306,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
             child: Text(
               value,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
                 color: color ?? Colors.black87,
               ),
@@ -3186,7 +3317,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     );
   }
 
-  // ==================== EDIT FORM ====================
+  // ==================== IMPROVED EDIT FORM WITH BETTER DESIGN ====================
 
   Widget _buildEditForm() {
     final List<String> purchaseModes = ['Ready Cash', 'Credit Card', 'EMI'];
@@ -3204,6 +3335,20 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       'Other',
     ];
 
+    // Get bill type icon
+    IconData billIcon;
+    String billTypeName;
+    if (_editBillType == 'tv') {
+      billIcon = Icons.tv;
+      billTypeName = 'TV Bill';
+    } else if (_editBillType == 'accessories') {
+      billIcon = Icons.shopping_bag;
+      billTypeName = 'Accessories Bill';
+    } else {
+      billIcon = Icons.phone_android;
+      billTypeName = 'Phone Bill';
+    }
+
     return SingleChildScrollView(
       padding: EdgeInsets.all(12),
       child: Form(
@@ -3211,36 +3356,53 @@ class _BillsReportScreenState extends State<BillsReportScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Bill info header
+            // Bill info header - improved design
             Container(
               padding: EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.orange[50],
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [editPrimaryColor, editSecondaryColor],
+                ),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.orange[200]!),
+                boxShadow: [
+                  BoxShadow(
+                    color: editPrimaryColor.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: Offset(0, 2),
+                  ),
+                ],
               ),
               child: Row(
                 children: [
-                  Icon(Icons.receipt, color: Colors.orange[700], size: 24),
+                  Container(
+                    padding: EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(billIcon, color: Colors.white, size: 22),
+                  ),
                   SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Editing Bill',
+                          'Editing $billTypeName',
                           style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.orange[700],
+                            fontSize: 11,
+                            color: Colors.white70,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
                         Text(
                           _editingBill?['billNumber'] ?? 'N/A',
                           style: TextStyle(
-                            fontSize: 18,
+                            fontSize: 16,
                             fontWeight: FontWeight.bold,
-                            color: Colors.orange[800],
+                            color: Colors.white,
                           ),
                         ),
                       ],
@@ -3249,14 +3411,18 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                   Container(
                     padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.orange[100],
+                      color: Colors.white.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      _editingBill?['productName'] ?? 'Phone',
+                      DateFormat('dd MMM yyyy').format(
+                        _editingBill?['billDate'] is Timestamp
+                            ? (_editingBill!['billDate'] as Timestamp).toDate()
+                            : DateTime.now(),
+                      ),
                       style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.orange[800],
+                        fontSize: 10,
+                        color: Colors.white,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -3264,50 +3430,173 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 ],
               ),
             ),
-            SizedBox(height: 16),
+            SizedBox(height: 12),
 
-            // Customer details card
+            // Product info card
             Card(
-              elevation: 2,
+              elevation: 1,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10),
               ),
               child: Padding(
-                padding: EdgeInsets.all(16),
+                padding: EdgeInsets.all(12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Customer Details',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: primaryGreen,
-                      ),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.shopping_cart,
+                          size: 16,
+                          color: editPrimaryColor,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          'Product Details',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: editPrimaryColor,
+                          ),
+                        ),
+                      ],
                     ),
-                    SizedBox(height: 12),
+                    SizedBox(height: 10),
+                    TextFormField(
+                      controller: _editProductNameController,
+                      decoration: InputDecoration(
+                        labelText: 'Product Name *',
+                        labelStyle: TextStyle(fontSize: 12),
+                        prefixIcon: Icon(
+                          Icons.production_quantity_limits,
+                          size: 18,
+                          color: editPrimaryColor,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                      ),
+                      style: TextStyle(fontSize: 13),
+                      validator: (value) =>
+                          value?.isEmpty == true ? 'Required' : null,
+                    ),
+                    if (_editBillType == 'phone' ||
+                        _editBillType == 'accessories') ...[
+                      SizedBox(height: 10),
+                      TextFormField(
+                        controller: _editImeiController,
+                        decoration: InputDecoration(
+                          labelText: 'IMEI Number',
+                          labelStyle: TextStyle(fontSize: 12),
+                          prefixIcon: Icon(
+                            Icons.qr_code,
+                            size: 18,
+                            color: editPrimaryColor,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                        ),
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    ],
+                    if (_editBillType == 'tv') ...[
+                      SizedBox(height: 10),
+                      TextFormField(
+                        controller: _editSerialController,
+                        decoration: InputDecoration(
+                          labelText: 'Serial Number',
+                          labelStyle: TextStyle(fontSize: 12),
+                          prefixIcon: Icon(
+                            Icons.confirmation_number,
+                            size: 18,
+                            color: editPrimaryColor,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                        ),
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            SizedBox(height: 10),
+
+            // Customer details card
+            Card(
+              elevation: 1,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.person, size: 16, color: editPrimaryColor),
+                        SizedBox(width: 6),
+                        Text(
+                          'Customer Details',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: editPrimaryColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 10),
                     TextFormField(
                       controller: _editCustomerNameController,
                       decoration: InputDecoration(
                         labelText: 'Customer Name *',
-                        prefixIcon: Icon(Icons.person, color: primaryGreen),
+                        labelStyle: TextStyle(fontSize: 12),
+                        prefixIcon: Icon(Icons.person_outline, size: 18),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                       ),
+                      style: TextStyle(fontSize: 13),
                       validator: (value) =>
                           value?.isEmpty == true ? 'Required' : null,
                     ),
-                    SizedBox(height: 12),
+                    SizedBox(height: 10),
                     TextFormField(
                       controller: _editMobileController,
                       decoration: InputDecoration(
                         labelText: 'Mobile Number *',
-                        prefixIcon: Icon(Icons.phone, color: primaryGreen),
+                        labelStyle: TextStyle(fontSize: 12),
+                        prefixIcon: Icon(Icons.phone, size: 18),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                       ),
+                      style: TextStyle(fontSize: 13),
                       keyboardType: TextInputType.phone,
                       validator: (value) {
                         if (value?.isEmpty == true) return 'Required';
@@ -3315,59 +3604,75 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                         return null;
                       },
                     ),
-                    SizedBox(height: 12),
+                    SizedBox(height: 10),
                     TextFormField(
                       controller: _editAddressController,
                       decoration: InputDecoration(
                         labelText: 'Address',
-                        prefixIcon: Icon(
-                          Icons.location_on,
-                          color: primaryGreen,
-                        ),
+                        labelStyle: TextStyle(fontSize: 12),
+                        prefixIcon: Icon(Icons.location_on, size: 18),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                       ),
+                      style: TextStyle(fontSize: 13),
                       maxLines: 2,
                     ),
                   ],
                 ),
               ),
             ),
-            SizedBox(height: 16),
+            SizedBox(height: 10),
 
             // Amount details card
             Card(
-              elevation: 2,
+              elevation: 1,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10),
               ),
               child: Padding(
-                padding: EdgeInsets.all(16),
+                padding: EdgeInsets.all(12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Amount Details',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: primaryGreen,
-                      ),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.currency_rupee,
+                          size: 16,
+                          color: editPrimaryColor,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          'Amount Details',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: editPrimaryColor,
+                          ),
+                        ),
+                      ],
                     ),
-                    SizedBox(height: 12),
+                    SizedBox(height: 10),
                     TextFormField(
                       controller: _editTotalAmountController,
                       decoration: InputDecoration(
                         labelText: 'Total Amount *',
-                        prefixIcon: Icon(
-                          Icons.currency_rupee,
-                          color: primaryGreen,
-                        ),
+                        labelStyle: TextStyle(fontSize: 12),
+                        prefixIcon: Icon(Icons.currency_rupee, size: 18),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                       ),
+                      style: TextStyle(fontSize: 13),
                       keyboardType: TextInputType.numberWithOptions(
                         decimal: true,
                       ),
@@ -3379,33 +3684,46 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                         return null;
                       },
                     ),
-                    SizedBox(height: 12),
+                    SizedBox(height: 10),
                     Container(
-                      padding: EdgeInsets.all(12),
+                      padding: EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.green[50],
+                        color: editPrimaryColor.withOpacity(0.05),
                         borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: editPrimaryColor.withOpacity(0.2),
+                        ),
                       ),
                       child: Column(
                         children: [
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text('Taxable Amount (18% GST):'),
+                              Text(
+                                'Taxable Amount (18% GST):',
+                                style: TextStyle(fontSize: 11),
+                              ),
                               Text(
                                 '₹${_editTaxableAmountController.text}',
-                                style: TextStyle(fontWeight: FontWeight.bold),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ],
                           ),
-                          SizedBox(height: 8),
+                          SizedBox(height: 6),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text('GST Amount:'),
+                              Text(
+                                'GST Amount:',
+                                style: TextStyle(fontSize: 11),
+                              ),
                               Text(
                                 '₹${_editGstAmountController.text}',
                                 style: TextStyle(
+                                  fontSize: 12,
                                   fontWeight: FontWeight.bold,
                                   color: warningColor,
                                 ),
@@ -3419,38 +3737,53 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 ),
               ),
             ),
-            SizedBox(height: 16),
+            SizedBox(height: 10),
 
             // Payment details card
             Card(
-              elevation: 2,
+              elevation: 1,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10),
               ),
               child: Padding(
-                padding: EdgeInsets.all(16),
+                padding: EdgeInsets.all(12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Payment Details',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: primaryGreen,
-                      ),
+                    Row(
+                      children: [
+                        Icon(Icons.payment, size: 16, color: editPrimaryColor),
+                        SizedBox(width: 6),
+                        Text(
+                          'Payment Details',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: editPrimaryColor,
+                          ),
+                        ),
+                      ],
                     ),
-                    SizedBox(height: 12),
+                    SizedBox(height: 10),
                     DropdownButtonFormField<String>(
                       value: _editSelectedPurchaseMode,
                       decoration: InputDecoration(
                         labelText: 'Purchase Mode',
+                        labelStyle: TextStyle(fontSize: 12),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                       ),
+                      style: TextStyle(fontSize: 13),
                       items: purchaseModes.map((mode) {
-                        return DropdownMenuItem(value: mode, child: Text(mode));
+                        return DropdownMenuItem(
+                          value: mode,
+                          child: Text(mode, style: TextStyle(fontSize: 13)),
+                        );
                       }).toList(),
                       onChanged: (value) {
                         setState(() {
@@ -3459,19 +3792,28 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                       },
                     ),
                     if (_editSelectedPurchaseMode == 'EMI') ...[
-                      SizedBox(height: 12),
+                      SizedBox(height: 10),
                       DropdownButtonFormField<String>(
                         value: _editSelectedFinanceType,
                         decoration: InputDecoration(
                           labelText: 'Finance Company',
+                          labelStyle: TextStyle(fontSize: 12),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
                         ),
+                        style: TextStyle(fontSize: 13),
                         items: financeCompaniesList.map((company) {
                           return DropdownMenuItem(
                             value: company,
-                            child: Text(company),
+                            child: Text(
+                              company,
+                              style: TextStyle(fontSize: 13),
+                            ),
                           );
                         }).toList(),
                         onChanged: (value) {
@@ -3481,26 +3823,36 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                         },
                       ),
                     ],
-                    SizedBox(height: 12),
+                    SizedBox(height: 8),
                     Row(
                       children: [
-                        Checkbox(
-                          value: _editSealChecked,
-                          onChanged: (value) {
-                            setState(() {
-                              _editSealChecked = value ?? false;
-                            });
-                          },
-                          activeColor: primaryGreen,
+                        SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: Checkbox(
+                            value: _editSealChecked,
+                            onChanged: (value) {
+                              setState(() {
+                                _editSealChecked = value ?? false;
+                              });
+                            },
+                            activeColor: editPrimaryColor,
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                          ),
                         ),
-                        Text('Apply Seal on Bill'),
+                        SizedBox(width: 8),
+                        Text(
+                          'Apply Seal on Bill',
+                          style: TextStyle(fontSize: 12),
+                        ),
                       ],
                     ),
                   ],
                 ),
               ),
             ),
-            SizedBox(height: 24),
+            SizedBox(height: 16),
 
             // Action buttons
             Row(
@@ -3508,14 +3860,15 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: _cancelEdit,
-                    icon: Icon(Icons.cancel),
-                    label: Text('Cancel'),
+                    icon: Icon(Icons.close, size: 18),
+                    label: Text('Cancel', style: TextStyle(fontSize: 13)),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.red,
-                      padding: EdgeInsets.symmetric(vertical: 14),
+                      padding: EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
+                      side: BorderSide(color: Colors.red.withOpacity(0.5)),
                     ),
                   ),
                 ),
@@ -3525,19 +3878,22 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                     onPressed: _isUpdating ? null : _updateBill,
                     icon: _isUpdating
                         ? SizedBox(
-                            width: 20,
-                            height: 20,
+                            width: 16,
+                            height: 16,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
                               color: Colors.white,
                             ),
                           )
-                        : Icon(Icons.save),
-                    label: Text(_isUpdating ? 'Updating...' : 'Update Bill'),
+                        : Icon(Icons.save, size: 18),
+                    label: Text(
+                      _isUpdating ? 'Updating...' : 'Update Bill',
+                      style: TextStyle(fontSize: 13),
+                    ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange[700],
+                      backgroundColor: editPrimaryColor,
                       foregroundColor: Colors.white,
-                      padding: EdgeInsets.symmetric(vertical: 14),
+                      padding: EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),

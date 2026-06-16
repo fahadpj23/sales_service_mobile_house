@@ -4,13 +4,10 @@ import 'package:sales_stock/screens/user/incentive/incentiveScreen.dart';
 import 'package:sales_stock/screens/user/inventory/base_model_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/tv_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/appliances_stock_screen.dart'; // Add this import
-import 'package:sales_stock/screens/user/purchase/create_purchase_screen.dart';
-import 'package:sales_stock/screens/user/purchase/supplier_form_screen.dart';
-import 'package:sales_stock/screens/user/purchase/tv_purchase_screen.dart';
+
 import 'package:sales_stock/screens/user/sale/gst_accessories_sale_upload.dart';
 import 'package:sales_stock/screens/user/inventory/phone_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/stock_check_screen.dart';
-import 'package:sales_stock/screens/user/purchase/purchase_history_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../providers/auth_provider.dart';
