@@ -10,7 +10,11 @@ class InventoryDetailsScreen extends StatefulWidget {
   final List<Map<String, dynamic>> shops;
   final String Function(double) formatNumber;
 
-  InventoryDetailsScreen({required this.shops, required this.formatNumber});
+  const InventoryDetailsScreen({
+    Key? key,
+    required this.shops,
+    required this.formatNumber,
+  }) : super(key: key);
 
   @override
   _InventoryDetailsScreenState createState() => _InventoryDetailsScreenState();
@@ -25,9 +29,9 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
   List<Map<String, dynamic>> _filteredInventory = [];
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
-  final Color primaryGreen = Color(0xFF0A4D2E);
-  final Color secondaryGreen = Color(0xFF1A7D4A);
-  final Color lightGreen = Color(0xFFE8F5E9);
+  final Color primaryGreen = const Color(0xFF0A4D2E);
+  final Color secondaryGreen = const Color(0xFF1A7D4A);
+  final Color lightGreen = const Color(0xFFE8F5E9);
 
   // Statistics
   int _totalAvailable = 0;
@@ -116,6 +120,13 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
           'soldAmount': (data['soldAmount'] as num?)?.toDouble() ?? price,
           'purchaseMode': data['purchaseMode'] ?? '',
           'financeType': data['financeType'] ?? '',
+          'soldBy': data['soldBy'] ?? '',
+          'soldShop': data['soldShop'] ?? '',
+          'createdAt': data['createdAt'] is Timestamp
+              ? (data['createdAt'] as Timestamp).toDate()
+              : data['uploadedAt'] is Timestamp
+              ? (data['uploadedAt'] as Timestamp).toDate()
+              : DateTime.now(),
         });
 
         // Update statistics
@@ -163,6 +174,9 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
               : DateTime.now(),
           'returnedBy': data['returnedBy'] ?? 'Unknown',
           'reason': data['reason'] ?? '',
+          'createdAt': data['returnedAt'] is Timestamp
+              ? (data['returnedAt'] as Timestamp).toDate()
+              : DateTime.now(),
         });
 
         // Update statistics for returned items
@@ -194,17 +208,17 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
       case 'available':
         title = 'Available';
         icon = Icons.check_circle;
-        color = Color(0xFF4CAF50);
+        color = const Color(0xFF4CAF50);
         break;
       case 'sold':
         title = 'Sold';
         icon = Icons.shopping_cart;
-        color = Color(0xFF2196F3);
+        color = const Color(0xFF2196F3);
         break;
       case 'returned':
         title = 'Returned';
         icon = Icons.assignment_return;
-        color = Color(0xFFFF9800);
+        color = const Color(0xFFFF9800);
         break;
       default:
         title = 'Items';
@@ -372,7 +386,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
       SnackBar(
         content: Text(message),
         backgroundColor: color,
-        duration: Duration(seconds: 3),
+        duration: const Duration(seconds: 3),
       ),
     );
   }
@@ -457,15 +471,19 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         'transferredById': _currentUserId,
       });
 
-      Navigator.pop(context); // Close loading dialog
-      _showSnackbar(
-        'Mobile transferred successfully to ${targetShop['name']}',
-        Colors.green,
-      );
-      await _loadAllInventory();
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
+        _showSnackbar(
+          'Mobile transferred successfully to ${targetShop['name']}',
+          Colors.green,
+        );
+        await _loadAllInventory();
+      }
     } catch (e) {
-      Navigator.pop(context);
-      _showSnackbar('Error transferring mobile: $e', Colors.red);
+      if (mounted) {
+        Navigator.pop(context);
+        _showSnackbar('Error transferring mobile: $e', Colors.red);
+      }
     }
   }
 
@@ -481,7 +499,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Return Phone'),
+        title: const Text('Return Phone'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -489,12 +507,12 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
               'Returning: ${item['productName']}\n'
               'IMEI: ${_formatImeiForDisplay(item['imei'])}\n'
               'Shop: ${item['shopName']}',
-              style: TextStyle(fontSize: 12),
+              style: const TextStyle(fontSize: 12),
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             TextField(
               controller: reasonController,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 labelText: 'Return Reason *',
                 hintText: 'e.g., Defective, Damaged, Wrong product',
                 border: OutlineInputBorder(),
@@ -510,7 +528,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text('Cancel'),
+            child: const Text('Cancel'),
           ),
           ElevatedButton(
             onPressed: () {
@@ -521,7 +539,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
               Navigator.pop(context, true);
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: Text('Return', style: TextStyle(color: Colors.white)),
+            child: const Text('Return', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -555,12 +573,16 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
       // Delete from phoneStock
       await docRef.delete();
 
-      Navigator.pop(context);
-      _showSnackbar('Phone returned successfully', Colors.green);
-      await _loadAllInventory();
+      if (mounted) {
+        Navigator.pop(context);
+        _showSnackbar('Phone returned successfully', Colors.green);
+        await _loadAllInventory();
+      }
     } catch (e) {
-      Navigator.pop(context);
-      _showSnackbar('Error returning phone: $e', Colors.red);
+      if (mounted) {
+        Navigator.pop(context);
+        _showSnackbar('Error returning phone: $e', Colors.red);
+      }
     }
   }
 
@@ -591,12 +613,16 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         await _firestore.collection('phoneReturns').doc(item['id']).delete();
       }
 
-      Navigator.pop(context);
-      _showSnackbar('Phone deleted permanently', Colors.green);
-      await _loadAllInventory();
+      if (mounted) {
+        Navigator.pop(context);
+        _showSnackbar('Phone deleted permanently', Colors.green);
+        await _loadAllInventory();
+      }
     } catch (e) {
-      Navigator.pop(context);
-      _showSnackbar('Error deleting phone: $e', Colors.red);
+      if (mounted) {
+        Navigator.pop(context);
+        _showSnackbar('Error deleting phone: $e', Colors.red);
+      }
     }
   }
 
@@ -605,7 +631,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     return await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Select Target Shop'),
+        title: const Text('Select Target Shop'),
         content: Container(
           width: double.maxFinite,
           child: ListView.builder(
@@ -613,16 +639,16 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
             itemCount: widget.shops.length,
             itemBuilder: (context, index) {
               final shop = widget.shops[index];
-              if (_selectedShopId == shop['id']) return SizedBox.shrink();
+              if (_selectedShopId == shop['id']) return const SizedBox.shrink();
               return ListTile(
                 leading: Icon(Icons.store, color: primaryGreen),
                 title: Text(
-                  shop['name'],
-                  style: TextStyle(fontSize: 14), // Adjust as needed
+                  shop['name'] ?? 'Unknown',
+                  style: const TextStyle(fontSize: 14),
                 ),
                 subtitle: Text(
                   'ID: ${shop['id']}',
-                  style: TextStyle(fontSize: 12), // Adjust as needed
+                  style: const TextStyle(fontSize: 12),
                 ),
                 onTap: () => Navigator.pop(context, shop['id']),
               );
@@ -632,7 +658,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('Cancel'),
+            child: const Text('Cancel'),
           ),
         ],
       ),
@@ -649,16 +675,19 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
           context: context,
           builder: (context) => AlertDialog(
             title: Text(title, style: TextStyle(color: confirmColor)),
-            content: Text(message, style: TextStyle(fontSize: 12)),
+            content: Text(message, style: const TextStyle(fontSize: 12)),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: Text('Cancel'),
+                child: const Text('Cancel'),
               ),
               ElevatedButton(
                 onPressed: () => Navigator.pop(context, true),
                 style: ElevatedButton.styleFrom(backgroundColor: confirmColor),
-                child: Text(confirmText, style: TextStyle(color: Colors.white)),
+                child: Text(
+                  confirmText,
+                  style: const TextStyle(color: Colors.white),
+                ),
               ),
             ],
           ),
@@ -673,13 +702,13 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
       builder: (context) => Center(
         child: Card(
           child: Padding(
-            padding: EdgeInsets.all(20),
+            padding: const EdgeInsets.all(20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 CircularProgressIndicator(color: primaryGreen),
-                SizedBox(height: 12),
-                Text('Processing...', style: TextStyle(fontSize: 12)),
+                const SizedBox(height: 12),
+                const Text('Processing...', style: TextStyle(fontSize: 12)),
               ],
             ),
           ),
@@ -692,11 +721,11 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
   void _showItemActionMenu(Map<String, dynamic> item) {
     showModalBottomSheet(
       context: context,
-      shape: RoundedRectangleBorder(
+      shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
       ),
       builder: (context) => Container(
-        padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -709,10 +738,10 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
 
-            // Title with smaller font
-            Text(
+            // Title
+            const Text(
               'Item Actions',
               style: TextStyle(
                 fontSize: 14,
@@ -720,9 +749,9 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                 letterSpacing: 0.5,
               ),
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
 
-            // Action buttons
+            // Action buttons with fixed alignment
             if (item['status'] == 'available' && item['type'] == 'phone_stock')
               _buildActionTile(
                 icon: Icons.swap_horiz,
@@ -755,14 +784,14 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
               },
             ),
 
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
 
-            // Cancel button with smaller text
+            // Cancel button
             TextButton(
               onPressed: () => Navigator.pop(context),
               style: TextButton.styleFrom(
-                minimumSize: Size(double.infinity, 36),
-                padding: EdgeInsets.symmetric(vertical: 8),
+                minimumSize: const Size(double.infinity, 36),
+                padding: const EdgeInsets.symmetric(vertical: 8),
               ),
               child: Text(
                 'Cancel',
@@ -775,7 +804,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     );
   }
 
-  // Update _buildActionTile with smaller text
+  // Build action tile with proper alignment
   Widget _buildActionTile({
     required IconData icon,
     required String label,
@@ -783,17 +812,15 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     required VoidCallback onTap,
   }) {
     return ListTile(
-      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-      leading: Icon(icon, color: color, size: 20), // Smaller icon
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+      leading: Icon(icon, color: color, size: 22),
       title: Text(
         label,
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w500,
-        ), // Smaller text
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
       ),
+      trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
       onTap: onTap,
-      dense: true, // Makes ListTile more compact
+      dense: false,
     );
   }
 
@@ -811,7 +838,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         decoration: InputDecoration(
           hintText:
               'Search by IMEI, model, specs (e.g., "f17 4/128", "samsung 5g")',
-          hintStyle: TextStyle(fontSize: 11),
+          hintStyle: const TextStyle(fontSize: 11),
           border: InputBorder.none,
           prefixIcon: Icon(Icons.search, size: 16, color: Colors.grey[600]),
           suffixIcon: Row(
@@ -819,7 +846,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
             children: [
               if (_searchController.text.isNotEmpty)
                 IconButton(
-                  icon: Icon(Icons.clear, size: 14),
+                  icon: const Icon(Icons.clear, size: 14),
                   onPressed: () {
                     _searchController.clear();
                     _applyFilters();
@@ -828,18 +855,21 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                 ),
               Container(width: 1, height: 20, color: Colors.grey.shade300),
               IconButton(
-                icon: Icon(Icons.qr_code_scanner, size: 18),
+                icon: const Icon(Icons.qr_code_scanner, size: 18),
                 onPressed: _openScannerForSearch,
                 tooltip: 'Scan IMEI to search',
                 color: primaryGreen,
               ),
             ],
           ),
-          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 8,
+          ),
           isDense: true,
           alignLabelWithHint: true,
         ),
-        style: TextStyle(fontSize: 12),
+        style: const TextStyle(fontSize: 12),
         onChanged: (value) => _applyFilters(),
         onSubmitted: (value) {
           _searchFocusNode.unfocus();
@@ -860,7 +890,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         elevation: 1,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         child: Padding(
-          padding: EdgeInsets.all(8),
+          padding: const EdgeInsets.all(8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -868,7 +898,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(icon, size: 14, color: color),
-                  SizedBox(width: 4),
+                  const SizedBox(width: 4),
                   Text(
                     label,
                     style: TextStyle(
@@ -879,7 +909,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                   ),
                 ],
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Text(
                 count.toString(),
                 style: TextStyle(
@@ -888,10 +918,10 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                   color: color,
                 ),
               ),
-              SizedBox(height: 2),
+              const SizedBox(height: 2),
               Text(
                 '₹${widget.formatNumber(value)}',
-                style: TextStyle(fontSize: 10, color: Colors.grey[700]),
+                style: const TextStyle(fontSize: 10, color: Colors.grey),
               ),
             ],
           ),
@@ -904,7 +934,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
+        title: const Text(
           'Inventory Management',
           style: TextStyle(
             fontWeight: FontWeight.bold,
@@ -921,12 +951,12 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
               _selectedStatus != 'available' ||
               _searchController.text.isNotEmpty)
             IconButton(
-              icon: Icon(Icons.clear_all, size: 20),
+              icon: const Icon(Icons.clear_all, size: 20),
               onPressed: _clearAllFilters,
               tooltip: 'Clear all filters',
             ),
           IconButton(
-            icon: Icon(Icons.refresh, size: 20),
+            icon: const Icon(Icons.refresh, size: 20),
             onPressed: _loadAllInventory,
             tooltip: 'Refresh',
           ),
@@ -938,7 +968,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
               children: [
                 // Search and Filter Section
                 Container(
-                  padding: EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(10),
                   child: Card(
                     elevation: 2,
                     shape: RoundedRectangleBorder(
@@ -952,7 +982,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                           // Enhanced Search Bar with Scanner
                           _buildSearchField(),
 
-                          SizedBox(height: 8),
+                          const SizedBox(height: 8),
 
                           // Shop Dropdown
                           Container(
@@ -963,20 +993,20 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                             child: Row(
                               children: [
                                 Padding(
-                                  padding: EdgeInsets.only(left: 10),
+                                  padding: const EdgeInsets.only(left: 10),
                                   child: Icon(
                                     Icons.store,
                                     size: 14,
                                     color: Colors.grey[600],
                                   ),
                                 ),
-                                SizedBox(width: 6),
+                                const SizedBox(width: 6),
                                 Expanded(
                                   child: DropdownButtonHideUnderline(
-                                    child: DropdownButton<String>(
+                                    child: DropdownButton<String?>(
                                       value: _selectedShopId,
                                       isExpanded: true,
-                                      hint: Padding(
+                                      hint: const Padding(
                                         padding: EdgeInsets.symmetric(
                                           horizontal: 4,
                                         ),
@@ -986,7 +1016,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                                         ),
                                       ),
                                       items: [
-                                        DropdownMenuItem<String>(
+                                        const DropdownMenuItem<String?>(
                                           value: null,
                                           child: Padding(
                                             padding: EdgeInsets.symmetric(
@@ -999,17 +1029,20 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                                           ),
                                         ),
                                         ...widget.shops.map<
-                                          DropdownMenuItem<String>
+                                          DropdownMenuItem<String?>
                                         >((shop) {
-                                          return DropdownMenuItem<String>(
+                                          return DropdownMenuItem<String?>(
                                             value: shop['id'] as String?,
                                             child: Padding(
-                                              padding: EdgeInsets.symmetric(
-                                                horizontal: 10,
-                                              ),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 10,
+                                                  ),
                                               child: Text(
                                                 shop['name'] as String,
-                                                style: TextStyle(fontSize: 12),
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                ),
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                               ),
@@ -1017,7 +1050,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                                           );
                                         }).toList(),
                                       ],
-                                      style: TextStyle(
+                                      style: const TextStyle(
                                         fontSize: 12,
                                         color: Colors.black87,
                                       ),
@@ -1032,19 +1065,21 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                                 ),
                                 if (_selectedShopId != null)
                                   IconButton(
-                                    icon: Icon(Icons.clear, size: 14),
+                                    icon: const Icon(Icons.clear, size: 14),
                                     onPressed: () {
                                       setState(() => _selectedShopId = null);
                                       _applyFilters();
                                     },
                                     padding: EdgeInsets.zero,
-                                    constraints: BoxConstraints(minWidth: 30),
+                                    constraints: const BoxConstraints(
+                                      minWidth: 30,
+                                    ),
                                   ),
                               ],
                             ),
                           ),
 
-                          SizedBox(height: 8),
+                          const SizedBox(height: 8),
 
                           // Status Chips
                           Row(
@@ -1063,9 +1098,9 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                                 child: Row(
                                   children: [
                                     _buildStatusChip('Available', 'available'),
-                                    SizedBox(width: 4),
+                                    const SizedBox(width: 4),
                                     _buildStatusChip('Sold', 'sold'),
-                                    SizedBox(width: 4),
+                                    const SizedBox(width: 4),
                                     _buildStatusChip('Returned', 'returned'),
                                   ],
                                 ),
@@ -1080,30 +1115,33 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
 
                 // Overall Statistics
                 Container(
-                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   child: Row(
                     children: [
                       _buildStatItem(
                         'Available',
                         _totalAvailable,
                         _totalAvailableValue,
-                        Color(0xFF4CAF50),
+                        const Color(0xFF4CAF50),
                         Icons.check_circle,
                       ),
-                      SizedBox(width: 6),
+                      const SizedBox(width: 6),
                       _buildStatItem(
                         'Sold',
                         _totalSold,
                         _totalSoldValue,
-                        Color(0xFF2196F3),
+                        const Color(0xFF2196F3),
                         Icons.shopping_cart,
                       ),
-                      SizedBox(width: 6),
+                      const SizedBox(width: 6),
                       _buildStatItem(
                         'Returned',
                         _totalReturned,
                         _totalReturnedValue,
-                        Color(0xFFFF9800),
+                        const Color(0xFFFF9800),
                         Icons.assignment_return,
                       ),
                     ],
@@ -1113,7 +1151,10 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                 // Shop selection indicator
                 if (_selectedShopId != null)
                   Container(
-                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
                     child: Card(
                       color: primaryGreen.withOpacity(0.1),
                       elevation: 0,
@@ -1129,7 +1170,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                         child: Row(
                           children: [
                             Icon(Icons.store, size: 16, color: primaryGreen),
-                            SizedBox(width: 8),
+                            const SizedBox(width: 8),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1153,14 +1194,14 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                               ),
                             ),
                             IconButton(
-                              icon: Icon(Icons.clear, size: 16),
+                              icon: const Icon(Icons.clear, size: 16),
                               onPressed: () {
                                 setState(() => _selectedShopId = null);
                                 _applyFilters();
                               },
                               tooltip: 'Clear shop filter',
                               padding: EdgeInsets.zero,
-                              constraints: BoxConstraints(minWidth: 30),
+                              constraints: const BoxConstraints(minWidth: 30),
                             ),
                           ],
                         ),
@@ -1171,9 +1212,9 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                 // Current Tab Stats
                 _buildCurrentTabStats(),
 
-                SizedBox(height: 6),
+                const SizedBox(height: 6),
                 Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -1194,7 +1235,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                     ],
                   ),
                 ),
-                SizedBox(height: 6),
+                const SizedBox(height: 6),
                 Expanded(child: _buildInventoryList()),
               ],
             ),
@@ -1207,13 +1248,13 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
 
     switch (value) {
       case 'available':
-        chipColor = Color(0xFF4CAF50);
+        chipColor = const Color(0xFF4CAF50);
         break;
       case 'sold':
-        chipColor = Color(0xFF2196F3);
+        chipColor = const Color(0xFF2196F3);
         break;
       case 'returned':
-        chipColor = Color(0xFFFF9800);
+        chipColor = const Color(0xFFFF9800);
         break;
       default:
         chipColor = primaryGreen;
@@ -1237,7 +1278,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
       },
       backgroundColor: chipColor.withOpacity(0.1),
       selectedColor: chipColor,
-      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       labelPadding: EdgeInsets.zero,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
     );
@@ -1247,12 +1288,12 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     final stats = _getCurrentTabStats();
 
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: Card(
         elevation: 2,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         child: Padding(
-          padding: EdgeInsets.all(8),
+          padding: const EdgeInsets.all(8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
@@ -1260,7 +1301,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
               Row(
                 children: [
                   Icon(stats['icon'], size: 16, color: stats['color']),
-                  SizedBox(width: 6),
+                  const SizedBox(width: 6),
                   Text(
                     stats['title'],
                     style: TextStyle(
@@ -1279,11 +1320,11 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
               Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
+                  const Text(
                     'Count',
-                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                    style: TextStyle(fontSize: 10, color: Colors.grey),
                   ),
-                  SizedBox(height: 2),
+                  const SizedBox(height: 2),
                   Text(
                     '${stats['count']}',
                     style: TextStyle(
@@ -1302,11 +1343,11 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
               Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
+                  const Text(
                     'Value',
-                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                    style: TextStyle(fontSize: 10, color: Colors.grey),
                   ),
-                  SizedBox(height: 2),
+                  const SizedBox(height: 2),
                   Text(
                     '₹${widget.formatNumber(stats['value'])}',
                     style: TextStyle(
@@ -1331,12 +1372,12 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.inventory_2, size: 48, color: Colors.grey[400]),
-            SizedBox(height: 10),
+            const SizedBox(height: 10),
             Text(
               'No items found',
               style: TextStyle(fontSize: 14, color: Colors.grey[600]),
             ),
-            SizedBox(height: 4),
+            const SizedBox(height: 4),
             Text(
               _selectedShopId != null
                   ? 'No ${_selectedStatus} items found for this shop'
@@ -1345,11 +1386,11 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
             ),
             if (_searchController.text.isNotEmpty)
               Padding(
-                padding: EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.only(top: 12),
                 child: ElevatedButton.icon(
                   onPressed: _openScannerForSearch,
-                  icon: Icon(Icons.qr_code_scanner, size: 16),
-                  label: Text('Scan IMEI to Search'),
+                  icon: const Icon(Icons.qr_code_scanner, size: 16),
+                  label: const Text('Scan IMEI to Search'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primaryGreen,
                     foregroundColor: Colors.white,
@@ -1362,7 +1403,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     }
 
     return ListView.builder(
-      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       itemCount: _filteredInventory.length,
       itemBuilder: (context, index) {
         final item = _filteredInventory[index];
@@ -1381,17 +1422,17 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
 
     switch (status) {
       case 'available':
-        statusColor = Color(0xFF4CAF50);
+        statusColor = const Color(0xFF4CAF50);
         statusIcon = Icons.check_circle;
         statusText = 'Available';
         break;
       case 'sold':
-        statusColor = Color(0xFF2196F3);
+        statusColor = const Color(0xFF2196F3);
         statusIcon = Icons.shopping_cart;
         statusText = 'Sold';
         break;
       case 'returned':
-        statusColor = Color(0xFFFF9800);
+        statusColor = const Color(0xFFFF9800);
         statusIcon = Icons.assignment_return;
         statusText = 'Returned';
         break;
@@ -1402,14 +1443,14 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     }
 
     return Card(
-      margin: EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 8),
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       child: InkWell(
         onTap: () => _showItemDetails(context, item),
         borderRadius: BorderRadius.circular(8),
         child: Padding(
-          padding: EdgeInsets.all(10),
+          padding: const EdgeInsets.all(10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1431,7 +1472,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                   Row(
                     children: [
                       Container(
-                        padding: EdgeInsets.symmetric(
+                        padding: const EdgeInsets.symmetric(
                           horizontal: 6,
                           vertical: 2,
                         ),
@@ -1443,7 +1484,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(statusIcon, size: 10, color: statusColor),
-                            SizedBox(width: 2),
+                            const SizedBox(width: 2),
                             Text(
                               statusText,
                               style: TextStyle(
@@ -1456,22 +1497,21 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                         ),
                       ),
                       // Action Menu Button
-                      if (status == 'available' || true) // Admin can delete any
-                        IconButton(
-                          icon: Icon(
-                            Icons.more_vert,
-                            size: 16,
-                            color: Colors.grey[600],
-                          ),
-                          onPressed: () => _showItemActionMenu(item),
-                          padding: EdgeInsets.zero,
-                          constraints: BoxConstraints(minWidth: 30),
+                      IconButton(
+                        icon: Icon(
+                          Icons.more_vert,
+                          size: 16,
+                          color: Colors.grey[600],
                         ),
+                        onPressed: () => _showItemActionMenu(item),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 30),
+                      ),
                     ],
                   ),
                 ],
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Row(
                 children: [
                   Icon(
@@ -1479,11 +1519,11 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                     size: 12,
                     color: Colors.grey[600],
                   ),
-                  SizedBox(width: 4),
+                  const SizedBox(width: 4),
                   Expanded(
                     child: Text(
                       item['productBrand'],
-                      style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
                     ),
                   ),
                   Text(
@@ -1498,22 +1538,22 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                   ),
                 ],
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Row(
                 children: [
                   Icon(Icons.store, size: 12, color: Colors.grey[600]),
-                  SizedBox(width: 4),
+                  const SizedBox(width: 4),
                   Expanded(
                     child: Text(
                       item['shopName'],
-                      style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Row(
                 children: [
                   Icon(
@@ -1521,7 +1561,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                     size: 12,
                     color: Colors.grey[600],
                   ),
-                  SizedBox(width: 4),
+                  const SizedBox(width: 4),
                   Expanded(
                     child: Text(
                       'IMEI: ${_formatImeiForDisplay(item['imei'])}',
@@ -1536,9 +1576,9 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                   ),
                 ],
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Divider(height: 1, color: Colors.grey[300]),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -1551,7 +1591,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                       ),
                       Text(
                         DateFormat('dd MMM yyyy, hh:mm a').format(updatedDate),
-                        style: TextStyle(fontSize: 10, color: Colors.grey[700]),
+                        style: TextStyle(fontSize: 10, color: Colors.grey),
                       ),
                     ],
                   ),
@@ -1570,7 +1610,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                         status == 'sold'
                             ? item['soldTo'] ?? ''
                             : (item['returnedBy'] ?? item['uploadedBy']),
-                        style: TextStyle(fontSize: 10, color: Colors.grey[700]),
+                        style: TextStyle(fontSize: 10, color: Colors.grey),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -1580,7 +1620,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
               ),
               if (item['type'] == 'phone_return' && item['reason'] != null)
                 Padding(
-                  padding: EdgeInsets.only(top: 4),
+                  padding: const EdgeInsets.only(top: 4),
                   child: Text(
                     'Reason: ${item['reason']}',
                     style: TextStyle(fontSize: 9, color: Colors.grey[600]),
@@ -1588,7 +1628,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                 ),
               if (status == 'sold' && item['soldBillNo'] != null)
                 Padding(
-                  padding: EdgeInsets.only(top: 4),
+                  padding: const EdgeInsets.only(top: 4),
                   child: Text(
                     'Bill No: ${item['soldBillNo']}',
                     style: TextStyle(fontSize: 9, color: Colors.grey[600]),
@@ -1603,141 +1643,375 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
 
   void _showItemDetails(BuildContext context, Map<String, dynamic> item) {
     DateTime updatedDate = item['updatedAt'] as DateTime;
+    DateTime uploadedDate = item['uploadedAt'] as DateTime;
     String status = item['status'];
+    DateTime createdAt = item['createdAt'] as DateTime;
 
     showDialog(
       context: context,
       builder: (context) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         child: Container(
-          padding: EdgeInsets.all(14),
+          padding: const EdgeInsets.all(16),
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
+            maxWidth: 450,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Item Details',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: primaryGreen,
-                ),
-              ),
-              SizedBox(height: 10),
-              SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildDetailRow('Product Name', item['productName']),
-                    _buildDetailRow('Brand', item['productBrand']),
-                    _buildDetailRow(
-                      'Price',
-                      '₹${widget.formatNumber(item['productPrice'])}',
-                    ),
-                    if (status == 'sold' && item['soldAmount'] != null)
-                      _buildDetailRow(
-                        'Sold Amount',
-                        '₹${widget.formatNumber(item['soldAmount'])}',
-                      ),
-                    _buildDetailRow('Shop', item['shopName']),
-                    _buildDetailRow('Status', status.toUpperCase()),
-                    _buildDetailRow(
-                      'IMEI',
-                      _formatImeiForDisplay(item['imei']),
-                      canCopy: true,
-                      onCopy: () {
-                        Clipboard.setData(ClipboardData(text: item['imei']));
-                        _showSnackbar('IMEI copied to clipboard', Colors.green);
-                      },
-                    ),
-                    if (status == 'sold' && item['soldTo'] != null)
-                      _buildDetailRow('Sold To', item['soldTo']),
-                    if (status == 'sold' && item['soldBillNo'] != null)
-                      _buildDetailRow('Bill Number', item['soldBillNo']),
-                    if (status == 'sold' && item['purchaseMode'] != null)
-                      _buildDetailRow('Purchase Mode', item['purchaseMode']),
-                    if (status == 'sold' && item['financeType'] != null)
-                      _buildDetailRow('Finance Type', item['financeType']),
-                    _buildDetailRow(
-                      'Type',
-                      item['type'] == 'phone_stock'
-                          ? 'Phone Stock'
-                          : 'Phone Return',
-                    ),
-                    _buildDetailRow(
-                      'Last Updated',
-                      DateFormat('dd MMM yyyy, hh:mm a').format(updatedDate),
-                    ),
-                    if (status != 'sold')
-                      _buildDetailRow(
-                        item['type'] == 'phone_return'
-                            ? 'Returned By'
-                            : 'Uploaded By',
-                        item['returnedBy'] ?? item['uploadedBy'],
-                      ),
-                    if (item['reason'] != null)
-                      _buildDetailRow('Return Reason', item['reason']),
-                    if (status == 'sold' && item['soldAt'] != null)
-                      _buildDetailRow(
-                        'Sold Date',
-                        DateFormat(
-                          'dd MMM yyyy, hh:mm a',
-                        ).format(item['soldAt']),
-                      ),
-                  ],
-                ),
-              ),
-              SizedBox(height: 14),
+              // Header with title and close button
               Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: Text('Close', style: TextStyle(fontSize: 13)),
+                  Text(
+                    'Product Details',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: primaryGreen,
                     ),
                   ),
+                  IconButton(
+                    icon: Icon(Icons.close, color: Colors.grey[600]),
+                    onPressed: () => Navigator.pop(context),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Container(
+                width: 60,
+                height: 3,
+                color: primaryGreen,
+                margin: const EdgeInsets.only(bottom: 12),
+              ),
+
+              // Scrollable content
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Status banner
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 6,
+                          horizontal: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _getStatusColor(status).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: _getStatusColor(status).withOpacity(0.3),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _getStatusIcon(status),
+                              color: _getStatusColor(status),
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Status: ${status.toUpperCase()}',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: _getStatusColor(status),
+                              ),
+                            ),
+                            const Spacer(),
+                            if (status == 'sold')
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Text(
+                                  'Completed',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: Colors.green,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Product Info Section
+                      _buildDetailSection('Product Information', [
+                        _buildDetailRow(
+                          'Product Name',
+                          item['productName'] ?? 'N/A',
+                          icon: Icons.phone_android,
+                        ),
+                        _buildDetailRow(
+                          'Brand',
+                          item['productBrand'] ?? 'N/A',
+                          icon: Icons.branding_watermark,
+                        ),
+                        _buildDetailRow(
+                          'Price',
+                          '₹${widget.formatNumber(item['productPrice'] ?? 0)}',
+                          icon: Icons.currency_rupee,
+                        ),
+                        if (status == 'sold' && item['soldAmount'] != null)
+                          _buildDetailRow(
+                            'Sold Amount',
+                            '₹${widget.formatNumber(item['soldAmount'])}',
+                            icon: Icons.monetization_on,
+                          ),
+                        _buildDetailRow(
+                          'IMEI Number',
+                          _formatImeiForDisplay(item['imei'] ?? 'N/A'),
+                          icon: Icons.confirmation_number,
+                          canCopy: true,
+                          onCopy: () {
+                            Clipboard.setData(
+                              ClipboardData(text: item['imei']),
+                            );
+                            _showSnackbar(
+                              'IMEI copied to clipboard',
+                              Colors.green,
+                            );
+                          },
+                        ),
+                      ]),
+
+                      // Shop & Location Section
+                      _buildDetailSection('Shop & Location', [
+                        _buildDetailRow(
+                          'Current Shop',
+                          item['shopName'] ?? 'N/A',
+                          icon: Icons.store,
+                        ),
+                        _buildDetailRow(
+                          'Shop ID',
+                          item['shopId'] ?? 'N/A',
+                          icon: Icons.storefront,
+                        ),
+                        if (status == 'sold' && item['soldShop'] != null)
+                          _buildDetailRow(
+                            'Sold From',
+                            item['soldShop'] ?? 'N/A',
+                            icon: Icons.store_mall_directory,
+                          ),
+                      ]),
+
+                      // Sale Information (if sold)
+                      if (status == 'sold')
+                        _buildDetailSection('Sale Information', [
+                          _buildDetailRow(
+                            'Customer',
+                            item['soldTo'] ?? 'N/A',
+                            icon: Icons.person,
+                          ),
+                          _buildDetailRow(
+                            'Bill Number',
+                            item['soldBillNo'] ?? 'N/A',
+                            icon: Icons.receipt,
+                          ),
+                          _buildDetailRow(
+                            'Purchase Mode',
+                            item['purchaseMode'] ?? 'N/A',
+                            icon: Icons.payment,
+                          ),
+                          _buildDetailRow(
+                            'Finance Type',
+                            item['financeType'] ?? 'N/A',
+                            icon: Icons.account_balance,
+                          ),
+                          _buildDetailRow(
+                            'Sold By',
+                            item['soldBy'] ?? 'N/A',
+                            icon: Icons.person_outline,
+                          ),
+                          _buildDetailRow(
+                            'Sold Date',
+                            item['soldAt'] != null
+                                ? DateFormat(
+                                    'dd MMM yyyy, hh:mm a',
+                                  ).format(item['soldAt'])
+                                : 'N/A',
+                            icon: Icons.calendar_today,
+                          ),
+                        ]),
+
+                      // Return Information (if returned)
+                      if (status == 'returned')
+                        _buildDetailSection('Return Information', [
+                          _buildDetailRow(
+                            'Returned By',
+                            item['returnedBy'] ?? 'N/A',
+                            icon: Icons.person_outline,
+                          ),
+                          _buildDetailRow(
+                            'Return Reason',
+                            item['reason'] ?? 'N/A',
+                            icon: Icons.info_outline,
+                          ),
+                          _buildDetailRow(
+                            'Returned Date',
+                            item['returnedAt'] != null
+                                ? DateFormat(
+                                    'dd MMM yyyy, hh:mm a',
+                                  ).format(item['returnedAt'])
+                                : 'N/A',
+                            icon: Icons.calendar_today,
+                          ),
+                        ]),
+
+                      // Timestamp Section
+                      _buildDetailSection('Timestamps', [
+                        _buildDetailRow(
+                          'Created At',
+                          DateFormat('dd MMM yyyy, hh:mm a').format(createdAt),
+                          icon: Icons.add_circle_outline,
+                        ),
+                        _buildDetailRow(
+                          'Uploaded At',
+                          DateFormat(
+                            'dd MMM yyyy, hh:mm a',
+                          ).format(uploadedDate),
+                          icon: Icons.upload_file,
+                        ),
+                        _buildDetailRow(
+                          'Last Updated',
+                          DateFormat(
+                            'dd MMM yyyy, hh:mm a',
+                          ).format(updatedDate),
+                          icon: Icons.update,
+                        ),
+                        _buildDetailRow(
+                          'Uploaded By',
+                          item['uploadedBy'] ?? 'N/A',
+                          icon: Icons.person_add,
+                        ),
+                        _buildDetailRow(
+                          'Uploaded By ID',
+                          item['uploadedById'] ?? 'N/A',
+                          icon: Icons.badge,
+                        ),
+                      ]),
+
+                      // Additional Info (if available)
+                      if (item['notes'] != null || item['description'] != null)
+                        _buildDetailSection('Additional Notes', [
+                          _buildDetailRow(
+                            'Notes',
+                            item['notes'] ?? item['description'] ?? 'N/A',
+                            icon: Icons.note,
+                          ),
+                        ]),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Action Buttons with proper alignment
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+
+              // Action buttons using Wrap for proper alignment
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  // Transfer Button (only for available items)
                   if (status == 'available' && item['type'] == 'phone_stock')
-                    Expanded(
+                    SizedBox(
+                      width: 90,
+                      height: 36,
                       child: ElevatedButton.icon(
                         onPressed: () {
                           Navigator.pop(context);
                           _transferToAnotherShop(item);
                         },
-                        icon: Icon(Icons.swap_horiz, size: 14),
-                        label: Text('Transfer', style: TextStyle(fontSize: 12)),
+                        icon: const Icon(Icons.swap_horiz, size: 16),
+                        label: const Text(
+                          'Transfer',
+                          style: TextStyle(fontSize: 11),
+                        ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
                         ),
                       ),
                     ),
+
+                  // Return Button (only for available items)
                   if (status == 'available' && item['type'] == 'phone_stock')
-                    SizedBox(width: 8),
-                  if (status == 'available' && item['type'] == 'phone_stock')
-                    Expanded(
+                    SizedBox(
+                      width: 90,
+                      height: 36,
                       child: ElevatedButton.icon(
                         onPressed: () {
                           Navigator.pop(context);
                           _returnPhone(item);
                         },
-                        icon: Icon(Icons.assignment_return, size: 14),
-                        label: Text('Return', style: TextStyle(fontSize: 12)),
+                        icon: const Icon(Icons.assignment_return, size: 16),
+                        label: const Text(
+                          'Return',
+                          style: TextStyle(fontSize: 11),
+                        ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.orange,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
                         ),
                       ),
                     ),
-                  SizedBox(width: 8),
-                  Expanded(
+
+                  // Delete Button (always visible)
+                  SizedBox(
+                    width: 90,
+                    height: 36,
                     child: ElevatedButton.icon(
                       onPressed: () {
                         Navigator.pop(context);
                         _deletePhonePermanently(item);
                       },
-                      icon: Icon(Icons.delete_forever, size: 14),
-                      label: Text('Delete', style: TextStyle(fontSize: 12)),
+                      icon: const Icon(Icons.delete_forever, size: 16),
+                      label: const Text(
+                        'Delete',
+                        style: TextStyle(fontSize: 11),
+                      ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                    ),
+                  ),
+
+                  // Close Button
+                  SizedBox(
+                    width: 90,
+                    height: 36,
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                      child: const Text(
+                        'Close',
+                        style: TextStyle(fontSize: 11),
                       ),
                     ),
                   ),
@@ -1750,17 +2024,54 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     );
   }
 
+  // Helper method to build detail sections
+  Widget _buildDetailSection(String title, List<Widget> children) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(width: 3, height: 14, color: primaryGreen),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: primaryGreen,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  // Helper method to build detail row with icon
   Widget _buildDetailRow(
     String label,
     String value, {
+    IconData? icon,
     bool canCopy = false,
     VoidCallback? onCopy,
   }) {
     return Padding(
-      padding: EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.only(bottom: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (icon != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Icon(icon, size: 14, color: Colors.grey[600]),
+            )
+          else
+            const SizedBox(width: 22),
           Container(
             width: 90,
             child: Text(
@@ -1772,22 +2083,23 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
               ),
             ),
           ),
-          SizedBox(width: 4),
+          const SizedBox(width: 4),
           Expanded(
             child: Row(
               children: [
                 Expanded(
                   child: Text(
                     value,
-                    style: TextStyle(fontSize: 11, color: Colors.grey[800]),
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    overflow: TextOverflow.visible,
                   ),
                 ),
                 if (canCopy && onCopy != null)
                   IconButton(
-                    icon: Icon(Icons.content_copy, size: 14),
+                    icon: const Icon(Icons.content_copy, size: 14),
                     onPressed: onCopy,
                     padding: EdgeInsets.zero,
-                    constraints: BoxConstraints(),
+                    constraints: const BoxConstraints(),
                     tooltip: 'Copy to clipboard',
                     color: primaryGreen,
                   ),
@@ -1797,6 +2109,33 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         ],
       ),
     );
+  }
+
+  // Helper methods for status colors and icons
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'available':
+        return const Color(0xFF4CAF50);
+      case 'sold':
+        return const Color(0xFF2196F3);
+      case 'returned':
+        return const Color(0xFFFF9800);
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getStatusIcon(String status) {
+    switch (status) {
+      case 'available':
+        return Icons.check_circle;
+      case 'sold':
+        return Icons.shopping_cart;
+      case 'returned':
+        return Icons.assignment_return;
+      default:
+        return Icons.help;
+    }
   }
 }
 
@@ -1901,7 +2240,7 @@ class _ImeiScannerDialogState extends State<_ImeiScannerDialog> {
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: Colors.transparent,
-      insetPadding: EdgeInsets.all(20),
+      insetPadding: const EdgeInsets.all(20),
       child: Container(
         constraints: BoxConstraints(
           maxHeight: MediaQuery.of(context).size.height * 0.7,
@@ -1922,8 +2261,8 @@ class _ImeiScannerDialogState extends State<_ImeiScannerDialog> {
           children: [
             // Header
             Container(
-              padding: EdgeInsets.all(16),
-              decoration: BoxDecoration(
+              padding: const EdgeInsets.all(16),
+              decoration: const BoxDecoration(
                 color: Color(0xFF0A4D2E),
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(20),
@@ -1933,15 +2272,15 @@ class _ImeiScannerDialogState extends State<_ImeiScannerDialog> {
               child: Row(
                 children: [
                   IconButton(
-                    icon: Icon(Icons.arrow_back, color: Colors.white),
+                    icon: const Icon(Icons.arrow_back, color: Colors.white),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
-                  SizedBox(width: 8),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'Scan IMEI',
                           style: TextStyle(
                             fontSize: 18,
@@ -1975,7 +2314,7 @@ class _ImeiScannerDialogState extends State<_ImeiScannerDialog> {
                       fit: BoxFit.cover,
                     )
                   else
-                    Center(
+                    const Center(
                       child: CircularProgressIndicator(
                         color: Color(0xFF0A4D2E),
                       ),
@@ -1998,7 +2337,7 @@ class _ImeiScannerDialogState extends State<_ImeiScannerDialog> {
                       left: 20,
                       right: 20,
                       child: Container(
-                        padding: EdgeInsets.all(12),
+                        padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: _lastScannedData!.startsWith('Scanned')
                               ? Colors.green.withOpacity(0.9)
@@ -2013,11 +2352,11 @@ class _ImeiScannerDialogState extends State<_ImeiScannerDialog> {
                                   : Icons.error,
                               color: Colors.white,
                             ),
-                            SizedBox(width: 10),
+                            const SizedBox(width: 10),
                             Expanded(
                               child: Text(
                                 _lastScannedData!,
-                                style: TextStyle(color: Colors.white),
+                                style: const TextStyle(color: Colors.white),
                               ),
                             ),
                           ],
@@ -2049,16 +2388,16 @@ class _ImeiScannerDialogState extends State<_ImeiScannerDialog> {
 
             // Action Buttons
             Container(
-              padding: EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () => Navigator.of(context).pop(),
-                      child: Text('Cancel'),
+                      child: const Text('Cancel'),
                     ),
                   ),
-                  SizedBox(width: 12),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: ElevatedButton(
                       onPressed: !_isScanning
@@ -2070,10 +2409,10 @@ class _ImeiScannerDialogState extends State<_ImeiScannerDialog> {
                             }
                           : null,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Color(0xFF0A4D2E),
+                        backgroundColor: const Color(0xFF0A4D2E),
                         foregroundColor: Colors.white,
                       ),
-                      child: Text('Scan Again'),
+                      child: const Text('Scan Again'),
                     ),
                   ),
                 ],

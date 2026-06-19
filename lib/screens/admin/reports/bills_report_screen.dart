@@ -124,6 +124,20 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     super.dispose();
   }
 
+  // ==================== IMEI COPY FUNCTION ====================
+  void _copyImei(String imei) {
+    if (imei.isNotEmpty) {
+      Clipboard.setData(ClipboardData(text: imei));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('IMEI copied to clipboard: $imei'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
   Future<void> _loadImages() async {
     try {
       final logoByteData = await rootBundle.load('assets/mobileHouseLogo.png');
@@ -2423,6 +2437,9 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       }
     }
 
+    bool isPhoneBill =
+        bill['type'] != 'tv' && bill['billType'] != 'GST Accessories';
+
     return Card(
       margin: EdgeInsets.only(bottom: 8),
       elevation: 1,
@@ -2489,10 +2506,21 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 children: [
                   Icon(Icons.qr_code, size: 10, color: Colors.grey[500]),
                   SizedBox(width: 4),
-                  Text(
-                    'IMEI: ${imei.isNotEmpty ? imei : 'N/A'}',
-                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                  Expanded(
+                    child: Text(
+                      'IMEI: ${imei.isNotEmpty ? imei : 'N/A'}',
+                      style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
+                  if (isPhoneBill && imei.isNotEmpty)
+                    IconButton(
+                      icon: Icon(Icons.copy, size: 14, color: Colors.blue),
+                      onPressed: () => _copyImei(imei),
+                      padding: EdgeInsets.zero,
+                      constraints: BoxConstraints(),
+                      splashRadius: 16,
+                    ),
                   SizedBox(width: 12),
                   Icon(Icons.calendar_today, size: 10, color: Colors.grey[500]),
                   SizedBox(width: 4),
@@ -2690,6 +2718,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     );
   }
 
+  // ==================== UPDATED BILL CARD WITH IMEI COPY ====================
   Widget _buildBillCard(Map<String, dynamic> bill, bool showEditOption) {
     final billDate = bill['billDate'] is Timestamp
         ? (bill['billDate'] as Timestamp).toDate()
@@ -2709,6 +2738,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final type = bill['type'] as String?;
     final isTvBill = type == 'tv';
     final isAccessoriesBill = billType == 'GST Accessories';
+    final isPhoneBill = !isTvBill && !isAccessoriesBill;
 
     if (product != null && product is Map<String, dynamic>) {
       productName = product['productName'] ?? bill['productName'] ?? 'N/A';
@@ -2883,12 +2913,55 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                       ),
                     ],
                   ),
+                  // IMEI/Serial Number with Copy Button
                   if (identifierValue.isNotEmpty && !isAccessoriesBill) ...[
                     SizedBox(height: 6),
-                    _buildInfoChip(
-                      Icons.qr_code,
-                      '$identifier: $identifierValue',
-                      fontSize: 10,
+                    Row(
+                      children: [
+                        _buildInfoChip(
+                          isTvBill ? Icons.confirmation_number : Icons.qr_code,
+                          '$identifier: $identifierValue',
+                          fontSize: 10,
+                        ),
+                        if (isPhoneBill && imei.isNotEmpty) ...[
+                          SizedBox(width: 4),
+                          GestureDetector(
+                            onTap: () => _copyImei(imei),
+                            child: Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.blue.withOpacity(0.3),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.copy,
+                                    size: 12,
+                                    color: Colors.blue,
+                                  ),
+                                  SizedBox(width: 2),
+                                  Text(
+                                    'Copy',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      color: Colors.blue,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                   if (gstRate > 0) ...[
@@ -3009,6 +3082,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final type = bill['type'] as String?;
     final isTvBill = type == 'tv';
     final isAccessoriesBill = billType == 'GST Accessories';
+    final isPhoneBill = !isTvBill && !isAccessoriesBill;
 
     if (product != null && product is Map<String, dynamic>) {
       productName = product['productName'] ?? bill['productName'] ?? 'N/A';
@@ -3145,7 +3219,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                             '₹${widget.formatNumber(productDiscount)}',
                           ),
                         if (imei.isNotEmpty && !isTvBill && !isAccessoriesBill)
-                          _buildDetailRow('IMEI', imei),
+                          _buildDetailRowWithCopy('IMEI', imei, isPhoneBill),
                         if (serialNumber.isNotEmpty && isTvBill)
                           _buildDetailRow('Serial Number', serialNumber),
                         if (originalTvData != null && isTvBill) ...[
@@ -3317,7 +3391,50 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     );
   }
 
-  // ==================== IMPROVED EDIT FORM WITH BETTER DESIGN ====================
+  // Detail row with copy button for IMEI
+  Widget _buildDetailRowWithCopy(String label, String value, bool showCopy) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    value,
+                    style: TextStyle(fontSize: 12, color: Colors.black87),
+                  ),
+                ),
+                if (showCopy && value.isNotEmpty)
+                  IconButton(
+                    icon: Icon(Icons.copy, size: 16, color: Colors.blue),
+                    onPressed: () => _copyImei(value),
+                    padding: EdgeInsets.zero,
+                    constraints: BoxConstraints(),
+                    splashRadius: 16,
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==================== EDIT FORM ====================
 
   Widget _buildEditForm() {
     final List<String> purchaseModes = ['Ready Cash', 'Credit Card', 'EMI'];

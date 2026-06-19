@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'package:sales_stock/screens/login_screen.dart';
+import '../providers/auth_provider.dart';
+import '../services/auth_service.dart';
 import 'purchase/add_product_screen.dart';
 import 'purchase/add_supplier_screen.dart';
 import 'purchase/add_purchase_screen.dart';
@@ -37,6 +41,8 @@ class PurchaseDashboardScreen extends StatefulWidget {
 class _PurchaseDashboardScreenState extends State<PurchaseDashboardScreen> {
   int _selectedIndex = 0;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final AuthService _authService = AuthService();
+  bool _isLoading = false;
 
   // Method to navigate to a specific screen
   void _navigateToScreen(int index) {
@@ -88,6 +94,70 @@ class _PurchaseDashboardScreenState extends State<PurchaseDashboardScreen> {
     _navigateToScreen(index);
   }
 
+  Future<void> _logout() async {
+    // Show confirmation dialog
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to logout?'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              'Logout',
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      setState(() {
+        _isLoading = true;
+      });
+
+      try {
+        // Sign out from Firebase
+        await _authService.signOut();
+
+        // Clear user data from provider
+        Provider.of<AuthProvider>(context, listen: false).clearUser();
+
+        // Navigate to login screen and remove all previous routes
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
+          (route) => false,
+        );
+      } catch (e) {
+        _showSnackBar('Error logging out: ${e.toString()}', Colors.red);
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+      }
+    }
+  }
+
+  void _showSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Build screens here to ensure callbacks are properly set
@@ -114,6 +184,22 @@ class _PurchaseDashboardScreenState extends State<PurchaseDashboardScreen> {
         ),
         centerTitle: false,
         actions: [
+          // Refresh Button
+          IconButton(
+            icon: Icon(
+              Icons.refresh,
+              color: _isLoading ? Colors.grey : Colors.white,
+            ),
+            onPressed: _isLoading ? null : _refreshDashboard,
+            tooltip: 'Refresh Data',
+          ),
+          // Logout Button
+          IconButton(
+            icon: const Icon(Icons.logout),
+            color: _isLoading ? Colors.grey : Colors.white,
+            onPressed: _logout,
+            tooltip: 'Logout',
+          ),
           Container(
             margin: const EdgeInsets.only(right: 12),
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -241,6 +327,22 @@ class _PurchaseDashboardScreenState extends State<PurchaseDashboardScreen> {
                   },
                 ),
               ),
+              // Logout option in drawer
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: ListTile(
+                  leading: const Icon(Icons.logout, color: Colors.white70),
+                  title: const Text(
+                    'Logout',
+                    style: TextStyle(color: Colors.white, fontSize: 14),
+                  ),
+                  onTap: _logout,
+                  tileColor: Colors.red.withOpacity(0.2),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
               Container(
                 padding: const EdgeInsets.all(16),
                 child: const Text(
@@ -252,8 +354,50 @@ class _PurchaseDashboardScreenState extends State<PurchaseDashboardScreen> {
           ),
         ),
       ),
-      body: screens[_selectedIndex],
+      body: _isLoading
+          ? const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
+                  ),
+                  SizedBox(height: 16),
+                  Text(
+                    'Logging out...',
+                    style: TextStyle(
+                      color: Colors.green,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : screens[_selectedIndex],
     );
+  }
+
+  Future<void> _refreshDashboard() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Navigate to dashboard to refresh
+      _navigateToScreen(0);
+      // Show success message
+      _showSnackBar('Dashboard refreshed', Colors.green);
+    } catch (e) {
+      print('Error refreshing data: $e');
+      _showSnackBar('Error refreshing data: ${e.toString()}', Colors.red);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 }
 
@@ -288,6 +432,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
   }
 
   Future<void> _loadDashboardData() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       QuerySnapshot supplierSnapshot = await _firestore
