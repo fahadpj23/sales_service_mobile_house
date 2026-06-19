@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/supplier.dart';
+import 'supplier_list_screen.dart';
 
 class AddSupplierScreen extends StatefulWidget {
-  const AddSupplierScreen({super.key});
+  final Function(int)? onNavigateToSupplierList;
+
+  const AddSupplierScreen({super.key, this.onNavigateToSupplierList});
 
   @override
   State<AddSupplierScreen> createState() => _AddSupplierScreenState();
@@ -62,19 +65,24 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
 
       await _firestore.collection('suppliers').add(supplier.toMap());
 
-      _formKey.currentState!.reset();
-
       _showSnackBar('Supplier added successfully!');
 
-      // Optional: Navigate back after 1 second
-      Future.delayed(const Duration(seconds: 1), () {
-        if (mounted) {
-          Navigator.pop(context, true);
-        }
-      });
+      // Reset form fields
+      _supplierNameController.clear();
+      _phoneController.clear();
+      _addressController.clear();
+      _gstinController.clear();
+      _emailController.clear();
+
+      // Navigate to SupplierListScreen using the callback
+      if (widget.onNavigateToSupplierList != null) {
+        widget.onNavigateToSupplierList!(5); // Index 5 is SupplierListScreen
+      } else {
+        // Fallback: Pop the screen
+        Navigator.pop(context, true);
+      }
     } catch (e) {
       _showSnackBar('Error saving supplier: $e', isError: true);
-    } finally {
       setState(() => _isLoading = false);
     }
   }
@@ -83,7 +91,6 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-
       body: Container(
         padding: const EdgeInsets.all(16),
         child: SingleChildScrollView(
@@ -92,14 +99,14 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header with icon
+                // Header with icon - Green theme
                 Container(
                   padding: const EdgeInsets.symmetric(
                     vertical: 8,
                     horizontal: 12,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
+                    color: Colors.green.shade50,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
@@ -107,7 +114,7 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
                       Icon(
                         Icons.add_business,
                         size: 20,
-                        color: Colors.blue.shade700,
+                        color: Colors.green.shade700,
                       ),
                       const SizedBox(width: 8),
                       Text(
@@ -115,7 +122,7 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: Colors.blue.shade700,
+                          color: Colors.green.shade700,
                         ),
                       ),
                     ],
@@ -130,27 +137,28 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.all(20),
+                    padding: const EdgeInsets.all(16),
                     child: Column(
                       children: [
-                        // Supplier Name Field
+                        // Supplier Name Field - Reduced size
                         TextFormField(
                           controller: _supplierNameController,
                           decoration: InputDecoration(
                             labelText: 'Supplier Name',
-                            labelStyle: const TextStyle(fontSize: 13),
+                            labelStyle: const TextStyle(fontSize: 12),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(10),
                             ),
-                            prefixIcon: const Icon(Icons.business, size: 20),
+                            prefixIcon: const Icon(Icons.business, size: 18),
                             hintText: 'Enter supplier company name',
-                            hintStyle: const TextStyle(fontSize: 13),
+                            hintStyle: const TextStyle(fontSize: 12),
                             contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 14,
+                              horizontal: 14,
+                              vertical: 10,
                             ),
+                            isDense: true,
                           ),
-                          style: const TextStyle(fontSize: 14),
+                          style: const TextStyle(fontSize: 13),
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
                               return 'Supplier name is required';
@@ -158,26 +166,27 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
                             return null;
                           },
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
 
-                        // Phone Field
+                        // Phone Field - Reduced size
                         TextFormField(
                           controller: _phoneController,
                           decoration: InputDecoration(
                             labelText: 'Phone Number',
-                            labelStyle: const TextStyle(fontSize: 13),
+                            labelStyle: const TextStyle(fontSize: 12),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(10),
                             ),
-                            prefixIcon: const Icon(Icons.phone, size: 20),
+                            prefixIcon: const Icon(Icons.phone, size: 18),
                             hintText: 'Enter 10-digit mobile number',
-                            hintStyle: const TextStyle(fontSize: 13),
+                            hintStyle: const TextStyle(fontSize: 12),
                             contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 14,
+                              horizontal: 14,
+                              vertical: 10,
                             ),
+                            isDense: true,
                           ),
-                          style: const TextStyle(fontSize: 14),
+                          style: const TextStyle(fontSize: 13),
                           keyboardType: TextInputType.phone,
                           validator: (value) {
                             if (value != null && value.isNotEmpty) {
@@ -188,51 +197,53 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
                             return null;
                           },
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
 
-                        // Address Field
+                        // Address Field - Reduced size
                         TextFormField(
                           controller: _addressController,
                           decoration: InputDecoration(
                             labelText: 'Address',
-                            labelStyle: const TextStyle(fontSize: 13),
+                            labelStyle: const TextStyle(fontSize: 12),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(10),
                             ),
-                            prefixIcon: const Icon(Icons.location_on, size: 20),
+                            prefixIcon: const Icon(Icons.location_on, size: 18),
                             hintText: 'Enter complete address',
-                            hintStyle: const TextStyle(fontSize: 13),
+                            hintStyle: const TextStyle(fontSize: 12),
                             contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 14,
+                              horizontal: 14,
+                              vertical: 10,
                             ),
+                            isDense: true,
                           ),
-                          style: const TextStyle(fontSize: 14),
+                          style: const TextStyle(fontSize: 13),
                           maxLines: 2,
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
 
-                        // GSTIN Field
+                        // GSTIN Field - Reduced size
                         TextFormField(
                           controller: _gstinController,
                           decoration: InputDecoration(
                             labelText: 'GSTIN',
-                            labelStyle: const TextStyle(fontSize: 13),
+                            labelStyle: const TextStyle(fontSize: 12),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(10),
                             ),
-                            prefixIcon: const Icon(Icons.numbers, size: 20),
+                            prefixIcon: const Icon(Icons.numbers, size: 18),
                             hintText: 'Enter 15-digit GST number',
-                            hintStyle: const TextStyle(fontSize: 13),
+                            hintStyle: const TextStyle(fontSize: 12),
                             helperText: 'Format: 22AAAAA0000A1Z',
-                            helperStyle: const TextStyle(fontSize: 11),
+                            helperStyle: const TextStyle(fontSize: 10),
                             contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 14,
+                              horizontal: 14,
+                              vertical: 10,
                             ),
+                            isDense: true,
                           ),
                           style: const TextStyle(
-                            fontSize: 14,
+                            fontSize: 13,
                             letterSpacing: 0.5,
                           ),
                           textCapitalization: TextCapitalization.characters,
@@ -246,26 +257,27 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
                             return null;
                           },
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
 
-                        // Email Field
+                        // Email Field - Reduced size
                         TextFormField(
                           controller: _emailController,
                           decoration: InputDecoration(
                             labelText: 'Email Address',
-                            labelStyle: const TextStyle(fontSize: 13),
+                            labelStyle: const TextStyle(fontSize: 12),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(10),
                             ),
-                            prefixIcon: const Icon(Icons.email, size: 20),
+                            prefixIcon: const Icon(Icons.email, size: 18),
                             hintText: 'Enter email address',
-                            hintStyle: const TextStyle(fontSize: 13),
+                            hintStyle: const TextStyle(fontSize: 12),
                             contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 14,
+                              horizontal: 14,
+                              vertical: 10,
                             ),
+                            isDense: true,
                           ),
-                          style: const TextStyle(fontSize: 14),
+                          style: const TextStyle(fontSize: 13),
                           keyboardType: TextInputType.emailAddress,
                           validator: (value) {
                             if (value != null && value.isNotEmpty) {
@@ -282,20 +294,20 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
                   ),
                 ),
 
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
 
-                // Submit Button
+                // Submit Button - Green theme
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _saveSupplier,
                     style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      backgroundColor: Colors.blue.shade600,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      backgroundColor: Colors.green.shade700,
                       foregroundColor: Colors.white,
                       elevation: 2,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                     ),
                     child: _isLoading
@@ -310,7 +322,7 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
                         : const Text(
                             'Add Supplier',
                             style: TextStyle(
-                              fontSize: 15,
+                              fontSize: 14,
                               fontWeight: FontWeight.w600,
                             ),
                           ),

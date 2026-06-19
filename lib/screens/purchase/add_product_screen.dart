@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/product.dart';
+import 'product_list_screen.dart';
 
 class AddProductScreen extends StatefulWidget {
-  const AddProductScreen({super.key});
+  final Function(int)? onNavigateToProductList;
+
+  const AddProductScreen({super.key, this.onNavigateToProductList});
 
   @override
   State<AddProductScreen> createState() => _AddProductScreenState();
@@ -23,6 +26,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   bool _isLoading = false;
   bool _showNewBrandField = false;
   bool _showPreview = false;
+  bool _submitted = false; // Added this flag
 
   List<String> _productTypes = ['Phone', 'TV', 'Appliances', 'Accessories'];
   List<String> _brands = [];
@@ -130,7 +134,16 @@ class _AddProductScreenState extends State<AddProductScreen> {
   }
 
   void _showPreviewDialog() {
+    // Set submitted to true to trigger validation display
+    setState(() => _submitted = true);
+
     if (!_formKey.currentState!.validate()) return;
+
+    // Check if brand is selected
+    if (_selectedBrand == null || _selectedBrand!.isEmpty) {
+      _showSnackBar('Please select a brand first!', isError: true);
+      return;
+    }
 
     double purchaseRate = double.parse(_purchaseRateController.text);
     double saleRate = double.parse(_saleRateController.text);
@@ -292,6 +305,20 @@ class _AddProductScreenState extends State<AddProductScreen> {
   }
 
   Future<void> _saveProduct() async {
+    // Set submitted to true to trigger validation display
+    setState(() => _submitted = true);
+
+    // Validate brand again before saving
+    if (_selectedBrand == null || _selectedBrand!.isEmpty) {
+      _showSnackBar('Please select a brand first!', isError: true);
+      return;
+    }
+
+    // Check if form is valid
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
@@ -308,30 +335,29 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
       await _firestore.collection('products').add(product.toMap());
 
-      _formKey.currentState!.reset();
+      _showSnackBar('Product added successfully!');
+
+      // Reset form fields
+      _productNameController.clear();
+      _hsnController.clear();
+      _purchaseRateController.clear();
+      _saleRateController.clear();
       setState(() {
         _selectedProductType = null;
         _selectedBrand = null;
-        _productNameController.clear();
-        _hsnController.clear();
-        _purchaseRateController.clear();
-        _saleRateController.clear();
         _gstPercentage = 18;
-        _showPreview = false;
-        _previewData = null;
+        _submitted = false; // Reset submitted state
       });
 
-      _showSnackBar('Product added successfully!');
-
-      // Optional: Navigate back after 1 second
-      Future.delayed(const Duration(seconds: 1), () {
-        if (mounted) {
-          Navigator.pop(context, true);
-        }
-      });
+      // Navigate to ProductListScreen using the callback
+      if (widget.onNavigateToProductList != null) {
+        widget.onNavigateToProductList!(6); // Index 6 is ProductListScreen
+      } else {
+        // Fallback: Pop the screen
+        Navigator.pop(context, true);
+      }
     } catch (e) {
       _showSnackBar('Error saving product: $e', isError: true);
-    } finally {
       setState(() => _isLoading = false);
     }
   }
@@ -340,11 +366,13 @@ class _AddProductScreenState extends State<AddProductScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
+          autovalidateMode: _submitted
+              ? AutovalidateMode.onUserInteraction
+              : AutovalidateMode.disabled,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -391,7 +419,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Brand Section
+                      // Brand Section with validation
                       _buildBrandSection(),
                       const SizedBox(height: 16),
 
@@ -556,7 +584,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
           child: const Icon(
             Icons.add_shopping_cart,
             color: Colors.white,
-            size: 22,
+            size: 17,
           ),
         ),
         const SizedBox(width: 14),
@@ -567,7 +595,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
               const Text(
                 'Add New Product',
                 style: TextStyle(
-                  fontSize: 20,
+                  fontSize: 17,
                   fontWeight: FontWeight.bold,
                   color: Colors.green,
                 ),
@@ -584,10 +612,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
   }
 
   Widget _buildBrandSection() {
-    if (!_showNewBrandField) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (!_showNewBrandField) ...[
           Container(
             padding: const EdgeInsets.only(bottom: 6),
             child: Row(
@@ -615,9 +643,13 @@ class _AddProductScreenState extends State<AddProductScreen> {
           ),
           Container(
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey[300]!),
+              border: Border.all(
+                color: _submitted && _selectedBrand == null
+                    ? Colors.red
+                    : Colors.grey[300]!,
+              ),
               borderRadius: BorderRadius.circular(10),
-              color: Colors.white, // White background for brand dropdown
+              color: Colors.white,
             ),
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
@@ -630,7 +662,12 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   ),
                   child: Text(
                     'Select or add brand',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _submitted && _selectedBrand == null
+                          ? Colors.red
+                          : Colors.grey[500],
+                    ),
                   ),
                 ),
                 items: [
@@ -687,7 +724,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
               ),
             ),
           ),
-          if (_selectedBrand == null && !_showNewBrandField)
+          if (_submitted && _selectedBrand == null)
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
@@ -695,104 +732,122 @@ class _AddProductScreenState extends State<AddProductScreen> {
                 style: TextStyle(fontSize: 11, color: Colors.red[400]),
               ),
             ),
+          if (_selectedBrand != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.check_circle, size: 14, color: Colors.green[700]),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Selected: $_selectedBrand',
+                    style: TextStyle(fontSize: 11, color: Colors.green[700]),
+                  ),
+                ],
+              ),
+            ),
         ],
-      );
-    } else {
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.green[50],
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.green[200]!, width: 1),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _brandController,
-                autofocus: true,
-                style: const TextStyle(fontSize: 13),
-                decoration: InputDecoration(
-                  hintText: 'Enter brand name',
-                  hintStyle: const TextStyle(fontSize: 12, color: Colors.grey),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 12,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey[300]!),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey[300]!),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.green[700]!),
-                  ),
-                  filled: true,
-                  fillColor: Colors.white,
-                ),
-              ),
+        if (_showNewBrandField) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.green[50],
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.green[200]!, width: 1),
             ),
-            const SizedBox(width: 8),
-            ElevatedButton(
-              onPressed: _isLoading
-                  ? null
-                  : () {
-                      if (_brandController.text.trim().isNotEmpty) {
-                        _addNewBrand(_brandController.text);
-                      }
-                    },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green[700],
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: _isLoading
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text(
-                      'Add',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _brandController,
+                    autofocus: true,
+                    style: const TextStyle(fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'Enter brand name',
+                      hintStyle: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
                       ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: Colors.grey[300]!),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: Colors.grey[300]!),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: Colors.green[700]!),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white,
                     ),
-            ),
-            const SizedBox(width: 6),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  _showNewBrandField = false;
-                  _brandController.clear();
-                });
-              },
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 12,
+                  ),
                 ),
-              ),
-              child: const Text(
-                'Cancel',
-                style: TextStyle(fontSize: 13, color: Colors.grey),
-              ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: _isLoading
+                      ? null
+                      : () {
+                          if (_brandController.text.trim().isNotEmpty) {
+                            _addNewBrand(_brandController.text);
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green[700],
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text(
+                          'Add',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                ),
+                const SizedBox(width: 6),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _showNewBrandField = false;
+                      _brandController.clear();
+                    });
+                  },
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                  ),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(fontSize: 13, color: Colors.grey),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      );
-    }
+          ),
+        ],
+      ],
+    );
   }
 
   Widget _buildProfitPreview() {
@@ -836,9 +891,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
         Expanded(
           child: OutlinedButton(
             onPressed: () {
-              if (_formKey.currentState!.validate()) {
-                _showPreviewDialog();
-              }
+              _showPreviewDialog();
             },
             style: OutlinedButton.styleFrom(
               foregroundColor: Colors.green[700],
@@ -857,9 +910,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
             onPressed: _isLoading
                 ? null
                 : () {
-                    if (_formKey.currentState!.validate()) {
-                      _showPreviewDialog();
-                    }
+                    _showPreviewDialog();
                   },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.green[700],
@@ -937,7 +988,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
         borderSide: const BorderSide(color: Colors.red, width: 1.5),
       ),
       filled: true,
-      fillColor: Colors.white, // White background for all text fields
+      fillColor: Colors.white,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     );
   }

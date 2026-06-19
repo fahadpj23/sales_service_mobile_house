@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'add_purchase_screen.dart'; // Import your add purchase screen
 
 class PurchaseHistoryScreen extends StatefulWidget {
   const PurchaseHistoryScreen({super.key});
@@ -51,6 +52,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
           'id': doc.id,
           'supplierName': data['supplierName'] ?? 'Unknown',
           'supplierId': data['supplierId'] ?? '',
+          'invoiceNo': data['invoiceNo'] ?? 'N/A',
           'date': data['date'] != null
               ? (data['date'] as Timestamp).toDate()
               : DateTime.now(),
@@ -59,6 +61,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
               : DateTime.now(),
           'totalAmount': (data['totalAmount'] ?? 0).toDouble(),
           'gstAmount': (data['gstAmount'] ?? 0).toDouble(),
+          'roundingAmount': (data['roundingAmount'] ?? 0).toDouble(),
           'grandTotal': (data['grandTotal'] ?? 0).toDouble(),
           'items': List<Map<String, dynamic>>.from(data['items'] ?? []),
           'itemCount': (data['items'] ?? []).length,
@@ -140,6 +143,9 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                 p['supplierName'].toLowerCase().contains(
                   _searchQuery.toLowerCase(),
                 ) ||
+                p['invoiceNo'].toLowerCase().contains(
+                  _searchQuery.toLowerCase(),
+                ) ||
                 p['id'].toLowerCase().contains(_searchQuery.toLowerCase()),
           )
           .toList();
@@ -168,6 +174,137 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
         _selectedFilter = 'Custom Range';
       });
       _applyFilters();
+    }
+  }
+
+  // New method to handle delete with confirmation
+  Future<void> _deletePurchase(Map<String, dynamic> purchase) async {
+    // Show confirmation dialog
+    bool? confirmDelete = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
+            children: [
+              Icon(
+                Icons.warning_amber_rounded,
+                color: Colors.red[700],
+                size: 28,
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Delete Purchase',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Are you sure you want to delete this purchase?',
+                style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey[200]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Invoice: ${purchase['invoiceNo']}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                    Text(
+                      'Supplier: ${purchase['supplierName']}',
+                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    ),
+                    Text(
+                      'Amount: ₹${purchase['grandTotal'].toStringAsFixed(2)}',
+                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    ),
+                    Text(
+                      'Date: ${DateFormat('dd/MM/yyyy').format(purchase['date'])}',
+                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'This action cannot be undone!',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.red[700],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              style: TextButton.styleFrom(foregroundColor: Colors.grey[700]),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red[700],
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmDelete == true) {
+      // Show loading indicator
+      setState(() => _isLoading = true);
+
+      try {
+        // Delete from Firestore
+        await _firestore.collection('purchases').doc(purchase['id']).delete();
+
+        // Remove from local lists
+        setState(() {
+          _purchases.removeWhere((p) => p['id'] == purchase['id']);
+          _filteredPurchases.removeWhere((p) => p['id'] == purchase['id']);
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Purchase deleted successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error deleting purchase: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      } finally {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -224,7 +361,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                             ),
                           ),
                           Text(
-                            'ID: ${purchase['id']}',
+                            'Invoice: ${purchase['invoiceNo']}',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.grey[600],
@@ -233,9 +370,22 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                         ],
                       ),
                     ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
+                    Row(
+                      children: [
+                        // Delete button
+                        IconButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _deletePurchase(purchase);
+                          },
+                          icon: Icon(Icons.delete, color: Colors.red[700]),
+                          tooltip: 'Delete',
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -316,6 +466,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
               ),
             ),
             const SizedBox(height: 8),
+            _buildDetailRow('Invoice No', purchase['invoiceNo']),
             _buildDetailRow('Supplier', purchase['supplierName']),
             _buildDetailRow(
               'Date',
@@ -400,6 +551,14 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
         children: [
           _buildSummaryRow('Subtotal', purchase['totalAmount']),
           _buildSummaryRow('GST', purchase['gstAmount']),
+          if (purchase['roundingAmount'] != 0)
+            _buildSummaryRow(
+              'Rounding',
+              purchase['roundingAmount'],
+              color: purchase['roundingAmount'] > 0
+                  ? Colors.orange
+                  : Colors.blue,
+            ),
           const Divider(),
           _buildSummaryRow(
             'Grand Total',
@@ -565,7 +724,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                       _applyFilters();
                     },
                     decoration: InputDecoration(
-                      hintText: 'Search by supplier or ID...',
+                      hintText: 'Search by supplier, invoice or ID...',
                       hintStyle: TextStyle(
                         fontSize: 12,
                         color: Colors.grey[500],
@@ -730,16 +889,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                       children: [
                         Row(
                           children: [
-                            Expanded(
-                              child: Text(
-                                purchase['supplierName'],
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 8,
@@ -750,12 +899,23 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Text(
-                                '${purchase['itemCount']} items',
+                                purchase['invoiceNo'],
                                 style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w500,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
                                   color: Colors.green[800],
                                 ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                purchase['supplierName'],
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
@@ -778,6 +938,25 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                                 color: Colors.grey[600],
                               ),
                             ),
+                            const SizedBox(width: 12),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.blue[50],
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '${purchase['itemCount']} items',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.blue[800],
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ],
@@ -795,10 +974,27 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Icon(
-                        Icons.arrow_forward_ios,
-                        size: 14,
-                        color: Colors.grey[400],
+                      Row(
+                        children: [
+                          // Delete button on the list item
+                          IconButton(
+                            onPressed: () => _deletePurchase(purchase),
+                            icon: Icon(
+                              Icons.delete,
+                              size: 18,
+                              color: Colors.red[700],
+                            ),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            tooltip: 'Delete',
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(
+                            Icons.arrow_forward_ios,
+                            size: 14,
+                            color: Colors.grey[400],
+                          ),
+                        ],
                       ),
                     ],
                   ),

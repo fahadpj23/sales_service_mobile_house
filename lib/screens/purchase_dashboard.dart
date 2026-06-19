@@ -38,15 +38,41 @@ class _PurchaseDashboardScreenState extends State<PurchaseDashboardScreen> {
   int _selectedIndex = 0;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  final List<Widget> _screens = [
-    const DashboardHomeScreen(),
-    const AddPurchaseScreen(),
-    const AddProductScreen(),
-    const AddSupplierScreen(),
-    const PurchaseHistoryScreen(),
-    const SupplierListScreen(),
-    const ProductListScreen(),
-  ];
+  // Method to navigate to a specific screen
+  void _navigateToScreen(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+    // Close drawer if open
+    if (_scaffoldKey.currentState?.isDrawerOpen == true) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  // Create screens with callbacks
+  List<Widget> _buildScreens() {
+    return [
+      const DashboardHomeScreen(),
+      AddPurchaseScreen(
+        onNavigateToHistory: (index) {
+          _navigateToScreen(index);
+        },
+      ),
+      AddSupplierScreen(
+        onNavigateToSupplierList: (index) {
+          _navigateToScreen(index);
+        },
+      ),
+      AddProductScreen(
+        onNavigateToProductList: (index) {
+          _navigateToScreen(index);
+        },
+      ),
+      const PurchaseHistoryScreen(),
+      const SupplierListScreen(),
+      const ProductListScreen(),
+    ];
+  }
 
   final List<Map<String, dynamic>> _menuItems = [
     {'title': 'Dashboard', 'icon': Icons.dashboard, 'index': 0},
@@ -57,17 +83,16 @@ class _PurchaseDashboardScreenState extends State<PurchaseDashboardScreen> {
     {'title': 'Suppliers', 'icon': Icons.business, 'index': 5},
     {'title': 'Products', 'icon': Icons.inventory, 'index': 6},
   ];
+
   void _onMenuItemTap(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-    if (_scaffoldKey.currentState?.isDrawerOpen == true) {
-      Navigator.of(context).pop();
-    }
+    _navigateToScreen(index);
   }
 
   @override
   Widget build(BuildContext context) {
+    // Build screens here to ensure callbacks are properly set
+    final screens = _buildScreens();
+
     return Scaffold(
       key: _scaffoldKey,
       appBar: AppBar(
@@ -227,7 +252,7 @@ class _PurchaseDashboardScreenState extends State<PurchaseDashboardScreen> {
           ),
         ),
       ),
-      body: _screens[_selectedIndex],
+      body: screens[_selectedIndex],
     );
   }
 }
