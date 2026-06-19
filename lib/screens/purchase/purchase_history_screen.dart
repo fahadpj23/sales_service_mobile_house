@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import 'add_purchase_screen.dart'; // Import your add purchase screen
+import 'add_purchase_screen.dart';
 
 class PurchaseHistoryScreen extends StatefulWidget {
   const PurchaseHistoryScreen({super.key});
@@ -72,7 +72,10 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error loading purchases: $e'),
+          content: Text(
+            'Error loading purchases: $e',
+            style: const TextStyle(fontSize: 12),
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -84,7 +87,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
   void _applyFilters() {
     List<Map<String, dynamic>> filtered = List.from(_purchases);
 
-    // Apply date filter
     if (_selectedFilter != null && _selectedFilter != 'All') {
       DateTime now = DateTime.now();
       DateTime startDate;
@@ -135,7 +137,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       }
     }
 
-    // Apply search filter
     if (_searchQuery.isNotEmpty) {
       filtered = filtered
           .where(
@@ -177,27 +178,25 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     }
   }
 
-  // New method to handle delete with confirmation
   Future<void> _deletePurchase(Map<String, dynamic> purchase) async {
-    // Show confirmation dialog
     bool? confirmDelete = await showDialog<bool>(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(12),
           ),
           title: Row(
             children: [
               Icon(
                 Icons.warning_amber_rounded,
                 color: Colors.red[700],
-                size: 28,
+                size: 22,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               const Text(
                 'Delete Purchase',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
             ],
           ),
@@ -207,11 +206,11 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
             children: [
               Text(
                 'Are you sure you want to delete this purchase?',
-                style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                style: TextStyle(fontSize: 12, color: Colors.grey[700]),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: Colors.grey[50],
                   borderRadius: BorderRadius.circular(8),
@@ -224,29 +223,29 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                       'Invoice: ${purchase['invoiceNo']}',
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
-                        fontSize: 14,
+                        fontSize: 12,
                       ),
                     ),
                     Text(
                       'Supplier: ${purchase['supplierName']}',
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
                     Text(
                       'Amount: ₹${purchase['grandTotal'].toStringAsFixed(2)}',
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
                     Text(
                       'Date: ${DateFormat('dd/MM/yyyy').format(purchase['date'])}',
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Text(
                 'This action cannot be undone!',
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 10,
                   color: Colors.red[700],
                   fontWeight: FontWeight.w500,
                 ),
@@ -257,7 +256,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
               style: TextButton.styleFrom(foregroundColor: Colors.grey[700]),
-              child: const Text('Cancel'),
+              child: const Text('Cancel', style: TextStyle(fontSize: 12)),
             ),
             ElevatedButton(
               onPressed: () => Navigator.of(context).pop(true),
@@ -265,10 +264,10 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                 backgroundColor: Colors.red[700],
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(6),
                 ),
               ),
-              child: const Text('Delete'),
+              child: const Text('Delete', style: TextStyle(fontSize: 12)),
             ),
           ],
         );
@@ -276,14 +275,11 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     );
 
     if (confirmDelete == true) {
-      // Show loading indicator
       setState(() => _isLoading = true);
 
       try {
-        // Delete from Firestore
         await _firestore.collection('purchases').doc(purchase['id']).delete();
 
-        // Remove from local lists
         setState(() {
           _purchases.removeWhere((p) => p['id'] == purchase['id']);
           _filteredPurchases.removeWhere((p) => p['id'] == purchase['id']);
@@ -291,14 +287,20 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Purchase deleted successfully!'),
+            content: Text(
+              'Purchase deleted successfully!',
+              style: TextStyle(fontSize: 12),
+            ),
             backgroundColor: Colors.green,
           ),
         );
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error deleting purchase: $e'),
+            content: Text(
+              'Error deleting purchase: $e',
+              style: TextStyle(fontSize: 12),
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -313,7 +315,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (context) => DraggableScrollableSheet(
         initialChildSize: 0.8,
@@ -322,13 +324,13 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
         expand: false,
         builder: (context, scrollController) {
           return Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Center(
                   child: Container(
-                    width: 40,
+                    width: 36,
                     height: 4,
                     decoration: BoxDecoration(
                       color: Colors.grey[300],
@@ -336,18 +338,22 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(8),
+                      padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
                         color: Colors.green[50],
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      child: Icon(Icons.receipt_long, color: Colors.green[700]),
+                      child: Icon(
+                        Icons.receipt_long,
+                        color: Colors.green[700],
+                        size: 18,
+                      ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -355,7 +361,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           Text(
                             'Purchase Details',
                             style: TextStyle(
-                              fontSize: 18,
+                              fontSize: 15,
                               fontWeight: FontWeight.bold,
                               color: Colors.green[800],
                             ),
@@ -363,7 +369,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           Text(
                             'Invoice: ${purchase['invoiceNo']}',
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 11,
                               color: Colors.grey[600],
                             ),
                           ),
@@ -372,49 +378,60 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                     ),
                     Row(
                       children: [
-                        // Delete button
                         IconButton(
                           onPressed: () {
                             Navigator.pop(context);
                             _deletePurchase(purchase);
                           },
-                          icon: Icon(Icons.delete, color: Colors.red[700]),
+                          icon: Icon(
+                            Icons.delete,
+                            color: Colors.red[700],
+                            size: 18,
+                          ),
                           tooltip: 'Delete',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
                         ),
                         IconButton(
                           onPressed: () => Navigator.pop(context),
-                          icon: const Icon(Icons.close),
+                          icon: const Icon(Icons.close, size: 18),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
                         ),
                       ],
                     ),
                   ],
                 ),
-                const Divider(),
+                const Divider(height: 16),
                 Expanded(
                   child: ListView(
                     controller: scrollController,
                     children: [
                       _buildSupplierInfoSection(purchase),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                       _buildItemsSection(purchase),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                       _buildSummarySection(purchase),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       Row(
                         children: [
                           Expanded(
                             child: OutlinedButton.icon(
-                              onPressed: () {
-                                // TODO: Implement PDF download
-                              },
-                              icon: const Icon(Icons.download),
-                              label: const Text('Download'),
+                              onPressed: () {},
+                              icon: const Icon(Icons.download, size: 16),
+                              label: const Text(
+                                'Download',
+                                style: TextStyle(fontSize: 11),
+                              ),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.green[700],
                                 padding: const EdgeInsets.symmetric(
-                                  vertical: 10,
+                                  vertical: 8,
                                 ),
                                 side: BorderSide(color: Colors.green[700]!),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
                               ),
                             ),
                           ),
@@ -422,13 +439,19 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           Expanded(
                             child: ElevatedButton.icon(
                               onPressed: () => Navigator.pop(context),
-                              icon: const Icon(Icons.close),
-                              label: const Text('Close'),
+                              icon: const Icon(Icons.close, size: 16),
+                              label: const Text(
+                                'Close',
+                                style: TextStyle(fontSize: 11),
+                              ),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.green[700],
                                 foregroundColor: Colors.white,
                                 padding: const EdgeInsets.symmetric(
-                                  vertical: 10,
+                                  vertical: 8,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(6),
                                 ),
                               ),
                             ),
@@ -450,22 +473,22 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               'Supplier Information',
               style: TextStyle(
-                fontSize: 14,
+                fontSize: 12,
                 fontWeight: FontWeight.bold,
                 color: Colors.green[800],
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             _buildDetailRow('Invoice No', purchase['invoiceNo']),
             _buildDetailRow('Supplier', purchase['supplierName']),
             _buildDetailRow(
@@ -482,25 +505,25 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               'Items (${purchase['itemCount']})',
               style: TextStyle(
-                fontSize: 14,
+                fontSize: 12,
                 fontWeight: FontWeight.bold,
                 color: Colors.green[800],
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             ...purchase['items'].map<Widget>((item) {
               return Container(
-                padding: const EdgeInsets.symmetric(vertical: 6),
+                padding: const EdgeInsets.symmetric(vertical: 4),
                 decoration: BoxDecoration(
                   border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
                 ),
@@ -510,20 +533,20 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                       flex: 3,
                       child: Text(
                         item['productName'] ?? 'Unknown',
-                        style: const TextStyle(fontSize: 13),
+                        style: const TextStyle(fontSize: 11),
                       ),
                     ),
                     Expanded(
                       child: Text(
                         'Qty: ${item['quantity']}',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
                       ),
                     ),
                     Expanded(
                       child: Text(
                         '₹${(item['total'] ?? 0).toStringAsFixed(2)}',
                         style: const TextStyle(
-                          fontSize: 13,
+                          fontSize: 11,
                           fontWeight: FontWeight.w500,
                           color: Colors.green,
                         ),
@@ -542,10 +565,10 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
 
   Widget _buildSummarySection(Map<String, dynamic> purchase) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: Colors.green[50],
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
         children: [
@@ -559,7 +582,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                   ? Colors.orange
                   : Colors.blue,
             ),
-          const Divider(),
+          const Divider(height: 12),
           _buildSummaryRow(
             'Grand Total',
             purchase['grandTotal'],
@@ -573,18 +596,18 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
 
   Widget _buildDetailRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             '$label: ',
-            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            style: TextStyle(fontSize: 11, color: Colors.grey[600]),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
             ),
           ),
         ],
@@ -599,21 +622,21 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     Color? color,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
             label,
             style: TextStyle(
-              fontSize: isBold ? 15 : 13,
+              fontSize: isBold ? 13 : 11,
               fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
             ),
           ),
           Text(
             '₹${value.toStringAsFixed(2)}',
             style: TextStyle(
-              fontSize: isBold ? 16 : 14,
+              fontSize: isBold ? 14 : 12,
               fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
               color: color ?? (isBold ? Colors.green[700] : Colors.black),
             ),
@@ -645,25 +668,25 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
 
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.green[800],
         borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(20),
-          bottomRight: Radius.circular(20),
+          bottomLeft: Radius.circular(16),
+          bottomRight: Radius.circular(16),
         ),
       ),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(Icons.history, color: Colors.white, size: 24),
+            child: const Icon(Icons.history, color: Colors.white, size: 20),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -672,15 +695,15 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                   'Purchase History',
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 18,
+                    fontSize: 15,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
                 Text(
-                  '${_filteredPurchases.length} purchases found',
+                  '${_filteredPurchases.length} purchases',
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.8),
-                    fontSize: 12,
+                    fontSize: 10,
                   ),
                 ),
               ],
@@ -688,7 +711,13 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
           ),
           IconButton(
             onPressed: _loadPurchases,
-            icon: Icon(Icons.refresh, color: Colors.white.withOpacity(0.8)),
+            icon: Icon(
+              Icons.refresh,
+              color: Colors.white.withOpacity(0.8),
+              size: 20,
+            ),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
           ),
         ],
       ),
@@ -697,7 +726,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
 
   Widget _buildSearchAndFilter() {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -716,7 +745,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                 child: Container(
                   decoration: BoxDecoration(
                     color: Colors.grey[100],
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: TextField(
                     onChanged: (value) {
@@ -724,36 +753,44 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                       _applyFilters();
                     },
                     decoration: InputDecoration(
-                      hintText: 'Search by supplier, invoice or ID...',
+                      hintText: 'Search supplier, invoice...',
                       hintStyle: TextStyle(
-                        fontSize: 12,
+                        fontSize: 11,
                         color: Colors.grey[500],
                       ),
                       prefixIcon: Icon(
                         Icons.search,
-                        size: 18,
+                        size: 16,
                         color: Colors.grey[600],
                       ),
                       border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 8,
+                        horizontal: 8,
+                      ),
+                      isDense: true,
                     ),
+                    style: const TextStyle(fontSize: 11),
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               Container(
                 decoration: BoxDecoration(
                   color: Colors.green[50],
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
                     value: _selectedFilter,
-                    hint: const Text('Filter'),
+                    hint: const Text('Filter', style: TextStyle(fontSize: 11)),
                     items: _filterOptions.map((String value) {
                       return DropdownMenuItem<String>(
                         value: value,
-                        child: Text(value),
+                        child: Text(
+                          value,
+                          style: const TextStyle(fontSize: 11),
+                        ),
                       );
                     }).toList(),
                     onChanged: (String? value) {
@@ -768,11 +805,15 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                         _applyFilters();
                       }
                     },
-                    icon: Icon(Icons.filter_list, color: Colors.green[700]),
+                    icon: Icon(
+                      Icons.filter_list,
+                      color: Colors.green[700],
+                      size: 18,
+                    ),
                     dropdownColor: Colors.white,
-                    style: TextStyle(fontSize: 12, color: Colors.green[800]),
+                    style: TextStyle(fontSize: 11, color: Colors.green[800]),
                     underline: Container(),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
                   ),
                 ),
               ),
@@ -780,20 +821,20 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
           ),
           if (_startDate != null && _endDate != null)
             Padding(
-              padding: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.only(top: 6),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: Colors.blue[50],
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(4),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.date_range, size: 14, color: Colors.blue[700]),
+                    Icon(Icons.date_range, size: 12, color: Colors.blue[700]),
                     const SizedBox(width: 4),
                     Text(
                       '${DateFormat('dd/MM/yy').format(_startDate!)} - ${DateFormat('dd/MM/yy').format(_endDate!)}',
-                      style: TextStyle(fontSize: 11, color: Colors.blue[800]),
+                      style: TextStyle(fontSize: 10, color: Colors.blue[800]),
                     ),
                     const Spacer(),
                     GestureDetector(
@@ -807,7 +848,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                       },
                       child: Icon(
                         Icons.close,
-                        size: 14,
+                        size: 12,
                         color: Colors.blue[700],
                       ),
                     ),
@@ -825,25 +866,29 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.history, size: 60, color: Colors.grey[300]),
-          const SizedBox(height: 16),
+          Icon(Icons.history, size: 50, color: Colors.grey[300]),
+          const SizedBox(height: 12),
           Text(
             'No purchases found',
-            style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
-            'Try adjusting your filters or add a new purchase',
-            style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+            'Try adjusting your filters',
+            style: TextStyle(fontSize: 11, color: Colors.grey[500]),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           ElevatedButton.icon(
             onPressed: _loadPurchases,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Refresh'),
+            icon: const Icon(Icons.refresh, size: 16),
+            label: const Text('Refresh', style: TextStyle(fontSize: 12)),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.green[700],
               foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+              ),
             ),
           ),
         ],
@@ -853,36 +898,36 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
 
   Widget _buildPurchaseList() {
     return ListView.builder(
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.all(6),
       itemCount: _filteredPurchases.length,
       itemBuilder: (context, index) {
         final purchase = _filteredPurchases[index];
         return Card(
-          elevation: 2,
+          elevation: 1,
           margin: const EdgeInsets.symmetric(vertical: 4),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
           ),
           child: InkWell(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
             onTap: () => _showPurchaseDetails(purchase),
             child: Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(10),
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(10),
+                    padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
                       color: Colors.green[50],
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(
                       Icons.receipt_long,
                       color: Colors.green[700],
-                      size: 24,
+                      size: 18,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -891,17 +936,17 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           children: [
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
+                                horizontal: 6,
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
                                 color: Colors.green[100],
-                                borderRadius: BorderRadius.circular(10),
+                                borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
                                 purchase['invoiceNo'],
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 10,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.green[800],
                                 ),
@@ -913,45 +958,43 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                                 purchase['supplierName'],
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  fontSize: 14,
+                                  fontSize: 12,
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 3),
                         Row(
                           children: [
                             Icon(
                               Icons.calendar_today,
-                              size: 12,
+                              size: 10,
                               color: Colors.grey[500],
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              DateFormat(
-                                'dd/MM/yyyy hh:mm a',
-                              ).format(purchase['date']),
+                              DateFormat('dd/MM/yyyy').format(purchase['date']),
                               style: TextStyle(
-                                fontSize: 11,
+                                fontSize: 10,
                                 color: Colors.grey[600],
                               ),
                             ),
-                            const SizedBox(width: 12),
+                            const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
+                                horizontal: 4,
+                                vertical: 1,
                               ),
                               decoration: BoxDecoration(
                                 color: Colors.blue[50],
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
                                 '${purchase['itemCount']} items',
                                 style: TextStyle(
-                                  fontSize: 9,
+                                  fontSize: 8,
                                   fontWeight: FontWeight.w500,
                                   color: Colors.blue[800],
                                 ),
@@ -968,20 +1011,19 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                       Text(
                         '₹${purchase['grandTotal'].toStringAsFixed(2)}',
                         style: TextStyle(
-                          fontSize: 16,
+                          fontSize: 13,
                           fontWeight: FontWeight.bold,
                           color: Colors.green[700],
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 3),
                       Row(
                         children: [
-                          // Delete button on the list item
                           IconButton(
                             onPressed: () => _deletePurchase(purchase),
                             icon: Icon(
                               Icons.delete,
-                              size: 18,
+                              size: 16,
                               color: Colors.red[700],
                             ),
                             padding: EdgeInsets.zero,
@@ -991,7 +1033,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           const SizedBox(width: 4),
                           Icon(
                             Icons.arrow_forward_ios,
-                            size: 14,
+                            size: 12,
                             color: Colors.grey[400],
                           ),
                         ],

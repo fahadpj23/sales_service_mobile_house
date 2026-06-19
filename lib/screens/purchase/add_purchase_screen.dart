@@ -1079,7 +1079,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                 final supplier = _filteredSuppliers[index];
                 final data = supplier.data() as Map<String, dynamic>;
                 final name = (data['supplierName'] ?? 'Unknown').toString();
-                final phone = data['phoneNumber']?.toString() ?? '';
 
                 return ListTile(
                   dense: true,
@@ -1089,15 +1088,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     color: Colors.green[700],
                   ),
                   title: Text(name, style: const TextStyle(fontSize: 13)),
-                  subtitle: phone.isNotEmpty
-                      ? Text(
-                          '📞 $phone',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey[600],
-                          ),
-                        )
-                      : null,
+
                   onTap: () => _selectSupplier(supplier),
                 );
               },

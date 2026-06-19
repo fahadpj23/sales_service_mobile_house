@@ -26,17 +26,15 @@ class _AddProductScreenState extends State<AddProductScreen> {
   bool _isLoading = false;
   bool _showNewBrandField = false;
   bool _showPreview = false;
-  bool _submitted = false; // Added this flag
+  bool _submitted = false;
 
   List<String> _productTypes = ['Phone', 'TV', 'Appliances', 'Accessories'];
   List<String> _brands = [];
 
-  // Preview data
   Map<String, dynamic>? _previewData;
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Default HSN codes
   final Map<String, String> _defaultHsnCodes = {
     'Phone': '85171300',
     'TV': '85287219',
@@ -68,18 +66,18 @@ class _AddProductScreenState extends State<AddProductScreen> {
             Icon(
               isError ? Icons.error_outline : Icons.check_circle_outline,
               color: Colors.white,
-              size: 18,
+              size: 16,
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Expanded(
-              child: Text(message, style: const TextStyle(fontSize: 13)),
+              child: Text(message, style: const TextStyle(fontSize: 12)),
             ),
           ],
         ),
         backgroundColor: isError ? Colors.red.shade700 : Colors.green.shade700,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        margin: const EdgeInsets.all(16),
+        margin: const EdgeInsets.all(12),
         duration: const Duration(seconds: 3),
       ),
     );
@@ -123,23 +121,19 @@ class _AddProductScreenState extends State<AddProductScreen> {
   void _onProductTypeChanged(String? value) {
     setState(() {
       _selectedProductType = value;
-      // Auto-fill HSN code for Phone
       if (value == 'Phone' && _defaultHsnCodes.containsKey(value)) {
         _hsnController.text = _defaultHsnCodes[value]!;
       } else if (_hsnController.text.isEmpty) {
-        // Clear HSN if not phone and empty
         _hsnController.clear();
       }
     });
   }
 
   void _showPreviewDialog() {
-    // Set submitted to true to trigger validation display
     setState(() => _submitted = true);
 
     if (!_formKey.currentState!.validate()) return;
 
-    // Check if brand is selected
     if (_selectedBrand == null || _selectedBrand!.isEmpty) {
       _showSnackBar('Please select a brand first!', isError: true);
       return;
@@ -177,22 +171,22 @@ class _AddProductScreenState extends State<AddProductScreen> {
       builder: (BuildContext context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(12),
           ),
           title: Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
                   color: Colors.green[50],
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(6),
                 ),
-                child: Icon(Icons.preview, color: Colors.green[700], size: 20),
+                child: Icon(Icons.preview, color: Colors.green[700], size: 18),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               const Text(
                 'Preview Product',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -202,35 +196,35 @@ class _AddProductScreenState extends State<AddProductScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildPreviewItem('Product Type', _previewData!['productType']),
-                const SizedBox(height: 10),
+                const SizedBox(height: 6),
                 _buildPreviewItem('Brand', _previewData!['brand']),
-                const SizedBox(height: 10),
+                const SizedBox(height: 6),
                 _buildPreviewItem('Product Name', _previewData!['productName']),
-                const SizedBox(height: 10),
+                const SizedBox(height: 6),
                 _buildPreviewItem('HSN Code', _previewData!['hsn']),
-                const SizedBox(height: 10),
+                const SizedBox(height: 6),
                 _buildPreviewItem(
                   'Purchase Rate',
                   '₹${_previewData!['purchaseRate'].toStringAsFixed(2)}',
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 6),
                 _buildPreviewItem(
                   'Sale Rate',
                   '₹${_previewData!['saleRate'].toStringAsFixed(2)}',
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 6),
                 _buildPreviewItem(
                   'GST Percentage',
                   '${_previewData!['gstPercentage']}%',
                 ),
-                const Divider(height: 20),
+                const Divider(height: 14),
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [Colors.green[50]!, Colors.green[100]!],
                     ),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(6),
                   ),
                   child: Column(
                     children: [
@@ -239,7 +233,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                         '₹${_previewData!['profit'].toStringAsFixed(2)}',
                         isBold: true,
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 4),
                       _buildPreviewItem(
                         'Margin',
                         '${_previewData!['margin']}%',
@@ -257,11 +251,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
               style: TextButton.styleFrom(
                 foregroundColor: Colors.orange,
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
+                  horizontal: 12,
+                  vertical: 6,
                 ),
               ),
-              child: const Text('EDIT', style: TextStyle(fontSize: 13)),
+              child: const Text('EDIT', style: TextStyle(fontSize: 12)),
             ),
             ElevatedButton(
               onPressed: () {
@@ -272,14 +266,14 @@ class _AddProductScreenState extends State<AddProductScreen> {
                 backgroundColor: Colors.green[700],
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
+                  horizontal: 14,
+                  vertical: 6,
                 ),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(6),
                 ),
               ),
-              child: const Text('CONFIRM', style: TextStyle(fontSize: 13)),
+              child: const Text('CONFIRM', style: TextStyle(fontSize: 12)),
             ),
           ],
         );
@@ -291,11 +285,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
         Text(
           value,
           style: TextStyle(
-            fontSize: 13,
+            fontSize: 12,
             fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
             color: isBold ? Colors.green[700] : Colors.black87,
           ),
@@ -305,16 +299,13 @@ class _AddProductScreenState extends State<AddProductScreen> {
   }
 
   Future<void> _saveProduct() async {
-    // Set submitted to true to trigger validation display
     setState(() => _submitted = true);
 
-    // Validate brand again before saving
     if (_selectedBrand == null || _selectedBrand!.isEmpty) {
       _showSnackBar('Please select a brand first!', isError: true);
       return;
     }
 
-    // Check if form is valid
     if (!_formKey.currentState!.validate()) {
       return;
     }
@@ -337,7 +328,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
       _showSnackBar('Product added successfully!');
 
-      // Reset form fields
       _productNameController.clear();
       _hsnController.clear();
       _purchaseRateController.clear();
@@ -346,14 +336,12 @@ class _AddProductScreenState extends State<AddProductScreen> {
         _selectedProductType = null;
         _selectedBrand = null;
         _gstPercentage = 18;
-        _submitted = false; // Reset submitted state
+        _submitted = false;
       });
 
-      // Navigate to ProductListScreen using the callback
       if (widget.onNavigateToProductList != null) {
-        widget.onNavigateToProductList!(6); // Index 6 is ProductListScreen
+        widget.onNavigateToProductList!(6);
       } else {
-        // Fallback: Pop the screen
         Navigator.pop(context, true);
       }
     } catch (e) {
@@ -367,7 +355,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(10),
         child: Form(
           key: _formKey,
           autovalidateMode: _submitted
@@ -376,28 +364,24 @@ class _AddProductScreenState extends State<AddProductScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Section
               _buildHeader(),
-              const SizedBox(height: 20),
+              const SizedBox(height: 14),
 
-              // Main Form Card
               Card(
-                elevation: 2,
+                elevation: 1,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(14),
                   child: Column(
                     children: [
-                      // Product Type Section
                       _buildSectionHeader(
                         Icons.category,
                         'Product Information',
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
 
-                      // Product Type Dropdown
                       DropdownButtonFormField<String>(
                         decoration: _buildInputDecoration(
                           'Product Type *',
@@ -409,7 +393,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                             value: type,
                             child: Text(
                               type,
-                              style: const TextStyle(fontSize: 12),
+                              style: const TextStyle(fontSize: 11),
                             ),
                           );
                         }).toList(),
@@ -417,32 +401,28 @@ class _AddProductScreenState extends State<AddProductScreen> {
                         validator: (value) =>
                             value == null ? 'Please select product type' : null,
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
 
-                      // Brand Section with validation
                       _buildBrandSection(),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
 
-                      // Product Details Header
                       _buildSectionHeader(Icons.description, 'Product Details'),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
 
-                      // Product Name Field
                       TextFormField(
                         controller: _productNameController,
                         decoration: _buildInputDecoration(
                           'Product Name *',
                           Icons.production_quantity_limits,
                         ),
-                        style: const TextStyle(fontSize: 13),
+                        style: const TextStyle(fontSize: 12),
                         validator: (value) =>
                             value == null || value.trim().isEmpty
                             ? 'Please enter product name'
                             : null,
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
 
-                      // HSN Code Field
                       TextFormField(
                         controller: _hsnController,
                         decoration: _buildInputDecoration(
@@ -450,7 +430,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                           Icons.code,
                           helperText: '8-digit HSN code',
                         ),
-                        style: const TextStyle(fontSize: 13),
+                        style: const TextStyle(fontSize: 12),
                         keyboardType: TextInputType.number,
                         maxLength: 8,
                         buildCounter:
@@ -460,7 +440,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                               required bool isFocused,
                               required int? maxLength,
                             }) {
-                              return null; // Hides the counter
+                              return null;
                             },
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
@@ -472,9 +452,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
                           return null;
                         },
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
 
-                      // Rates Section
                       Row(
                         children: [
                           Expanded(
@@ -485,7 +464,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                 Icons.currency_rupee,
                                 helperText: 'Cost price',
                               ),
-                              style: const TextStyle(fontSize: 13),
+                              style: const TextStyle(fontSize: 12),
                               keyboardType: TextInputType.number,
                               validator: (value) {
                                 if (value == null || value.isEmpty) {
@@ -498,7 +477,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                               },
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: TextFormField(
                               controller: _saleRateController,
@@ -507,7 +486,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                 Icons.currency_rupee,
                                 helperText: 'Selling price',
                               ),
-                              style: const TextStyle(fontSize: 13),
+                              style: const TextStyle(fontSize: 12),
                               keyboardType: TextInputType.number,
                               validator: (value) {
                                 if (value == null || value.isEmpty) {
@@ -523,7 +502,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
                         ],
                       ),
 
-                      // Profit Preview (dynamic)
                       if (_purchaseRateController.text.isNotEmpty &&
                           _saleRateController.text.isNotEmpty &&
                           double.tryParse(_purchaseRateController.text) !=
@@ -531,9 +509,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
                           double.tryParse(_saleRateController.text) != null)
                         _buildProfitPreview(),
 
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
 
-                      // GST Dropdown
                       DropdownButtonFormField<int>(
                         decoration: _buildInputDecoration(
                           'GST Percentage *',
@@ -545,7 +522,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                             value: percent,
                             child: Text(
                               '$percent%',
-                              style: const TextStyle(fontSize: 13),
+                              style: const TextStyle(fontSize: 12),
                             ),
                           );
                         }).toList(),
@@ -553,9 +530,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
                             setState(() => _gstPercentage = value!),
                       ),
 
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 18),
 
-                      // Action Buttons
                       _buildActionButtons(),
                     ],
                   ),
@@ -572,22 +548,22 @@ class _AddProductScreenState extends State<AddProductScreen> {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [Colors.green[400]!, Colors.green[700]!],
             ),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
           ),
           child: const Icon(
             Icons.add_shopping_cart,
             color: Colors.white,
-            size: 17,
+            size: 15,
           ),
         ),
-        const SizedBox(width: 14),
+        const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -595,14 +571,14 @@ class _AddProductScreenState extends State<AddProductScreen> {
               const Text(
                 'Add New Product',
                 style: TextStyle(
-                  fontSize: 17,
+                  fontSize: 15,
                   fontWeight: FontWeight.bold,
                   color: Colors.green,
                 ),
               ),
               Text(
                 'Fill in the product details below',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                style: TextStyle(fontSize: 11, color: Colors.grey[600]),
               ),
             ],
           ),
@@ -617,26 +593,26 @@ class _AddProductScreenState extends State<AddProductScreen> {
       children: [
         if (!_showNewBrandField) ...[
           Container(
-            padding: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.only(bottom: 4),
             child: Row(
               children: [
                 Icon(
                   Icons.branding_watermark,
-                  size: 16,
+                  size: 14,
                   color: Colors.green[600],
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 4),
                 const Text(
                   'Brand',
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: FontWeight.w500,
                     color: Colors.black87,
                   ),
                 ),
                 const Text(
                   ' *',
-                  style: TextStyle(color: Colors.red, fontSize: 13),
+                  style: TextStyle(color: Colors.red, fontSize: 12),
                 ),
               ],
             ),
@@ -648,7 +624,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                     ? Colors.red
                     : Colors.grey[300]!,
               ),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(8),
               color: Colors.white,
             ),
             child: DropdownButtonHideUnderline(
@@ -657,13 +633,13 @@ class _AddProductScreenState extends State<AddProductScreen> {
                 value: _selectedBrand,
                 hint: Padding(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
+                    horizontal: 10,
+                    vertical: 10,
                   ),
                   child: Text(
                     'Select or add brand',
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 11,
                       color: _submitted && _selectedBrand == null
                           ? Colors.red
                           : Colors.grey[500],
@@ -675,10 +651,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
                     return DropdownMenuItem(
                       value: brand,
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
                         child: Text(
                           brand,
-                          style: const TextStyle(fontSize: 12),
+                          style: const TextStyle(fontSize: 11),
                         ),
                       ),
                     );
@@ -687,23 +663,23 @@ class _AddProductScreenState extends State<AddProductScreen> {
                     value: '__add_new__',
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 8,
+                        horizontal: 10,
+                        vertical: 6,
                       ),
                       child: Row(
                         children: [
                           Icon(
                             Icons.add_circle,
                             color: Colors.green[600],
-                            size: 18,
+                            size: 16,
                           ),
-                          const SizedBox(width: 6),
+                          const SizedBox(width: 4),
                           Text(
                             'Add New Brand',
                             style: TextStyle(
                               color: Colors.green[600],
                               fontWeight: FontWeight.w500,
-                              fontSize: 12,
+                              fontSize: 11,
                             ),
                           ),
                         ],
@@ -729,7 +705,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
               padding: const EdgeInsets.only(top: 4),
               child: Text(
                 'Please select or add a brand',
-                style: TextStyle(fontSize: 11, color: Colors.red[400]),
+                style: TextStyle(fontSize: 10, color: Colors.red[400]),
               ),
             ),
           if (_selectedBrand != null)
@@ -737,11 +713,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
               padding: const EdgeInsets.only(top: 4),
               child: Row(
                 children: [
-                  Icon(Icons.check_circle, size: 14, color: Colors.green[700]),
+                  Icon(Icons.check_circle, size: 12, color: Colors.green[700]),
                   const SizedBox(width: 4),
                   Text(
                     'Selected: $_selectedBrand',
-                    style: TextStyle(fontSize: 11, color: Colors.green[700]),
+                    style: TextStyle(fontSize: 10, color: Colors.green[700]),
                   ),
                 ],
               ),
@@ -749,10 +725,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
         ],
         if (_showNewBrandField) ...[
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: Colors.green[50],
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(8),
               border: Border.all(color: Colors.green[200]!, width: 1),
             ),
             child: Row(
@@ -761,35 +737,36 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   child: TextField(
                     controller: _brandController,
                     autofocus: true,
-                    style: const TextStyle(fontSize: 13),
+                    style: const TextStyle(fontSize: 12),
                     decoration: InputDecoration(
                       hintText: 'Enter brand name',
                       hintStyle: const TextStyle(
-                        fontSize: 12,
+                        fontSize: 11,
                         color: Colors.grey,
                       ),
                       contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 12,
+                        horizontal: 10,
+                        vertical: 8,
                       ),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(6),
                         borderSide: BorderSide(color: Colors.grey[300]!),
                       ),
                       enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(6),
                         borderSide: BorderSide(color: Colors.grey[300]!),
                       ),
                       focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(6),
                         borderSide: BorderSide(color: Colors.green[700]!),
                       ),
                       filled: true,
                       fillColor: Colors.white,
+                      isDense: true,
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 ElevatedButton(
                   onPressed: _isLoading
                       ? null
@@ -802,28 +779,28 @@ class _AddProductScreenState extends State<AddProductScreen> {
                     backgroundColor: Colors.green[700],
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
+                      horizontal: 12,
+                      vertical: 8,
                     ),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(6),
                     ),
                   ),
                   child: _isLoading
                       ? const SizedBox(
-                          width: 18,
-                          height: 18,
+                          width: 16,
+                          height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Text(
                           'Add',
                           style: TextStyle(
-                            fontSize: 13,
+                            fontSize: 12,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 4),
                 TextButton(
                   onPressed: () {
                     setState(() {
@@ -833,13 +810,13 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   },
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 12,
+                      horizontal: 8,
+                      vertical: 8,
                     ),
                   ),
                   child: const Text(
                     'Cancel',
-                    style: TextStyle(fontSize: 13, color: Colors.grey),
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                 ),
               ],
@@ -857,13 +834,13 @@ class _AddProductScreenState extends State<AddProductScreen> {
     double margin = (profit / purchaseRate * 100);
 
     return Container(
-      margin: const EdgeInsets.only(top: 16),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [Colors.green[50]!, Colors.green[100]!],
         ),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.green[200]!),
       ),
       child: Row(
@@ -874,7 +851,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
             '₹${profit.toStringAsFixed(2)}',
             Icons.trending_up,
           ),
-          Container(width: 1, height: 30, color: Colors.green[200]),
+          Container(width: 1, height: 25, color: Colors.green[200]),
           _buildInfoChip(
             'Margin',
             '${margin.toStringAsFixed(1)}%',
@@ -895,16 +872,16 @@ class _AddProductScreenState extends State<AddProductScreen> {
             },
             style: OutlinedButton.styleFrom(
               foregroundColor: Colors.green[700],
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: const EdgeInsets.symmetric(vertical: 10),
               side: BorderSide(color: Colors.green[700]!),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(8),
               ),
             ),
-            child: const Text('Preview', style: TextStyle(fontSize: 13)),
+            child: const Text('Preview', style: TextStyle(fontSize: 12)),
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 8),
         Expanded(
           child: ElevatedButton(
             onPressed: _isLoading
@@ -915,18 +892,18 @@ class _AddProductScreenState extends State<AddProductScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.green[700],
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: const EdgeInsets.symmetric(vertical: 10),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(8),
               ),
             ),
             child: _isLoading
                 ? const SizedBox(
-                    width: 20,
-                    height: 20,
+                    width: 18,
+                    height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('Save Product', style: TextStyle(fontSize: 13)),
+                : const Text('Save Product', style: TextStyle(fontSize: 12)),
           ),
         ),
       ],
@@ -937,17 +914,17 @@ class _AddProductScreenState extends State<AddProductScreen> {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(6),
+          padding: const EdgeInsets.all(4),
           decoration: BoxDecoration(
             color: Colors.green[50],
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(6),
           ),
-          child: Icon(icon, color: Colors.green[700], size: 18),
+          child: Icon(icon, color: Colors.green[700], size: 16),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 8),
         Text(
           title,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
         ),
       ],
     );
@@ -960,36 +937,37 @@ class _AddProductScreenState extends State<AddProductScreen> {
   }) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(fontSize: 13),
+      labelStyle: const TextStyle(fontSize: 11),
       hintText: 'Enter $label',
-      hintStyle: const TextStyle(fontSize: 12),
+      hintStyle: const TextStyle(fontSize: 11),
       helperText: helperText,
-      helperStyle: const TextStyle(fontSize: 11),
-      errorStyle: const TextStyle(fontSize: 11),
-      prefixIcon: Icon(icon, color: Colors.green[600], size: 18),
+      helperStyle: const TextStyle(fontSize: 10),
+      errorStyle: const TextStyle(fontSize: 10),
+      prefixIcon: Icon(icon, color: Colors.green[600], size: 16),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         borderSide: BorderSide(color: Colors.grey[300]!),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         borderSide: BorderSide(color: Colors.grey[300]!),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         borderSide: BorderSide(color: Colors.green[700]!, width: 1.5),
       ),
       errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         borderSide: const BorderSide(color: Colors.red, width: 1),
       ),
       focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         borderSide: const BorderSide(color: Colors.red, width: 1.5),
       ),
       filled: true,
       fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      isDense: true,
     );
   }
 
@@ -997,8 +975,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: Colors.green[700], size: 16),
-        const SizedBox(width: 6),
+        Icon(icon, color: Colors.green[700], size: 14),
+        const SizedBox(width: 4),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1006,14 +984,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
               value,
               style: TextStyle(
                 fontWeight: FontWeight.bold,
-                fontSize: 14,
+                fontSize: 12,
                 color: Colors.green[800],
               ),
             ),
-            Text(
-              label,
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-            ),
+            Text(label, style: TextStyle(fontSize: 9, color: Colors.grey[600])),
           ],
         ),
       ],

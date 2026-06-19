@@ -14,7 +14,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
   bool _isLoading = true;
   List<Map<String, dynamic>> _products = [];
   String _searchQuery = '';
-  String _filterType = 'all'; // all, phone, tv, appliances, accessories
+  String _filterType = 'all';
   double _minPrice = 0;
   double _maxPrice = double.infinity;
 
@@ -61,7 +61,6 @@ class _ProductListScreenState extends State<ProductListScreen> {
   List<Map<String, dynamic>> get _filteredProducts {
     var filtered = _products;
 
-    // Apply type filter
     if (_filterType != 'all') {
       filtered = filtered.where((product) {
         return product['productType'].toString().toLowerCase().contains(
@@ -70,7 +69,6 @@ class _ProductListScreenState extends State<ProductListScreen> {
       }).toList();
     }
 
-    // Apply search filter
     if (_searchQuery.isNotEmpty) {
       filtered = filtered.where((product) {
         return product['productName'].toString().toLowerCase().contains(
@@ -88,7 +86,6 @@ class _ProductListScreenState extends State<ProductListScreen> {
       }).toList();
     }
 
-    // Apply price filter
     filtered = filtered.where((product) {
       double saleRate = product['saleRate'] ?? 0;
       return saleRate >= _minPrice && saleRate <= _maxPrice;
@@ -98,34 +95,32 @@ class _ProductListScreenState extends State<ProductListScreen> {
   }
 
   void _showProductDetails(Map<String, dynamic> product) {
-    double profit = product['saleRate'] - product['purchaseRate'];
-    double margin = product['purchaseRate'] > 0
-        ? (profit / product['purchaseRate'] * 100)
-        : 0;
-
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         title: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
                 color: Colors.green[50],
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(6),
               ),
               child: Icon(
                 Icons.inventory_2,
                 color: Colors.green[700],
-                size: 20,
+                size: 18,
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Expanded(
               child: Text(
                 product['productName'],
-                style: const TextStyle(fontSize: 16),
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -136,75 +131,61 @@ class _ProductListScreenState extends State<ProductListScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildDetailRow('Type', product['productType'], Icons.category),
+              _buildDetailRow(
+                'Type',
+                product['productType'],
+                Icons.category,
+                Colors.green[700]!,
+              ),
               _buildDetailRow(
                 'Brand',
                 product['brand'],
                 Icons.branding_watermark,
+                Colors.green[700]!,
               ),
-              _buildDetailRow('HSN Code', product['hsn'], Icons.code),
+              _buildDetailRow(
+                'HSN',
+                product['hsn'],
+                Icons.code,
+                Colors.green[700]!,
+              ),
               _buildDetailRow(
                 'GST',
                 '${product['gstPercentage'].toStringAsFixed(0)}%',
                 Icons.percent,
+                Colors.green[700]!,
               ),
-              const Divider(height: 20),
+              const Divider(height: 14),
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: Colors.grey[50],
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(6),
                 ),
                 child: Column(
                   children: [
                     _buildDetailRow(
-                      'Purchase Rate',
+                      'Purchase',
                       '₹${product['purchaseRate'].toStringAsFixed(2)}',
                       Icons.arrow_downward,
-                      isHighlighted: true,
+                      Colors.orange[700]!,
                     ),
                     const SizedBox(height: 6),
                     _buildDetailRow(
-                      'Sale Rate',
+                      'Sale',
                       '₹${product['saleRate'].toStringAsFixed(2)}',
                       Icons.arrow_upward,
-                      isHighlighted: true,
+                      Colors.green[700]!,
                     ),
                   ],
                 ),
               ),
-              const Divider(height: 20),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Colors.green[50]!, Colors.green[100]!],
-                  ),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  children: [
-                    _buildDetailRow(
-                      'Profit per unit',
-                      '₹${profit.toStringAsFixed(2)}',
-                      Icons.trending_up,
-                      isTotal: true,
-                    ),
-                    const SizedBox(height: 6),
-                    _buildDetailRow(
-                      'Margin',
-                      '${margin.toStringAsFixed(1)}%',
-                      Icons.percent,
-                      isTotal: true,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               _buildDetailRow(
-                'Added on',
-                DateFormat('dd MMM yyyy, hh:mm a').format(product['createdAt']),
+                'Added',
+                DateFormat('dd MMM yyyy').format(product['createdAt']),
                 Icons.calendar_today,
+                Colors.grey[600]!,
               ),
             ],
           ),
@@ -212,28 +193,18 @@ class _ProductListScreenState extends State<ProductListScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+            child: const Text('Close', style: TextStyle(fontSize: 13)),
           ),
-          ElevatedButton.icon(
+          IconButton(
             onPressed: () {
               Navigator.pop(context);
               _editProduct(product);
             },
-            icon: const Icon(Icons.edit, size: 16),
-            label: const Text('Edit'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              foregroundColor: Colors.white,
-            ),
+            icon: Icon(Icons.edit, size: 20, color: Colors.green[700]),
           ),
-          ElevatedButton.icon(
+          IconButton(
             onPressed: () => _deleteProduct(product['id']),
-            icon: const Icon(Icons.delete, size: 16),
-            label: const Text('Delete'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
+            icon: Icon(Icons.delete, size: 20, color: Colors.red[700]),
           ),
         ],
       ),
@@ -243,42 +214,26 @@ class _ProductListScreenState extends State<ProductListScreen> {
   Widget _buildDetailRow(
     String label,
     String value,
-    IconData icon, {
+    IconData icon,
+    Color iconColor, {
     bool isHighlighted = false,
-    bool isTotal = false,
   }) {
     return Row(
       children: [
-        Icon(
-          icon,
-          size: 16,
-          color: isTotal
-              ? Colors.green[700]
-              : isHighlighted
-              ? Colors.green[600]
-              : Colors.grey[600],
-        ),
+        Icon(icon, size: 15, color: iconColor),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
             label,
-            style: TextStyle(
-              fontSize: 12,
-              color: isTotal ? Colors.black87 : Colors.grey[600],
-              fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-            ),
+            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
           ),
         ),
         Text(
           value,
           style: TextStyle(
             fontSize: 12,
-            fontWeight: isTotal ? FontWeight.bold : FontWeight.w500,
-            color: isTotal
-                ? Colors.green[700]
-                : isHighlighted
-                ? Colors.green[800]
-                : Colors.black87,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
           ),
         ),
       ],
@@ -286,7 +241,6 @@ class _ProductListScreenState extends State<ProductListScreen> {
   }
 
   void _editProduct(Map<String, dynamic> product) {
-    // Navigate to edit product screen
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -302,14 +256,12 @@ class _ProductListScreenState extends State<ProductListScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Product'),
-        content: const Text(
-          'Are you sure you want to delete this product? This action cannot be undone.',
-        ),
+        title: const Text('Delete', style: TextStyle(fontSize: 15)),
+        content: const Text('Are you sure?', style: TextStyle(fontSize: 14)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: const Text('Cancel', style: TextStyle(fontSize: 13)),
           ),
           ElevatedButton(
             onPressed: () async {
@@ -317,20 +269,20 @@ class _ProductListScreenState extends State<ProductListScreen> {
               try {
                 await _firestore.collection('products').doc(productId).delete();
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Product deleted successfully')),
+                  const SnackBar(content: Text('Product deleted')),
                 );
                 await _loadProducts();
               } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Error deleting product: $e')),
-                );
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('Error: $e')));
               }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
             ),
-            child: const Text('Delete'),
+            child: const Text('Delete', style: TextStyle(fontSize: 13)),
           ),
         ],
       ),
@@ -341,21 +293,25 @@ class _ProductListScreenState extends State<ProductListScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Filter Products'),
+        title: const Text('Filter', style: TextStyle(fontSize: 15)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Price Range
             Row(
               children: [
                 Expanded(
                   child: TextField(
                     decoration: const InputDecoration(
-                      labelText: 'Min Price',
-                      prefixText: '₹',
+                      labelText: 'Min',
+                      labelStyle: TextStyle(fontSize: 13),
                       border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                     ),
                     keyboardType: TextInputType.number,
+                    style: TextStyle(fontSize: 13),
                     onChanged: (value) {
                       _minPrice = double.tryParse(value) ?? 0;
                     },
@@ -365,11 +321,16 @@ class _ProductListScreenState extends State<ProductListScreen> {
                 Expanded(
                   child: TextField(
                     decoration: const InputDecoration(
-                      labelText: 'Max Price',
-                      prefixText: '₹',
+                      labelText: 'Max',
+                      labelStyle: TextStyle(fontSize: 13),
                       border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                     ),
                     keyboardType: TextInputType.number,
+                    style: TextStyle(fontSize: 13),
                     onChanged: (value) {
                       _maxPrice = double.tryParse(value) ?? double.infinity;
                     },
@@ -388,14 +349,14 @@ class _ProductListScreenState extends State<ProductListScreen> {
               });
               Navigator.pop(context);
             },
-            child: const Text('Reset'),
+            child: const Text('Reset', style: TextStyle(fontSize: 13)),
           ),
           ElevatedButton(
             onPressed: () {
               setState(() {});
               Navigator.pop(context);
             },
-            child: const Text('Apply'),
+            child: const Text('Apply', style: TextStyle(fontSize: 13)),
           ),
         ],
       ),
@@ -410,48 +371,62 @@ class _ProductListScreenState extends State<ProductListScreen> {
         children: [
           // Search Bar
           Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(8),
             child: Row(
               children: [
                 Expanded(
                   child: TextField(
                     decoration: InputDecoration(
-                      hintText: 'Search products...',
-                      prefixIcon: const Icon(Icons.search, color: Colors.green),
+                      hintText: 'Search...',
+                      hintStyle: const TextStyle(fontSize: 13),
+                      prefixIcon: Icon(
+                        Icons.search,
+                        color: Colors.green[600],
+                        size: 18,
+                      ),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(8),
                         borderSide: BorderSide.none,
                       ),
                       filled: true,
                       fillColor: Colors.white,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 0,
+                        horizontal: 8,
+                      ),
                       suffixIcon: _searchQuery.isNotEmpty
                           ? IconButton(
-                              icon: const Icon(Icons.clear, size: 18),
+                              icon: Icon(
+                                Icons.clear,
+                                size: 16,
+                                color: Colors.grey[600],
+                              ),
                               onPressed: () {
                                 setState(() => _searchQuery = '');
                               },
                             )
                           : null,
                     ),
+                    style: const TextStyle(fontSize: 13),
                     onChanged: (value) {
                       setState(() => _searchQuery = value);
                     },
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: IconButton(
                     icon: Icon(
                       Icons.filter_list,
-                      color: Colors.green[700],
-                      size: 22,
+                      color: Colors.green[600],
+                      size: 20,
                     ),
                     onPressed: _showFilterDialog,
+                    padding: const EdgeInsets.all(8),
                   ),
                 ),
               ],
@@ -460,28 +435,31 @@ class _ProductListScreenState extends State<ProductListScreen> {
 
           // Filter Chips
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Row(
-              children: [
-                _buildTypeChip('All', 'all'),
-                const SizedBox(width: 6),
-                _buildTypeChip('Phone', 'phone'),
-                const SizedBox(width: 6),
-                _buildTypeChip('TV', 'tv'),
-                const SizedBox(width: 6),
-                _buildTypeChip('Appliances', 'appliances'),
-                const SizedBox(width: 6),
-                _buildTypeChip('Accessories', 'accessories'),
-                const Spacer(),
-                Text(
-                  '${_filteredProducts.length} products',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                ),
-              ],
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildTypeChip('All', 'all'),
+                  const SizedBox(width: 6),
+                  _buildTypeChip('Phone', 'phone'),
+                  const SizedBox(width: 6),
+                  _buildTypeChip('TV', 'tv'),
+                  const SizedBox(width: 6),
+                  _buildTypeChip('Appliances', 'appliances'),
+                  const SizedBox(width: 6),
+                  _buildTypeChip('Accessories', 'accessories'),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${_filteredProducts.length}',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                  ),
+                ],
+              ),
             ),
           ),
 
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
 
           // Products List
           Expanded(
@@ -494,421 +472,176 @@ class _ProductListScreenState extends State<ProductListScreen> {
                       children: [
                         Icon(
                           Icons.inventory,
-                          size: 60,
+                          size: 50,
                           color: Colors.grey[400],
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 10),
                         Text(
                           _searchQuery.isNotEmpty
-                              ? 'No products match your search'
-                              : 'No products found',
+                              ? 'No matches'
+                              : 'No products',
                           style: TextStyle(
                             fontSize: 14,
                             color: Colors.grey[600],
                           ),
                         ),
-                        if (_searchQuery.isNotEmpty)
-                          Text(
-                            'Try adjusting your search',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[500],
-                            ),
-                          ),
-                        if (_products.isEmpty)
-                          TextButton.icon(
-                            onPressed: () {
-                              // Navigate to Add Product
-                              // You can use drawer navigation
-                            },
-                            icon: const Icon(Icons.add),
-                            label: const Text('Add Product'),
-                          ),
                       ],
                     ),
                   )
                 : RefreshIndicator(
                     onRefresh: _loadProducts,
                     child: ListView.builder(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(8),
                       itemCount: _filteredProducts.length,
                       itemBuilder: (context, index) {
                         final product = _filteredProducts[index];
-                        double profit =
-                            product['saleRate'] - product['purchaseRate'];
-                        bool isProfitable = profit > 0;
 
                         return Card(
-                          elevation: 2,
-                          margin: const EdgeInsets.only(bottom: 12),
+                          elevation: 0,
+                          margin: const EdgeInsets.only(bottom: 8),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  Colors.white,
-                                  isProfitable
-                                      ? Colors.green[50]!
-                                      : Colors.red[50]!,
-                                ],
-                              ),
+                            borderRadius: BorderRadius.circular(8),
+                            side: BorderSide(
+                              color: Colors.grey[200]!,
+                              width: 0.5,
                             ),
+                          ),
+                          child: InkWell(
+                            onTap: () => _showProductDetails(product),
+                            borderRadius: BorderRadius.circular(8),
                             child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              padding: const EdgeInsets.all(10),
+                              child: Row(
                                 children: [
-                                  // Header Row - Type, Brand, Status
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: Colors.green[100],
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                        child: Icon(
-                                          _getProductIcon(
-                                            product['productType'],
-                                          ),
-                                          size: 20,
-                                          color: Colors.green[700],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: GestureDetector(
-                                          onTap: () =>
-                                              _showProductDetails(product),
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                product['productName'],
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 16,
-                                                ),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                              Text(
-                                                product['brand'],
-                                                style: TextStyle(
-                                                  fontSize: 13,
-                                                  color: Colors.grey[600],
-                                                ),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: isProfitable
-                                              ? Colors.green[100]
-                                              : Colors.red[100],
-                                          borderRadius: BorderRadius.circular(
-                                            12,
-                                          ),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              isProfitable
-                                                  ? Icons.trending_up
-                                                  : Icons.trending_down,
-                                              size: 14,
-                                              color: isProfitable
-                                                  ? Colors.green[700]
-                                                  : Colors.red[700],
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              isProfitable ? 'Profit' : 'Loss',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.bold,
-                                                color: isProfitable
-                                                    ? Colors.green[700]
-                                                    : Colors.red[700],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
+                                  // Icon
+                                  Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green[50],
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Icon(
+                                      _getProductIcon(product['productType']),
+                                      size: 16,
+                                      color: Colors.green[700],
+                                    ),
                                   ),
+                                  const SizedBox(width: 10),
 
-                                  const SizedBox(height: 12),
-
-                                  // Product Details Row
-                                  Row(
-                                    children: [
-                                      // HSN Code
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.grey[200],
-                                          borderRadius: BorderRadius.circular(
-                                            4,
+                                  // Info
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          product['productName'],
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w500,
+                                            fontSize: 13,
                                           ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                         ),
-                                        child: Text(
-                                          'HSN: ${product['hsn']}',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.grey[200],
-                                          borderRadius: BorderRadius.circular(
-                                            4,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          'GST: ${product['gstPercentage'].toStringAsFixed(0)}%',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                      ),
-                                      const Spacer(),
-                                      GestureDetector(
-                                        onTap: () =>
-                                            _showProductDetails(product),
-                                        child: Text(
-                                          product['productType'],
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-
-                                  const SizedBox(height: 12),
-
-                                  // Price Section
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: GestureDetector(
-                                          onTap: () =>
-                                              _showProductDetails(product),
-                                          child: Container(
-                                            padding: const EdgeInsets.all(10),
-                                            decoration: BoxDecoration(
-                                              color: Colors.grey[50],
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                            ),
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  'Purchase Rate',
-                                                  style: TextStyle(
-                                                    fontSize: 10,
-                                                    color: Colors.grey[500],
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 4),
-                                                Text(
-                                                  '₹${product['purchaseRate'].toStringAsFixed(2)}',
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 14,
-                                                    color: Colors.grey[700],
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: GestureDetector(
-                                          onTap: () =>
-                                              _showProductDetails(product),
-                                          child: Container(
-                                            padding: const EdgeInsets.all(10),
-                                            decoration: BoxDecoration(
-                                              color: Colors.green[50],
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                              border: Border.all(
-                                                color: Colors.green[200]!,
-                                              ),
-                                            ),
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  'Sale Rate',
-                                                  style: TextStyle(
-                                                    fontSize: 10,
-                                                    color: Colors.green[600],
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 4),
-                                                Text(
-                                                  '₹${product['saleRate'].toStringAsFixed(2)}',
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 14,
-                                                    color: Colors.green[700],
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      GestureDetector(
-                                        onTap: () =>
-                                            _showProductDetails(product),
-                                        child: Container(
-                                          padding: const EdgeInsets.all(10),
-                                          decoration: BoxDecoration(
-                                            color: isProfitable
-                                                ? Colors.green[100]
-                                                : Colors.red[100],
-                                            borderRadius: BorderRadius.circular(
-                                              8,
-                                            ),
-                                          ),
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                'Profit',
-                                                style: TextStyle(
-                                                  fontSize: 10,
-                                                  color: isProfitable
-                                                      ? Colors.green[600]
-                                                      : Colors.red[600],
-                                                ),
-                                              ),
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                '₹${profit.toStringAsFixed(2)}',
-                                                style: TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 14,
-                                                  color: isProfitable
-                                                      ? Colors.green[700]
-                                                      : Colors.red[700],
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-
-                                  const SizedBox(height: 12),
-
-                                  // Action Buttons Row
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.end,
-                                    children: [
-                                      GestureDetector(
-                                        onTap: () =>
-                                            _showProductDetails(product),
-                                        child: Text(
-                                          DateFormat(
-                                            'dd MMM yyyy',
-                                          ).format(product['createdAt']),
+                                        Text(
+                                          '${product['brand']} • HSN: ${product['hsn']}',
                                           style: TextStyle(
                                             fontSize: 10,
                                             color: Colors.grey[500],
                                           ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                         ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      // Edit Button with label
-                                      ElevatedButton.icon(
-                                        onPressed: () => _editProduct(product),
-                                        icon: const Icon(Icons.edit, size: 16),
-                                        label: const Text(
-                                          'Edit',
-                                          style: TextStyle(fontSize: 12),
-                                        ),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.blue[700],
-                                          foregroundColor: Colors.white,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 8,
-                                          ),
-                                          minimumSize: const Size(60, 32),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              6,
+                                      ],
+                                    ),
+                                  ),
+
+                                  // Prices with labels
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            'Sale: ',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: Colors.green[700],
+                                              fontWeight: FontWeight.w500,
                                             ),
                                           ),
+                                          Text(
+                                            '₹${product['saleRate'].toStringAsFixed(0)}',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13,
+                                              color: Colors.green[700],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            'Purchase: ',
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              color: Colors.orange[700],
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                          Text(
+                                            '₹${product['purchaseRate'].toStringAsFixed(0)}',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.orange[700],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+
+                                  const SizedBox(width: 10),
+
+                                  // Action Buttons - Only Icons
+                                  Column(
+                                    children: [
+                                      InkWell(
+                                        onTap: () => _editProduct(product),
+                                        child: Container(
+                                          padding: const EdgeInsets.all(4),
+                                          decoration: BoxDecoration(
+                                            color: Colors.green[50],
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                          ),
+                                          child: Icon(
+                                            Icons.edit,
+                                            size: 16,
+                                            color: Colors.green[700],
+                                          ),
                                         ),
                                       ),
-                                      const SizedBox(width: 8),
-                                      // Delete Button with label
-                                      ElevatedButton.icon(
-                                        onPressed: () =>
+                                      const SizedBox(height: 6),
+                                      InkWell(
+                                        onTap: () =>
                                             _deleteProduct(product['id']),
-                                        icon: const Icon(
-                                          Icons.delete,
-                                          size: 16,
-                                        ),
-                                        label: const Text(
-                                          'Delete',
-                                          style: TextStyle(fontSize: 12),
-                                        ),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.red[700],
-                                          foregroundColor: Colors.white,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 8,
-                                          ),
-                                          minimumSize: const Size(60, 32),
-                                          shape: RoundedRectangleBorder(
+                                        child: Container(
+                                          padding: const EdgeInsets.all(4),
+                                          decoration: BoxDecoration(
+                                            color: Colors.red[50],
                                             borderRadius: BorderRadius.circular(
-                                              6,
+                                              4,
                                             ),
+                                          ),
+                                          child: Icon(
+                                            Icons.delete,
+                                            size: 16,
+                                            color: Colors.red[700],
                                           ),
                                         ),
                                       ),
@@ -935,7 +668,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
         label,
         style: TextStyle(
           fontSize: 11,
-          color: isSelected ? Colors.white : Colors.black87,
+          color: isSelected ? Colors.white : Colors.grey[700],
         ),
       ),
       selected: isSelected,
@@ -945,9 +678,11 @@ class _ProductListScreenState extends State<ProductListScreen> {
         });
       },
       backgroundColor: Colors.grey[200],
-      selectedColor: Colors.green,
+      selectedColor: Colors.green[700],
       visualDensity: VisualDensity.compact,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
   }
 
@@ -1001,7 +736,6 @@ class _EditProductScreenState extends State<EditProductScreen> {
   @override
   void initState() {
     super.initState();
-    // Pre-fill form with product data
     _selectedProductType = widget.product['productType'];
     _brandController.text = widget.product['brand'];
     _productNameController.text = widget.product['productName'];
@@ -1009,7 +743,6 @@ class _EditProductScreenState extends State<EditProductScreen> {
     _purchaseRateController.text = widget.product['purchaseRate'].toString();
     _saleRateController.text = widget.product['saleRate'].toString();
     _gstPercentage = widget.product['gstPercentage'] ?? 18;
-
     _hsnController.addListener(_validateHsnLength);
   }
 
@@ -1025,24 +758,12 @@ class _EditProductScreenState extends State<EditProductScreen> {
   void _showSnackBar(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              isError ? Icons.error_outline : Icons.check_circle_outline,
-              color: Colors.white,
-              size: 18,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(message, style: const TextStyle(fontSize: 13)),
-            ),
-          ],
-        ),
-        backgroundColor: isError ? Colors.red.shade700 : Colors.green.shade700,
+        content: Text(message, style: const TextStyle(fontSize: 13)),
+        backgroundColor: isError ? Colors.red.shade700 : Colors.green[700],
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        margin: const EdgeInsets.all(16),
-        duration: const Duration(seconds: 3),
+        margin: const EdgeInsets.all(12),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -1053,11 +774,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
 
   Future<void> _updateProduct() async {
     setState(() => _submitted = true);
-
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
+    if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
     try {
@@ -1072,12 +789,11 @@ class _EditProductScreenState extends State<EditProductScreen> {
         'updatedAt': DateTime.now(),
       });
 
-      _showSnackBar('Product updated successfully!');
+      _showSnackBar('Product updated!');
       widget.onProductUpdated();
-
       Navigator.pop(context);
     } catch (e) {
-      _showSnackBar('Error updating product: $e', isError: true);
+      _showSnackBar('Error: $e', isError: true);
       setState(() => _isLoading = false);
     }
   }
@@ -1086,171 +802,75 @@ class _EditProductScreenState extends State<EditProductScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Edit Product'),
+        title: const Text('Edit Product', style: TextStyle(fontSize: 15)),
         backgroundColor: Colors.green[700],
         foregroundColor: Colors.white,
         elevation: 0,
       ),
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: Colors.grey[50],
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Form(
           key: _formKey,
           autovalidateMode: _submitted
               ? AutovalidateMode.onUserInteraction
               : AutovalidateMode.disabled,
           child: Card(
-            elevation: 2,
+            elevation: 0,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(10),
+              side: BorderSide(color: Colors.grey[200]!),
             ),
             child: Padding(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  // Product Type Dropdown
                   DropdownButtonFormField<String>(
-                    decoration: InputDecoration(
-                      labelText: 'Product Type *',
-                      labelStyle: const TextStyle(fontSize: 13),
-                      prefixIcon: Icon(
-                        Icons.category,
-                        color: Colors.green[600],
-                        size: 18,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(
-                          color: Colors.green[700]!,
-                          width: 1.5,
-                        ),
-                      ),
-                      filled: true,
-                      fillColor: Colors.white,
+                    decoration: _inputDecoration(
+                      'Product Type',
+                      Icons.category,
                     ),
                     value: _selectedProductType,
                     items: _productTypes.map((type) {
                       return DropdownMenuItem(
                         value: type,
-                        child: Text(type, style: const TextStyle(fontSize: 12)),
+                        child: Text(type, style: const TextStyle(fontSize: 13)),
                       );
                     }).toList(),
                     onChanged: _onProductTypeChanged,
-                    validator: (value) =>
-                        value == null ? 'Please select product type' : null,
+                    validator: (value) => value == null ? 'Required' : null,
                   ),
-                  const SizedBox(height: 16),
-
-                  // Brand Field
+                  const SizedBox(height: 12),
                   TextFormField(
                     controller: _brandController,
-                    decoration: InputDecoration(
-                      labelText: 'Brand *',
-                      labelStyle: const TextStyle(fontSize: 13),
-                      prefixIcon: Icon(
-                        Icons.branding_watermark,
-                        color: Colors.green[600],
-                        size: 18,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(
-                          color: Colors.green[700]!,
-                          width: 1.5,
-                        ),
-                      ),
-                      filled: true,
-                      fillColor: Colors.white,
+                    decoration: _inputDecoration(
+                      'Brand',
+                      Icons.branding_watermark,
                     ),
                     style: const TextStyle(fontSize: 13),
                     validator: (value) => value == null || value.trim().isEmpty
-                        ? 'Please enter brand name'
+                        ? 'Required'
                         : null,
                   ),
-                  const SizedBox(height: 16),
-
-                  // Product Name Field
+                  const SizedBox(height: 12),
                   TextFormField(
                     controller: _productNameController,
-                    decoration: InputDecoration(
-                      labelText: 'Product Name *',
-                      labelStyle: const TextStyle(fontSize: 13),
-                      prefixIcon: Icon(
-                        Icons.production_quantity_limits,
-                        color: Colors.green[600],
-                        size: 18,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(
-                          color: Colors.green[700]!,
-                          width: 1.5,
-                        ),
-                      ),
-                      filled: true,
-                      fillColor: Colors.white,
+                    decoration: _inputDecoration(
+                      'Product Name',
+                      Icons.production_quantity_limits,
                     ),
                     style: const TextStyle(fontSize: 13),
                     validator: (value) => value == null || value.trim().isEmpty
-                        ? 'Please enter product name'
+                        ? 'Required'
                         : null,
                   ),
-                  const SizedBox(height: 16),
-
-                  // HSN Code Field
+                  const SizedBox(height: 12),
                   TextFormField(
                     controller: _hsnController,
-                    decoration: InputDecoration(
-                      labelText: 'HSN Code *',
-                      labelStyle: const TextStyle(fontSize: 13),
-                      prefixIcon: Icon(
-                        Icons.code,
-                        color: Colors.green[600],
-                        size: 18,
-                      ),
-                      helperText: '8-digit HSN code',
-                      helperStyle: const TextStyle(fontSize: 11),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(
-                          color: Colors.green[700]!,
-                          width: 1.5,
-                        ),
-                      ),
-                      filled: true,
-                      fillColor: Colors.white,
+                    decoration: _inputDecoration(
+                      'HSN Code',
+                      Icons.code,
+                      helper: '8 digits',
                     ),
                     style: const TextStyle(fontSize: 13),
                     keyboardType: TextInputType.number,
@@ -1262,152 +882,62 @@ class _EditProductScreenState extends State<EditProductScreen> {
                           required bool isFocused,
                           required int? maxLength,
                         }) {
-                          return null; // Hides the counter
+                          return null;
                         },
                     validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Please enter HSN code';
-                      }
-                      if (value.trim().length != 8) {
-                        return 'HSN code must be 8 digits';
-                      }
+                      if (value == null || value.trim().isEmpty)
+                        return 'Required';
+                      if (value.trim().length != 8) return '8 digits required';
                       return null;
                     },
                   ),
-                  const SizedBox(height: 16),
-
-                  // Rates Section
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
                         child: TextFormField(
                           controller: _purchaseRateController,
-                          decoration: InputDecoration(
-                            labelText: 'Purchase Rate *',
-                            labelStyle: const TextStyle(fontSize: 13),
-                            prefixIcon: Icon(
-                              Icons.currency_rupee,
-                              color: Colors.green[600],
-                              size: 18,
-                            ),
-                            helperText: 'Cost price',
-                            helperStyle: const TextStyle(fontSize: 11),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide(color: Colors.grey[300]!),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide(color: Colors.grey[300]!),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide(
-                                color: Colors.green[700]!,
-                                width: 1.5,
-                              ),
-                            ),
-                            filled: true,
-                            fillColor: Colors.white,
+                          decoration: _inputDecoration(
+                            'Purchase Rate',
+                            Icons.currency_rupee,
+                            helper: 'Cost',
                           ),
                           style: const TextStyle(fontSize: 13),
                           keyboardType: TextInputType.number,
                           validator: (value) {
-                            if (value == null || value.isEmpty) {
+                            if (value == null || value.isEmpty)
                               return 'Required';
-                            }
-                            if (double.tryParse(value) == null) {
-                              return 'Invalid number';
-                            }
+                            if (double.tryParse(value) == null)
+                              return 'Invalid';
                             return null;
                           },
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: TextFormField(
                           controller: _saleRateController,
-                          decoration: InputDecoration(
-                            labelText: 'Sale Rate *',
-                            labelStyle: const TextStyle(fontSize: 13),
-                            prefixIcon: Icon(
-                              Icons.currency_rupee,
-                              color: Colors.green[600],
-                              size: 18,
-                            ),
-                            helperText: 'Selling price',
-                            helperStyle: const TextStyle(fontSize: 11),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide(color: Colors.grey[300]!),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide(color: Colors.grey[300]!),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide(
-                                color: Colors.green[700]!,
-                                width: 1.5,
-                              ),
-                            ),
-                            filled: true,
-                            fillColor: Colors.white,
+                          decoration: _inputDecoration(
+                            'Sale Rate',
+                            Icons.currency_rupee,
+                            helper: 'Sell',
                           ),
                           style: const TextStyle(fontSize: 13),
                           keyboardType: TextInputType.number,
                           validator: (value) {
-                            if (value == null || value.isEmpty) {
+                            if (value == null || value.isEmpty)
                               return 'Required';
-                            }
-                            if (double.tryParse(value) == null) {
-                              return 'Invalid number';
-                            }
+                            if (double.tryParse(value) == null)
+                              return 'Invalid';
                             return null;
                           },
                         ),
                       ),
                     ],
                   ),
-
-                  // Profit Preview
-                  if (_purchaseRateController.text.isNotEmpty &&
-                      _saleRateController.text.isNotEmpty &&
-                      double.tryParse(_purchaseRateController.text) != null &&
-                      double.tryParse(_saleRateController.text) != null)
-                    _buildProfitPreview(),
-
-                  const SizedBox(height: 16),
-
-                  // GST Dropdown
+                  const SizedBox(height: 12),
                   DropdownButtonFormField<int>(
-                    decoration: InputDecoration(
-                      labelText: 'GST Percentage *',
-                      labelStyle: const TextStyle(fontSize: 13),
-                      prefixIcon: Icon(
-                        Icons.percent,
-                        color: Colors.green[600],
-                        size: 18,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(
-                          color: Colors.green[700]!,
-                          width: 1.5,
-                        ),
-                      ),
-                      filled: true,
-                      fillColor: Colors.white,
-                    ),
+                    decoration: _inputDecoration('GST', Icons.percent),
                     value: _gstPercentage,
                     items: [5, 12, 18, 28].map((percent) {
                       return DropdownMenuItem(
@@ -1421,20 +951,17 @@ class _EditProductScreenState extends State<EditProductScreen> {
                     onChanged: (value) =>
                         setState(() => _gstPercentage = value!),
                   ),
-
-                  const SizedBox(height: 24),
-
-                  // Action Buttons
+                  const SizedBox(height: 20),
                   Row(
                     children: [
                       Expanded(
                         child: OutlinedButton(
                           onPressed: () => Navigator.pop(context),
                           style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
                             side: BorderSide(color: Colors.grey[400]!),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.circular(8),
                             ),
                           ),
                           child: const Text(
@@ -1443,29 +970,32 @@ class _EditProductScreenState extends State<EditProductScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: ElevatedButton(
                           onPressed: _isLoading ? null : _updateProduct,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.green[700],
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.circular(8),
                             ),
                           ),
                           child: _isLoading
                               ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
+                                  width: 18,
+                                  height: 18,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
                                   ),
                                 )
                               : const Text(
-                                  'Update Product',
-                                  style: TextStyle(fontSize: 13),
+                                  'Update',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
                         ),
                       ),
@@ -1480,65 +1010,33 @@ class _EditProductScreenState extends State<EditProductScreen> {
     );
   }
 
-  Widget _buildProfitPreview() {
-    double purchaseRate = double.parse(_purchaseRateController.text);
-    double saleRate = double.parse(_saleRateController.text);
-    double profit = saleRate - purchaseRate;
-    double margin = (profit / purchaseRate * 100);
-
-    return Container(
-      margin: const EdgeInsets.only(top: 16),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.green[50]!, Colors.green[100]!],
-        ),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.green[200]!),
+  InputDecoration _inputDecoration(
+    String label,
+    IconData icon, {
+    String? helper,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: const TextStyle(fontSize: 12),
+      helperText: helper,
+      helperStyle: const TextStyle(fontSize: 11),
+      prefixIcon: Icon(icon, color: Colors.green[600], size: 16),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(color: Colors.grey[300]!),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildInfoChip(
-            'Profit',
-            '₹${profit.toStringAsFixed(2)}',
-            Icons.trending_up,
-          ),
-          Container(width: 1, height: 30, color: Colors.green[200]),
-          _buildInfoChip(
-            'Margin',
-            '${margin.toStringAsFixed(1)}%',
-            Icons.percent,
-          ),
-        ],
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(color: Colors.grey[300]!),
       ),
-    );
-  }
-
-  Widget _buildInfoChip(String label, String value, IconData icon) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: Colors.green[700], size: 16),
-        const SizedBox(width: 6),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              value,
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-                color: Colors.green[800],
-              ),
-            ),
-            Text(
-              label,
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-            ),
-          ],
-        ),
-      ],
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(color: Colors.green[700]!, width: 1.5),
+      ),
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      isDense: true,
     );
   }
 
