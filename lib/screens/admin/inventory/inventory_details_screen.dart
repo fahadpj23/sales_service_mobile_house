@@ -95,6 +95,20 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
           updatedDate = DateTime.now();
         }
 
+        // Get transfer details if available
+        Map<String, dynamic> transferDetails = {};
+        if (data['transferredAt'] != null || data['previousShopId'] != null) {
+          transferDetails = {
+            'previousShopId': data['previousShopId'] ?? '',
+            'previousShopName': data['previousShopName'] ?? '',
+            'transferredAt': data['transferredAt'] is Timestamp
+                ? (data['transferredAt'] as Timestamp).toDate()
+                : null,
+            'transferredBy': data['transferredBy'] ?? '',
+            'transferredById': data['transferredById'] ?? '',
+          };
+        }
+
         _allInventory.add({
           'id': doc.id,
           'type': 'phone_stock',
@@ -127,6 +141,12 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
               : data['uploadedAt'] is Timestamp
               ? (data['uploadedAt'] as Timestamp).toDate()
               : DateTime.now(),
+          // Transfer details
+          'previousShopId': transferDetails['previousShopId'] ?? '',
+          'previousShopName': transferDetails['previousShopName'] ?? '',
+          'transferredAt': transferDetails['transferredAt'],
+          'transferredBy': transferDetails['transferredBy'] ?? '',
+          'transferredById': transferDetails['transferredById'] ?? '',
         });
 
         // Update statistics
@@ -177,6 +197,12 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
           'createdAt': data['returnedAt'] is Timestamp
               ? (data['returnedAt'] as Timestamp).toDate()
               : DateTime.now(),
+          // Return items don't have transfer details
+          'previousShopId': '',
+          'previousShopName': '',
+          'transferredAt': null,
+          'transferredBy': '',
+          'transferredById': '',
         });
 
         // Update statistics for returned items
@@ -1618,6 +1644,26 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                   ),
                 ],
               ),
+              // Show transfer indicator if available
+              if (item['previousShopName'] != null &&
+                  item['previousShopName'] != '')
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    children: [
+                      Icon(Icons.swap_horiz, size: 10, color: Colors.blue),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Transferred from: ${item['previousShopName']}',
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: Colors.blue[700],
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               if (item['type'] == 'phone_return' && item['reason'] != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
@@ -1810,6 +1856,49 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                             icon: Icons.store_mall_directory,
                           ),
                       ]),
+
+                      // Transfer Information (if transferred)
+                      if (item['transferredAt'] != null ||
+                          (item['previousShopName'] != null &&
+                              item['previousShopName'] != ''))
+                        _buildDetailSection('Transfer Information', [
+                          if (item['previousShopName'] != null &&
+                              item['previousShopName'] != '')
+                            _buildDetailRow(
+                              'Previous Shop',
+                              item['previousShopName'] ?? 'N/A',
+                              icon: Icons.storefront,
+                            ),
+                          if (item['previousShopId'] != null &&
+                              item['previousShopId'] != '')
+                            _buildDetailRow(
+                              'Previous Shop ID',
+                              item['previousShopId'] ?? 'N/A',
+                              icon: Icons.store,
+                            ),
+                          if (item['transferredAt'] != null)
+                            _buildDetailRow(
+                              'Transferred At',
+                              DateFormat(
+                                'dd MMM yyyy, hh:mm a',
+                              ).format(item['transferredAt']),
+                              icon: Icons.calendar_today,
+                            ),
+                          if (item['transferredBy'] != null &&
+                              item['transferredBy'] != '')
+                            _buildDetailRow(
+                              'Transferred By',
+                              item['transferredBy'] ?? 'N/A',
+                              icon: Icons.person_outline,
+                            ),
+                          if (item['transferredById'] != null &&
+                              item['transferredById'] != '')
+                            _buildDetailRow(
+                              'Transferred By ID',
+                              item['transferredById'] ?? 'N/A',
+                              icon: Icons.badge,
+                            ),
+                        ]),
 
                       // Sale Information (if sold)
                       if (status == 'sold')

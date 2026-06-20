@@ -497,19 +497,30 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       (item) => item.productId == _selectedProductId,
     );
 
+    String productName = _selectedProductName!;
+
     if (existingIndex != -1) {
       setState(() {
         _cartItems[existingIndex].quantity += quantity;
         _cartItems[existingIndex].total =
             _cartItems[existingIndex].rate * _cartItems[existingIndex].quantity;
       });
-      _showDialog('Success', 'Product quantity updated in cart!');
+      // Show success message like product selection
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Updated: $productName (Qty: ${_cartItems[existingIndex].quantity})',
+          ),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ),
+      );
     } else {
       setState(() {
         _cartItems.add(
           CartItem(
             productId: _selectedProductId!,
-            productName: _selectedProductName!,
+            productName: productName,
             rate: rate,
             quantity: quantity,
             total: rate * quantity,
@@ -517,7 +528,14 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           ),
         );
       });
-      _showDialog('Success', 'Product added to cart!');
+      // Show success message like product selection
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added: $productName (Qty: $quantity)'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ),
+      );
     }
 
     setState(() {
@@ -539,7 +557,13 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
   void _removeFromCart(int index) {
     setState(() => _cartItems.removeAt(index));
-    _showDialog('Success', 'Product removed from cart');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Removed product from cart'),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 1),
+      ),
+    );
     _resetRounding();
   }
 
@@ -562,30 +586,37 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     (sum, item) => sum + (item.total * item.gstPercentage / 100),
   );
 
+  // UPDATED: Improved rounding logic
   void _calculateRounding() {
-    if (_isRoundingManual) {
-      // Manual rounding - keep user's value
-      return;
-    }
+    if (_isRoundingManual) return;
 
     double grandTotal = _getGrandTotalBeforeRounding();
-    // Round to nearest integer (standard rounding)
-    double roundedTotal = grandTotal.roundToDouble();
-    _roundingAmount = roundedTotal - grandTotal;
 
-    // If rounding is very small, set to 0
-    if (_roundingAmount.abs() < 0.01) {
+    // Get nearest integer based on your rule
+    int targetTotal;
+
+    double decimalPart = grandTotal % 1;
+
+    if (decimalPart <= 0.50) {
+      targetTotal = grandTotal.floor();
+    } else {
+      targetTotal = grandTotal.ceil();
+    }
+
+    _roundingAmount = targetTotal - grandTotal;
+
+    // Avoid floating point issues
+    if (_roundingAmount.abs() < 0.001) {
       _roundingAmount = 0;
     }
 
-    // Update the rounding controller to show current value
     _roundingController.text = _roundingAmount.toStringAsFixed(2);
   }
 
   double _getGrandTotalBeforeRounding() => _getSubtotal() + _getTotalGST();
 
+  // UPDATED: Simplified getGrandTotal
   double _getGrandTotal() {
-    _calculateRounding();
     return _getGrandTotalBeforeRounding() + _roundingAmount;
   }
 
@@ -595,6 +626,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       _roundingAmount = 0;
       _roundingController.clear();
     });
+    // Recalculate after state update
     _calculateRounding();
   }
 
@@ -1088,7 +1120,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     color: Colors.green[700],
                   ),
                   title: Text(name, style: const TextStyle(fontSize: 13)),
-
                   onTap: () => _selectSupplier(supplier),
                 );
               },
@@ -1309,6 +1340,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   Widget _buildCartSection() {
+    // Calculate rounding without setState
+    _calculateRounding();
+
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -1341,7 +1375,13 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     onPressed: () {
                       setState(() => _cartItems.clear());
                       _resetRounding();
-                      _showDialog('Success', 'Cart cleared successfully!');
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Cart cleared successfully!'),
+                          backgroundColor: Colors.red,
+                          duration: Duration(seconds: 1),
+                        ),
+                      );
                     },
                     style: TextButton.styleFrom(
                       foregroundColor: Colors.red,
@@ -1409,6 +1449,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   Widget _buildRoundingSection() {
+    // Calculate rounding without setState
+    _calculateRounding();
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
@@ -1508,8 +1551,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     setState(() {
                       _isRoundingManual = false;
                       _roundingController.clear();
-                      _calculateRounding();
                     });
+                    _calculateRounding();
                   },
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(
