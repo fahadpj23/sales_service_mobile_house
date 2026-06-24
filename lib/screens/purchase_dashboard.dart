@@ -94,25 +94,23 @@ class _PurchaseDashboardScreenState extends State<PurchaseDashboardScreen> {
     _navigateToScreen(index);
   }
 
-  Future<void> _logout() async {
-    // Show confirmation dialog
-    final confirm = await showDialog<bool>(
+  // Using the same logout method as UserDashboard
+  Future<void> _logoutUser() async {
+    // Show confirmation dialog before logout
+    bool? confirm = await showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Logout'),
         content: const Text('Are you sure you want to logout?'),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            child: const Text('Cancel'),
           ),
-          TextButton(
+          ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text(
-              'Logout',
-              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
-            ),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Logout', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -124,10 +122,7 @@ class _PurchaseDashboardScreenState extends State<PurchaseDashboardScreen> {
       });
 
       try {
-        // Sign out from Firebase
         await _authService.signOut();
-
-        // Clear user data from provider
         Provider.of<AuthProvider>(context, listen: false).clearUser();
 
         // Navigate to login screen and remove all previous routes
@@ -138,12 +133,9 @@ class _PurchaseDashboardScreenState extends State<PurchaseDashboardScreen> {
         );
       } catch (e) {
         _showSnackBar('Error logging out: ${e.toString()}', Colors.red);
-      } finally {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
-        }
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
   }
@@ -160,7 +152,6 @@ class _PurchaseDashboardScreenState extends State<PurchaseDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Build screens here to ensure callbacks are properly set
     final screens = _buildScreens();
 
     return Scaffold(
@@ -193,11 +184,11 @@ class _PurchaseDashboardScreenState extends State<PurchaseDashboardScreen> {
             onPressed: _isLoading ? null : _refreshDashboard,
             tooltip: 'Refresh Data',
           ),
-          // Logout Button
+          // Logout Button - Using the same style as UserDashboard
           IconButton(
             icon: const Icon(Icons.logout),
             color: _isLoading ? Colors.grey : Colors.white,
-            onPressed: _logout,
+            onPressed: _logoutUser,
             tooltip: 'Logout',
           ),
           Container(
@@ -231,129 +222,7 @@ class _PurchaseDashboardScreenState extends State<PurchaseDashboardScreen> {
           ),
         ],
       ),
-      drawer: Drawer(
-        child: Container(
-          color: Colors.green[800],
-          child: Column(
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 32,
-                ),
-                decoration: BoxDecoration(color: Colors.green[900]),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.white24,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.store,
-                        size: 28,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Purchase Hub',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    const Text(
-                      'Management System',
-                      style: TextStyle(color: Colors.white70, fontSize: 10),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: ListView.builder(
-                  padding: EdgeInsets.zero,
-                  itemCount: _menuItems.length,
-                  itemBuilder: (context, index) {
-                    final item = _menuItems[index];
-                    final isSelected = _selectedIndex == item['index'];
-                    return Container(
-                      margin: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isSelected ? Colors.white : Colors.transparent,
-                        borderRadius: BorderRadius.circular(10),
-                        boxShadow: isSelected
-                            ? [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.2),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ]
-                            : [],
-                      ),
-                      child: ListTile(
-                        leading: Icon(
-                          item['icon'],
-                          color: isSelected ? Colors.green[800] : Colors.white,
-                          size: 22,
-                        ),
-                        title: Text(
-                          item['title'],
-                          style: TextStyle(
-                            color: isSelected
-                                ? Colors.green[800]
-                                : Colors.white,
-                            fontWeight: isSelected
-                                ? FontWeight.bold
-                                : FontWeight.w500,
-                            fontSize: 14,
-                          ),
-                        ),
-                        dense: true,
-                        visualDensity: VisualDensity.compact,
-                        onTap: () => _onMenuItemTap(item['index']),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              // Logout option in drawer
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                child: ListTile(
-                  leading: const Icon(Icons.logout, color: Colors.white70),
-                  title: const Text(
-                    'Logout',
-                    style: TextStyle(color: Colors.white, fontSize: 14),
-                  ),
-                  onTap: _logout,
-                  tileColor: Colors.red.withOpacity(0.2),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.all(16),
-                child: const Text(
-                  '© 2024 Purchase Hub',
-                  style: TextStyle(color: Colors.white54, fontSize: 9),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+      drawer: _buildDrawer(),
       body: _isLoading
           ? const Center(
               child: Column(
@@ -378,6 +247,303 @@ class _PurchaseDashboardScreenState extends State<PurchaseDashboardScreen> {
     );
   }
 
+  // New drawer method - styled like UserDashboard drawer
+  Widget _buildDrawer() {
+    return Drawer(
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Colors.green.shade600, Colors.green.shade400],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Drawer Header
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade700.withOpacity(0.2),
+                  border: Border(
+                    bottom: BorderSide(
+                      color: Colors.white.withOpacity(0.2),
+                      width: 1,
+                    ),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                      child: const Icon(
+                        Icons.store,
+                        size: 25,
+                        color: Colors.green,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Purchase Hub',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    const Text(
+                      'Management System',
+                      style: TextStyle(color: Colors.white70, fontSize: 10),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Main scrollable content area
+              Expanded(
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(20),
+                      topRight: Radius.circular(20),
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      // Main scrollable content
+                      Expanded(
+                        child: ListView(
+                          padding: const EdgeInsets.only(top: 6),
+                          children: [
+                            // Dashboard Section
+                            _buildDrawerSection(
+                              title: 'DASHBOARD',
+                              children: [
+                                _buildDrawerTile(
+                                  icon: Icons.dashboard,
+                                  title: 'Dashboard',
+                                  color: Colors.green,
+                                  isSelected: _selectedIndex == 0,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(0);
+                                  },
+                                ),
+                              ],
+                            ),
+
+                            // Purchase Section
+                            _buildDrawerSection(
+                              title: 'PURCHASE',
+                              children: [
+                                _buildDrawerTile(
+                                  icon: Icons.shopping_cart_checkout,
+                                  title: 'Add Purchase',
+                                  color: Colors.blue,
+                                  isSelected: _selectedIndex == 1,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(1);
+                                  },
+                                ),
+                                _buildDrawerTile(
+                                  icon: Icons.add_business,
+                                  title: 'Add Supplier',
+                                  color: Colors.orange,
+                                  isSelected: _selectedIndex == 2,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(2);
+                                  },
+                                ),
+                                _buildDrawerTile(
+                                  icon: Icons.add_shopping_cart,
+                                  title: 'Add Product',
+                                  color: Colors.purple,
+                                  isSelected: _selectedIndex == 3,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(3);
+                                  },
+                                ),
+                              ],
+                            ),
+
+                            // History Section
+                            _buildDrawerSection(
+                              title: 'HISTORY & LISTS',
+                              children: [
+                                _buildDrawerTile(
+                                  icon: Icons.history,
+                                  title: 'Purchase History',
+                                  color: Colors.teal,
+                                  isSelected: _selectedIndex == 4,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(4);
+                                  },
+                                ),
+                                _buildDrawerTile(
+                                  icon: Icons.business,
+                                  title: 'Suppliers',
+                                  color: Colors.indigo,
+                                  isSelected: _selectedIndex == 5,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(5);
+                                  },
+                                ),
+                                _buildDrawerTile(
+                                  icon: Icons.inventory,
+                                  title: 'Products',
+                                  color: Colors.amber,
+                                  isSelected: _selectedIndex == 6,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(6);
+                                  },
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 20),
+                          ],
+                        ),
+                      ),
+
+                      // Logout button placed outside the scrollable area (same as UserDashboard)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          border: Border(
+                            top: BorderSide(
+                              color: Colors.grey.shade200,
+                              width: 1,
+                            ),
+                          ),
+                        ),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () async {
+                              _scaffoldKey.currentState?.closeDrawer();
+                              await _logoutUser();
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red.shade600,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              elevation: 3,
+                            ),
+                            icon: const Icon(Icons.logout, size: 18),
+                            label: const Text(
+                              'Logout',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Drawer section builder (copied from UserDashboard)
+  Widget _buildDrawerSection({
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 16, top: 12, bottom: 6),
+          child: Text(
+            title,
+            style: const TextStyle(
+              color: Colors.grey,
+              fontSize: 9,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.0,
+            ),
+          ),
+        ),
+        ...children,
+      ],
+    );
+  }
+
+  // Drawer tile builder (copied from UserDashboard)
+  Widget _buildDrawerTile({
+    required IconData icon,
+    required String title,
+    required Color color,
+    bool isSelected = false,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: isSelected ? color.withOpacity(0.1) : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        leading: Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: color.withOpacity(isSelected ? 0.2 : 0.1),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Icon(
+            icon,
+            color: isSelected ? color : color.withOpacity(0.8),
+            size: 16,
+          ),
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            color: isSelected ? color : Colors.grey.shade800,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            fontSize: 12,
+          ),
+        ),
+        trailing: isSelected
+            ? Icon(Icons.chevron_right, color: color, size: 18)
+            : Icon(Icons.chevron_right, color: Colors.grey.shade400, size: 18),
+        onTap: onTap,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
+  }
+
   Future<void> _refreshDashboard() async {
     setState(() {
       _isLoading = true;
@@ -386,7 +552,6 @@ class _PurchaseDashboardScreenState extends State<PurchaseDashboardScreen> {
     try {
       // Navigate to dashboard to refresh
       _navigateToScreen(0);
-      // Show success message
       _showSnackBar('Dashboard refreshed', Colors.green);
     } catch (e) {
       print('Error refreshing data: $e');

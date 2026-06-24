@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../../models/purchase.dart';
+import 'add_product_screen.dart';
 
 class AddPurchaseScreen extends StatefulWidget {
   final Function(int)? onNavigateToHistory;
@@ -28,6 +29,11 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   String? _selectedProductName;
   final TextEditingController _purchaseRateController = TextEditingController();
   final TextEditingController _quantityController = TextEditingController();
+
+  // Discount fields
+  bool _usePercentageDiscount = true;
+  final TextEditingController _discountController = TextEditingController();
+  double _discountValue = 0;
 
   // Search controllers for datalist
   final TextEditingController _supplierController = TextEditingController();
@@ -66,6 +72,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     _supplierController.addListener(_filterSuppliers);
     _productController.addListener(_filterProducts);
 
+    // Add listener for discount
+    _discountController.addListener(_onDiscountChanged);
+
     // Focus listeners
     _supplierFocusNode.addListener(() {
       if (_supplierFocusNode.hasFocus && _selectedSupplierId == null) {
@@ -88,9 +97,11 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     _productFocusNode.addListener(() {
       if (_productFocusNode.hasFocus && _selectedProductId == null) {
         setState(() {
-          _showProductSuggestions =
-              _productController.text.isNotEmpty &&
-              _filteredProducts.isNotEmpty;
+          // Show suggestions if there's text in the search field
+          if (_productController.text.isNotEmpty) {
+            _showProductSuggestions = true;
+            _filterProducts();
+          }
         });
       } else if (!_productFocusNode.hasFocus) {
         Future.delayed(const Duration(milliseconds: 200), () {
@@ -105,6 +116,21 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
     // Add listener to rounding controller for manual input
     _roundingController.addListener(_onRoundingChanged);
+  }
+
+  void _onDiscountChanged() {
+    if (_discountController.text.isNotEmpty) {
+      double? value = double.tryParse(_discountController.text);
+      if (value != null && value >= 0) {
+        setState(() {
+          _discountValue = value;
+        });
+      }
+    } else {
+      setState(() {
+        _discountValue = 0;
+      });
+    }
   }
 
   void _onRoundingChanged() {
@@ -154,6 +180,101 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         );
       },
     );
+  }
+
+  // Show Add Product Dialog with Close button
+  void _showAddProductDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.9,
+              maxHeight: MediaQuery.of(context).size.height * 0.85,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Close button header
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      topRight: Radius.circular(16),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Add New Product',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green[700],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: Icon(
+                          Icons.close,
+                          color: Colors.grey[600],
+                          size: 24,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    child: AddProductScreen(
+                      onNavigateToProductList: (index) {
+                        Navigator.pop(context);
+                        _loadProducts();
+                        // Auto-select the newly added product
+                        _selectProductAfterAdd();
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _selectProductAfterAdd() async {
+    // Find the most recently added product
+    try {
+      QuerySnapshot snapshot = await _firestore
+          .collection('products')
+          .orderBy('createdAt', descending: true)
+          .limit(1)
+          .get();
+
+      if (snapshot.docs.isNotEmpty) {
+        _selectProduct(snapshot.docs.first);
+        _showDialog(
+          'Success',
+          'Product added and selected automatically!',
+          isError: false,
+        );
+      }
+    } catch (e) {
+      // Ignore error
+    }
   }
 
   // Method to show existing invoice details in a dialog
@@ -395,8 +516,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               category.contains(query) ||
               brand.contains(query);
         }).toList();
-        _showProductSuggestions =
-            _filteredProducts.isNotEmpty && _productFocusNode.hasFocus;
+        // Show suggestions whenever there's a search query
+        _showProductSuggestions = true;
       }
     });
   }
@@ -432,6 +553,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       _productGst = (data['gstPercentage'] ?? 18).toInt();
       _purchaseRateController.text = _productRate.toString();
       _quantityController.text = '1';
+      _discountController.clear();
+      _discountValue = 0;
       _showProductSuggestions = false;
       _filteredProducts = _products;
     });
@@ -464,13 +587,15 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       _productController.clear();
       _purchaseRateController.clear();
       _quantityController.clear();
+      _discountController.clear();
+      _discountValue = 0;
       _showProductSuggestions = false;
       _filterProducts();
     });
     _productFocusNode.requestFocus();
   }
 
-  void _addToCart() {
+  void _addToCartWithDiscount() {
     if (_selectedProductId == null) {
       _showDialog('Error', 'Please select a product', isError: true);
       return;
@@ -493,19 +618,46 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       return;
     }
 
+    // Apply discount
+    double discountAmount = 0;
+    if (_discountValue > 0) {
+      if (_usePercentageDiscount) {
+        discountAmount = rate * (_discountValue / 100);
+      } else {
+        discountAmount = _discountValue;
+      }
+    }
+
+    double finalRate = rate - discountAmount;
+    if (finalRate < 0) {
+      _showDialog(
+        'Error',
+        'Discount cannot exceed the purchase rate',
+        isError: true,
+      );
+      return;
+    }
+
+    String productName = _selectedProductName!;
+
+    // Check if item already exists in cart
     int existingIndex = _cartItems.indexWhere(
       (item) => item.productId == _selectedProductId,
     );
 
-    String productName = _selectedProductName!;
-
     if (existingIndex != -1) {
+      // Update existing item
       setState(() {
         _cartItems[existingIndex].quantity += quantity;
+        _cartItems[existingIndex].rate = finalRate;
+        _cartItems[existingIndex].discount = discountAmount;
+        _cartItems[existingIndex].discountType = _usePercentageDiscount
+            ? 'percentage'
+            : 'amount';
         _cartItems[existingIndex].total =
-            _cartItems[existingIndex].rate * _cartItems[existingIndex].quantity;
+            finalRate * _cartItems[existingIndex].quantity;
+        _cartItems[existingIndex].originalRate = rate;
       });
-      // Show success message like product selection
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -516,19 +668,22 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         ),
       );
     } else {
+      // Add new item
       setState(() {
         _cartItems.add(
           CartItem(
             productId: _selectedProductId!,
             productName: productName,
-            rate: rate,
+            rate: finalRate,
             quantity: quantity,
-            total: rate * quantity,
+            total: finalRate * quantity,
             gstPercentage: _productGst,
+            discount: discountAmount,
+            discountType: _usePercentageDiscount ? 'percentage' : 'amount',
+            originalRate: rate,
           ),
         );
       });
-      // Show success message like product selection
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Added: $productName (Qty: $quantity)'),
@@ -538,11 +693,14 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       );
     }
 
+    // Clear fields
     setState(() {
       _selectedProductId = null;
       _selectedProductName = null;
       _purchaseRateController.clear();
       _quantityController.clear();
+      _discountController.clear();
+      _discountValue = 0;
       _productRate = 0;
       _productSaleRate = 0;
       _productGst = 18;
@@ -551,7 +709,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       _filteredProducts = _products;
     });
 
-    // Reset rounding to auto mode when cart changes
     _resetRounding();
   }
 
@@ -581,6 +738,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   double _getSubtotal() => _cartItems.fold(0, (sum, item) => sum + item.total);
+
   double _getTotalGST() => _cartItems.fold(
     0,
     (sum, item) => sum + (item.total * item.gstPercentage / 100),
@@ -615,7 +773,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
   double _getGrandTotalBeforeRounding() => _getSubtotal() + _getTotalGST();
 
-  // UPDATED: Simplified getGrandTotal
   double _getGrandTotal() {
     return _getGrandTotalBeforeRounding() + _roundingAmount;
   }
@@ -785,6 +942,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         _invoiceController.clear();
         _supplierController.clear();
         _productController.clear();
+        _discountController.clear();
+        _discountValue = 0;
         _filteredSuppliers = _suppliers;
         _filteredProducts = _products;
         _showSupplierSuggestions = false;
@@ -1216,9 +1375,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             ],
           ),
         ),
-        if (_showProductSuggestions &&
-            _filteredProducts.isNotEmpty &&
-            _selectedProductId == null)
+        // Show suggestions when there's text in the search field AND product not selected
+        if (_productController.text.isNotEmpty &&
+            _selectedProductId == null &&
+            _productFocusNode.hasFocus)
           Container(
             margin: const EdgeInsets.only(top: 4),
             decoration: BoxDecoration(
@@ -1236,8 +1396,52 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             constraints: const BoxConstraints(maxHeight: 200),
             child: ListView.builder(
               shrinkWrap: true,
-              itemCount: _filteredProducts.length,
+              itemCount: _filteredProducts.isEmpty
+                  ? 1
+                  : _filteredProducts.length + 1,
               itemBuilder: (context, index) {
+                // If no products found, show "Add New Product"
+                if (_filteredProducts.isEmpty) {
+                  return ListTile(
+                    dense: true,
+                    leading: Icon(
+                      Icons.add_circle_outline,
+                      size: 16,
+                      color: Colors.green[700],
+                    ),
+                    title: Text(
+                      'No products found. Add New Product',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.green[700],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    onTap: _showAddProductDialog,
+                  );
+                }
+
+                // Add New Product option at the end of results
+                if (index == _filteredProducts.length) {
+                  return ListTile(
+                    dense: true,
+                    leading: Icon(
+                      Icons.add_circle_outline,
+                      size: 16,
+                      color: Colors.green[700],
+                    ),
+                    title: Text(
+                      'Add New Product',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.green[700],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    onTap: _showAddProductDialog,
+                  );
+                }
+
                 final product = _filteredProducts[index];
                 final data = product.data() as Map<String, dynamic>;
                 final name = (data['productName'] ?? 'Unknown').toString();
@@ -1270,72 +1474,278 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 8),
+              // Rate with header
               Row(
                 children: [
                   Expanded(
-                    child: Container(
-                      height: 40,
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey[300]!, width: 1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: TextFormField(
-                        controller: _purchaseRateController,
-                        style: const TextStyle(fontSize: 13),
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          hintText: 'Rate',
-                          hintStyle: TextStyle(fontSize: 12),
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(vertical: 8),
-                          isDense: true,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Purchase Rate *',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey[700],
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: 2),
+                        Container(
+                          height: 36,
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: Colors.grey[300]!,
+                              width: 1,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: TextFormField(
+                            controller: _purchaseRateController,
+                            style: const TextStyle(fontSize: 13),
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              hintText: '0.00',
+                              hintStyle: TextStyle(fontSize: 12),
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.symmetric(vertical: 6),
+                              isDense: true,
+                              prefixText: '₹ ',
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Container(
-                      height: 40,
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey[300]!, width: 1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: TextFormField(
-                        controller: _quantityController,
-                        style: const TextStyle(fontSize: 13),
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          hintText: 'Qty',
-                          hintStyle: TextStyle(fontSize: 12),
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(vertical: 8),
-                          isDense: true,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Quantity *',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey[700],
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: 2),
+                        Container(
+                          height: 36,
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: Colors.grey[300]!,
+                              width: 1,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: TextFormField(
+                            controller: _quantityController,
+                            style: const TextStyle(fontSize: 13),
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              hintText: '1',
+                              hintStyle: TextStyle(fontSize: 12),
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.symmetric(vertical: 6),
+                              isDense: true,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: _addToCart,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green[700],
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      minimumSize: const Size(50, 40),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: const Icon(Icons.add, size: 20),
                   ),
                 ],
+              ),
+              const SizedBox(height: 6),
+              // Discount section - reduced size
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue[200]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.discount, size: 14, color: Colors.blue[700]),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Discount (0% default)',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.blue[700],
+                          ),
+                        ),
+                        const Spacer(),
+                        // Toggle between Percentage and Amount
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: Colors.grey[300]!),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildDiscountToggleButton('%', true),
+                              _buildDiscountToggleButton('₹', false),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            height: 32,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              border: Border.all(
+                                color: Colors.grey[300]!,
+                                width: 1,
+                              ),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: TextFormField(
+                              controller: _discountController,
+                              style: const TextStyle(fontSize: 12),
+                              keyboardType: TextInputType.number,
+                              decoration: InputDecoration(
+                                hintText: _usePercentageDiscount ? '0' : '0.00',
+                                hintStyle: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey[400],
+                                ),
+                                border: InputBorder.none,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 4,
+                                ),
+                                isDense: true,
+                                suffixText: _usePercentageDiscount ? '%' : '',
+                                suffixStyle: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey[600],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              onChanged: (value) {
+                                _onDiscountChanged();
+                              },
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        ElevatedButton(
+                          onPressed: _addToCartWithDiscount,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green[700],
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            minimumSize: const Size(40, 32),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                          child: const Icon(Icons.add, size: 18),
+                        ),
+                      ],
+                    ),
+                    if (_discountValue > 0 &&
+                        _purchaseRateController.text.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: _buildDiscountPreview(),
+                      ),
+                  ],
+                ),
               ),
             ],
           ),
       ],
+    );
+  }
+
+  Widget _buildDiscountToggleButton(String label, bool isPercentage) {
+    bool isActive = isPercentage == _usePercentageDiscount;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _usePercentageDiscount = isPercentage;
+          _discountValue = 0;
+          _discountController.clear();
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: isActive ? Colors.blue[700] : Colors.transparent,
+          borderRadius: BorderRadius.circular(3),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            color: isActive ? Colors.white : Colors.grey[600],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDiscountPreview() {
+    double purchaseRate = double.tryParse(_purchaseRateController.text) ?? 0;
+    double discountAmount = 0;
+    String displayText = '';
+
+    if (_usePercentageDiscount) {
+      discountAmount = purchaseRate * (_discountValue / 100);
+      displayText =
+          '${_discountValue}% discount = ₹${discountAmount.toStringAsFixed(2)} off';
+    } else {
+      discountAmount = _discountValue;
+      displayText = '₹${_discountValue.toStringAsFixed(2)} discount';
+    }
+
+    double finalRate = purchaseRate - discountAmount;
+
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.green[50],
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            displayText,
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.green[700],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          Text(
+            'Final: ₹${finalRate.toStringAsFixed(2)}',
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.green[700],
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1630,6 +2040,15 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  if (item.discount > 0)
+                    Text(
+                      '₹${item.originalRate.toStringAsFixed(2)} → ₹${item.rate.toStringAsFixed(2)} (${item.discountType == 'percentage' ? '${((item.discount / item.originalRate) * 100).toStringAsFixed(1)}% off' : '₹${item.discount.toStringAsFixed(2)} off'})',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.green[700],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   Text(
                     '₹${item.rate.toStringAsFixed(2)} x ${item.quantity}',
                     style: TextStyle(fontSize: 11, color: Colors.grey[600]),
@@ -1789,6 +2208,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     _supplierController.dispose();
     _productController.dispose();
     _roundingController.dispose();
+    _discountController.dispose();
     _supplierFocusNode.dispose();
     _productFocusNode.dispose();
     super.dispose();
@@ -1803,6 +2223,9 @@ class CartItem {
   int quantity;
   double total;
   int gstPercentage;
+  double discount;
+  String discountType;
+  double originalRate;
 
   CartItem({
     required this.productId,
@@ -1811,5 +2234,8 @@ class CartItem {
     required this.quantity,
     required this.total,
     required this.gstPercentage,
+    this.discount = 0,
+    this.discountType = 'none',
+    this.originalRate = 0,
   });
 }
