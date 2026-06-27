@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_file/open_file.dart';
+import 'package:share_plus/share_plus.dart';
 import 'add_purchase_screen.dart';
 
 class PurchaseHistoryScreen extends StatefulWidget {
@@ -18,6 +24,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
   DateTime? _startDate;
   DateTime? _endDate;
   bool _isLoading = true;
+  bool _isGeneratingPDF = false;
   List<Map<String, dynamic>> _purchases = [];
   List<Map<String, dynamic>> _filteredPurchases = [];
 
@@ -42,7 +49,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     try {
       Query query = _firestore
           .collection('purchases')
-          .orderBy('createdAt', descending: true);
+          .orderBy('date', descending: true);
       QuerySnapshot snapshot = await query.get();
 
       _purchases = [];
@@ -65,6 +72,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
           'grandTotal': (data['grandTotal'] ?? 0).toDouble(),
           'items': List<Map<String, dynamic>>.from(data['items'] ?? []),
           'itemCount': (data['items'] ?? []).length,
+          'taxableAmount': (data['totalAmount'] ?? 0).toDouble(),
+          'taxPercentage': 18, // Default GST percentage
         });
       }
 
@@ -95,19 +104,19 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
         case 'Last 7 Days':
           startDate = now.subtract(const Duration(days: 7));
           filtered = filtered
-              .where((p) => p['createdAt'].isAfter(startDate))
+              .where((p) => p['date'].isAfter(startDate))
               .toList();
           break;
         case 'Last 30 Days':
           startDate = now.subtract(const Duration(days: 30));
           filtered = filtered
-              .where((p) => p['createdAt'].isAfter(startDate))
+              .where((p) => p['date'].isAfter(startDate))
               .toList();
           break;
         case 'This Month':
           startDate = DateTime(now.year, now.month, 1);
           filtered = filtered
-              .where((p) => p['createdAt'].isAfter(startDate))
+              .where((p) => p['date'].isAfter(startDate))
               .toList();
           break;
         case 'Last Month':
@@ -116,8 +125,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
           filtered = filtered
               .where(
                 (p) =>
-                    p['createdAt'].isAfter(startDate) &&
-                    p['createdAt'].isBefore(endDate),
+                    p['date'].isAfter(startDate) && p['date'].isBefore(endDate),
               )
               .toList();
           break;
@@ -126,8 +134,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
             filtered = filtered
                 .where(
                   (p) =>
-                      p['createdAt'].isAfter(_startDate!) &&
-                      p['createdAt'].isBefore(
+                      p['date'].isAfter(_startDate!) &&
+                      p['date'].isBefore(
                         _endDate!.add(const Duration(days: 1)),
                       ),
                 )
@@ -146,8 +154,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                 ) ||
                 p['invoiceNo'].toLowerCase().contains(
                   _searchQuery.toLowerCase(),
-                ) ||
-                p['id'].toLowerCase().contains(_searchQuery.toLowerCase()),
+                ),
           )
           .toList();
     }
@@ -175,6 +182,362 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
         _selectedFilter = 'Custom Range';
       });
       _applyFilters();
+    }
+  }
+
+  // PDF Generation Method with Share functionality
+  Future<void> _generateAndSharePDF() async {
+    if (_filteredPurchases.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No purchases to generate report'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isGeneratingPDF = true);
+
+    try {
+      // Sort purchases by date
+      List<Map<String, dynamic>> sortedPurchases = List.from(
+        _filteredPurchases,
+      );
+      sortedPurchases.sort((a, b) => a['date'].compareTo(b['date']));
+
+      // Calculate totals
+      double totalTaxable = 0;
+      double totalTax = 0;
+      double totalRounding = 0;
+      double totalBillAmount = 0;
+
+      for (var purchase in sortedPurchases) {
+        totalTaxable += purchase['taxableAmount'] ?? 0;
+        totalTax += purchase['gstAmount'] ?? 0;
+        totalRounding += purchase['roundingAmount'] ?? 0;
+        totalBillAmount += purchase['grandTotal'] ?? 0;
+      }
+
+      final pdf = pw.Document();
+
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: pw.EdgeInsets.all(20),
+          build: (pw.Context context) {
+            return [
+              // Header
+              pw.Center(
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.center,
+                  children: [
+                    pw.Text(
+                      'MOBILE HOUSE',
+                      style: pw.TextStyle(
+                        fontSize: 20,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      'Purchase Register',
+                      style: pw.TextStyle(
+                        fontSize: 16,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      'Period: ${DateFormat('dd/MM/yyyy').format(_startDate ?? DateTime.now().subtract(const Duration(days: 30)))} - ${DateFormat('dd/MM/yyyy').format(_endDate ?? DateTime.now())}',
+                      style: const pw.TextStyle(fontSize: 12),
+                    ),
+                    pw.SizedBox(height: 10),
+                    pw.Divider(thickness: 1),
+                    pw.SizedBox(height: 10),
+                  ],
+                ),
+              ),
+              // Table Header
+              pw.Table(
+                border: pw.TableBorder.all(),
+                columnWidths: {
+                  0: pw.FlexColumnWidth(0.12), // Date
+                  1: pw.FlexColumnWidth(0.15), // Bill No
+                  2: pw.FlexColumnWidth(0.20), // Seller Name
+                  3: pw.FlexColumnWidth(0.13), // Taxable
+                  4: pw.FlexColumnWidth(0.10), // Tax
+                  5: pw.FlexColumnWidth(0.10), // Cess
+                  6: pw.FlexColumnWidth(0.10), // Rounding
+                  7: pw.FlexColumnWidth(0.10), // Bill Amt
+                },
+                children: [
+                  pw.TableRow(
+                    decoration: pw.BoxDecoration(color: PdfColors.grey300),
+                    children: [
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          'Date',
+                          style: pw.TextStyle(
+                            fontWeight: pw.FontWeight.bold,
+                            fontSize: 9,
+                          ),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          'Bill No',
+                          style: pw.TextStyle(
+                            fontWeight: pw.FontWeight.bold,
+                            fontSize: 9,
+                          ),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          'Seller Name',
+                          style: pw.TextStyle(
+                            fontWeight: pw.FontWeight.bold,
+                            fontSize: 9,
+                          ),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          'Taxable',
+                          style: pw.TextStyle(
+                            fontWeight: pw.FontWeight.bold,
+                            fontSize: 9,
+                          ),
+                          textAlign: pw.TextAlign.right,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          'Tax',
+                          style: pw.TextStyle(
+                            fontWeight: pw.FontWeight.bold,
+                            fontSize: 9,
+                          ),
+                          textAlign: pw.TextAlign.right,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          'Cess',
+                          style: pw.TextStyle(
+                            fontWeight: pw.FontWeight.bold,
+                            fontSize: 9,
+                          ),
+                          textAlign: pw.TextAlign.right,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          'Rounding',
+                          style: pw.TextStyle(
+                            fontWeight: pw.FontWeight.bold,
+                            fontSize: 9,
+                          ),
+                          textAlign: pw.TextAlign.right,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          'Bill Amt',
+                          style: pw.TextStyle(
+                            fontWeight: pw.FontWeight.bold,
+                            fontSize: 9,
+                          ),
+                          textAlign: pw.TextAlign.right,
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Table Rows
+                  ...sortedPurchases.map((purchase) {
+                    return pw.TableRow(
+                      children: [
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(4),
+                          child: pw.Text(
+                            DateFormat('dd/MM/yyyy').format(purchase['date']),
+                            style: const pw.TextStyle(fontSize: 8),
+                            textAlign: pw.TextAlign.center,
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(4),
+                          child: pw.Text(
+                            purchase['invoiceNo'] ?? 'N/A',
+                            style: const pw.TextStyle(fontSize: 8),
+                            textAlign: pw.TextAlign.center,
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(4),
+                          child: pw.Text(
+                            purchase['supplierName'] ?? 'Unknown',
+                            style: const pw.TextStyle(fontSize: 8),
+                            textAlign: pw.TextAlign.left,
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(4),
+                          child: pw.Text(
+                            (purchase['taxableAmount'] ?? 0).toStringAsFixed(2),
+                            style: const pw.TextStyle(fontSize: 8),
+                            textAlign: pw.TextAlign.right,
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(4),
+                          child: pw.Text(
+                            (purchase['gstAmount'] ?? 0).toStringAsFixed(2),
+                            style: const pw.TextStyle(fontSize: 8),
+                            textAlign: pw.TextAlign.right,
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(4),
+                          child: pw.Text(
+                            '0.00',
+                            style: const pw.TextStyle(fontSize: 8),
+                            textAlign: pw.TextAlign.right,
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(4),
+                          child: pw.Text(
+                            (purchase['roundingAmount'] ?? 0).toStringAsFixed(
+                              2,
+                            ),
+                            style: const pw.TextStyle(fontSize: 8),
+                            textAlign: pw.TextAlign.right,
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(4),
+                          child: pw.Text(
+                            (purchase['grandTotal'] ?? 0).toStringAsFixed(2),
+                            style: const pw.TextStyle(
+                              fontSize: 8,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                            textAlign: pw.TextAlign.right,
+                          ),
+                        ),
+                      ],
+                    );
+                  }).toList(),
+                ],
+              ),
+              pw.SizedBox(height: 10),
+              // Summary Section - Row layout
+              pw.Container(
+                padding: const pw.EdgeInsets.all(8),
+                decoration: pw.BoxDecoration(border: pw.Border.all()),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Left side - Taxable and Tax
+                    pw.Row(
+                      children: [
+                        pw.Text(
+                          'Taxable Total: ',
+                          style: const pw.TextStyle(fontSize: 9),
+                        ),
+                        pw.Text(
+                          totalTaxable.toStringAsFixed(2),
+                          style: const pw.TextStyle(
+                            fontSize: 9,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                        pw.SizedBox(width: 20),
+                        pw.Text(
+                          'Tax Total: ',
+                          style: const pw.TextStyle(fontSize: 9),
+                        ),
+                        pw.Text(
+                          totalTax.toStringAsFixed(2),
+                          style: const pw.TextStyle(
+                            fontSize: 9,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                        pw.SizedBox(width: 20),
+                      ],
+                    ),
+                    // Right side - Grand Total
+                    pw.Row(
+                      children: [
+                        pw.Text(
+                          'Grand Total: ',
+                          style: pw.TextStyle(
+                            fontSize: 11,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                        pw.Text(
+                          totalBillAmount.toStringAsFixed(2),
+                          style: pw.TextStyle(
+                            fontSize: 11,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              pw.SizedBox(height: 10),
+            ];
+          },
+        ),
+      );
+
+      // Save PDF to temporary file
+      final bytes = await pdf.save();
+      final dir = await getTemporaryDirectory();
+      final fileName =
+          'purchase_report_${DateFormat('ddMMyyyy_HHmmss').format(DateTime.now())}.pdf';
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsBytes(bytes);
+
+      // Share the PDF
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text:
+            'Purchase Report - MOBILE HOUSE\nPeriod: ${DateFormat('dd/MM/yyyy').format(_startDate ?? DateTime.now().subtract(const Duration(days: 30)))} to ${DateFormat('dd/MM/yyyy').format(_endDate ?? DateTime.now())}\nTotal Purchases: ${_filteredPurchases.length}\nTotal Amount: ₹${totalBillAmount.toStringAsFixed(2)}',
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('PDF generated and shared successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error generating PDF: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() => _isGeneratingPDF = false);
     }
   }
 
@@ -709,6 +1072,42 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
               ],
             ),
           ),
+          // PDF Generate & Share Button with Report text
+          if (_filteredPurchases.isNotEmpty)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Report',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.8),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                IconButton(
+                  onPressed: _isGeneratingPDF ? null : _generateAndSharePDF,
+                  icon: _isGeneratingPDF
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Icon(
+                          Icons.share,
+                          color: Colors.white.withOpacity(0.8),
+                          size: 20,
+                        ),
+                  tooltip: 'Generate & Share PDF Report',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ),
           IconButton(
             onPressed: _loadPurchases,
             icon: Icon(

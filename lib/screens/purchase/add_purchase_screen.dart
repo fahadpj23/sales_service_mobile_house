@@ -84,7 +84,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               _filteredSuppliers.isNotEmpty;
         });
       } else if (!_supplierFocusNode.hasFocus) {
-        Future.delayed(const Duration(milliseconds: 200), () {
+        // Increased delay to 500ms to allow tap to complete
+        Future.delayed(const Duration(milliseconds: 500), () {
           if (mounted && !_supplierFocusNode.hasFocus) {
             setState(() {
               _showSupplierSuggestions = false;
@@ -104,7 +105,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           }
         });
       } else if (!_productFocusNode.hasFocus) {
-        Future.delayed(const Duration(milliseconds: 200), () {
+        // Increased delay to 500ms to allow tap to complete
+        Future.delayed(const Duration(milliseconds: 500), () {
           if (mounted && !_productFocusNode.hasFocus) {
             setState(() {
               _showProductSuggestions = false;
@@ -182,27 +184,42 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
-  // Show Add Product Dialog with Close button
-  void _showAddProductDialog() {
-    showDialog(
+  // Show Add Product Dialog with proper handling
+  Future<void> _showAddProductDialog() async {
+    // Hide product suggestions first
+    if (mounted) {
+      setState(() {
+        _showProductSuggestions = false;
+      });
+    }
+
+    // Remove keyboard/focus without waiting for a delayed overlay update
+    _productFocusNode.unfocus();
+
+    await Future.delayed(const Duration(milliseconds: 50));
+
+    if (!mounted) return;
+
+    final result = await showDialog<bool>(
       context: context,
+      useRootNavigator: true,
       barrierDismissible: false,
-      builder: (BuildContext context) {
+      builder: (dialogContext) {
         return Dialog(
+          insetPadding: const EdgeInsets.all(16),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.9,
-              maxHeight: MediaQuery.of(context).size.height * 0.85,
-            ),
+          child: SizedBox(
+            width: 900,
+            height: MediaQuery.of(dialogContext).size.height * 0.88,
             child: Column(
-              mainAxisSize: MainAxisSize.min,
               children: [
-                // Close button header
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.grey[50],
                     borderRadius: const BorderRadius.only(
@@ -211,8 +228,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     ),
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
+                      Icon(Icons.add_business, color: Colors.green[700]),
+                      const SizedBox(width: 8),
                       Text(
                         'Add New Product',
                         style: TextStyle(
@@ -221,30 +239,22 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                           color: Colors.green[700],
                         ),
                       ),
+                      const Spacer(),
                       IconButton(
-                        onPressed: () => Navigator.pop(context),
-                        icon: Icon(
-                          Icons.close,
-                          color: Colors.grey[600],
-                          size: 24,
-                        ),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                        icon: const Icon(Icons.close),
+                        onPressed: () {
+                          Navigator.of(dialogContext).pop(false);
+                        },
                       ),
                     ],
                   ),
                 ),
                 Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    child: AddProductScreen(
-                      onNavigateToProductList: (index) {
-                        Navigator.pop(context);
-                        _loadProducts();
-                        // Auto-select the newly added product
-                        _selectProductAfterAdd();
-                      },
-                    ),
+                  child: AddProductScreen(
+                    onNavigateToProductList: (index) {
+                      // Product saved successfully
+                      Navigator.of(dialogContext).pop(true);
+                    },
                   ),
                 ),
               ],
@@ -253,10 +263,23 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         );
       },
     );
+
+    // Refresh products after dialog closes
+    if (!mounted) return;
+
+    await _loadProducts();
+
+    if (result == true) {
+      await _selectProductAfterAdd();
+    }
   }
 
   Future<void> _selectProductAfterAdd() async {
-    // Find the most recently added product
+    // Small delay to ensure the dialog is completely closed
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    if (!mounted) return;
+
     try {
       QuerySnapshot snapshot = await _firestore
           .collection('products')
@@ -264,7 +287,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           .limit(1)
           .get();
 
-      if (snapshot.docs.isNotEmpty) {
+      if (snapshot.docs.isNotEmpty && mounted) {
         _selectProduct(snapshot.docs.first);
         _showDialog(
           'Success',
@@ -1165,6 +1188,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
+  // UPDATED: Supplier datalist with GestureDetector for single-click on web
   Widget _buildSupplierDatalist() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1270,16 +1294,54 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                 final supplier = _filteredSuppliers[index];
                 final data = supplier.data() as Map<String, dynamic>;
                 final name = (data['supplierName'] ?? 'Unknown').toString();
+                final phone = data['phoneNumber']?.toString() ?? '';
+                final email = data['email']?.toString() ?? '';
 
-                return ListTile(
-                  dense: true,
-                  leading: Icon(
-                    Icons.business,
-                    size: 16,
-                    color: Colors.green[700],
-                  ),
-                  title: Text(name, style: const TextStyle(fontSize: 13)),
+                // Supplier items with GestureDetector for single-click
+                return GestureDetector(
                   onTap: () => _selectSupplier(supplier),
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.business,
+                          size: 20,
+                          color: Colors.green[700],
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              if (phone.isNotEmpty || email.isNotEmpty)
+                                Text(
+                                  [
+                                    phone,
+                                    email,
+                                  ].where((s) => s.isNotEmpty).join(' • '),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 );
               },
             ),
@@ -1297,6 +1359,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
+  // UPDATED: Product selector with GestureDetector for single-click on web
   Widget _buildProductSelectorWithSearch() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1368,6 +1431,26 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     }
                     if (_selectedProductId == null) {
                       _filterProducts();
+                      // Ensure suggestions are shown when there's text
+                      if (value.isNotEmpty) {
+                        setState(() {
+                          _showProductSuggestions = true;
+                        });
+                      } else {
+                        setState(() {
+                          _showProductSuggestions = false;
+                        });
+                      }
+                    }
+                  },
+                  onTap: () {
+                    // Show suggestions when tapping the field
+                    if (_selectedProductId == null &&
+                        _productController.text.isNotEmpty) {
+                      setState(() {
+                        _showProductSuggestions = true;
+                        _filterProducts();
+                      });
                     }
                   },
                 ),
@@ -1378,7 +1461,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         // Show suggestions when there's text in the search field AND product not selected
         if (_productController.text.isNotEmpty &&
             _selectedProductId == null &&
-            _productFocusNode.hasFocus)
+            _showProductSuggestions)
           Container(
             margin: const EdgeInsets.only(top: 4),
             decoration: BoxDecoration(
@@ -1400,45 +1483,89 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                   ? 1
                   : _filteredProducts.length + 1,
               itemBuilder: (context, index) {
-                // If no products found, show "Add New Product"
+                // If no products found, show "Add New Product" with GestureDetector
                 if (_filteredProducts.isEmpty) {
-                  return ListTile(
-                    dense: true,
-                    leading: Icon(
-                      Icons.add_circle_outline,
-                      size: 16,
-                      color: Colors.green[700],
-                    ),
-                    title: Text(
-                      'No products found. Add New Product',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.green[700],
-                        fontWeight: FontWeight.w500,
+                  return GestureDetector(
+                    onTap: () async {
+                      // Important: close the suggestion UI before opening dialog
+                      setState(() {
+                        _showProductSuggestions = false;
+                      });
+
+                      await Future.delayed(const Duration(milliseconds: 30));
+
+                      if (!mounted) return;
+
+                      await _showAddProductDialog();
+                    },
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.add_circle_outline,
+                            size: 20,
+                            color: Colors.green[700],
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'No products found. Add New Product',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.green[700],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    onTap: _showAddProductDialog,
                   );
                 }
 
-                // Add New Product option at the end of results
+                // Add New Product option at the end of results with GestureDetector
                 if (index == _filteredProducts.length) {
-                  return ListTile(
-                    dense: true,
-                    leading: Icon(
-                      Icons.add_circle_outline,
-                      size: 16,
-                      color: Colors.green[700],
-                    ),
-                    title: Text(
-                      'Add New Product',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.green[700],
-                        fontWeight: FontWeight.w500,
+                  return GestureDetector(
+                    onTap: () async {
+                      // Important: close the suggestion UI before opening dialog
+                      setState(() {
+                        _showProductSuggestions = false;
+                      });
+
+                      await Future.delayed(const Duration(milliseconds: 30));
+
+                      if (!mounted) return;
+
+                      await _showAddProductDialog();
+                    },
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.add_circle_outline,
+                            size: 20,
+                            color: Colors.green[700],
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Add New Product',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.green[700],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    onTap: _showAddProductDialog,
                   );
                 }
 
@@ -1447,24 +1574,48 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                 final name = (data['productName'] ?? 'Unknown').toString();
                 final category = data['category']?.toString() ?? '';
 
-                return ListTile(
-                  dense: true,
-                  leading: Icon(
-                    Icons.shopping_bag,
-                    size: 16,
-                    color: Colors.green[700],
-                  ),
-                  title: Text(name, style: const TextStyle(fontSize: 13)),
-                  subtitle: category.isNotEmpty
-                      ? Text(
-                          category,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey[600],
-                          ),
-                        )
-                      : null,
+                // Product items with GestureDetector for single-click
+                return GestureDetector(
                   onTap: () => _selectProduct(product),
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.shopping_bag,
+                          size: 20,
+                          color: Colors.green[700],
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              if (category.isNotEmpty)
+                                Text(
+                                  category,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 );
               },
             ),
