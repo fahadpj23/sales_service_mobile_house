@@ -7,16 +7,15 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 import 'package:share_plus/share_plus.dart';
-import 'add_purchase_screen.dart';
 
-class PurchaseHistoryScreen extends StatefulWidget {
-  const PurchaseHistoryScreen({super.key});
+class PurchaseReportScreen extends StatefulWidget {
+  const PurchaseReportScreen({super.key});
 
   @override
-  State<PurchaseHistoryScreen> createState() => _PurchaseHistoryScreenState();
+  State<PurchaseReportScreen> createState() => _PurchaseReportScreenState();
 }
 
-class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
+class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   String _searchQuery = '';
@@ -27,6 +26,11 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
   bool _isGeneratingPDF = false;
   List<Map<String, dynamic>> _purchases = [];
   List<Map<String, dynamic>> _filteredPurchases = [];
+
+  // Summary statistics
+  int _totalBills = 0;
+  int _totalProducts = 0;
+  double _totalAmount = 0.0;
 
   final List<String> _filterOptions = [
     'All',
@@ -159,9 +163,23 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
           .toList();
     }
 
+    // Calculate summary statistics
+    _calculateSummary(filtered);
+
     setState(() {
       _filteredPurchases = filtered;
     });
+  }
+
+  void _calculateSummary(List<Map<String, dynamic>> purchases) {
+    _totalBills = purchases.length;
+    _totalProducts = 0;
+    _totalAmount = 0.0;
+
+    for (var purchase in purchases) {
+      _totalProducts += (purchase['itemCount'] ?? 0) as int;
+      _totalAmount += (purchase['grandTotal'] ?? 0.0) as double;
+    }
   }
 
   Future<void> _selectDateRange() async {
@@ -211,12 +229,14 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       double totalTax = 0;
       double totalRounding = 0;
       double totalBillAmount = 0;
+      int totalItems = 0;
 
       for (var purchase in sortedPurchases) {
         totalTaxable += purchase['taxableAmount'] ?? 0;
         totalTax += purchase['gstAmount'] ?? 0;
         totalRounding += purchase['roundingAmount'] ?? 0;
         totalBillAmount += purchase['grandTotal'] ?? 0;
+        totalItems += (purchase['itemCount'] ?? 0) as int;
       }
 
       final pdf = pw.Document();
@@ -258,6 +278,68 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                   ],
                 ),
               ),
+              // Summary Cards
+              pw.Container(
+                padding: const pw.EdgeInsets.all(8),
+                decoration: pw.BoxDecoration(
+                  border: pw.Border.all(),
+                  borderRadius: pw.BorderRadius.circular(4),
+                ),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+                  children: [
+                    pw.Column(
+                      children: [
+                        pw.Text(
+                          'Total Bills',
+                          style: const pw.TextStyle(fontSize: 10),
+                        ),
+                        pw.Text(
+                          sortedPurchases.length.toString(),
+                          style: pw.TextStyle(
+                            fontSize: 16,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.blue,
+                          ),
+                        ),
+                      ],
+                    ),
+                    pw.Column(
+                      children: [
+                        pw.Text(
+                          'Total Products',
+                          style: const pw.TextStyle(fontSize: 10),
+                        ),
+                        pw.Text(
+                          totalItems.toString(),
+                          style: pw.TextStyle(
+                            fontSize: 16,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.orange,
+                          ),
+                        ),
+                      ],
+                    ),
+                    pw.Column(
+                      children: [
+                        pw.Text(
+                          'Total Amount',
+                          style: const pw.TextStyle(fontSize: 10),
+                        ),
+                        pw.Text(
+                          '₹${totalBillAmount.toStringAsFixed(2)}',
+                          style: pw.TextStyle(
+                            fontSize: 16,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.green,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              pw.SizedBox(height: 10),
               // Table Header
               pw.Table(
                 border: pw.TableBorder.all(),
@@ -520,7 +602,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       await Share.shareXFiles(
         [XFile(file.path)],
         text:
-            'Purchase Report - MOBILE HOUSE\nPeriod: ${DateFormat('dd/MM/yyyy').format(_startDate ?? DateTime.now().subtract(const Duration(days: 30)))} to ${DateFormat('dd/MM/yyyy').format(_endDate ?? DateTime.now())}\nTotal Purchases: ${_filteredPurchases.length}\nTotal Amount: ₹${totalBillAmount.toStringAsFixed(2)}',
+            'Purchase Report - MOBILE HOUSE\nPeriod: ${DateFormat('dd/MM/yyyy').format(_startDate ?? DateTime.now().subtract(const Duration(days: 30)))} to ${DateFormat('dd/MM/yyyy').format(_endDate ?? DateTime.now())}\nTotal Bills: ${_filteredPurchases.length}\nTotal Products: ${_totalProducts}\nTotal Amount: ₹${_totalAmount.toStringAsFixed(2)}',
       );
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -647,6 +729,9 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
           _purchases.removeWhere((p) => p['id'] == purchase['id']);
           _filteredPurchases.removeWhere((p) => p['id'] == purchase['id']);
         });
+
+        // Recalculate summary after deletion
+        _calculateSummary(_filteredPurchases);
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1009,70 +1094,100 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[50],
-      body: Column(
+  Widget _buildSummaryCards() {
+    return Container(
+      margin: const EdgeInsets.all(8),
+      child: Row(
         children: [
-          _buildHeader(),
-          _buildSearchAndFilter(),
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _filteredPurchases.isEmpty
-                ? _buildEmptyState()
-                : _buildPurchaseList(),
+          _buildSummaryCard(
+            'Total Bills',
+            _totalBills.toString(),
+            Icons.receipt_long,
+            Colors.blue,
+          ),
+          const SizedBox(width: 8),
+          _buildSummaryCard(
+            'Total Products',
+            _totalProducts.toString(),
+            Icons.shopping_cart,
+            Colors.orange,
+          ),
+          const SizedBox(width: 8),
+          _buildSummaryCard(
+            'Total Amount',
+            '₹${_totalAmount.toStringAsFixed(2)}',
+            Icons.currency_rupee,
+            Colors.green,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildHeader() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.green[800],
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(16),
-          bottomRight: Radius.circular(16),
+  Widget _buildSummaryCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 18),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 8,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.w500,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
         ),
       ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.history, color: Colors.white, size: 20),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Purchase History',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  '${_filteredPurchases.length} purchases',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.8),
-                    fontSize: 10,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // PDF Generate & Share Button with Report text
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        backgroundColor: Colors.green[800],
+        foregroundColor: Colors.white,
+        elevation: 0,
+        title: const Text(
+          'Purchase Report',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        actions: [
           if (_filteredPurchases.isNotEmpty)
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -1117,6 +1232,20 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
             ),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          _buildSearchAndFilter(),
+          if (!_isLoading && _filteredPurchases.isNotEmpty)
+            _buildSummaryCards(),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _filteredPurchases.isEmpty
+                ? _buildEmptyState()
+                : _buildPurchaseList(),
           ),
         ],
       ),
