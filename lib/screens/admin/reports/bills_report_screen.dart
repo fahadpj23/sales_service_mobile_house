@@ -10,7 +10,9 @@ import 'package:share_plus/share_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../../providers/auth_provider.dart';
-import 'dart:typed_data';
+import 'bills_report_edit.dart';
+import 'bills_reprint.dart';
+import 'bills_report_pdf.dart';
 
 class BillsReportScreen extends StatefulWidget {
   final Function(double) formatNumber;
@@ -72,25 +74,29 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   String? _editSelectedFinanceType;
   bool _editSealChecked = false;
   bool _isUpdating = false;
-  String? _editBillType; // 'phone', 'accessories', 'tv'
+  String? _editBillType;
 
-  // PDF assets
-  Uint8List? _logoImage;
-  Uint8List? _sealImage;
+  // PDF Generation
+  bool _isGeneratingPDF = false;
+  late BillsReportPDF _pdfHelper;
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final Color primaryGreen = const Color(0xFF0A4D2E);
   final Color secondaryGreen = const Color(0xFF1A7D4A);
   final Color warningColor = const Color(0xFFFFC107);
-  final Color editPrimaryColor = const Color(0xFF2563EB); // Blue for edit mode
+  final Color editPrimaryColor = const Color(0xFF2563EB);
   final Color editSecondaryColor = const Color(0xFF3B82F6);
+
+  // Print and Edit helper instances
+  late BillRePrint _printHelper;
+  late BillsReportEdit _editHelper;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
 
-    // Initialize edit controllers
+    // Initialize controllers
     _editCustomerNameController = TextEditingController();
     _editMobileController = TextEditingController();
     _editAddressController = TextEditingController();
@@ -101,11 +107,24 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     _editImeiController = TextEditingController();
     _editSerialController = TextEditingController();
 
+    // Initialize helpers
+    _printHelper = BillRePrint();
+    _editHelper = BillsReportEdit(
+      firestore: _firestore,
+      formatNumber: widget.formatNumber,
+      primaryGreen: primaryGreen,
+      editPrimaryColor: editPrimaryColor,
+      editSecondaryColor: editSecondaryColor,
+      warningColor: warningColor,
+    );
+
+    // Initialize PDF helper - No logo/seal
+    _pdfHelper = BillsReportPDF(formatNumber: widget.formatNumber);
+
     if (widget.initialShopId != null) {
       _selectedShopId = widget.initialShopId;
     }
 
-    _loadImages();
     _fetchAllBills();
   }
 
@@ -135,18 +154,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
           duration: Duration(seconds: 2),
         ),
       );
-    }
-  }
-
-  Future<void> _loadImages() async {
-    try {
-      final logoByteData = await rootBundle.load('assets/mobileHouseLogo.png');
-      _logoImage = logoByteData.buffer.asUint8List();
-
-      final sealByteData = await rootBundle.load('assets/mobileHouseSeal.jpeg');
-      _sealImage = sealByteData.buffer.asUint8List();
-    } catch (e) {
-      print('Error loading images: $e');
     }
   }
 
@@ -403,19 +410,63 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     });
   }
 
-  // ==================== EDIT BILL FUNCTIONALITY FOR ALL TYPES ====================
+  // ==================== GENERATE SALES REPORT PDF ====================
+  Future<void> _generateSalesReport() async {
+    final filteredPhoneBills = _getFilteredPhoneBills();
+    final filteredAccessoriesBills = _getFilteredAccessoriesBills();
+    final filteredTvBills = _getFilteredTvBills();
 
+    if (filteredPhoneBills.isEmpty &&
+        filteredAccessoriesBills.isEmpty &&
+        filteredTvBills.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No bills available to generate report'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    String shopName = 'All Shops';
+    if (_selectedShopId != null && _selectedShopId!.isNotEmpty) {
+      final shop = widget.shops.firstWhere(
+        (s) => s['id'] == _selectedShopId,
+        orElse: () => {'name': 'Unknown Shop'},
+      );
+      shopName = shop['name'] ?? 'Unknown Shop';
+    }
+
+    await _pdfHelper.generateAndShareSalesReport(
+      context: context,
+      phoneBills: filteredPhoneBills,
+      accessoriesBills: filteredAccessoriesBills,
+      tvBills: filteredTvBills,
+      periodLabel: _getPeriodLabel(),
+      periodDateRange: _getPeriodDateRange(),
+      shopName: shopName,
+      isLoading: _isGeneratingPDF,
+      setLoading: (value) {
+        setState(() {
+          _isGeneratingPDF = value;
+        });
+      },
+    );
+  }
+
+  // ==================== EDIT BILL ====================
   void _startEditBill(Map<String, dynamic> bill) {
     // Determine bill type
     final billType = bill['billType'] as String?;
     final type = bill['type'] as String?;
+    String newEditBillType;
 
     if (billType == 'GST Accessories') {
-      _editBillType = 'accessories';
+      newEditBillType = 'accessories';
     } else if (type == 'tv') {
-      _editBillType = 'tv';
+      newEditBillType = 'tv';
     } else {
-      _editBillType = 'phone';
+      newEditBillType = 'phone';
     }
 
     // Get product details
@@ -423,7 +474,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     String imei = '';
     String serialNumber = '';
 
-    if (_editBillType == 'phone') {
+    if (newEditBillType == 'phone') {
       final originalPhoneData = bill['originalPhoneData'];
       if (originalPhoneData != null &&
           originalPhoneData is Map<String, dynamic>) {
@@ -437,7 +488,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
           originalPhoneData is Map<String, dynamic>) {
         if (imei.isEmpty) imei = originalPhoneData['imei'] ?? '';
       }
-    } else if (_editBillType == 'tv') {
+    } else if (newEditBillType == 'tv') {
       final originalTvData = bill['originalTvData'];
       if (originalTvData != null && originalTvData is Map<String, dynamic>) {
         productName =
@@ -461,6 +512,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
     setState(() {
       _editingBill = bill;
+      _editBillType = newEditBillType;
       _isEditMode = true;
 
       // Populate controllers
@@ -483,1021 +535,72 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   }
 
   void _calculateEditGST() {
-    if (_editTotalAmountController.text.isNotEmpty) {
-      try {
-        double totalAmount = double.parse(_editTotalAmountController.text);
-        double gstPercent = 18.0;
-        double taxableAmount = totalAmount / (1 + gstPercent / 100);
-        double gstAmount = totalAmount - taxableAmount;
-
-        setState(() {
-          _editTaxableAmountController.text = taxableAmount.toStringAsFixed(2);
-          _editGstAmountController.text = gstAmount.toStringAsFixed(2);
-        });
-      } catch (e) {
-        setState(() {
-          _editTaxableAmountController.text = '';
-          _editGstAmountController.text = '';
-        });
-      }
-    } else {
-      setState(() {
-        _editTaxableAmountController.text = '';
-        _editGstAmountController.text = '';
-      });
-    }
+    _editHelper.calculateEditGST(
+      totalAmountController: _editTotalAmountController,
+      taxableAmountController: _editTaxableAmountController,
+      gstAmountController: _editGstAmountController,
+      setState: setState,
+    );
   }
 
   Future<void> _updateBill() async {
-    if (!_editFormKey.currentState!.validate()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Please fill all required fields')),
-      );
-      return;
-    }
-
-    setState(() {
-      _isUpdating = true;
-    });
-
-    try {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      final user = authProvider.user;
-
-      final updateData = {
-        'customerName': _editCustomerNameController.text,
-        'customerMobile': _editMobileController.text,
-        'customerAddress': _editAddressController.text,
-        'totalAmount': double.parse(_editTotalAmountController.text),
-        'taxableAmount': double.parse(_editTaxableAmountController.text),
-        'gstAmount': double.parse(_editGstAmountController.text),
-        'purchaseMode': _editSelectedPurchaseMode,
-        'financeType': _editSelectedFinanceType,
-        'sealApplied': _editSealChecked,
-        'updatedAt': FieldValue.serverTimestamp(),
-        'updatedBy': user?.email,
-      };
-
-      // Add type-specific fields
-      if (_editBillType == 'phone') {
-        updateData['productName'] = _editProductNameController.text;
-        updateData['imei'] = _editImeiController.text;
-      } else if (_editBillType == 'tv') {
-        updateData['modelName'] = _editProductNameController.text;
-        updateData['serialNumber'] = _editSerialController.text;
-        updateData['productName'] = _editProductNameController.text;
-      } else {
-        updateData['productName'] = _editProductNameController.text;
-        if (_editImeiController.text.isNotEmpty) {
-          updateData['imei'] = _editImeiController.text;
-        }
-      }
-
-      await _firestore
-          .collection('bills')
-          .doc(_editingBill!['id'])
-          .update(updateData);
-
-      // Update phone stock if phone bill
-      if (_editBillType == 'phone') {
-        final imei = _editImeiController.text.trim();
-        if (imei.isNotEmpty) {
-          final querySnapshot = await _firestore
-              .collection('phoneStock')
-              .where('imei', isEqualTo: imei)
-              .limit(1)
-              .get();
-
-          if (querySnapshot.docs.isNotEmpty) {
-            await _firestore
-                .collection('phoneStock')
-                .doc(querySnapshot.docs.first.id)
-                .update({
-                  'soldTo': _editCustomerNameController.text,
-                  'soldAmount': double.parse(_editTotalAmountController.text),
-                  'purchaseMode': _editSelectedPurchaseMode,
-                  'financeType': _editSelectedFinanceType,
-                  'updatedAt': FieldValue.serverTimestamp(),
-                });
-          }
-        }
-      }
-
-      // Update TV stock if TV bill
-      if (_editBillType == 'tv') {
-        final serialNumber = _editSerialController.text.trim();
-        if (serialNumber.isNotEmpty) {
-          final querySnapshot = await _firestore
-              .collection('tvStock')
-              .where('serialNumber', isEqualTo: serialNumber)
-              .limit(1)
-              .get();
-
-          if (querySnapshot.docs.isNotEmpty) {
-            await _firestore
-                .collection('tvStock')
-                .doc(querySnapshot.docs.first.id)
-                .update({
-                  'soldTo': _editCustomerNameController.text,
-                  'soldAmount': double.parse(_editTotalAmountController.text),
-                  'updatedAt': FieldValue.serverTimestamp(),
-                });
-          }
-        }
-      }
-
-      // Refresh bills list
-      await _fetchAllBills();
-
-      setState(() {
-        _isEditMode = false;
-        _editingBill = null;
-        _isUpdating = false;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Bill updated successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      setState(() {
-        _isUpdating = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error updating bill: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
+    await _editHelper.updateBill(
+      context: context,
+      formKey: _editFormKey,
+      billId: _editingBill?['id'],
+      editBillType: _editBillType,
+      customerNameController: _editCustomerNameController,
+      mobileController: _editMobileController,
+      addressController: _editAddressController,
+      totalAmountController: _editTotalAmountController,
+      taxableAmountController: _editTaxableAmountController,
+      gstAmountController: _editGstAmountController,
+      productNameController: _editProductNameController,
+      imeiController: _editImeiController,
+      serialController: _editSerialController,
+      selectedPurchaseMode: _editSelectedPurchaseMode,
+      selectedFinanceType: _editSelectedFinanceType,
+      sealChecked: _editSealChecked,
+      setState: setState,
+      onUpdateSuccess: _fetchAllBills,
+    );
   }
 
+  // ==================== CANCEL EDIT METHOD ====================
   void _cancelEdit() {
+    // Clear all controllers
+    _editCustomerNameController.clear();
+    _editMobileController.clear();
+    _editAddressController.clear();
+    _editTotalAmountController.clear();
+    _editTaxableAmountController.clear();
+    _editGstAmountController.clear();
+    _editProductNameController.clear();
+    _editImeiController.clear();
+    _editSerialController.clear();
+
+    // Reset all state variables
     setState(() {
       _isEditMode = false;
       _editingBill = null;
       _editBillType = null;
+      _editSelectedPurchaseMode = null;
+      _editSelectedFinanceType = null;
+      _editSealChecked = false;
+      _isUpdating = false;
     });
   }
 
-  // ==================== PDF GENERATION ====================
-
+  // ==================== PRINT BILL ====================
   Future<void> _printAndShareBill(Map<String, dynamic> bill) async {
-    try {
-      setState(() {
-        _isLoading = true;
-      });
-
-      final pdfBytes = await _generateBillPdf(bill);
-      final filePath = await _savePdfToStorage(pdfBytes, bill);
-      final pdfFile = File(filePath);
-
-      setState(() {
-        _isLoading = false;
-      });
-
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('Bill Actions'),
-          content: Text('What would you like to do with the bill?'),
-          actions: [
-            TextButton.icon(
-              onPressed: () async {
-                Navigator.pop(context);
-                await _sharePdf(pdfFile);
-              },
-              icon: Icon(Icons.share, color: Colors.blue),
-              label: Text('Share'),
-            ),
-            TextButton.icon(
-              onPressed: () async {
-                Navigator.pop(context);
-                await _printPdf(pdfFile);
-              },
-              icon: Icon(Icons.print, color: Colors.green),
-              label: Text('Print'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Cancel'),
-            ),
-          ],
-        ),
-      );
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error generating PDF: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<Uint8List> _generateBillPdf(Map<String, dynamic> bill) async {
-    final pdf = pw.Document();
-    final pageFormat = PdfPageFormat.a4;
-    String currentDate = DateFormat('dd MMMM yyyy').format(DateTime.now());
-
-    final billNumber = bill['billNumber'] ?? 'N/A';
-    final customerName = bill['customerName'] ?? 'N/A';
-    final customerMobile = bill['customerMobile'] ?? 'N/A';
-    final customerAddress = bill['customerAddress'] ?? 'N/A';
-    final totalAmount = (bill['totalAmount'] as num?)?.toDouble() ?? 0.0;
-    final taxableAmount = (bill['taxableAmount'] as num?)?.toDouble() ?? 0.0;
-    final gstAmount = (bill['gstAmount'] as num?)?.toDouble() ?? 0.0;
-    final shop = bill['shop'] ?? 'Peringottukara';
-    final purchaseMode = bill['purchaseMode'] ?? 'Ready Cash';
-    final financeType = bill['financeType'];
-    final sealApplied = bill['sealApplied'] == true;
-
-    // Get product details based on type
-    String productName = bill['productName'] ?? '';
-    String identifier = '';
-    String identifierLabel = '';
-
-    final billType = bill['billType'] as String?;
-    final type = bill['type'] as String?;
-
-    if (billType == 'GST Accessories') {
-      productName = bill['productName'] ?? '';
-      identifier = bill['imei'] ?? '';
-      identifierLabel = 'IMEI';
-    } else if (type == 'tv') {
-      productName = bill['modelName'] ?? bill['productName'] ?? '';
-      identifier = bill['serialNumber'] ?? '';
-      identifierLabel = 'Serial No';
-      final originalTvData = bill['originalTvData'];
-      if (originalTvData != null && originalTvData is Map<String, dynamic>) {
-        if (productName.isEmpty)
-          productName = originalTvData['modelName'] ?? '';
-        if (identifier.isEmpty)
-          identifier = originalTvData['serialNumber'] ?? '';
-      }
-    } else {
-      productName = bill['productName'] ?? '';
-      identifier = bill['imei'] ?? '';
-      identifierLabel = 'IMEI';
-      final originalPhoneData = bill['originalPhoneData'];
-      if (originalPhoneData != null &&
-          originalPhoneData is Map<String, dynamic>) {
-        if (productName.isEmpty)
-          productName = originalPhoneData['productName'] ?? '';
-        if (identifier.isEmpty) identifier = originalPhoneData['imei'] ?? '';
-      }
-    }
-
-    pdf.addPage(
-      pw.Page(
-        pageFormat: pageFormat,
-        margin: pw.EdgeInsets.all(15),
-        build: (pw.Context context) {
-          return pw.Container(
-            decoration: pw.BoxDecoration(
-              border: pw.Border.all(color: PdfColors.black, width: 1.0),
-            ),
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                _buildPdfHeader(currentDate, billNumber, shop),
-                _buildPdfCustomerDetails(
-                  customerName,
-                  customerMobile,
-                  customerAddress,
-                  purchaseMode,
-                  financeType,
-                ),
-                pw.SizedBox(height: 4),
-                _buildPdfMainTable(
-                  productName,
-                  identifier,
-                  identifierLabel,
-                  taxableAmount,
-                  gstAmount,
-                  totalAmount,
-                ),
-                pw.Container(
-                  height: 280,
-                  child: pw.Stack(
-                    children: [
-                      if (sealApplied && _sealImage != null)
-                        pw.Positioned(
-                          right: 15,
-                          bottom: 18,
-                          child: pw.Transform.rotate(
-                            angle: 25 * 3.14159 / 180,
-                            child: pw.SizedBox(
-                              width: 150,
-                              height: 150,
-                              child: pw.Image(
-                                pw.MemoryImage(_sealImage!),
-                                fit: pw.BoxFit.contain,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                _buildPdfTotalSection(totalAmount, taxableAmount, gstAmount),
-                _buildPdfBottomSection(),
-              ],
-            ),
-          );
-        },
-      ),
+    await _printHelper.printAndShareBill(
+      context: context,
+      bill: bill,
+      setState: setState,
     );
-
-    return pdf.save();
-  }
-
-  pw.Widget _buildPdfHeader(
-    String currentDate,
-    String billNumber,
-    String shop,
-  ) {
-    return pw.Column(
-      children: [
-        pw.Padding(
-          padding: pw.EdgeInsets.all(8),
-          child: pw.Align(
-            alignment: pw.Alignment.centerLeft,
-            child: pw.Text(
-              'GSTIN: 32BSGPJ3340H1Z4',
-              style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
-            ),
-          ),
-        ),
-        pw.Padding(
-          padding: pw.EdgeInsets.all(8),
-          child: pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.center,
-            children: [
-              pw.Column(
-                children: [
-                  if (_logoImage != null)
-                    pw.SizedBox(
-                      height: 45,
-                      child: pw.Image(
-                        pw.MemoryImage(_logoImage!),
-                        fit: pw.BoxFit.contain,
-                      ),
-                    )
-                  else
-                    pw.Text(
-                      'MOBILE HOUSE',
-                      style: pw.TextStyle(
-                        fontSize: 14,
-                        fontWeight: pw.FontWeight.bold,
-                      ),
-                    ),
-                  pw.SizedBox(height: 2),
-                  pw.Text(
-                    shop == 'Peringottukara'
-                        ? "3way junction Peringottukara"
-                        : "Cherpu, Thayamkulangara",
-                    style: pw.TextStyle(fontSize: 11),
-                  ),
-                  pw.SizedBox(height: 2),
-                  pw.Text(
-                    shop == 'Peringottukara'
-                        ? "Mob: 9072430483, 8304830868"
-                        : "Mob: 9544466724",
-                    style: pw.TextStyle(fontSize: 11),
-                  ),
-                  pw.SizedBox(height: 2),
-                  pw.Text("Mobile house", style: pw.TextStyle(fontSize: 11)),
-                  pw.SizedBox(height: 2),
-                  pw.Text(
-                    "GST TAX INVOICE (TYPE-B2C) - CASH SALE",
-                    style: pw.TextStyle(fontSize: 9),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        pw.Padding(
-          padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          child: pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    'STATE : KERALA',
-                    style: pw.TextStyle(
-                      fontSize: 11,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                  pw.SizedBox(height: 6),
-                  pw.Text(
-                    'Invoice No. : $billNumber',
-                    style: pw.TextStyle(
-                      fontSize: 11,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.end,
-                children: [
-                  pw.Text(
-                    'STATE CODE : 32',
-                    style: pw.TextStyle(
-                      fontSize: 11,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                  pw.SizedBox(height: 6),
-                  pw.Text(
-                    'Invoice Date : $currentDate',
-                    style: pw.TextStyle(
-                      fontSize: 11,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        pw.Divider(color: PdfColors.black, thickness: 0.2, height: 0),
-      ],
-    );
-  }
-
-  pw.Widget _buildPdfCustomerDetails(
-    String name,
-    String mobile,
-    String address,
-    String purchaseMode,
-    String? financeType,
-  ) {
-    return pw.Padding(
-      padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      child: pw.Container(
-        padding: pw.EdgeInsets.all(2),
-        child: pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Text(
-              'Customer  : $name',
-              style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
-            ),
-            pw.SizedBox(height: 4),
-            if (address.isNotEmpty && address != 'N/A')
-              pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text('Address     :', style: pw.TextStyle(fontSize: 11)),
-                  pw.SizedBox(width: 4),
-                  pw.Expanded(
-                    child: pw.Text(
-                      address.isNotEmpty ? address : "N/A",
-                      style: pw.TextStyle(fontSize: 11),
-                      maxLines: 2,
-                    ),
-                  ),
-                ],
-              ),
-            pw.SizedBox(height: 4),
-            pw.Text('Mobile Tel  : $mobile', style: pw.TextStyle(fontSize: 11)),
-            pw.SizedBox(height: 6),
-            if (purchaseMode == 'EMI' && financeType != null)
-              pw.Row(
-                children: [
-                  pw.Text(
-                    'Finance       : ',
-                    style: pw.TextStyle(
-                      fontSize: 11,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                  pw.Text(
-                    financeType,
-                    style: pw.TextStyle(
-                      fontSize: 11,
-                      fontWeight: pw.FontWeight.normal,
-                    ),
-                  ),
-                ],
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  pw.Widget _buildPdfMainTable(
-    String productName,
-    String identifier,
-    String identifierLabel,
-    double taxableAmount,
-    double gstAmount,
-    double totalAmount,
-  ) {
-    return pw.Table(
-      border: pw.TableBorder.all(color: PdfColors.black, width: 0.5),
-      columnWidths: {
-        0: pw.FixedColumnWidth(40),
-        1: pw.FlexColumnWidth(2.5),
-        2: pw.FixedColumnWidth(60),
-        3: pw.FixedColumnWidth(25),
-        4: pw.FixedColumnWidth(50),
-        5: pw.FixedColumnWidth(70),
-        6: pw.FixedColumnWidth(45),
-        7: pw.FixedColumnWidth(50),
-        8: pw.FixedColumnWidth(60),
-      },
-      defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
-      children: [
-        pw.TableRow(
-          children: [
-            _buildPdfTableCell('SLNO', isHeader: true),
-            _buildPdfTableCell('Name of Item/Commodity', isHeader: true),
-            _buildPdfTableCell('HSNCode', isHeader: true),
-            _buildPdfTableCell('Qty', isHeader: true),
-            _buildPdfTableCell(' Rate', isHeader: true),
-            _buildPdfTableCell(' Discount', isHeader: true),
-            _buildPdfTableCell('GST%', isHeader: true),
-            _buildPdfTableCell('GST Amt', isHeader: true),
-            _buildPdfTableCell('Total ', isHeader: true),
-          ],
-        ),
-        pw.TableRow(
-          children: [
-            _buildPdfTableCell('1'),
-            _buildPdfTableCell(
-              '$productName\n$identifierLabel: $identifier',
-              textAlign: pw.TextAlign.left,
-              fontSize: 11,
-              maxLines: 3,
-            ),
-            _buildPdfTableCell('85171300'),
-            _buildPdfTableCell('1'),
-            _buildPdfTableCell(taxableAmount.toStringAsFixed(2)),
-            _buildPdfTableCell('0.00'),
-            _buildPdfTableCell('18'),
-            _buildPdfTableCell(gstAmount.toStringAsFixed(2)),
-            _buildPdfTableCell(totalAmount.toStringAsFixed(2)),
-          ],
-        ),
-      ],
-    );
-  }
-
-  pw.Widget _buildPdfTotalSection(
-    double totalAmount,
-    double taxableAmount,
-    double gstAmount,
-  ) {
-    String amountInWords = _amountToWords(totalAmount.toString());
-
-    return pw.Column(
-      children: [
-        pw.SizedBox(height: 8),
-        pw.Divider(color: PdfColors.black, thickness: 0.5, height: 0),
-        pw.Padding(
-          padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          child: pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              pw.Text(
-                'Total',
-                style: pw.TextStyle(
-                  fontSize: 11,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.Text(
-                '1',
-                style: pw.TextStyle(
-                  fontSize: 11,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.Text(
-                taxableAmount.toStringAsFixed(2),
-                style: pw.TextStyle(
-                  fontSize: 11,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.Text(
-                gstAmount.toStringAsFixed(2),
-                style: pw.TextStyle(
-                  fontSize: 11,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.Text(
-                totalAmount.toStringAsFixed(2),
-                style: pw.TextStyle(
-                  fontSize: 11,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-        ),
-        pw.Divider(color: PdfColors.black, thickness: 0.5, height: 0),
-        pw.Padding(
-          padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text(
-                'In Words: $amountInWords',
-                style: pw.TextStyle(fontSize: 11),
-                maxLines: 2,
-              ),
-              pw.SizedBox(height: 4),
-              pw.Align(
-                alignment: pw.Alignment.centerRight,
-                child: pw.Text(
-                  'Total Amount: ${totalAmount.toStringAsFixed(2)}',
-                  style: pw.TextStyle(
-                    fontSize: 11,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  pw.Widget _buildPdfBottomSection() {
-    return pw.Padding(
-      padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: pw.Row(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.Expanded(
-            flex: 2,
-            child: pw.Container(
-              padding: pw.EdgeInsets.all(2),
-              child: _buildPdfGstBreakdownTable(),
-            ),
-          ),
-          pw.SizedBox(width: 10),
-          pw.Expanded(
-            flex: 1,
-            child: pw.Container(
-              padding: pw.EdgeInsets.all(6),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.end,
-                children: [
-                  pw.Text(
-                    'Certified that the particulars given above are true and correct',
-                    style: pw.TextStyle(
-                      fontSize: 9,
-                      fontStyle: pw.FontStyle.italic,
-                    ),
-                    textAlign: pw.TextAlign.right,
-                  ),
-                  pw.SizedBox(height: 15),
-                  pw.Text(
-                    'For MOBILE HOUSE',
-                    style: pw.TextStyle(
-                      fontSize: 9,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                  pw.SizedBox(height: 8),
-                  pw.Divider(color: PdfColors.black, thickness: 0.5),
-                  pw.SizedBox(height: 5),
-                  pw.Text(
-                    'Authorised Signatory',
-                    style: pw.TextStyle(fontSize: 8),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  pw.Table _buildPdfGstBreakdownTable() {
-    return pw.Table(
-      border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
-      columnWidths: {
-        0: pw.FixedColumnWidth(40),
-        1: pw.FixedColumnWidth(35),
-        2: pw.FixedColumnWidth(35),
-        3: pw.FixedColumnWidth(35),
-        4: pw.FixedColumnWidth(40),
-        5: pw.FixedColumnWidth(40),
-      },
-      defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
-      children: [
-        pw.TableRow(
-          children: [
-            _buildPdfTableCell('', isHeader: true, fontSize: 9),
-            _buildPdfTableCell('GST 0%', isHeader: true, fontSize: 9),
-            _buildPdfTableCell('GST 5%', isHeader: true, fontSize: 9),
-            _buildPdfTableCell('GST 12%', isHeader: true, fontSize: 9),
-            _buildPdfTableCell('GST 18%', isHeader: true, fontSize: 9),
-            _buildPdfTableCell('GST 28%', isHeader: true, fontSize: 9),
-          ],
-        ),
-        pw.TableRow(
-          children: [
-            _buildPdfTableCell('Taxable', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-          ],
-        ),
-        pw.TableRow(
-          children: [
-            _buildPdfTableCell('CGST Amt', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-          ],
-        ),
-        pw.TableRow(
-          children: [
-            _buildPdfTableCell('SGST Amt', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-          ],
-        ),
-      ],
-    );
-  }
-
-  pw.Widget _buildPdfTableCell(
-    String text, {
-    bool isHeader = false,
-    double fontSize = 11,
-    pw.TextAlign textAlign = pw.TextAlign.center,
-    int maxLines = 1,
-  }) {
-    final lines = text.split('\n');
-
-    if (maxLines <= 1 || lines.length <= 1) {
-      return pw.Container(
-        alignment: pw.Alignment.center,
-        padding: pw.EdgeInsets.symmetric(horizontal: 2, vertical: 4),
-        child: pw.Text(
-          text,
-          style: pw.TextStyle(
-            fontSize: fontSize,
-            fontWeight: isHeader ? pw.FontWeight.bold : pw.FontWeight.normal,
-          ),
-          textAlign: textAlign,
-          maxLines: maxLines,
-        ),
-      );
-    }
-
-    return pw.Container(
-      alignment: pw.Alignment.center,
-      padding: pw.EdgeInsets.symmetric(horizontal: 2, vertical: 4),
-      child: pw.Column(
-        mainAxisSize: pw.MainAxisSize.min,
-        crossAxisAlignment: pw.CrossAxisAlignment.center,
-        children: [
-          pw.Text(
-            lines[0],
-            style: pw.TextStyle(
-              fontSize: fontSize,
-              fontWeight: isHeader ? pw.FontWeight.bold : pw.FontWeight.bold,
-            ),
-            textAlign: pw.TextAlign.center,
-          ),
-          pw.SizedBox(height: 3),
-          for (int i = 1; i < lines.length && i < maxLines; i++)
-            pw.Text(
-              lines[i],
-              style: pw.TextStyle(
-                fontSize: fontSize * 0.9,
-                fontWeight: pw.FontWeight.normal,
-              ),
-              textAlign: pw.TextAlign.center,
-            ),
-        ],
-      ),
-    );
-  }
-
-  String _amountToWords(String amount) {
-    try {
-      double value = double.parse(amount);
-      if (value == 0) return 'Zero Rupees Only';
-
-      int rupees = value.toInt();
-      int paise = ((value - rupees) * 100).round();
-
-      String rupeeWords = _convertNumberToWords(rupees);
-      String paiseWords = paise > 0
-          ? ' and ${_convertNumberToWords(paise)} Paise'
-          : '';
-
-      return '${rupeeWords.trim()} Rupees$paiseWords Only';
-    } catch (e) {
-      return 'Amount in words conversion failed';
-    }
-  }
-
-  String _convertNumberToWords(int number) {
-    if (number == 0) return 'Zero';
-
-    List<String> units = [
-      '',
-      'One',
-      'Two',
-      'Three',
-      'Four',
-      'Five',
-      'Six',
-      'Seven',
-      'Eight',
-      'Nine',
-    ];
-    List<String> teens = [
-      'Ten',
-      'Eleven',
-      'Twelve',
-      'Thirteen',
-      'Fourteen',
-      'Fifteen',
-      'Sixteen',
-      'Seventeen',
-      'Eighteen',
-      'Nineteen',
-    ];
-    List<String> tens = [
-      '',
-      '',
-      'Twenty',
-      'Thirty',
-      'Forty',
-      'Fifty',
-      'Sixty',
-      'Seventy',
-      'Eighty',
-      'Ninety',
-    ];
-
-    String words = '';
-
-    if (number >= 10000000) {
-      words += '${_convertNumberToWords(number ~/ 10000000)} Crore ';
-      number %= 10000000;
-    }
-
-    if (number >= 100000) {
-      words += '${_convertNumberToWords(number ~/ 100000)} Lakh ';
-      number %= 100000;
-    }
-
-    if (number >= 1000) {
-      words += '${_convertNumberToWords(number ~/ 1000)} Thousand ';
-      number %= 1000;
-    }
-
-    if (number >= 100) {
-      words += '${_convertNumberToWords(number ~/ 100)} Hundred ';
-      number %= 100;
-    }
-
-    if (number > 0) {
-      if (words.isNotEmpty) words += 'and ';
-
-      if (number < 10) {
-        words += units[number];
-      } else if (number < 20) {
-        words += teens[number - 10];
-      } else {
-        words += tens[number ~/ 10];
-        if (number % 10 > 0) {
-          words += ' ${units[number % 10]}';
-        }
-      }
-    }
-
-    return words.trim();
-  }
-
-  Future<String> _savePdfToStorage(
-    Uint8List pdfBytes,
-    Map<String, dynamic> bill,
-  ) async {
-    try {
-      Directory directory;
-      if (Platform.isAndroid) {
-        try {
-          directory = Directory('/storage/emulated/0/Download');
-          if (!await directory.exists()) {
-            directory = Directory('/storage/emulated/0/Downloads');
-            if (!await directory.exists()) {
-              directory =
-                  await getExternalStorageDirectory() ??
-                  await getApplicationDocumentsDirectory();
-            }
-          }
-        } catch (e) {
-          directory = await getApplicationDocumentsDirectory();
-        }
-      } else {
-        directory = await getApplicationDocumentsDirectory();
-      }
-
-      final mobileHouseDir = Directory('${directory.path}/MobileHouse');
-      if (!await mobileHouseDir.exists()) {
-        await mobileHouseDir.create(recursive: true);
-      }
-
-      final billNo =
-          bill['billNumber']?.toString().replaceAll('MH-', '') ?? 'bill';
-      final customerName = (bill['customerName'] ?? 'customer')
-          .toString()
-          .replaceAll(RegExp(r'[^\w\s-]'), '_')
-          .replaceAll(' ', '_');
-      final fileName = 'MH_${billNo}_${customerName}.pdf';
-
-      final filePath = '${mobileHouseDir.path}/$fileName';
-      final file = File(filePath);
-
-      await file.writeAsBytes(pdfBytes, flush: true);
-      return filePath;
-    } catch (e) {
-      final appDir = await getApplicationDocumentsDirectory();
-      final fileName = 'MH_${bill['billNumber']}.pdf';
-      final filePath = '${appDir.path}/$fileName';
-      final file = File(filePath);
-      await file.writeAsBytes(pdfBytes, flush: true);
-      return filePath;
-    }
-  }
-
-  Future<void> _sharePdf(File pdfFile) async {
-    try {
-      if (!await pdfFile.exists()) {
-        throw Exception('PDF file not found');
-      }
-
-      final fileName = pdfFile.path.split('/').last;
-
-      await Share.shareXFiles(
-        [XFile(pdfFile.path, mimeType: 'application/pdf', name: fileName)],
-        text: 'Mobile House Bill',
-        subject: 'Mobile House Bill',
-      );
-    } catch (e) {
-      print('Error sharing PDF: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error sharing PDF: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _printPdf(File pdfFile) async {
-    try {
-      await Share.shareXFiles([
-        XFile(pdfFile.path, mimeType: 'application/pdf'),
-      ], text: 'Print Mobile House Bill');
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
   }
 
   // ==================== UI METHODS ====================
-
   Future<void> _showCustomDateRangePicker() async {
     DateTime startDate =
         _customStartDate ?? DateTime.now().subtract(Duration(days: 30));
@@ -1609,131 +712,157 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     }
   }
 
+  // ==================== BUILD METHODS ====================
   @override
   Widget build(BuildContext context) {
     final filteredPhoneBills = _getFilteredPhoneBills();
     final filteredAccessoriesBills = _getFilteredAccessoriesBills();
     final filteredTvBills = _getFilteredTvBills();
 
-    return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: Text(
-          _isEditMode ? 'Edit Bill' : 'Bills Report',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: _isEditMode ? 16 : 18,
+    return WillPopScope(
+      onWillPop: () async {
+        if (_isEditMode) {
+          _cancelEdit();
+          return false;
+        }
+        return true;
+      },
+      child: Scaffold(
+        backgroundColor: Colors.grey[100],
+        appBar: AppBar(
+          title: Text(
+            _isEditMode ? 'Edit Bill' : 'Bills Report',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: _isEditMode ? 16 : 18,
+            ),
           ),
-        ),
-        backgroundColor: _isEditMode ? editPrimaryColor : primaryGreen,
-        foregroundColor: Colors.white,
-        elevation: 4,
-        leading: _isEditMode
-            ? IconButton(icon: Icon(Icons.arrow_back), onPressed: _cancelEdit)
-            : null,
-        bottom: _isEditMode
-            ? null
-            : TabBar(
-                controller: _tabController,
-                tabs: [
-                  Tab(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.phone_android, size: 18),
-                        SizedBox(width: 6),
-                        Text('Phone '),
-                        Container(
-                          margin: EdgeInsets.only(left: 6),
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
+          backgroundColor: _isEditMode ? editPrimaryColor : primaryGreen,
+          foregroundColor: Colors.white,
+          elevation: 4,
+          leading: _isEditMode
+              ? IconButton(icon: Icon(Icons.arrow_back), onPressed: _cancelEdit)
+              : null,
+          automaticallyImplyLeading: false,
+          bottom: _isEditMode
+              ? null
+              : TabBar(
+                  controller: _tabController,
+                  tabs: [
+                    Tab(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.phone_android, size: 18),
+                          SizedBox(width: 6),
+                          Text('Phone '),
+                          Container(
+                            margin: EdgeInsets.only(left: 6),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '${filteredPhoneBills.length}',
+                              style: TextStyle(fontSize: 11),
+                            ),
                           ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            '${filteredPhoneBills.length}',
-                            style: TextStyle(fontSize: 11),
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  Tab(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.shopping_bag, size: 18),
-                        SizedBox(width: 6),
-                        Text(' Accessories'),
-                        Container(
-                          margin: EdgeInsets.only(left: 6),
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
+                    Tab(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.shopping_bag, size: 18),
+                          SizedBox(width: 6),
+                          Text(' Accessories'),
+                          Container(
+                            margin: EdgeInsets.only(left: 6),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '${filteredAccessoriesBills.length}',
+                              style: TextStyle(fontSize: 11),
+                            ),
                           ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            '${filteredAccessoriesBills.length}',
-                            style: TextStyle(fontSize: 11),
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  Tab(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.tv, size: 18),
-                        SizedBox(width: 6),
-                        Text('TV '),
-                        Container(
-                          margin: EdgeInsets.only(left: 6),
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
+                    Tab(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.tv, size: 18),
+                          SizedBox(width: 6),
+                          Text('TV '),
+                          Container(
+                            margin: EdgeInsets.only(left: 6),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '${filteredTvBills.length}',
+                              style: TextStyle(fontSize: 11),
+                            ),
                           ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            '${filteredTvBills.length}',
-                            style: TextStyle(fontSize: 11),
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
+                  ],
+                  labelColor: Colors.white,
+                  unselectedLabelColor: Colors.white70,
+                  indicatorColor: Colors.white,
+                  indicatorWeight: 3,
+                ),
+          actions: _isEditMode
+              ? []
+              : [
+                  if (widget.shops.isNotEmpty)
+                    IconButton(
+                      icon: _isGeneratingPDF
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.picture_as_pdf),
+                      onPressed: _isGeneratingPDF ? null : _generateSalesReport,
+                      tooltip: 'Generate Sales Report',
+                    ),
+                  IconButton(
+                    icon: const Icon(Icons.refresh),
+                    onPressed: _fetchAllBills,
+                    tooltip: 'Refresh',
                   ),
                 ],
-                labelColor: Colors.white,
-                unselectedLabelColor: Colors.white70,
-                indicatorColor: Colors.white,
-                indicatorWeight: 3,
+        ),
+        body: _isEditMode
+            ? _buildEditForm()
+            : _buildMainContent(
+                filteredPhoneBills,
+                filteredAccessoriesBills,
+                filteredTvBills,
               ),
-        actions: _isEditMode
-            ? []
-            : [
-                IconButton(
-                  icon: Icon(Icons.refresh),
-                  onPressed: _fetchAllBills,
-                  tooltip: 'Refresh',
-                ),
-              ],
       ),
-      body: _isEditMode
-          ? _buildEditForm()
-          : _buildMainContent(
-              filteredPhoneBills,
-              filteredAccessoriesBills,
-              filteredTvBills,
-            ),
     );
   }
 
@@ -2718,7 +1847,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     );
   }
 
-  // ==================== UPDATED BILL CARD WITH IMEI COPY ====================
   Widget _buildBillCard(Map<String, dynamic> bill, bool showEditOption) {
     final billDate = bill['billDate'] is Timestamp
         ? (bill['billDate'] as Timestamp).toDate()
@@ -2913,7 +2041,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                       ),
                     ],
                   ),
-                  // IMEI/Serial Number with Copy Button
                   if (identifierValue.isNotEmpty && !isAccessoriesBill) ...[
                     SizedBox(height: 6),
                     Row(
@@ -3391,7 +2518,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     );
   }
 
-  // Detail row with copy button for IMEI
   Widget _buildDetailRowWithCopy(String label, String value, bool showCopy) {
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 4),
@@ -3434,595 +2560,48 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     );
   }
 
-  // ==================== EDIT FORM ====================
-
+  // ==================== BUILD EDIT FORM ====================
   Widget _buildEditForm() {
-    final List<String> purchaseModes = ['Ready Cash', 'Credit Card', 'EMI'];
-    final List<String> financeCompaniesList = [
-      'Bajaj Finance',
-      'TVS Credit',
-      'HDB Financial',
-      'Samsung Finance',
-      'Oppo Finance',
-      'Vivo Finance',
-      'yoga kshema Finance',
-      'MI Finance',
-      'First credit private Finance',
-      'Chola Murugappa',
-      'Other',
-    ];
-
-    // Get bill type icon
-    IconData billIcon;
-    String billTypeName;
-    if (_editBillType == 'tv') {
-      billIcon = Icons.tv;
-      billTypeName = 'TV Bill';
-    } else if (_editBillType == 'accessories') {
-      billIcon = Icons.shopping_bag;
-      billTypeName = 'Accessories Bill';
-    } else {
-      billIcon = Icons.phone_android;
-      billTypeName = 'Phone Bill';
-    }
-
-    return SingleChildScrollView(
-      padding: EdgeInsets.all(12),
-      child: Form(
-        key: _editFormKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Bill info header - improved design
-            Container(
-              padding: EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [editPrimaryColor, editSecondaryColor],
-                ),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: editPrimaryColor.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(billIcon, color: Colors.white, size: 22),
-                  ),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Editing $billTypeName',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.white70,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        Text(
-                          _editingBill?['billNumber'] ?? 'N/A',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      DateFormat('dd MMM yyyy').format(
-                        _editingBill?['billDate'] is Timestamp
-                            ? (_editingBill!['billDate'] as Timestamp).toDate()
-                            : DateTime.now(),
-                      ),
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(height: 12),
-
-            // Product info card
-            Card(
-              elevation: 1,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.shopping_cart,
-                          size: 16,
-                          color: editPrimaryColor,
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          'Product Details',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: editPrimaryColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 10),
-                    TextFormField(
-                      controller: _editProductNameController,
-                      decoration: InputDecoration(
-                        labelText: 'Product Name *',
-                        labelStyle: TextStyle(fontSize: 12),
-                        prefixIcon: Icon(
-                          Icons.production_quantity_limits,
-                          size: 18,
-                          color: editPrimaryColor,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                      ),
-                      style: TextStyle(fontSize: 13),
-                      validator: (value) =>
-                          value?.isEmpty == true ? 'Required' : null,
-                    ),
-                    if (_editBillType == 'phone' ||
-                        _editBillType == 'accessories') ...[
-                      SizedBox(height: 10),
-                      TextFormField(
-                        controller: _editImeiController,
-                        decoration: InputDecoration(
-                          labelText: 'IMEI Number',
-                          labelStyle: TextStyle(fontSize: 12),
-                          prefixIcon: Icon(
-                            Icons.qr_code,
-                            size: 18,
-                            color: editPrimaryColor,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                        ),
-                        style: TextStyle(fontSize: 13),
-                      ),
-                    ],
-                    if (_editBillType == 'tv') ...[
-                      SizedBox(height: 10),
-                      TextFormField(
-                        controller: _editSerialController,
-                        decoration: InputDecoration(
-                          labelText: 'Serial Number',
-                          labelStyle: TextStyle(fontSize: 12),
-                          prefixIcon: Icon(
-                            Icons.confirmation_number,
-                            size: 18,
-                            color: editPrimaryColor,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                        ),
-                        style: TextStyle(fontSize: 13),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            SizedBox(height: 10),
-
-            // Customer details card
-            Card(
-              elevation: 1,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.person, size: 16, color: editPrimaryColor),
-                        SizedBox(width: 6),
-                        Text(
-                          'Customer Details',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: editPrimaryColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 10),
-                    TextFormField(
-                      controller: _editCustomerNameController,
-                      decoration: InputDecoration(
-                        labelText: 'Customer Name *',
-                        labelStyle: TextStyle(fontSize: 12),
-                        prefixIcon: Icon(Icons.person_outline, size: 18),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                      ),
-                      style: TextStyle(fontSize: 13),
-                      validator: (value) =>
-                          value?.isEmpty == true ? 'Required' : null,
-                    ),
-                    SizedBox(height: 10),
-                    TextFormField(
-                      controller: _editMobileController,
-                      decoration: InputDecoration(
-                        labelText: 'Mobile Number *',
-                        labelStyle: TextStyle(fontSize: 12),
-                        prefixIcon: Icon(Icons.phone, size: 18),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                      ),
-                      style: TextStyle(fontSize: 13),
-                      keyboardType: TextInputType.phone,
-                      validator: (value) {
-                        if (value?.isEmpty == true) return 'Required';
-                        if (value?.length != 10) return 'Enter 10-digit number';
-                        return null;
-                      },
-                    ),
-                    SizedBox(height: 10),
-                    TextFormField(
-                      controller: _editAddressController,
-                      decoration: InputDecoration(
-                        labelText: 'Address',
-                        labelStyle: TextStyle(fontSize: 12),
-                        prefixIcon: Icon(Icons.location_on, size: 18),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                      ),
-                      style: TextStyle(fontSize: 13),
-                      maxLines: 2,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            SizedBox(height: 10),
-
-            // Amount details card
-            Card(
-              elevation: 1,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.currency_rupee,
-                          size: 16,
-                          color: editPrimaryColor,
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          'Amount Details',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: editPrimaryColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 10),
-                    TextFormField(
-                      controller: _editTotalAmountController,
-                      decoration: InputDecoration(
-                        labelText: 'Total Amount *',
-                        labelStyle: TextStyle(fontSize: 12),
-                        prefixIcon: Icon(Icons.currency_rupee, size: 18),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                      ),
-                      style: TextStyle(fontSize: 13),
-                      keyboardType: TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      onChanged: (value) => _calculateEditGST(),
-                      validator: (value) {
-                        if (value?.isEmpty == true) return 'Required';
-                        if (double.tryParse(value!) == null)
-                          return 'Invalid amount';
-                        return null;
-                      },
-                    ),
-                    SizedBox(height: 10),
-                    Container(
-                      padding: EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: editPrimaryColor.withOpacity(0.05),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: editPrimaryColor.withOpacity(0.2),
-                        ),
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Taxable Amount (18% GST):',
-                                style: TextStyle(fontSize: 11),
-                              ),
-                              Text(
-                                '₹${_editTaxableAmountController.text}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                          SizedBox(height: 6),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'GST Amount:',
-                                style: TextStyle(fontSize: 11),
-                              ),
-                              Text(
-                                '₹${_editGstAmountController.text}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: warningColor,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            SizedBox(height: 10),
-
-            // Payment details card
-            Card(
-              elevation: 1,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.payment, size: 16, color: editPrimaryColor),
-                        SizedBox(width: 6),
-                        Text(
-                          'Payment Details',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: editPrimaryColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 10),
-                    DropdownButtonFormField<String>(
-                      value: _editSelectedPurchaseMode,
-                      decoration: InputDecoration(
-                        labelText: 'Purchase Mode',
-                        labelStyle: TextStyle(fontSize: 12),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                      ),
-                      style: TextStyle(fontSize: 13),
-                      items: purchaseModes.map((mode) {
-                        return DropdownMenuItem(
-                          value: mode,
-                          child: Text(mode, style: TextStyle(fontSize: 13)),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          _editSelectedPurchaseMode = value;
-                        });
-                      },
-                    ),
-                    if (_editSelectedPurchaseMode == 'EMI') ...[
-                      SizedBox(height: 10),
-                      DropdownButtonFormField<String>(
-                        value: _editSelectedFinanceType,
-                        decoration: InputDecoration(
-                          labelText: 'Finance Company',
-                          labelStyle: TextStyle(fontSize: 12),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                        ),
-                        style: TextStyle(fontSize: 13),
-                        items: financeCompaniesList.map((company) {
-                          return DropdownMenuItem(
-                            value: company,
-                            child: Text(
-                              company,
-                              style: TextStyle(fontSize: 13),
-                            ),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
-                          setState(() {
-                            _editSelectedFinanceType = value;
-                          });
-                        },
-                      ),
-                    ],
-                    SizedBox(height: 8),
-                    Row(
-                      children: [
-                        SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: Checkbox(
-                            value: _editSealChecked,
-                            onChanged: (value) {
-                              setState(() {
-                                _editSealChecked = value ?? false;
-                              });
-                            },
-                            activeColor: editPrimaryColor,
-                            materialTapTargetSize:
-                                MaterialTapTargetSize.shrinkWrap,
-                          ),
-                        ),
-                        SizedBox(width: 8),
-                        Text(
-                          'Apply Seal on Bill',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            SizedBox(height: 16),
-
-            // Action buttons
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _cancelEdit,
-                    icon: Icon(Icons.close, size: 18),
-                    label: Text('Cancel', style: TextStyle(fontSize: 13)),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
-                      padding: EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      side: BorderSide(color: Colors.red.withOpacity(0.5)),
-                    ),
-                  ),
-                ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _isUpdating ? null : _updateBill,
-                    icon: _isUpdating
-                        ? SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : Icon(Icons.save, size: 18),
-                    label: Text(
-                      _isUpdating ? 'Updating...' : 'Update Bill',
-                      style: TextStyle(fontSize: 13),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: editPrimaryColor,
-                      foregroundColor: Colors.white,
-                      padding: EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: 20),
-          ],
-        ),
-      ),
+    return BillsReportEdit.buildEditForm(
+      editFormKey: _editFormKey,
+      editingBill: _editingBill,
+      editBillType: _editBillType,
+      customerNameController: _editCustomerNameController,
+      mobileController: _editMobileController,
+      addressController: _editAddressController,
+      totalAmountController: _editTotalAmountController,
+      taxableAmountController: _editTaxableAmountController,
+      gstAmountController: _editGstAmountController,
+      productNameController: _editProductNameController,
+      imeiController: _editImeiController,
+      serialController: _editSerialController,
+      selectedPurchaseMode: _editSelectedPurchaseMode,
+      selectedFinanceType: _editSelectedFinanceType,
+      sealChecked: _editSealChecked,
+      isUpdating: _isUpdating,
+      formatNumber: widget.formatNumber,
+      primaryGreen: primaryGreen,
+      editPrimaryColor: editPrimaryColor,
+      editSecondaryColor: editSecondaryColor,
+      warningColor: warningColor,
+      onCancel: _cancelEdit,
+      onUpdate: _updateBill,
+      onCalculateGST: _calculateEditGST,
+      onPurchaseModeChanged: (value) {
+        setState(() {
+          _editSelectedPurchaseMode = value;
+        });
+      },
+      onFinanceTypeChanged: (value) {
+        setState(() {
+          _editSelectedFinanceType = value;
+        });
+      },
+      onSealChanged: (value) {
+        setState(() {
+          _editSealChecked = value ?? false;
+        });
+      },
     );
   }
 }
