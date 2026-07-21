@@ -44,6 +44,8 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
   @override
   void initState() {
     super.initState();
+    // Set default filter to "This Month"
+    _selectedFilter = 'This Month';
     _loadPurchases();
   }
 
@@ -239,6 +241,14 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
         totalItems += (purchase['itemCount'] ?? 0) as int;
       }
 
+      // Verify calculation: Taxable + Tax + Rounding = Grand Total
+      double calculatedTotal = totalTaxable + totalTax + totalRounding;
+      // If there's a small rounding difference, adjust the rounding total
+      if ((calculatedTotal - totalBillAmount).abs() > 0.01) {
+        // Adjust rounding to match grand total
+        totalRounding = totalBillAmount - totalTaxable - totalTax;
+      }
+
       final pdf = pw.Document();
 
       pdf.addPage(
@@ -278,68 +288,6 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                   ],
                 ),
               ),
-              // Summary Cards
-              pw.Container(
-                padding: const pw.EdgeInsets.all(8),
-                decoration: pw.BoxDecoration(
-                  border: pw.Border.all(),
-                  borderRadius: pw.BorderRadius.circular(4),
-                ),
-                child: pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
-                  children: [
-                    pw.Column(
-                      children: [
-                        pw.Text(
-                          'Total Bills',
-                          style: const pw.TextStyle(fontSize: 10),
-                        ),
-                        pw.Text(
-                          sortedPurchases.length.toString(),
-                          style: pw.TextStyle(
-                            fontSize: 16,
-                            fontWeight: pw.FontWeight.bold,
-                            color: PdfColors.blue,
-                          ),
-                        ),
-                      ],
-                    ),
-                    pw.Column(
-                      children: [
-                        pw.Text(
-                          'Total Products',
-                          style: const pw.TextStyle(fontSize: 10),
-                        ),
-                        pw.Text(
-                          totalItems.toString(),
-                          style: pw.TextStyle(
-                            fontSize: 16,
-                            fontWeight: pw.FontWeight.bold,
-                            color: PdfColors.orange,
-                          ),
-                        ),
-                      ],
-                    ),
-                    pw.Column(
-                      children: [
-                        pw.Text(
-                          'Total Amount',
-                          style: const pw.TextStyle(fontSize: 10),
-                        ),
-                        pw.Text(
-                          '₹${totalBillAmount.toStringAsFixed(2)}',
-                          style: pw.TextStyle(
-                            fontSize: 16,
-                            fontWeight: pw.FontWeight.bold,
-                            color: PdfColors.green,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              pw.SizedBox(height: 10),
               // Table Header
               pw.Table(
                 border: pw.TableBorder.all(),
@@ -505,7 +453,14 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                             (purchase['roundingAmount'] ?? 0).toStringAsFixed(
                               2,
                             ),
-                            style: const pw.TextStyle(fontSize: 8),
+                            style: pw.TextStyle(
+                              fontSize: 8,
+                              color: (purchase['roundingAmount'] ?? 0) != 0
+                                  ? ((purchase['roundingAmount'] ?? 0) > 0
+                                        ? PdfColors.orange
+                                        : PdfColors.blue)
+                                  : PdfColors.black,
+                            ),
                             textAlign: pw.TextAlign.right,
                           ),
                         ),
@@ -523,68 +478,105 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                       ],
                     );
                   }).toList(),
-                ],
-              ),
-              pw.SizedBox(height: 10),
-              // Summary Section - Row layout
-              pw.Container(
-                padding: const pw.EdgeInsets.all(8),
-                decoration: pw.BoxDecoration(border: pw.Border.all()),
-                child: pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    // Left side - Taxable and Tax
-                    pw.Row(
-                      children: [
-                        pw.Text(
-                          'Taxable Total: ',
-                          style: const pw.TextStyle(fontSize: 9),
-                        ),
-                        pw.Text(
-                          totalTaxable.toStringAsFixed(2),
-                          style: const pw.TextStyle(
-                            fontSize: 9,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
-                        ),
-                        pw.SizedBox(width: 20),
-                        pw.Text(
-                          'Tax Total: ',
-                          style: const pw.TextStyle(fontSize: 9),
-                        ),
-                        pw.Text(
-                          totalTax.toStringAsFixed(2),
-                          style: const pw.TextStyle(
-                            fontSize: 9,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
-                        ),
-                        pw.SizedBox(width: 20),
-                      ],
-                    ),
-                    // Right side - Grand Total
-                    pw.Row(
-                      children: [
-                        pw.Text(
-                          'Grand Total: ',
+                  // Total Row at the end of table
+                  pw.TableRow(
+                    decoration: pw.BoxDecoration(color: PdfColors.grey200),
+                    children: [
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          'TOTAL',
                           style: pw.TextStyle(
-                            fontSize: 11,
                             fontWeight: pw.FontWeight.bold,
+                            fontSize: 9,
                           ),
+                          textAlign: pw.TextAlign.center,
                         ),
-                        pw.Text(
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          '',
+                          style: const pw.TextStyle(fontSize: 8),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          '',
+                          style: const pw.TextStyle(fontSize: 8),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          totalTaxable.toStringAsFixed(2),
+                          style: pw.TextStyle(
+                            fontSize: 9,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.blue,
+                          ),
+                          textAlign: pw.TextAlign.right,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          totalTax.toStringAsFixed(2),
+                          style: pw.TextStyle(
+                            fontSize: 9,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.blue,
+                          ),
+                          textAlign: pw.TextAlign.right,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          '0.00',
+                          style: pw.TextStyle(
+                            fontSize: 9,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.blue,
+                          ),
+                          textAlign: pw.TextAlign.right,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          totalRounding.toStringAsFixed(2),
+                          style: pw.TextStyle(
+                            fontSize: 9,
+                            fontWeight: pw.FontWeight.bold,
+                            color: totalRounding != 0
+                                ? (totalRounding > 0
+                                      ? PdfColors.orange
+                                      : PdfColors.blue)
+                                : PdfColors.blue,
+                          ),
+                          textAlign: pw.TextAlign.right,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
                           totalBillAmount.toStringAsFixed(2),
                           style: pw.TextStyle(
-                            fontSize: 11,
+                            fontSize: 9,
                             fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.green,
                           ),
+                          textAlign: pw.TextAlign.right,
                         ),
-                      ],
-                    ),
-                  ],
-                ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              pw.SizedBox(height: 10),
             ];
           },
         ),
@@ -602,7 +594,14 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
       await Share.shareXFiles(
         [XFile(file.path)],
         text:
-            'Purchase Report - MOBILE HOUSE\nPeriod: ${DateFormat('dd/MM/yyyy').format(_startDate ?? DateTime.now().subtract(const Duration(days: 30)))} to ${DateFormat('dd/MM/yyyy').format(_endDate ?? DateTime.now())}\nTotal Bills: ${_filteredPurchases.length}\nTotal Products: ${_totalProducts}\nTotal Amount: ₹${_totalAmount.toStringAsFixed(2)}',
+            'Purchase Report - MOBILE HOUSE\n'
+            'Period: ${DateFormat('dd/MM/yyyy').format(_startDate ?? DateTime.now().subtract(const Duration(days: 30)))} to ${DateFormat('dd/MM/yyyy').format(_endDate ?? DateTime.now())}\n'
+            'Total Bills: ${_filteredPurchases.length}\n'
+            'Total Products: ${_totalProducts}\n'
+            'Total Taxable: ${totalTaxable.toStringAsFixed(2)}\n'
+            'Total Tax: ${totalTax.toStringAsFixed(2)}\n'
+            'Total Rounding: ${totalRounding.toStringAsFixed(2)}\n'
+            'Grand Total: ${totalBillAmount.toStringAsFixed(2)}',
       );
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -676,7 +675,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                       style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
                     Text(
-                      'Amount: ₹${purchase['grandTotal'].toStringAsFixed(2)}',
+                      'Amount: ${purchase['grandTotal'].toStringAsFixed(2)}',
                       style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
                     Text(
@@ -992,7 +991,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                     ),
                     Expanded(
                       child: Text(
-                        '₹${(item['total'] ?? 0).toStringAsFixed(2)}',
+                        '${(item['total'] ?? 0).toStringAsFixed(2)}',
                         style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w500,
@@ -1082,7 +1081,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
             ),
           ),
           Text(
-            '₹${value.toStringAsFixed(2)}',
+            value.toStringAsFixed(2),
             style: TextStyle(
               fontSize: isBold ? 14 : 12,
               fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
@@ -1090,83 +1089,6 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildSummaryCards() {
-    return Container(
-      margin: const EdgeInsets.all(8),
-      child: Row(
-        children: [
-          _buildSummaryCard(
-            'Total Bills',
-            _totalBills.toString(),
-            Icons.receipt_long,
-            Colors.blue,
-          ),
-          const SizedBox(width: 8),
-          _buildSummaryCard(
-            'Total Products',
-            _totalProducts.toString(),
-            Icons.shopping_cart,
-            Colors.orange,
-          ),
-          const SizedBox(width: 8),
-          _buildSummaryCard(
-            'Total Amount',
-            '₹${_totalAmount.toStringAsFixed(2)}',
-            Icons.currency_rupee,
-            Colors.green,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSummaryCard(
-    String title,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 18),
-            const SizedBox(height: 4),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 8,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.w500,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1238,8 +1160,6 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
       body: Column(
         children: [
           _buildSearchAndFilter(),
-          if (!_isLoading && _filteredPurchases.isNotEmpty)
-            _buildSummaryCards(),
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -1271,7 +1191,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
             children: [
               Expanded(
                 child: Container(
-                  height: 40, // Set fixed height for proper vertical centering
+                  height: 40,
                   decoration: BoxDecoration(
                     color: Colors.grey[100],
                     borderRadius: BorderRadius.circular(8),
@@ -1294,25 +1214,21 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                       ),
                       border: InputBorder.none,
                       contentPadding: const EdgeInsets.symmetric(
-                        vertical: 0, // Remove vertical padding
+                        vertical: 0,
                         horizontal: 8,
                       ),
                       isDense: true,
                       filled: true,
                       fillColor: Colors.transparent,
                     ),
-                    style: const TextStyle(
-                      fontSize: 11,
-                      height: 1.0, // Ensures text is centered vertically
-                    ),
-                    textAlignVertical:
-                        TextAlignVertical.center, // Center text vertically
+                    style: const TextStyle(fontSize: 11, height: 1.0),
+                    textAlignVertical: TextAlignVertical.center,
                   ),
                 ),
               ),
               const SizedBox(width: 6),
               Container(
-                height: 40, // Match height with search field
+                height: 40,
                 decoration: BoxDecoration(
                   color: Colors.green[50],
                   borderRadius: BorderRadius.circular(8),
@@ -1348,15 +1264,52 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                       size: 18,
                     ),
                     dropdownColor: Colors.white,
-                    style: TextStyle(fontSize: 11, color: Colors.green[800]),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.green[800],
+                      fontWeight: _selectedFilter != 'All'
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                    ),
                     underline: Container(),
                     padding: const EdgeInsets.symmetric(horizontal: 6),
-                    alignment: Alignment.center, // Center the dropdown content
+                    alignment: Alignment.center,
                   ),
                 ),
               ),
             ],
           ),
+          // Show active filter indicator
+          if (_selectedFilter != null && _selectedFilter != 'All')
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.filter_alt, size: 12, color: Colors.green[700]),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Filter: $_selectedFilter',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.green[700],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (_startDate != null && _endDate != null) ...[
+                    const SizedBox(width: 4),
+                    Text(
+                      '(${DateFormat('dd/MM/yy').format(_startDate!)} - ${DateFormat('dd/MM/yy').format(_endDate!)})',
+                      style: TextStyle(fontSize: 9, color: Colors.green[600]),
+                    ),
+                  ],
+                  const Spacer(),
+                  Text(
+                    '${_filteredPurchases.length} records',
+                    style: TextStyle(fontSize: 9, color: Colors.grey[500]),
+                  ),
+                ],
+              ),
+            ),
           if (_startDate != null && _endDate != null)
             Padding(
               padding: const EdgeInsets.only(top: 6),
@@ -1547,7 +1500,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
-                        '₹${purchase['grandTotal'].toStringAsFixed(2)}',
+                        purchase['grandTotal'].toStringAsFixed(2),
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.bold,

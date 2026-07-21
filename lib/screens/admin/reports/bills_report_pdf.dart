@@ -54,18 +54,34 @@ class BillsReportPDF {
       // Combine all bills
       final allBills = [...phoneBills, ...accessoriesBills, ...tvBills];
 
-      // Calculate totals
-      final totalTaxable = allBills.fold(0.0, (sum, bill) {
-        return sum + ((bill['taxableAmount'] as num?)?.toDouble() ?? 0.0);
-      });
-      final totalGst = allBills.fold(0.0, (sum, bill) {
-        return sum + ((bill['gstAmount'] as num?)?.toDouble() ?? 0.0);
-      });
-      final totalCgst = totalGst / 2;
-      final totalSgst = totalGst / 2;
-      final totalAmount = allBills.fold(0.0, (sum, bill) {
-        return sum + ((bill['totalAmount'] as num?)?.toDouble() ?? 0.0);
-      });
+      // Calculate totals from taxable + GST
+      double totalTaxable = 0.0;
+      double totalGst = 0.0;
+
+      for (var bill in allBills) {
+        totalTaxable += (bill['taxableAmount'] as num?)?.toDouble() ?? 0.0;
+        totalGst += (bill['gstAmount'] as num?)?.toDouble() ?? 0.0;
+      }
+
+      // Calculate actual total before rounding
+      double actualTotal = totalTaxable + totalGst;
+
+      // Round Grand Total to nearest whole number (no decimals)
+      double grandTotal = actualTotal.roundToDouble();
+
+      // Calculate rounding difference
+      double roundingDiff = grandTotal - actualTotal;
+
+      // Adjust GST to absorb the rounding difference
+      // This ensures: Taxable + GST = Grand Total (whole number)
+      totalGst += roundingDiff;
+
+      // Recalculate GST components
+      double totalCgst = totalGst / 2;
+      double totalSgst = totalGst / 2;
+
+      // Final total is the rounded grand total
+      double totalAmount = grandTotal;
 
       // Sort bills by date
       allBills.sort((a, b) {
@@ -83,14 +99,14 @@ class BillsReportPDF {
               // Header
               _buildHeader(periodLabel, periodDateRange, shopName),
               pw.SizedBox(height: 12),
-              _buildSalesTable(allBills),
-              pw.SizedBox(height: 12),
-              _buildFooter(
+              _buildSalesTable(
+                allBills,
                 totalTaxable,
                 totalGst,
                 totalCgst,
                 totalSgst,
                 totalAmount,
+                roundingDiff,
               ),
             ];
           },
@@ -176,7 +192,6 @@ class BillsReportPDF {
             textAlign: pw.TextAlign.center,
           ),
           pw.SizedBox(height: 4),
-          // Date in a row with label
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.center,
             children: [
@@ -199,18 +214,26 @@ class BillsReportPDF {
     );
   }
 
-  pw.Widget _buildSalesTable(List<Map<String, dynamic>> bills) {
+  pw.Widget _buildSalesTable(
+    List<Map<String, dynamic>> bills,
+    double totalTaxable,
+    double totalGst,
+    double totalCgst,
+    double totalSgst,
+    double totalAmount,
+    double roundingDiff,
+  ) {
     return pw.Table(
       border: pw.TableBorder.all(),
       columnWidths: {
-        0: pw.FlexColumnWidth(0.10), // Date
-        1: pw.FlexColumnWidth(0.12), // Bill No
-        2: pw.FlexColumnWidth(0.18), // Customer Name
+        0: pw.FlexColumnWidth(0.09), // Date
+        1: pw.FlexColumnWidth(0.10), // Bill No
+        2: pw.FlexColumnWidth(0.14), // Customer Name
         3: pw.FlexColumnWidth(0.14), // Taxable
-        4: pw.FlexColumnWidth(0.10), // Tax (18%)
-        5: pw.FlexColumnWidth(0.10), // CGST
-        6: pw.FlexColumnWidth(0.10), // SGST
-        7: pw.FlexColumnWidth(0.16), // Total Amount
+        4: pw.FlexColumnWidth(0.12), // GST
+        5: pw.FlexColumnWidth(0.11), // CGST
+        6: pw.FlexColumnWidth(0.11), // SGST
+        7: pw.FlexColumnWidth(0.19), // Total Amount
       },
       children: [
         // Table Header
@@ -221,7 +244,7 @@ class BillsReportPDF {
             _buildHeaderCell('Bill No'),
             _buildHeaderCell('Customer'),
             _buildHeaderCell('Taxable'),
-            _buildHeaderCell('Tax (18%)'),
+            _buildHeaderCell('GST'),
             _buildHeaderCell('CGST'),
             _buildHeaderCell('SGST'),
             _buildHeaderCell('Total'),
@@ -234,9 +257,7 @@ class BillsReportPDF {
           final gst = (bill['gstAmount'] as num?)?.toDouble() ?? 0.0;
           final cgst = gst / 2;
           final sgst = gst / 2;
-          final total = (bill['totalAmount'] as num?)?.toDouble() ?? 0.0;
-          // Tax amount at 18%
-          final taxAmount = (taxable * 0.18);
+          final total = taxable + gst;
 
           return pw.TableRow(
             children: [
@@ -253,7 +274,7 @@ class BillsReportPDF {
                 textAlign: pw.TextAlign.left,
               ),
               _buildDataCell(_fmt(taxable), textAlign: pw.TextAlign.right),
-              _buildDataCell(_fmt(taxAmount), textAlign: pw.TextAlign.right),
+              _buildDataCell(_fmt(gst), textAlign: pw.TextAlign.right),
               _buildDataCell(_fmt(cgst), textAlign: pw.TextAlign.right),
               _buildDataCell(_fmt(sgst), textAlign: pw.TextAlign.right),
               _buildDataCell(
@@ -264,19 +285,33 @@ class BillsReportPDF {
             ],
           );
         }).toList(),
+        // Total Row
+        pw.TableRow(
+          decoration: pw.BoxDecoration(color: PdfColors.grey300),
+          children: [
+            _buildTotalCell('Total'),
+            _buildTotalCell(''),
+            _buildTotalCell(''),
+            _buildTotalCell(_fmt(totalTaxable), isTotal: true),
+            _buildTotalCell(_fmt(totalGst), isTotal: true),
+            _buildTotalCell(_fmt(totalCgst), isTotal: true),
+            _buildTotalCell(_fmt(totalSgst), isTotal: true),
+            _buildTotalCell(_fmt(totalAmount), isTotal: true, isBold: true),
+          ],
+        ),
       ],
     );
   }
 
   pw.Widget _buildHeaderCell(String text) {
     return pw.Padding(
-      padding: pw.EdgeInsets.all(6),
+      padding: pw.EdgeInsets.all(4),
       child: pw.Text(
         text,
         style: pw.TextStyle(
           color: PdfColors.white,
           fontWeight: pw.FontWeight.bold,
-          fontSize: 9,
+          fontSize: 8,
         ),
         textAlign: pw.TextAlign.center,
       ),
@@ -289,11 +324,11 @@ class BillsReportPDF {
     bool isBold = false,
   }) {
     return pw.Padding(
-      padding: pw.EdgeInsets.all(4),
+      padding: pw.EdgeInsets.all(3),
       child: pw.Text(
         text,
         style: pw.TextStyle(
-          fontSize: 8,
+          fontSize: 7.5,
           fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
           color: PdfColors.black,
         ),
@@ -302,58 +337,42 @@ class BillsReportPDF {
     );
   }
 
-  pw.Widget _buildFooter(
-    double totalTaxable,
-    double totalGst,
-    double totalCgst,
-    double totalSgst,
-    double totalAmount,
-  ) {
-    // Calculate total tax at 18%
-    final totalTax = totalTaxable * 0.18;
-
-    return pw.Container(
-      padding: pw.EdgeInsets.all(12),
-      decoration: pw.BoxDecoration(
-        border: pw.Border(top: pw.BorderSide(color: PdfColors.black, width: 2)),
-      ),
-      child: pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildFooterItem('Total Taxable', _fmt(totalTaxable)),
-          _buildFooterItem('Total Tax (18%)', _fmt(totalTax)),
-          _buildFooterItem('Total GST', _fmt(totalGst)),
-          _buildFooterItem('Grand Total', _fmt(totalAmount), isTotal: true),
-        ],
+  pw.Widget _buildTotalCell(
+    String text, {
+    bool isTotal = false,
+    bool isBold = false,
+  }) {
+    return pw.Padding(
+      padding: pw.EdgeInsets.all(3),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(
+          fontSize: isTotal ? 8.5 : 7.5,
+          fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.bold,
+          color: PdfColors.black,
+        ),
+        textAlign: isTotal ? pw.TextAlign.right : pw.TextAlign.center,
       ),
     );
   }
 
-  pw.Widget _buildFooterItem(
-    String label,
-    String value, {
-    bool isTotal = false,
+  pw.Widget _buildFormulaCell(
+    String text, {
+    bool isBold = false,
+    bool isGreen = false,
+    double fontSize = 8,
   }) {
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.center,
-      children: [
-        pw.Text(
-          label,
-          style: pw.TextStyle(
-            fontSize: 9,
-            color: PdfColors.black,
-            fontWeight: isTotal ? pw.FontWeight.bold : pw.FontWeight.normal,
-          ),
+    return pw.Padding(
+      padding: pw.EdgeInsets.all(3),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(
+          fontSize: fontSize,
+          fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+          color: isGreen ? PdfColors.green : PdfColors.black,
         ),
-        pw.Text(
-          value,
-          style: pw.TextStyle(
-            fontSize: isTotal ? 14 : 11,
-            fontWeight: pw.FontWeight.bold,
-            color: PdfColors.black,
-          ),
-        ),
-      ],
+        textAlign: pw.TextAlign.right,
+      ),
     );
   }
 
