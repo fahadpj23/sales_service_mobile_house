@@ -12,6 +12,7 @@ import 'package:sales_stock/screens/admin/inventory/tv_stock_screen.dart';
 import 'package:sales_stock/screens/admin/reports/basemodel_report-screen.dart';
 import 'package:sales_stock/screens/admin/reports/bills_report_screen.dart';
 import 'package:sales_stock/screens/admin/reports/purchase_report_screen.dart';
+import 'package:sales_stock/screens/admin/reports/sales_search_screen.dart';
 import 'package:sales_stock/screens/admin/reports/seconds_phone_report.dart';
 import 'package:sales_stock/screens/admin/reports/shop_incentive_screen.dart';
 import 'package:sales_stock/screens/login_screen.dart';
@@ -1374,6 +1375,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => const PurchaseReportScreen(),
+                ),
+              );
+            },
+          ),
+          _buildDrawerItem(
+            Icons.info_outline,
+            'product sale Details',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      productDetails(formatNumber: _formatNumber, shops: shops),
                 ),
               );
             },
