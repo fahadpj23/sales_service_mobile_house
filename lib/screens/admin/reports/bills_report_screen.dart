@@ -1,4 +1,4 @@
-// lib/screens/admin/reports/bills_report_screen.dart
+// lib/screens/admin/reports/bills_report_screen.dart (Updated with scrollable TabBar)
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -40,6 +40,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   List<Map<String, dynamic>> _phoneBills = [];
   List<Map<String, dynamic>> _accessoriesBills = [];
   List<Map<String, dynamic>> _tvBills = [];
+  List<Map<String, dynamic>> _applianceBills = [];
 
   // Brand wise data
   Map<String, List<Map<String, dynamic>>> _brandWiseBills = {};
@@ -94,7 +95,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
 
     // Initialize controllers
     _editCustomerNameController = TextEditingController();
@@ -172,6 +173,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       _phoneBills.clear();
       _accessoriesBills.clear();
       _tvBills.clear();
+      _applianceBills.clear();
 
       for (var doc in billsSnapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
@@ -182,7 +184,9 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
         _allBills.add(data);
 
-        if (billType == 'GST Accessories') {
+        if (billType == 'Applianaces' || billType == 'Appliance') {
+          _applianceBills.add(data);
+        } else if (billType == 'GST Accessories') {
           _accessoriesBills.add(data);
         } else if (type == 'tv') {
           _tvBills.add(data);
@@ -389,6 +393,12 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     return bills;
   }
 
+  List<Map<String, dynamic>> _getFilteredApplianceBills() {
+    var bills = _filterBillsByTimePeriod(_applianceBills);
+    bills = _filterBillsByShop(bills);
+    return bills;
+  }
+
   double _calculateTotalAmount(List<Map<String, dynamic>> bills) {
     return bills.fold(0.0, (sum, bill) {
       final totalAmount = bill['totalAmount'] as num?;
@@ -415,10 +425,12 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final filteredPhoneBills = _getFilteredPhoneBills();
     final filteredAccessoriesBills = _getFilteredAccessoriesBills();
     final filteredTvBills = _getFilteredTvBills();
+    final filteredApplianceBills = _getFilteredApplianceBills();
 
     if (filteredPhoneBills.isEmpty &&
         filteredAccessoriesBills.isEmpty &&
-        filteredTvBills.isEmpty) {
+        filteredTvBills.isEmpty &&
+        filteredApplianceBills.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('No bills available to generate report'),
@@ -442,6 +454,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       phoneBills: filteredPhoneBills,
       accessoriesBills: filteredAccessoriesBills,
       tvBills: filteredTvBills,
+      applianceBills: filteredApplianceBills,
       periodLabel: _getPeriodLabel(),
       periodDateRange: _getPeriodDateRange(),
       shopName: shopName,
@@ -461,7 +474,9 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final type = bill['type'] as String?;
     String newEditBillType;
 
-    if (billType == 'GST Accessories') {
+    if (billType == 'Appliances' || billType == 'Appliance') {
+      newEditBillType = 'appliance';
+    } else if (billType == 'GST Accessories') {
       newEditBillType = 'accessories';
     } else if (type == 'tv') {
       newEditBillType = 'tv';
@@ -503,6 +518,21 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       if (originalTvData != null && originalTvData is Map<String, dynamic>) {
         if (serialNumber.isEmpty)
           serialNumber = originalTvData['serialNumber'] ?? '';
+      }
+    } else if (newEditBillType == 'appliance') {
+      final originalApplianceData = bill['originalApplianceData'];
+      if (originalApplianceData != null &&
+          originalApplianceData is Map<String, dynamic>) {
+        productName =
+            originalApplianceData['productName'] ?? bill['productName'] ?? '';
+      } else {
+        productName = bill['productName'] ?? '';
+      }
+      serialNumber = bill['serialNumber'] ?? '';
+      if (originalApplianceData != null &&
+          originalApplianceData is Map<String, dynamic>) {
+        if (serialNumber.isEmpty)
+          serialNumber = originalApplianceData['serialNumber'] ?? '';
       }
     } else {
       // Accessories
@@ -718,6 +748,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final filteredPhoneBills = _getFilteredPhoneBills();
     final filteredAccessoriesBills = _getFilteredAccessoriesBills();
     final filteredTvBills = _getFilteredTvBills();
+    final filteredApplianceBills = _getFilteredApplianceBills();
 
     return WillPopScope(
       onWillPop: () async {
@@ -746,89 +777,124 @@ class _BillsReportScreenState extends State<BillsReportScreen>
           automaticallyImplyLeading: false,
           bottom: _isEditMode
               ? null
-              : TabBar(
-                  controller: _tabController,
-                  tabs: [
-                    Tab(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.phone_android, size: 18),
-                          SizedBox(width: 6),
-                          Text('Phone '),
-                          Container(
-                            margin: EdgeInsets.only(left: 6),
-                            padding: EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '${filteredPhoneBills.length}',
-                              style: TextStyle(fontSize: 11),
-                            ),
+              : PreferredSize(
+                  preferredSize: Size.fromHeight(48),
+                  child: Container(
+                    color: primaryGreen,
+                    child: TabBar(
+                      controller: _tabController,
+                      isScrollable: true, // Enable scrolling
+                      tabs: [
+                        Tab(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.phone_android, size: 16),
+                              SizedBox(width: 4),
+                              Text('Phone'),
+                              Container(
+                                margin: EdgeInsets.only(left: 4),
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 5,
+                                  vertical: 1,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '${filteredPhoneBills.length}',
+                                  style: TextStyle(fontSize: 10),
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
-                    Tab(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.shopping_bag, size: 18),
-                          SizedBox(width: 6),
-                          Text(' Accessories'),
-                          Container(
-                            margin: EdgeInsets.only(left: 6),
-                            padding: EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '${filteredAccessoriesBills.length}',
-                              style: TextStyle(fontSize: 11),
-                            ),
+                        ),
+                        Tab(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.shopping_bag, size: 16),
+                              SizedBox(width: 4),
+                              Text('Accessories'),
+                              Container(
+                                margin: EdgeInsets.only(left: 4),
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 5,
+                                  vertical: 1,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '${filteredAccessoriesBills.length}',
+                                  style: TextStyle(fontSize: 10),
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
-                    Tab(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.tv, size: 18),
-                          SizedBox(width: 6),
-                          Text('TV '),
-                          Container(
-                            margin: EdgeInsets.only(left: 6),
-                            padding: EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '${filteredTvBills.length}',
-                              style: TextStyle(fontSize: 11),
-                            ),
+                        ),
+                        Tab(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.tv, size: 16),
+                              SizedBox(width: 4),
+                              Text('TV'),
+                              Container(
+                                margin: EdgeInsets.only(left: 4),
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 5,
+                                  vertical: 1,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '${filteredTvBills.length}',
+                                  style: TextStyle(fontSize: 10),
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                        Tab(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.kitchen, size: 16),
+                              SizedBox(width: 4),
+                              Text('Appliances'),
+                              Container(
+                                margin: EdgeInsets.only(left: 4),
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 5,
+                                  vertical: 1,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '${filteredApplianceBills.length}',
+                                  style: TextStyle(fontSize: 10),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      labelColor: Colors.white,
+                      unselectedLabelColor: Colors.white70,
+                      indicatorColor: Colors.white,
+                      indicatorWeight: 3,
+                      labelStyle: TextStyle(fontSize: 12),
+                      unselectedLabelStyle: TextStyle(fontSize: 12),
+                      padding: EdgeInsets.symmetric(horizontal: 8),
                     ),
-                  ],
-                  labelColor: Colors.white,
-                  unselectedLabelColor: Colors.white70,
-                  indicatorColor: Colors.white,
-                  indicatorWeight: 3,
+                  ),
                 ),
           actions: _isEditMode
               ? []
@@ -861,6 +927,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 filteredPhoneBills,
                 filteredAccessoriesBills,
                 filteredTvBills,
+                filteredApplianceBills,
               ),
       ),
     );
@@ -870,6 +937,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     List<Map<String, dynamic>> filteredPhoneBills,
     List<Map<String, dynamic>> filteredAccessoriesBills,
     List<Map<String, dynamic>> filteredTvBills,
+    List<Map<String, dynamic>> filteredApplianceBills,
   ) {
     return Column(
       children: [
@@ -887,6 +955,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 true,
               ),
               _buildBillsList(filteredTvBills, 'TV Bills', true),
+              _buildBillsList(filteredApplianceBills, 'Appliance Bills', true),
             ],
           ),
         ),
@@ -1567,7 +1636,10 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     }
 
     bool isPhoneBill =
-        bill['type'] != 'tv' && bill['billType'] != 'GST Accessories';
+        bill['type'] != 'tv' &&
+        bill['billType'] != 'GST Accessories' &&
+        bill['billType'] != 'Appliances' &&
+        bill['billType'] != 'Appliance';
 
     return Card(
       margin: EdgeInsets.only(bottom: 8),
@@ -1866,7 +1938,8 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final type = bill['type'] as String?;
     final isTvBill = type == 'tv';
     final isAccessoriesBill = billType == 'GST Accessories';
-    final isPhoneBill = !isTvBill && !isAccessoriesBill;
+    final isApplianceBill = billType == 'Appliances' || billType == 'Appliance';
+    final isPhoneBill = !isTvBill && !isAccessoriesBill && !isApplianceBill;
 
     if (product != null && product is Map<String, dynamic>) {
       productName = product['productName'] ?? bill['productName'] ?? 'N/A';
@@ -1900,8 +1973,31 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       }
     }
 
-    final identifier = isTvBill ? 'Serial' : 'IMEI';
-    final identifierValue = isTvBill ? serialNumber : imei;
+    final originalApplianceData = bill['originalApplianceData'];
+    String applianceSerialNumber = bill['serialNumber'] ?? '';
+    if (originalApplianceData != null &&
+        originalApplianceData is Map<String, dynamic>) {
+      if (applianceSerialNumber.isEmpty) {
+        applianceSerialNumber = originalApplianceData['serialNumber'] ?? '';
+      }
+      if (productName == 'N/A' || productName.isEmpty) {
+        productName =
+            originalApplianceData['productName'] ??
+            bill['productName'] ??
+            'N/A';
+      }
+    }
+
+    final identifier = isTvBill
+        ? 'Serial'
+        : isApplianceBill
+        ? 'Serial'
+        : 'IMEI';
+    final identifierValue = isTvBill
+        ? serialNumber
+        : isApplianceBill
+        ? applianceSerialNumber
+        : imei;
 
     return Card(
       margin: EdgeInsets.only(bottom: 12),
@@ -1936,6 +2032,8 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                                     ? Icons.tv
                                     : isAccessoriesBill
                                     ? Icons.shopping_bag
+                                    : isApplianceBill
+                                    ? Icons.kitchen
                                     : Icons.phone_android,
                                 size: 18,
                                 color: primaryGreen,
@@ -2041,12 +2139,15 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                       ),
                     ],
                   ),
-                  if (identifierValue.isNotEmpty && !isAccessoriesBill) ...[
+                  if (identifierValue.isNotEmpty &&
+                      (!isAccessoriesBill || isApplianceBill)) ...[
                     SizedBox(height: 6),
                     Row(
                       children: [
                         _buildInfoChip(
-                          isTvBill ? Icons.confirmation_number : Icons.qr_code,
+                          isTvBill || isApplianceBill
+                              ? Icons.confirmation_number
+                              : Icons.qr_code,
                           '$identifier: $identifierValue',
                           fontSize: 10,
                         ),
@@ -2209,7 +2310,8 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final type = bill['type'] as String?;
     final isTvBill = type == 'tv';
     final isAccessoriesBill = billType == 'GST Accessories';
-    final isPhoneBill = !isTvBill && !isAccessoriesBill;
+    final isApplianceBill = billType == 'Appliances' || billType == 'Appliance';
+    final isPhoneBill = !isTvBill && !isAccessoriesBill && !isApplianceBill;
 
     if (product != null && product is Map<String, dynamic>) {
       productName = product['productName'] ?? bill['productName'] ?? 'N/A';
@@ -2248,6 +2350,21 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       }
     }
 
+    final originalApplianceData = bill['originalApplianceData'];
+    String applianceSerialNumber = bill['serialNumber'] ?? '';
+    if (originalApplianceData != null &&
+        originalApplianceData is Map<String, dynamic>) {
+      if (applianceSerialNumber.isEmpty) {
+        applianceSerialNumber = originalApplianceData['serialNumber'] ?? '';
+      }
+      if (productName == 'N/A' || productName.isEmpty) {
+        productName =
+            originalApplianceData['productName'] ??
+            bill['productName'] ??
+            'N/A';
+      }
+    }
+
     showDialog(
       context: context,
       builder: (context) {
@@ -2272,6 +2389,8 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                               ? Icons.tv
                               : isAccessoriesBill
                               ? Icons.shopping_bag
+                              : isApplianceBill
+                              ? Icons.kitchen
                               : Icons.phone_android,
                           color: primaryGreen,
                         ),
@@ -2345,10 +2464,15 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                             'Discount',
                             '₹${widget.formatNumber(productDiscount)}',
                           ),
-                        if (imei.isNotEmpty && !isTvBill && !isAccessoriesBill)
-                          _buildDetailRowWithCopy('IMEI', imei, isPhoneBill),
+                        if (imei.isNotEmpty && isPhoneBill)
+                          _buildDetailRowWithCopy('IMEI', imei, true),
                         if (serialNumber.isNotEmpty && isTvBill)
                           _buildDetailRow('Serial Number', serialNumber),
+                        if (applianceSerialNumber.isNotEmpty && isApplianceBill)
+                          _buildDetailRow(
+                            'Serial Number',
+                            applianceSerialNumber,
+                          ),
                         if (originalTvData != null && isTvBill) ...[
                           SizedBox(height: 8),
                           Divider(),
@@ -2376,9 +2500,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                             '₹${widget.formatNumber(originalTvData['modelPrice']?.toDouble() ?? originalTvData['price']?.toDouble() ?? 0.0)}',
                           ),
                         ],
-                        if (originalPhoneData != null &&
-                            !isTvBill &&
-                            !isAccessoriesBill) ...[
+                        if (originalPhoneData != null && isPhoneBill) ...[
                           SizedBox(height: 8),
                           Divider(),
                           SizedBox(height: 8),
@@ -2401,6 +2523,36 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                           _buildDetailRow(
                             'Original Price',
                             '₹${widget.formatNumber(originalPhoneData['productPrice']?.toDouble() ?? 0.0)}',
+                          ),
+                        ],
+                        if (originalApplianceData != null &&
+                            isApplianceBill) ...[
+                          SizedBox(height: 8),
+                          Divider(),
+                          SizedBox(height: 8),
+                          Text(
+                            'Appliance Details',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                          SizedBox(height: 6),
+                          _buildDetailRow(
+                            'Brand',
+                            originalApplianceData['brand'] ?? 'N/A',
+                          ),
+                          _buildDetailRow(
+                            'Model',
+                            originalApplianceData['modelName'] ?? 'N/A',
+                          ),
+                          _buildDetailRow(
+                            'Type',
+                            originalApplianceData['applianceType'] ?? 'N/A',
+                          ),
+                          _buildDetailRow(
+                            'Original Price',
+                            '₹${widget.formatNumber(originalApplianceData['price']?.toDouble() ?? 0.0)}',
                           ),
                         ],
                         SizedBox(height: 8),

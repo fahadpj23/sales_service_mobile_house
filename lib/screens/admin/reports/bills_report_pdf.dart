@@ -30,13 +30,18 @@ class BillsReportPDF {
     required List<Map<String, dynamic>> phoneBills,
     required List<Map<String, dynamic>> accessoriesBills,
     required List<Map<String, dynamic>> tvBills,
+    required List<Map<String, dynamic>> applianceBills,
     required String periodLabel,
     required String periodDateRange,
     required String shopName,
     required bool isLoading,
     required Function(bool) setLoading,
   }) async {
-    if (phoneBills.isEmpty && accessoriesBills.isEmpty && tvBills.isEmpty) {
+    // Check if there's any data to generate report
+    if (phoneBills.isEmpty &&
+        accessoriesBills.isEmpty &&
+        tvBills.isEmpty &&
+        applianceBills.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('No bills available to generate report'),
@@ -52,7 +57,12 @@ class BillsReportPDF {
       final pdf = pw.Document();
 
       // Combine all bills
-      final allBills = [...phoneBills, ...accessoriesBills, ...tvBills];
+      final allBills = [
+        ...phoneBills,
+        ...accessoriesBills,
+        ...tvBills,
+        ...applianceBills,
+      ];
 
       // Calculate totals from taxable + GST
       double totalTaxable = 0.0;
@@ -209,6 +219,24 @@ class BillsReportPDF {
               ),
             ],
           ),
+          if (shopName != 'All Shops')
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.center,
+              children: [
+                pw.Text(
+                  'Shop: ',
+                  style: pw.TextStyle(
+                    fontSize: 11,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.black,
+                  ),
+                ),
+                pw.Text(
+                  shopName,
+                  style: pw.TextStyle(fontSize: 11, color: PdfColors.black),
+                ),
+              ],
+            ),
         ],
       ),
     );
@@ -303,6 +331,21 @@ class BillsReportPDF {
     );
   }
 
+  pw.Widget _buildSummaryHeaderCell(String text) {
+    return pw.Padding(
+      padding: pw.EdgeInsets.all(8),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(
+          color: PdfColors.white,
+          fontWeight: pw.FontWeight.bold,
+          fontSize: 10,
+        ),
+        textAlign: pw.TextAlign.center,
+      ),
+    );
+  }
+
   pw.Widget _buildHeaderCell(String text) {
     return pw.Padding(
       padding: pw.EdgeInsets.all(4),
@@ -356,24 +399,11 @@ class BillsReportPDF {
     );
   }
 
-  pw.Widget _buildFormulaCell(
-    String text, {
-    bool isBold = false,
-    bool isGreen = false,
-    double fontSize = 8,
-  }) {
-    return pw.Padding(
-      padding: pw.EdgeInsets.all(3),
-      child: pw.Text(
-        text,
-        style: pw.TextStyle(
-          fontSize: fontSize,
-          fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
-          color: isGreen ? PdfColors.green : PdfColors.black,
-        ),
-        textAlign: pw.TextAlign.right,
-      ),
-    );
+  double _calculateTotal(List<Map<String, dynamic>> bills) {
+    return bills.fold(0.0, (sum, bill) {
+      final totalAmount = bill['totalAmount'] as num?;
+      return sum + (totalAmount?.toDouble() ?? 0.0);
+    });
   }
 
   DateTime _getBillDate(Map<String, dynamic> bill) {

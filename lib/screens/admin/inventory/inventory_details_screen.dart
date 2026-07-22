@@ -23,7 +23,6 @@ class InventoryDetailsScreen extends StatefulWidget {
 class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   String? _selectedShopId;
-  String _selectedStatus = 'available';
   bool _isLoading = true;
   List<Map<String, dynamic>> _allInventory = [];
   List<Map<String, dynamic>> _filteredInventory = [];
@@ -33,13 +32,9 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
   final Color secondaryGreen = const Color(0xFF1A7D4A);
   final Color lightGreen = const Color(0xFFE8F5E9);
 
-  // Statistics
+  // Statistics - Only Available
   int _totalAvailable = 0;
-  int _totalSold = 0;
-  int _totalReturned = 0;
   double _totalAvailableValue = 0.0;
-  double _totalSoldValue = 0.0;
-  double _totalReturnedValue = 0.0;
 
   // User info (you can get this from auth)
   String _currentUserId = "admin@gmail.com";
@@ -65,32 +60,27 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Fetch phone stock items (available and sold)
+      // Fetch only available phone stock items
       final phoneStockSnapshot = await _firestore
           .collection('phoneStock')
+          .where('status', isEqualTo: 'available')
           .get();
 
       _allInventory.clear();
       _totalAvailable = 0;
-      _totalSold = 0;
-      _totalReturned = 0;
       _totalAvailableValue = 0.0;
-      _totalSoldValue = 0.0;
-      _totalReturnedValue = 0.0;
 
       for (var doc in phoneStockSnapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
         final price = (data['productPrice'] ?? 0).toDouble();
         final status = data['status'] ?? 'available';
 
-        // Get updatedAt timestamp - use updatedAt field first
+        // Get updatedAt timestamp
         DateTime updatedDate;
         if (data['updatedAt'] is Timestamp) {
           updatedDate = (data['updatedAt'] as Timestamp).toDate();
         } else if (data['uploadedAt'] is Timestamp) {
           updatedDate = (data['uploadedAt'] as Timestamp).toDate();
-        } else if (status == 'sold' && data['soldAt'] is Timestamp) {
-          updatedDate = (data['soldAt'] as Timestamp).toDate();
         } else {
           updatedDate = DateTime.now();
         }
@@ -118,24 +108,13 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
           'productBrand': data['productBrand'] ?? 'Unknown',
           'productPrice': price,
           'imei': data['imei'] ?? 'N/A',
-          'status': status,
+          'status': 'available',
           'updatedAt': updatedDate,
           'uploadedAt': data['uploadedAt'] is Timestamp
               ? (data['uploadedAt'] as Timestamp).toDate()
               : DateTime.now(),
           'uploadedBy': data['uploadedBy'] ?? 'Unknown',
           'uploadedById': data['uploadedById'] ?? '',
-          // Additional fields for sold items
-          'soldAt': data['soldAt'] is Timestamp
-              ? (data['soldAt'] as Timestamp).toDate()
-              : null,
-          'soldTo': data['soldTo'] ?? '',
-          'soldBillNo': data['soldBillNo'] ?? '',
-          'soldAmount': (data['soldAmount'] as num?)?.toDouble() ?? price,
-          'purchaseMode': data['purchaseMode'] ?? '',
-          'financeType': data['financeType'] ?? '',
-          'soldBy': data['soldBy'] ?? '',
-          'soldShop': data['soldShop'] ?? '',
           'createdAt': data['createdAt'] is Timestamp
               ? (data['createdAt'] as Timestamp).toDate()
               : data['uploadedAt'] is Timestamp
@@ -150,64 +129,8 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         });
 
         // Update statistics
-        if (status == 'available') {
-          _totalAvailable++;
-          _totalAvailableValue += price;
-        } else if (status == 'sold') {
-          _totalSold++;
-          _totalSoldValue += price;
-        }
-      }
-
-      // Fetch returned items
-      final returnedSnapshot = await _firestore
-          .collection('phoneReturns')
-          .get();
-
-      for (var doc in returnedSnapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-        final price = (data['productPrice'] ?? 0).toDouble();
-
-        // Get updatedAt timestamp - use updatedAt or returnedAt
-        DateTime updatedDate;
-        if (data['updatedAt'] is Timestamp) {
-          updatedDate = (data['updatedAt'] as Timestamp).toDate();
-        } else if (data['returnedAt'] is Timestamp) {
-          updatedDate = (data['returnedAt'] as Timestamp).toDate();
-        } else {
-          updatedDate = DateTime.now();
-        }
-
-        _allInventory.add({
-          'id': doc.id,
-          'type': 'phone_return',
-          'shopId': data['originalShopId'] ?? '',
-          'shopName': data['originalShopName'] ?? 'Unknown Shop',
-          'productName': data['productName'] ?? 'Unknown',
-          'productBrand': data['productBrand'] ?? 'Unknown',
-          'productPrice': price,
-          'imei': data['imei'] ?? 'N/A',
-          'status': 'returned',
-          'updatedAt': updatedDate,
-          'returnedAt': data['returnedAt'] is Timestamp
-              ? (data['returnedAt'] as Timestamp).toDate()
-              : DateTime.now(),
-          'returnedBy': data['returnedBy'] ?? 'Unknown',
-          'reason': data['reason'] ?? '',
-          'createdAt': data['returnedAt'] is Timestamp
-              ? (data['returnedAt'] as Timestamp).toDate()
-              : DateTime.now(),
-          // Return items don't have transfer details
-          'previousShopId': '',
-          'previousShopName': '',
-          'transferredAt': null,
-          'transferredBy': '',
-          'transferredById': '',
-        });
-
-        // Update statistics for returned items
-        _totalReturned++;
-        _totalReturnedValue += price;
+        _totalAvailable++;
+        _totalAvailableValue += price;
       }
 
       _applyFilters();
@@ -226,38 +149,12 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
       (sum, item) => sum + (item['productPrice'] ?? 0),
     );
 
-    String title;
-    IconData icon;
-    Color color;
-
-    switch (_selectedStatus) {
-      case 'available':
-        title = 'Available';
-        icon = Icons.check_circle;
-        color = const Color(0xFF4CAF50);
-        break;
-      case 'sold':
-        title = 'Sold';
-        icon = Icons.shopping_cart;
-        color = const Color(0xFF2196F3);
-        break;
-      case 'returned':
-        title = 'Returned';
-        icon = Icons.assignment_return;
-        color = const Color(0xFFFF9800);
-        break;
-      default:
-        title = 'Items';
-        icon = Icons.inventory;
-        color = primaryGreen;
-    }
-
     return {
-      'title': title,
+      'title': 'Available',
       'count': count,
       'value': value,
-      'icon': icon,
-      'color': color,
+      'icon': Icons.check_circle,
+      'color': const Color(0xFF4CAF50),
     };
   }
 
@@ -272,8 +169,8 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
           return false;
         }
 
-        // Status filter - Always filter by selected status
-        if (item['status'] != _selectedStatus) {
+        // Only show available items
+        if (item['status'] != 'available') {
           return false;
         }
 
@@ -342,7 +239,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         return true;
       }).toList();
 
-      // CRITICAL: Sort by updatedAt (newest first) for all items
+      // Sort by updatedAt (newest first)
       _filteredInventory.sort((a, b) {
         final dateA = a['updatedAt'] as DateTime;
         final dateB = b['updatedAt'] as DateTime;
@@ -354,7 +251,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
   void _clearAllFilters() {
     setState(() {
       _selectedShopId = null;
-      _selectedStatus = 'available';
       _searchController.clear();
     });
     _applyFilters();
@@ -513,106 +409,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     }
   }
 
-  // Return Phone Function
-  Future<void> _returnPhone(Map<String, dynamic> item) async {
-    if (item['status'] != 'available') {
-      _showSnackbar('Only available items can be returned', Colors.orange);
-      return;
-    }
-
-    final TextEditingController reasonController = TextEditingController();
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Return Phone'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Returning: ${item['productName']}\n'
-              'IMEI: ${_formatImeiForDisplay(item['imei'])}\n'
-              'Shop: ${item['shopName']}',
-              style: const TextStyle(fontSize: 12),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: reasonController,
-              decoration: const InputDecoration(
-                labelText: 'Return Reason *',
-                hintText: 'e.g., Defective, Damaged, Wrong product',
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-              ),
-              maxLines: 3,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (reasonController.text.trim().isEmpty) {
-                _showSnackbar('Please provide a return reason', Colors.orange);
-                return;
-              }
-              Navigator.pop(context, true);
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Return', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    final reason = reasonController.text.trim();
-    _showLoadingDialog();
-
-    try {
-      final docRef = _firestore.collection('phoneStock').doc(item['id']);
-      final docSnapshot = await docRef.get();
-      final data = docSnapshot.data() as Map<String, dynamic>;
-
-      // Add to returns collection
-      await _firestore.collection('phoneReturns').add({
-        'originalShopId': item['shopId'],
-        'originalShopName': item['shopName'],
-        'productName': item['productName'],
-        'productBrand': item['productBrand'],
-        'productPrice': item['productPrice'],
-        'imei': item['imei'],
-        'reason': reason,
-        'returnedAt': FieldValue.serverTimestamp(),
-        'returnedBy': _currentUserName,
-        'returnedById': _currentUserId,
-        'status': 'returned',
-      });
-
-      // Delete from phoneStock
-      await docRef.delete();
-
-      if (mounted) {
-        Navigator.pop(context);
-        _showSnackbar('Phone returned successfully', Colors.green);
-        await _loadAllInventory();
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
-        _showSnackbar('Error returning phone: $e', Colors.red);
-      }
-    }
-  }
-
-  // Delete Phone from Inventory (Admin only)
+  // Delete Phone from Inventory
   Future<void> _deletePhonePermanently(Map<String, dynamic> item) async {
     final confirmed = await _showConfirmationDialog(
       title: 'Delete Phone Permanently',
@@ -621,8 +418,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
           'Are you sure you want to permanently delete:\n'
           'Product: ${item['productName']}\n'
           'IMEI: ${_formatImeiForDisplay(item['imei'])}\n'
-          'Shop: ${item['shopName']}\n'
-          'Status: ${item['status']}\n\n'
+          'Shop: ${item['shopName']}\n\n'
           'This will completely remove the item from inventory.',
       confirmText: 'Delete Permanently',
       confirmColor: Colors.red,
@@ -635,8 +431,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     try {
       if (item['type'] == 'phone_stock') {
         await _firestore.collection('phoneStock').doc(item['id']).delete();
-      } else if (item['type'] == 'phone_return') {
-        await _firestore.collection('phoneReturns').doc(item['id']).delete();
       }
 
       if (mounted) {
@@ -743,7 +537,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     );
   }
 
-  // Show item action menu (Transfer, Return, Delete)
+  // Show item action menu (Transfer, Delete)
   void _showItemActionMenu(Map<String, dynamic> item) {
     showModalBottomSheet(
       context: context,
@@ -777,7 +571,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
             ),
             const SizedBox(height: 12),
 
-            // Action buttons with fixed alignment
+            // Action buttons
             if (item['status'] == 'available' && item['type'] == 'phone_stock')
               _buildActionTile(
                 icon: Icons.swap_horiz,
@@ -786,17 +580,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                 onTap: () {
                   Navigator.pop(context);
                   _transferToAnotherShop(item);
-                },
-              ),
-
-            if (item['status'] == 'available' && item['type'] == 'phone_stock')
-              _buildActionTile(
-                icon: Icons.assignment_return,
-                label: 'Return Phone',
-                color: Colors.orange,
-                onTap: () {
-                  Navigator.pop(context);
-                  _returnPhone(item);
                 },
               ),
 
@@ -961,7 +744,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'Inventory Management',
+          'Available Inventory',
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 16,
@@ -973,9 +756,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         elevation: 2,
         centerTitle: true,
         actions: [
-          if (_selectedShopId != null ||
-              _selectedStatus != 'available' ||
-              _searchController.text.isNotEmpty)
+          if (_selectedShopId != null || _searchController.text.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.clear_all, size: 20),
               onPressed: _clearAllFilters,
@@ -1104,35 +885,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                               ],
                             ),
                           ),
-
-                          const SizedBox(height: 8),
-
-                          // Status Chips
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Status:',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey[700],
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: Row(
-                                  children: [
-                                    _buildStatusChip('Available', 'available'),
-                                    const SizedBox(width: 4),
-                                    _buildStatusChip('Sold', 'sold'),
-                                    const SizedBox(width: 4),
-                                    _buildStatusChip('Returned', 'returned'),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
                         ],
                       ),
                     ),
@@ -1145,33 +897,17 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                     horizontal: 10,
                     vertical: 4,
                   ),
-                  child: Row(
-                    children: [
-                      _buildStatItem(
-                        'Available',
-                        _totalAvailable,
-                        _totalAvailableValue,
-                        const Color(0xFF4CAF50),
-                        Icons.check_circle,
-                      ),
-                      const SizedBox(width: 6),
-                      _buildStatItem(
-                        'Sold',
-                        _totalSold,
-                        _totalSoldValue,
-                        const Color(0xFF2196F3),
-                        Icons.shopping_cart,
-                      ),
-                      const SizedBox(width: 6),
-                      _buildStatItem(
-                        'Returned',
-                        _totalReturned,
-                        _totalReturnedValue,
-                        const Color(0xFFFF9800),
-                        Icons.assignment_return,
-                      ),
-                    ],
-                  ),
+                  // child: Row(
+                  //   children: [
+                  //     _buildStatItem(
+                  //       'Available',
+                  //       _totalAvailable,
+                  //       _totalAvailableValue,
+                  //       const Color(0xFF4CAF50),
+                  //       Icons.check_circle,
+                  //     ),
+                  //   ],
+                  // ),
                 ),
 
                 // Shop selection indicator
@@ -1268,48 +1004,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     );
   }
 
-  Widget _buildStatusChip(String label, String value) {
-    final isSelected = _selectedStatus == value;
-    Color chipColor;
-
-    switch (value) {
-      case 'available':
-        chipColor = const Color(0xFF4CAF50);
-        break;
-      case 'sold':
-        chipColor = const Color(0xFF2196F3);
-        break;
-      case 'returned':
-        chipColor = const Color(0xFFFF9800);
-        break;
-      default:
-        chipColor = primaryGreen;
-    }
-
-    return ChoiceChip(
-      label: Text(
-        label,
-        style: TextStyle(
-          color: isSelected ? Colors.white : chipColor,
-          fontSize: 10,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-      selected: isSelected,
-      onSelected: (selected) {
-        setState(() {
-          _selectedStatus = value;
-        });
-        _applyFilters();
-      },
-      backgroundColor: chipColor.withOpacity(0.1),
-      selectedColor: chipColor,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      labelPadding: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-    );
-  }
-
   Widget _buildCurrentTabStats() {
     final stats = _getCurrentTabStats();
 
@@ -1400,13 +1094,13 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
             Icon(Icons.inventory_2, size: 48, color: Colors.grey[400]),
             const SizedBox(height: 10),
             Text(
-              'No items found',
+              'No available items found',
               style: TextStyle(fontSize: 14, color: Colors.grey[600]),
             ),
             const SizedBox(height: 4),
             Text(
               _selectedShopId != null
-                  ? 'No ${_selectedStatus} items found for this shop'
+                  ? 'No available items found for this shop'
                   : 'Try changing your filters or search',
               style: TextStyle(fontSize: 11, color: Colors.grey[500]),
             ),
@@ -1442,31 +1136,9 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     String status = item['status'];
     DateTime updatedDate = item['updatedAt'] as DateTime;
 
-    Color statusColor;
-    IconData statusIcon;
-    String statusText;
-
-    switch (status) {
-      case 'available':
-        statusColor = const Color(0xFF4CAF50);
-        statusIcon = Icons.check_circle;
-        statusText = 'Available';
-        break;
-      case 'sold':
-        statusColor = const Color(0xFF2196F3);
-        statusIcon = Icons.shopping_cart;
-        statusText = 'Sold';
-        break;
-      case 'returned':
-        statusColor = const Color(0xFFFF9800);
-        statusIcon = Icons.assignment_return;
-        statusText = 'Returned';
-        break;
-      default:
-        statusColor = Colors.grey;
-        statusIcon = Icons.help;
-        statusText = status;
-    }
+    Color statusColor = const Color(0xFF4CAF50);
+    IconData statusIcon = Icons.check_circle;
+    String statusText = 'Available';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1553,9 +1225,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                     ),
                   ),
                   Text(
-                    status == 'sold' && item['soldAmount'] != null
-                        ? '₹${widget.formatNumber(item['soldAmount'])}'
-                        : '₹${widget.formatNumber(item['productPrice'])}',
+                    '₹${widget.formatNumber(item['productPrice'])}',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -1625,17 +1295,11 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
-                        status == 'sold'
-                            ? 'Sold To'
-                            : (item['type'] == 'phone_return'
-                                  ? 'Returned By'
-                                  : 'Added By'),
+                        'Added By',
                         style: TextStyle(fontSize: 9, color: Colors.grey[600]),
                       ),
                       Text(
-                        status == 'sold'
-                            ? item['soldTo'] ?? ''
-                            : (item['returnedBy'] ?? item['uploadedBy']),
+                        item['uploadedBy'] ?? '',
                         style: TextStyle(fontSize: 10, color: Colors.grey),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -1662,22 +1326,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                         ),
                       ),
                     ],
-                  ),
-                ),
-              if (item['type'] == 'phone_return' && item['reason'] != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    'Reason: ${item['reason']}',
-                    style: TextStyle(fontSize: 9, color: Colors.grey[600]),
-                  ),
-                ),
-              if (status == 'sold' && item['soldBillNo'] != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    'Bill No: ${item['soldBillNo']}',
-                    style: TextStyle(fontSize: 9, color: Colors.grey[600]),
                   ),
                 ),
             ],
@@ -1750,48 +1398,28 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                           horizontal: 12,
                         ),
                         decoration: BoxDecoration(
-                          color: _getStatusColor(status).withOpacity(0.1),
+                          color: Colors.green.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: _getStatusColor(status).withOpacity(0.3),
+                            color: Colors.green.withOpacity(0.3),
                           ),
                         ),
                         child: Row(
                           children: [
                             Icon(
-                              _getStatusIcon(status),
-                              color: _getStatusColor(status),
+                              Icons.check_circle,
+                              color: Colors.green,
                               size: 18,
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              'Status: ${status.toUpperCase()}',
+                              'Status: AVAILABLE',
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.bold,
-                                color: _getStatusColor(status),
+                                color: Colors.green,
                               ),
                             ),
-                            const Spacer(),
-                            if (status == 'sold')
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.green.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: const Text(
-                                  'Completed',
-                                  style: TextStyle(
-                                    fontSize: 9,
-                                    color: Colors.green,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
                           ],
                         ),
                       ),
@@ -1814,12 +1442,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                           '₹${widget.formatNumber(item['productPrice'] ?? 0)}',
                           icon: Icons.currency_rupee,
                         ),
-                        if (status == 'sold' && item['soldAmount'] != null)
-                          _buildDetailRow(
-                            'Sold Amount',
-                            '₹${widget.formatNumber(item['soldAmount'])}',
-                            icon: Icons.monetization_on,
-                          ),
                         _buildDetailRow(
                           'IMEI Number',
                           _formatImeiForDisplay(item['imei'] ?? 'N/A'),
@@ -1849,12 +1471,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                           item['shopId'] ?? 'N/A',
                           icon: Icons.storefront,
                         ),
-                        if (status == 'sold' && item['soldShop'] != null)
-                          _buildDetailRow(
-                            'Sold From',
-                            item['soldShop'] ?? 'N/A',
-                            icon: Icons.store_mall_directory,
-                          ),
                       ]),
 
                       // Transfer Information (if transferred)
@@ -1900,69 +1516,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                             ),
                         ]),
 
-                      // Sale Information (if sold)
-                      if (status == 'sold')
-                        _buildDetailSection('Sale Information', [
-                          _buildDetailRow(
-                            'Customer',
-                            item['soldTo'] ?? 'N/A',
-                            icon: Icons.person,
-                          ),
-                          _buildDetailRow(
-                            'Bill Number',
-                            item['soldBillNo'] ?? 'N/A',
-                            icon: Icons.receipt,
-                          ),
-                          _buildDetailRow(
-                            'Purchase Mode',
-                            item['purchaseMode'] ?? 'N/A',
-                            icon: Icons.payment,
-                          ),
-                          _buildDetailRow(
-                            'Finance Type',
-                            item['financeType'] ?? 'N/A',
-                            icon: Icons.account_balance,
-                          ),
-                          _buildDetailRow(
-                            'Sold By',
-                            item['soldBy'] ?? 'N/A',
-                            icon: Icons.person_outline,
-                          ),
-                          _buildDetailRow(
-                            'Sold Date',
-                            item['soldAt'] != null
-                                ? DateFormat(
-                                    'dd MMM yyyy, hh:mm a',
-                                  ).format(item['soldAt'])
-                                : 'N/A',
-                            icon: Icons.calendar_today,
-                          ),
-                        ]),
-
-                      // Return Information (if returned)
-                      if (status == 'returned')
-                        _buildDetailSection('Return Information', [
-                          _buildDetailRow(
-                            'Returned By',
-                            item['returnedBy'] ?? 'N/A',
-                            icon: Icons.person_outline,
-                          ),
-                          _buildDetailRow(
-                            'Return Reason',
-                            item['reason'] ?? 'N/A',
-                            icon: Icons.info_outline,
-                          ),
-                          _buildDetailRow(
-                            'Returned Date',
-                            item['returnedAt'] != null
-                                ? DateFormat(
-                                    'dd MMM yyyy, hh:mm a',
-                                  ).format(item['returnedAt'])
-                                : 'N/A',
-                            icon: Icons.calendar_today,
-                          ),
-                        ]),
-
                       // Timestamp Section
                       _buildDetailSection('Timestamps', [
                         _buildDetailRow(
@@ -1995,33 +1548,23 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                           icon: Icons.badge,
                         ),
                       ]),
-
-                      // Additional Info (if available)
-                      if (item['notes'] != null || item['description'] != null)
-                        _buildDetailSection('Additional Notes', [
-                          _buildDetailRow(
-                            'Notes',
-                            item['notes'] ?? item['description'] ?? 'N/A',
-                            icon: Icons.note,
-                          ),
-                        ]),
                     ],
                   ),
                 ),
               ),
 
-              // Action Buttons with proper alignment
+              // Action Buttons
               const SizedBox(height: 12),
               const Divider(height: 1),
               const SizedBox(height: 12),
 
-              // Action buttons using Wrap for proper alignment
+              // Action buttons
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 alignment: WrapAlignment.center,
                 children: [
-                  // Transfer Button (only for available items)
+                  // Transfer Button
                   if (status == 'available' && item['type'] == 'phone_stock')
                     SizedBox(
                       width: 90,
@@ -2044,30 +1587,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                       ),
                     ),
 
-                  // Return Button (only for available items)
-                  if (status == 'available' && item['type'] == 'phone_stock')
-                    SizedBox(
-                      width: 90,
-                      height: 36,
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _returnPhone(item);
-                        },
-                        icon: const Icon(Icons.assignment_return, size: 16),
-                        label: const Text(
-                          'Return',
-                          style: TextStyle(fontSize: 11),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                        ),
-                      ),
-                    ),
-
-                  // Delete Button (always visible)
+                  // Delete Button
                   SizedBox(
                     width: 90,
                     height: 36,
@@ -2198,33 +1718,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         ],
       ),
     );
-  }
-
-  // Helper methods for status colors and icons
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'available':
-        return const Color(0xFF4CAF50);
-      case 'sold':
-        return const Color(0xFF2196F3);
-      case 'returned':
-        return const Color(0xFFFF9800);
-      default:
-        return Colors.grey;
-    }
-  }
-
-  IconData _getStatusIcon(String status) {
-    switch (status) {
-      case 'available':
-        return Icons.check_circle;
-      case 'sold':
-        return Icons.shopping_cart;
-      case 'returned':
-        return Icons.assignment_return;
-      default:
-        return Icons.help;
-    }
   }
 }
 
