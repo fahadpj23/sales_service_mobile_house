@@ -38,6 +38,8 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
     'Last 30 Days',
     'This Month',
     'Last Month',
+    'This Year', // NEW: This Year
+    'Last Year', // NEW: Last Year
     'Custom Range',
   ];
 
@@ -105,6 +107,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
     if (_selectedFilter != null && _selectedFilter != 'All') {
       DateTime now = DateTime.now();
       DateTime startDate;
+      DateTime endDate;
 
       switch (_selectedFilter) {
         case 'Last 7 Days':
@@ -127,7 +130,23 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
           break;
         case 'Last Month':
           startDate = DateTime(now.year, now.month - 1, 1);
-          DateTime endDate = DateTime(now.year, now.month, 0);
+          endDate = DateTime(now.year, now.month, 0);
+          filtered = filtered
+              .where(
+                (p) =>
+                    p['date'].isAfter(startDate) && p['date'].isBefore(endDate),
+              )
+              .toList();
+          break;
+        case 'This Year':
+          startDate = DateTime(now.year, 1, 1);
+          filtered = filtered
+              .where((p) => p['date'].isAfter(startDate))
+              .toList();
+          break;
+        case 'Last Year':
+          startDate = DateTime(now.year - 1, 1, 1);
+          endDate = DateTime(now.year, 1, 1);
           filtered = filtered
               .where(
                 (p) =>
@@ -279,7 +298,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                     ),
                     pw.SizedBox(height: 4),
                     pw.Text(
-                      'Period: ${DateFormat('dd/MM/yyyy').format(_startDate ?? DateTime.now().subtract(const Duration(days: 30)))} - ${DateFormat('dd/MM/yyyy').format(_endDate ?? DateTime.now())}',
+                      'Period: ${_getFilterDisplayText()}',
                       style: const pw.TextStyle(fontSize: 12),
                     ),
                     pw.SizedBox(height: 10),
@@ -595,7 +614,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
         [XFile(file.path)],
         text:
             'Purchase Report - MOBILE HOUSE\n'
-            'Period: ${DateFormat('dd/MM/yyyy').format(_startDate ?? DateTime.now().subtract(const Duration(days: 30)))} to ${DateFormat('dd/MM/yyyy').format(_endDate ?? DateTime.now())}\n'
+            'Period: ${_getFilterDisplayText()}\n'
             'Total Bills: ${_filteredPurchases.length}\n'
             'Total Products: ${_totalProducts}\n'
             'Total Taxable: ${totalTaxable.toStringAsFixed(2)}\n'
@@ -619,6 +638,33 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
       );
     } finally {
       setState(() => _isGeneratingPDF = false);
+    }
+  }
+
+  // NEW: Helper method to get filter display text
+  String _getFilterDisplayText() {
+    if (_selectedFilter == 'Custom Range' &&
+        _startDate != null &&
+        _endDate != null) {
+      return '${DateFormat('dd/MM/yyyy').format(_startDate!)} - ${DateFormat('dd/MM/yyyy').format(_endDate!)}';
+    } else if (_selectedFilter == 'This Year') {
+      return 'January ${DateTime.now().year} - December ${DateTime.now().year}';
+    } else if (_selectedFilter == 'Last Year') {
+      return 'January ${DateTime.now().year - 1} - December ${DateTime.now().year - 1}';
+    } else if (_selectedFilter == 'This Month') {
+      return '${DateFormat('MMMM yyyy').format(DateTime.now())}';
+    } else if (_selectedFilter == 'Last Month') {
+      DateTime lastMonth = DateTime(
+        DateTime.now().year,
+        DateTime.now().month - 1,
+      );
+      return '${DateFormat('MMMM yyyy').format(lastMonth)}';
+    } else if (_selectedFilter == 'Last 7 Days') {
+      return 'Last 7 Days';
+    } else if (_selectedFilter == 'Last 30 Days') {
+      return 'Last 30 Days';
+    } else {
+      return 'All Time';
     }
   }
 
@@ -1093,7 +1139,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
     );
   }
 
-  // ========== NEW: Summary Card Widget ==========
+  // Summary Card Widget
   Widget _buildSummaryCard() {
     return Container(
       margin: const EdgeInsets.all(8),
@@ -1315,7 +1361,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
       body: Column(
         children: [
           _buildSearchAndFilter(),
-          // ========== NEW: Summary Card ==========
+          // Summary Card
           if (!_isLoading && _filteredPurchases.isNotEmpty) _buildSummaryCard(),
           Expanded(
             child: _isLoading
