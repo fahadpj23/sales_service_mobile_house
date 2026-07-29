@@ -7,12 +7,37 @@ import 'package:pdf/pdf.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'dart:typed_data';
+import 'package:flutter/services.dart';
 
 class BillRePrint {
   Uint8List? logoImage;
   Uint8List? sealImage;
 
   BillRePrint({this.logoImage, this.sealImage});
+
+  // Factory method to create instance with loaded images
+  static Future<BillRePrint> create() async {
+    Uint8List? logoImage;
+    Uint8List? sealImage;
+
+    try {
+      // Load logo
+      final logoByteData = await rootBundle.load('assets/mobileHouseLogo.png');
+      logoImage = logoByteData.buffer.asUint8List();
+    } catch (e) {
+      print('Error loading logo: $e');
+    }
+
+    try {
+      // Load seal
+      final sealByteData = await rootBundle.load('assets/mobileHouseSeal.jpeg');
+      sealImage = sealByteData.buffer.asUint8List();
+    } catch (e) {
+      print('Error loading seal: $e');
+    }
+
+    return BillRePrint(logoImage: logoImage, sealImage: sealImage);
+  }
 
   Future<void> printAndShareBill({
     required BuildContext context,
@@ -32,10 +57,17 @@ class BillRePrint {
         // Hide loading
       });
 
+      // Show action dialog
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
-          title: Text('Bill Actions'),
+          title: Row(
+            children: [
+              Icon(Icons.picture_as_pdf, color: Colors.red),
+              SizedBox(width: 10),
+              Text('Bill Actions'),
+            ],
+          ),
           content: Text('What would you like to do with the bill?'),
           actions: [
             TextButton.icon(
@@ -212,9 +244,11 @@ class BillRePrint {
             children: [
               pw.Column(
                 children: [
+                  // Logo - FIXED: Check if logoImage is not null
                   if (logoImage != null)
                     pw.SizedBox(
-                      height: 45,
+                      height: 50,
+                      width: 150,
                       child: pw.Image(
                         pw.MemoryImage(logoImage!),
                         fit: pw.BoxFit.contain,
@@ -224,7 +258,7 @@ class BillRePrint {
                     pw.Text(
                       'MOBILE HOUSE',
                       style: pw.TextStyle(
-                        fontSize: 14,
+                        fontSize: 18,
                         fontWeight: pw.FontWeight.bold,
                       ),
                     ),

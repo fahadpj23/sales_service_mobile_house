@@ -44,9 +44,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
   bool _isScanning = false;
   bool _sealChecked = false;
   bool _isLoading = false;
-  bool _isSoldSaved = false; // Flag to prevent multiple saves
+  bool _isSoldSaved = false;
   String? _selectedShop = 'Peringottukara';
-  final List<String> _shopOptions = ['Peringottukara', 'Cherpu'];
 
   // Purchase Mode and Finance Type
   String? _selectedPurchaseMode = 'Ready Cash';
@@ -55,7 +54,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
   // Edit mode variables
   bool _isEditMode = false;
-  String? _currentBillId; // Store the current bill ID for editing
+  String? _currentBillId;
 
   final List<String> _purchaseModes = ['Ready Cash', 'Credit Card', 'EMI'];
   final List<String> _financeCompaniesList = [
@@ -103,6 +102,23 @@ class _BillFormScreenState extends State<BillFormScreen> {
   void _initData() async {
     await _requestCameraPermission();
     await _loadImages();
+
+    // ==================== AUTO SET SHOP BASED ON SHOP ID ====================
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final user = authProvider.user;
+
+    // Check if shop ID matches Cherpu shop ID
+    if (user?.shopId == 'mG9QgP0dPMP8hGk2yQQO') {
+      setState(() {
+        _selectedShop = 'Cherpu';
+      });
+    } else {
+      setState(() {
+        _selectedShop = 'Peringottukara';
+      });
+    }
+    // ==================== END AUTO SET SHOP ====================
+
     _autoFillData();
     totalAmountController.addListener(_calculateGST);
   }
@@ -111,7 +127,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
   Future<String> _generateBillNumber() async {
     try {
-      // Query the last bill to get the highest sequence number
       final billsQuery = await _firestore
           .collection('bills')
           .orderBy('createdAt', descending: true)
@@ -124,9 +139,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
         final lastBill = billsQuery.docs.first;
         final lastBillNumber = lastBill['billNumber'] as String? ?? '';
 
-        // Parse the last bill number (e.g., "MH-372")
         if (lastBillNumber.startsWith('MH-')) {
-          final lastSequenceStr = lastBillNumber.substring(3); // Remove "MH-"
+          final lastSequenceStr = lastBillNumber.substring(3);
           final lastSequence = int.tryParse(lastSequenceStr) ?? 0;
           nextSequenceNumber = lastSequence + 1;
         }
@@ -317,7 +331,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
       final pdfFile = File(filePath);
       setState(() {
         _savedPdfFile = pdfFile;
-        _isEditMode = false; // Exit edit mode after saving
+        _isEditMode = false;
       });
 
       if (mounted) {
@@ -386,7 +400,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
         ? billNoController.text
         : 'MH-${billNoController.text}';
 
-    // Find the phone stock by IMEI
     final imei = imei1Controller.text.trim();
     if (imei.isNotEmpty) {
       final querySnapshot = await _firestore
@@ -1487,7 +1500,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Determine if form should be read-only (after saved and not in edit mode)
     final bool isReadOnly = _isSoldSaved && !_isEditMode;
 
     return Scaffold(
@@ -1514,7 +1526,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
           },
         ),
         actions: [
-          // Regenerate bill number button - only when not saved and not in edit mode
           if (!_isSoldSaved && !_isEditMode)
             IconButton(
               icon: Icon(Icons.refresh, color: Colors.white),
@@ -1654,19 +1665,15 @@ class _BillFormScreenState extends State<BillFormScreen> {
             _buildInputCard(isReadOnly),
             SizedBox(height: 16),
 
-            // Show Edit button after bill is saved (not in edit mode)
             if (_isSoldSaved && !_isEditMode) _buildEditButton(),
 
-            // Show Update button when in edit mode
             if (_isEditMode) _buildUpdateButton(),
 
-            // Show Save button when creating new bill
             if (!_isSoldSaved && !_isEditMode)
               _buildSaveButton(isButtonDisabled),
 
             SizedBox(height: 16),
 
-            // Share button after bill is saved
             if (_savedPdfFile != null && !_isEditMode) _buildShareButton(),
 
             SizedBox(height: 20),
@@ -1830,6 +1837,9 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
+  // ==================== MODIFIED BUILD INPUT CARD ====================
+  // Shop dropdown is now replaced with a display widget
+
   Widget _buildInputCard(bool isReadOnly) {
     return Card(
       elevation: 1,
@@ -1841,14 +1851,16 @@ class _BillFormScreenState extends State<BillFormScreen> {
         padding: EdgeInsets.all(16),
         child: Column(
           children: [
-            _buildShopDropdown(isReadOnly),
+            // NEW: Shop display instead of dropdown
+            _buildShopDisplay(),
             SizedBox(height: 12),
+
             _buildTextField(
               billNoController,
               'Bill No *',
               Icons.receipt,
               validator: _validateRequired,
-              readOnly: !_isEditMode, // Only editable in edit mode
+              readOnly: !_isEditMode,
             ),
             SizedBox(height: 12),
             _buildTextField(
@@ -1913,9 +1925,10 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  Widget _buildShopDropdown(bool isReadOnly) {
+  // ==================== NEW SHOP DISPLAY WIDGET ====================
+  Widget _buildShopDisplay() {
     return Container(
-      padding: EdgeInsets.symmetric(vertical: 6),
+      padding: EdgeInsets.symmetric(vertical: 10, horizontal: 16),
       decoration: BoxDecoration(
         color: Colors.green[50],
         border: Border.all(color: Colors.green[100]!),
@@ -1923,7 +1936,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
       ),
       child: Row(
         children: [
-          SizedBox(width: 10),
           Icon(Icons.store, color: Colors.green[700]),
           SizedBox(width: 10),
           Text(
@@ -1931,31 +1943,36 @@ class _BillFormScreenState extends State<BillFormScreen> {
             style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
           ),
           SizedBox(width: 12),
-          Expanded(
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _selectedShop,
-                isExpanded: true,
-                style: TextStyle(fontSize: 14, color: Colors.green[800]),
-                items: _shopOptions.map((String value) {
-                  return DropdownMenuItem<String>(
-                    value: value,
-                    child: Text(value, style: TextStyle(fontSize: 13)),
-                  );
-                }).toList(),
-                onChanged: isReadOnly
-                    ? null
-                    : (String? newValue) =>
-                          setState(() => _selectedShop = newValue),
-                icon: Icon(Icons.arrow_drop_down, color: Colors.green[700]),
+          Text(
+            _selectedShop ?? 'Peringottukara',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Colors.green[800],
+            ),
+          ),
+          Spacer(),
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.green[200],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              'Auto-set',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.green[800],
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
-          SizedBox(width: 10),
         ],
       ),
     );
   }
+
+  // ==================== REST OF THE WIDGETS ====================
 
   Widget _buildPurchaseModeDropdown(bool isReadOnly) {
     return Container(

@@ -23,12 +23,18 @@ class _AccessoriesServiceReportScreenState
   String _selectedTimePeriod = 'monthly';
   String? _selectedShop;
 
+  // Custom date range variables
+  DateTime? _startDate;
+  DateTime? _endDate;
+  bool _isCustomDateRange = false;
+
   List<Map<String, dynamic>> _timePeriods = [
     {'label': 'Monthly', 'value': 'monthly'},
     {'label': 'Daily', 'value': 'daily'},
     {'label': 'Yesterday', 'value': 'yesterday'},
     {'label': 'Last Month', 'value': 'last_month'},
     {'label': 'Yearly', 'value': 'yearly'},
+    {'label': 'Custom Range', 'value': 'custom'},
   ];
 
   List<Sale> _getFilteredSales() {
@@ -63,6 +69,20 @@ class _AccessoriesServiceReportScreenState
         startDate = DateTime(now.year, 1, 1);
         endDate = DateTime(now.year + 1, 1, 1).add(Duration(seconds: -1));
         break;
+      case 'custom':
+        if (_startDate != null && _endDate != null) {
+          startDate = _startDate!;
+          endDate = _endDate!.add(Duration(days: 1, seconds: -1));
+        } else {
+          // Fallback to monthly if custom dates not set
+          startDate = DateTime(now.year, now.month, 1);
+          endDate = DateTime(
+            now.year,
+            now.month + 1,
+            1,
+          ).add(Duration(seconds: -1));
+        }
+        break;
       default:
         startDate = DateTime(now.year, now.month, 1);
         endDate = DateTime(
@@ -78,6 +98,45 @@ class _AccessoriesServiceReportScreenState
       return sale.date.isAfter(startDate.subtract(Duration(seconds: 1))) &&
           sale.date.isBefore(endDate.add(Duration(seconds: 1)));
     }).toList();
+  }
+
+  // Method to pick custom date range
+  Future<void> _selectCustomDateRange() async {
+    final DateTime? start = await showDatePicker(
+      context: context,
+      initialDate: _startDate ?? DateTime.now().subtract(Duration(days: 30)),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      helpText: 'Select Start Date',
+    );
+
+    if (start != null) {
+      final DateTime? end = await showDatePicker(
+        context: context,
+        initialDate: _endDate ?? DateTime.now(),
+        firstDate: start,
+        lastDate: DateTime.now(),
+        helpText: 'Select End Date',
+      );
+
+      if (end != null) {
+        setState(() {
+          _startDate = start;
+          _endDate = end;
+          _isCustomDateRange = true;
+        });
+      }
+    }
+  }
+
+  // Clear custom date range
+  void _clearCustomDateRange() {
+    setState(() {
+      _startDate = null;
+      _endDate = null;
+      _isCustomDateRange = false;
+      _selectedTimePeriod = 'monthly';
+    });
   }
 
   @override
@@ -116,6 +175,16 @@ class _AccessoriesServiceReportScreenState
       shopGroups[sale.shopName]!.add(sale);
     }
 
+    // Format date for display
+    String getDateRangeDisplay() {
+      if (_startDate != null && _endDate != null) {
+        final startStr = DateFormat('dd MMM yyyy').format(_startDate!);
+        final endStr = DateFormat('dd MMM yyyy').format(_endDate!);
+        return '$startStr - $endStr';
+      }
+      return '';
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -130,6 +199,14 @@ class _AccessoriesServiceReportScreenState
         foregroundColor: Colors.white,
         elevation: 3,
         centerTitle: true,
+        actions: [
+          if (_selectedTimePeriod == 'custom' && _isCustomDateRange)
+            IconButton(
+              icon: Icon(Icons.clear),
+              onPressed: _clearCustomDateRange,
+              tooltip: 'Clear custom range',
+            ),
+        ],
       ),
       body: SingleChildScrollView(
         child: Column(
@@ -147,13 +224,52 @@ class _AccessoriesServiceReportScreenState
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Filters',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF0A4D2E),
-                        ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Filters',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF0A4D2E),
+                            ),
+                          ),
+                          if (_selectedTimePeriod == 'custom' &&
+                              _isCustomDateRange)
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Color(0xFF0A4D2E).withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Color(0xFF0A4D2E).withOpacity(0.2),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.calendar_today,
+                                    size: 12,
+                                    color: Color(0xFF0A4D2E),
+                                  ),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    getDateRangeDisplay(),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Color(0xFF0A4D2E),
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
                       ),
                       SizedBox(height: 12),
                       Wrap(
@@ -177,6 +293,13 @@ class _AccessoriesServiceReportScreenState
                             onSelected: (selected) {
                               setState(() {
                                 _selectedTimePeriod = period['value'];
+                                if (_selectedTimePeriod == 'custom') {
+                                  _selectCustomDateRange();
+                                } else {
+                                  _isCustomDateRange = false;
+                                  _startDate = null;
+                                  _endDate = null;
+                                }
                               });
                             },
                             backgroundColor: Colors.grey.shade100,
@@ -184,6 +307,60 @@ class _AccessoriesServiceReportScreenState
                           );
                         }).toList(),
                       ),
+
+                      // Custom date range display and actions
+                      if (_selectedTimePeriod == 'custom' && _isCustomDateRange)
+                        Container(
+                          margin: EdgeInsets.only(top: 12),
+                          padding: EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Color(0xFF0A4D2E).withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Color(0xFF0A4D2E).withOpacity(0.1),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Selected Range',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                    SizedBox(height: 4),
+                                    Text(
+                                      getDateRangeDisplay(),
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF0A4D2E),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                icon: Icon(Icons.calendar_today),
+                                onPressed: _selectCustomDateRange,
+                                color: Color(0xFF0A4D2E),
+                                tooltip: 'Change date range',
+                              ),
+                              IconButton(
+                                icon: Icon(Icons.clear),
+                                onPressed: _clearCustomDateRange,
+                                color: Colors.red,
+                                tooltip: 'Clear custom range',
+                              ),
+                            ],
+                          ),
+                        ),
+
                       SizedBox(height: 12),
                       Container(
                         decoration: BoxDecoration(
@@ -276,6 +453,86 @@ class _AccessoriesServiceReportScreenState
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Transaction Summary',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF0A4D2E),
+                            ),
+                          ),
+                          Text(
+                            '${filteredSales.length} transactions',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildTransactionStat(
+                              'Cash',
+                              totalCash,
+                              Color(0xFF4CAF50),
+                              Icons.attach_money,
+                            ),
+                          ),
+                          Expanded(
+                            child: _buildTransactionStat(
+                              'Card',
+                              totalCard,
+                              Color(0xFF2196F3),
+                              Icons.credit_card,
+                            ),
+                          ),
+                          Expanded(
+                            child: _buildTransactionStat(
+                              'GPay',
+                              totalGpay,
+                              Color(0xFF9C27B0),
+                              Icons.phone_android,
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 8),
+                      Divider(),
+                      SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Total Revenue',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF0A4D2E),
+                            ),
+                          ),
+                          Text(
+                            '₹${widget.formatNumber(totalCombined)}',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF0A4D2E),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
 
@@ -294,289 +551,313 @@ class _AccessoriesServiceReportScreenState
             SizedBox(height: 12),
 
             // Shop-wise Breakdown
-            ...shopGroups.entries.map((entry) {
-              String shopName = entry.key;
-              List<Sale> shopSales = entry.value;
-
-              double shopService = shopSales.fold(
-                0.0,
-                (sum, sale) => sum + (sale.serviceAmount ?? 0),
-              );
-              double shopAccessories = shopSales.fold(
-                0.0,
-                (sum, sale) => sum + (sale.accessoriesAmount ?? 0),
-              );
-              double shopCombined = shopService + shopAccessories;
-
-              double shopCash = shopSales.fold(
-                0.0,
-                (sum, sale) => sum + (sale.cashAmount ?? 0),
-              );
-              double shopCard = shopSales.fold(
-                0.0,
-                (sum, sale) => sum + (sale.cardAmount ?? 0),
-              );
-              double shopGpay = shopSales.fold(
-                0.0,
-                (sum, sale) => sum + (sale.gpayAmount ?? 0),
-              );
-
-              return Container(
-                margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: ExpansionTile(
-                    leading: Icon(Icons.store, color: Color(0xFF1A7D4A)),
-                    title: Text(
-                      shopName,
-                      style: TextStyle(fontWeight: FontWeight.bold),
+            if (shopGroups.isEmpty)
+              Container(
+                padding: EdgeInsets.all(40),
+                child: Column(
+                  children: [
+                    Icon(Icons.store, size: 60, color: Colors.grey[400]),
+                    SizedBox(height: 16),
+                    Text(
+                      'No transactions found',
+                      style: TextStyle(fontSize: 16, color: Colors.grey[600]),
                     ),
-                    subtitle: Text('${shopSales.length} transactions'),
-                    trailing: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          '₹${widget.formatNumber(shopCombined)}',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF0A4D2E),
+                    Text(
+                      'Try changing the filter criteria',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                    ),
+                  ],
+                ),
+              )
+            else
+              ...shopGroups.entries.map((entry) {
+                String shopName = entry.key;
+                List<Sale> shopSales = entry.value;
+
+                double shopService = shopSales.fold(
+                  0.0,
+                  (sum, sale) => sum + (sale.serviceAmount ?? 0),
+                );
+                double shopAccessories = shopSales.fold(
+                  0.0,
+                  (sum, sale) => sum + (sale.accessoriesAmount ?? 0),
+                );
+                double shopCombined = shopService + shopAccessories;
+
+                double shopCash = shopSales.fold(
+                  0.0,
+                  (sum, sale) => sum + (sale.cashAmount ?? 0),
+                );
+                double shopCard = shopSales.fold(
+                  0.0,
+                  (sum, sale) => sum + (sale.cardAmount ?? 0),
+                );
+                double shopGpay = shopSales.fold(
+                  0.0,
+                  (sum, sale) => sum + (sale.gpayAmount ?? 0),
+                );
+
+                return Container(
+                  margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: ExpansionTile(
+                      leading: Icon(Icons.store, color: Color(0xFF1A7D4A)),
+                      title: Text(
+                        shopName,
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text('${shopSales.length} transactions'),
+                      trailing: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '₹${widget.formatNumber(shopCombined)}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF0A4D2E),
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                    children: [
-                      Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Column(
-                          children: [
-                            // Shop Payment Summary
-                            Container(
-                              padding: EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade50,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.grey.shade300),
-                              ),
-                              child: Column(
-                                children: [
-                                  Text(
-                                    'Payment Breakdown',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      color: Color(0xFF0A4D2E),
-                                      fontSize: 13,
-                                    ),
+                        ],
+                      ),
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Column(
+                            children: [
+                              // Shop Payment Summary
+                              Container(
+                                padding: EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade50,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Colors.grey.shade300,
                                   ),
-                                  SizedBox(height: 8),
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceEvenly,
+                                ),
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      'Payment Breakdown',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF0A4D2E),
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    SizedBox(height: 8),
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceEvenly,
+                                      children: [
+                                        _buildSmallPaymentChip(
+                                          'Cash',
+                                          shopCash,
+                                          Icons.attach_money,
+                                          Color(0xFF4CAF50),
+                                        ),
+                                        _buildSmallPaymentChip(
+                                          'Card',
+                                          shopCard,
+                                          Icons.credit_card,
+                                          Color(0xFF2196F3),
+                                        ),
+                                        _buildSmallPaymentChip(
+                                          'GPay',
+                                          shopGpay,
+                                          Icons.phone_android,
+                                          Color(0xFF9C27B0),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              SizedBox(height: 12),
+
+                              // Service and Accessories breakdown
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      _buildSmallPaymentChip(
-                                        'Cash',
-                                        shopCash,
-                                        Icons.attach_money,
-                                        Color(0xFF4CAF50),
+                                      Text(
+                                        'Service Amount',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                        ),
                                       ),
-                                      _buildSmallPaymentChip(
-                                        'Card',
-                                        shopCard,
-                                        Icons.credit_card,
-                                        Color(0xFF2196F3),
+                                      Text(
+                                        '₹${widget.formatNumber(shopService)}',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF2196F3),
+                                        ),
                                       ),
-                                      _buildSmallPaymentChip(
-                                        'GPay',
-                                        shopGpay,
-                                        Icons.phone_android,
-                                        Color(0xFF9C27B0),
+                                    ],
+                                  ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        'Accessories Amount',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                        ),
+                                      ),
+                                      Text(
+                                        '₹${widget.formatNumber(shopAccessories)}',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF9C27B0),
+                                        ),
                                       ),
                                     ],
                                   ),
                                 ],
                               ),
-                            ),
-                            SizedBox(height: 12),
+                              SizedBox(height: 12),
+                              Divider(),
+                              SizedBox(height: 8),
 
-                            // Service and Accessories breakdown
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Service Amount',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey[600],
-                                      ),
-                                    ),
-                                    Text(
-                                      '₹${widget.formatNumber(shopService)}',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        color: Color(0xFF2196F3),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      'Accessories Amount',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey[600],
-                                      ),
-                                    ),
-                                    Text(
-                                      '₹${widget.formatNumber(shopAccessories)}',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        color: Color(0xFF9C27B0),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: 12),
-                            Divider(),
-                            SizedBox(height: 8),
-
-                            // Individual transaction details
-                            ...shopSales.map((sale) {
-                              return ListTile(
-                                dense: true,
-                                title: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      DateFormat(
-                                        'dd MMM yyyy',
-                                      ).format(sale.date),
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    Text(
-                                      'Service: ₹${widget.formatNumber(sale.serviceAmount ?? 0)} | Accessories: ₹${widget.formatNumber(sale.accessoriesAmount ?? 0)}',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: Colors.grey[600],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                subtitle: Row(
-                                  children: [
-                                    if ((sale.cashAmount ?? 0) > 0)
-                                      Container(
-                                        padding: EdgeInsets.symmetric(
-                                          horizontal: 6,
-                                          vertical: 2,
+                              // Individual transaction details
+                              ...shopSales.map((sale) {
+                                return ListTile(
+                                  dense: true,
+                                  title: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        DateFormat(
+                                          'dd MMM yyyy',
+                                        ).format(sale.date),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
                                         ),
-                                        margin: EdgeInsets.only(right: 4),
-                                        decoration: BoxDecoration(
-                                          color: Color(
-                                            0xFF4CAF50,
-                                          ).withOpacity(0.1),
-                                          borderRadius: BorderRadius.circular(
-                                            4,
+                                      ),
+                                      Text(
+                                        'Service: ₹${widget.formatNumber(sale.serviceAmount ?? 0)} | Accessories: ₹${widget.formatNumber(sale.accessoriesAmount ?? 0)}',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.grey[600],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  subtitle: Row(
+                                    children: [
+                                      if ((sale.cashAmount ?? 0) > 0)
+                                        Container(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
                                           ),
-                                          border: Border.all(
+                                          margin: EdgeInsets.only(right: 4),
+                                          decoration: BoxDecoration(
                                             color: Color(
                                               0xFF4CAF50,
-                                            ).withOpacity(0.2),
+                                            ).withOpacity(0.1),
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                            border: Border.all(
+                                              color: Color(
+                                                0xFF4CAF50,
+                                              ).withOpacity(0.2),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            'Cash: ₹${widget.formatNumber(sale.cashAmount ?? 0)}',
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              color: Color(0xFF4CAF50),
+                                            ),
                                           ),
                                         ),
-                                        child: Text(
-                                          'Cash: ₹${widget.formatNumber(sale.cashAmount ?? 0)}',
-                                          style: TextStyle(
-                                            fontSize: 9,
-                                            color: Color(0xFF4CAF50),
+                                      if ((sale.cardAmount ?? 0) > 0)
+                                        Container(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
                                           ),
-                                        ),
-                                      ),
-                                    if ((sale.cardAmount ?? 0) > 0)
-                                      Container(
-                                        padding: EdgeInsets.symmetric(
-                                          horizontal: 6,
-                                          vertical: 2,
-                                        ),
-                                        margin: EdgeInsets.only(right: 4),
-                                        decoration: BoxDecoration(
-                                          color: Color(
-                                            0xFF2196F3,
-                                          ).withOpacity(0.1),
-                                          borderRadius: BorderRadius.circular(
-                                            4,
-                                          ),
-                                          border: Border.all(
+                                          margin: EdgeInsets.only(right: 4),
+                                          decoration: BoxDecoration(
                                             color: Color(
                                               0xFF2196F3,
-                                            ).withOpacity(0.2),
+                                            ).withOpacity(0.1),
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                            border: Border.all(
+                                              color: Color(
+                                                0xFF2196F3,
+                                              ).withOpacity(0.2),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            'Card: ₹${widget.formatNumber(sale.cardAmount ?? 0)}',
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              color: Color(0xFF2196F3),
+                                            ),
                                           ),
                                         ),
-                                        child: Text(
-                                          'Card: ₹${widget.formatNumber(sale.cardAmount ?? 0)}',
-                                          style: TextStyle(
-                                            fontSize: 9,
-                                            color: Color(0xFF2196F3),
+                                      if ((sale.gpayAmount ?? 0) > 0)
+                                        Container(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
                                           ),
-                                        ),
-                                      ),
-                                    if ((sale.gpayAmount ?? 0) > 0)
-                                      Container(
-                                        padding: EdgeInsets.symmetric(
-                                          horizontal: 6,
-                                          vertical: 2,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Color(
-                                            0xFF9C27B0,
-                                          ).withOpacity(0.1),
-                                          borderRadius: BorderRadius.circular(
-                                            4,
-                                          ),
-                                          border: Border.all(
+                                          decoration: BoxDecoration(
                                             color: Color(
                                               0xFF9C27B0,
-                                            ).withOpacity(0.2),
+                                            ).withOpacity(0.1),
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                            border: Border.all(
+                                              color: Color(
+                                                0xFF9C27B0,
+                                              ).withOpacity(0.2),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            'GPay: ₹${widget.formatNumber(sale.gpayAmount ?? 0)}',
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              color: Color(0xFF9C27B0),
+                                            ),
                                           ),
                                         ),
-                                        child: Text(
-                                          'GPay: ₹${widget.formatNumber(sale.gpayAmount ?? 0)}',
-                                          style: TextStyle(
-                                            fontSize: 9,
-                                            color: Color(0xFF9C27B0),
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                                trailing: Text(
-                                  '₹${widget.formatNumber(sale.amount)}',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFF0A4D2E),
+                                    ],
                                   ),
-                                ),
-                              );
-                            }).toList(),
-                          ],
+                                  trailing: Text(
+                                    '₹${widget.formatNumber(sale.amount)}',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF0A4D2E),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              );
-            }).toList(),
+                );
+              }).toList(),
 
             SizedBox(height: 20),
           ],
@@ -753,6 +1034,37 @@ class _AccessoriesServiceReportScreenState
               color: color,
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTransactionStat(
+    String label,
+    double amount,
+    Color color,
+    IconData icon,
+  ) {
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: color, size: 14),
+              SizedBox(width: 4),
+              Text(
+                '₹${widget.formatNumber(amount)}',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+          Text(label, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
         ],
       ),
     );
