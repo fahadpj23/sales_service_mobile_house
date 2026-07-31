@@ -35,7 +35,7 @@ class _TvStockScreenState extends State<TvStockScreen>
   List<String> _serialNumbers = [];
   final List<TextEditingController> _serialControllers = [];
 
-  final List<String> _brands = [
+  List<String> _brands = [
     'Mi',
     'gadzo',
     'Mr.plus',
@@ -49,6 +49,7 @@ class _TvStockScreenState extends State<TvStockScreen>
   bool _isLoading = false;
   bool _showAddModelForm = false;
   bool _showAddStockModal = false;
+  bool _isAddingBrand = false;
 
   List<Map<String, dynamic>> _shops = [];
   Map<String, dynamic>? _selectedTvForAction;
@@ -189,6 +190,7 @@ class _TvStockScreenState extends State<TvStockScreen>
     });
     _loadExistingModels();
     _loadShops();
+    _loadBrands();
   }
 
   @override
@@ -213,6 +215,27 @@ class _TvStockScreenState extends State<TvStockScreen>
       controller.dispose();
     }
     _serialControllers.clear();
+  }
+
+  Future<void> _loadBrands() async {
+    try {
+      final snapshot = await _firestore.collection('tvBrands').get();
+
+      if (snapshot.docs.isNotEmpty) {
+        final brandsFromFirestore = snapshot.docs
+            .map((doc) => doc.data()['name'] as String)
+            .where((name) => name.isNotEmpty)
+            .toList();
+
+        // Merge with existing brands, avoiding duplicates
+        final allBrands = {..._brands.toSet(), ...brandsFromFirestore.toSet()};
+        _brands = allBrands.toList()..sort();
+
+        setState(() {});
+      }
+    } catch (e) {
+      print('Error loading brands: $e');
+    }
   }
 
   Future<void> _loadShops() async {
@@ -261,6 +284,7 @@ class _TvStockScreenState extends State<TvStockScreen>
           if (priceDouble != null) {
             if (!_brands.contains(brand)) {
               _brands.add(brand);
+              _brands.sort();
             }
 
             if (!_modelsByBrand.containsKey(brand)) {
@@ -301,6 +325,162 @@ class _TvStockScreenState extends State<TvStockScreen>
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  // Method to show Add Brand Dialog
+  void _showAddBrandDialog() {
+    final brandNameController = TextEditingController();
+    bool isAdding = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: !isAdding,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text(
+              'Add New Brand',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Enter the name of the new brand:',
+                  style: TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: brandNameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Brand Name *',
+                    labelStyle: TextStyle(fontSize: 12),
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                  ),
+                  style: const TextStyle(fontSize: 12),
+                  autofocus: true,
+                  onChanged: (value) {
+                    setDialogState(() {});
+                  },
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Brand must be unique and at least 2 characters',
+                  style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                ),
+                if (isAdding)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 12),
+                    child: Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: isAdding ? null : () => Navigator.pop(context),
+                child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+              ),
+              ElevatedButton(
+                onPressed: isAdding
+                    ? null
+                    : () async {
+                        final brandName = brandNameController.text.trim();
+
+                        if (brandName.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Please enter a brand name'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+
+                        if (brandName.length < 2) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Brand name must be at least 2 characters',
+                              ),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+
+                        if (_brands.contains(brandName)) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Brand "$brandName" already exists',
+                              ),
+                              backgroundColor: Colors.orange,
+                            ),
+                          );
+                          return;
+                        }
+
+                        setDialogState(() => isAdding = true);
+
+                        try {
+                          // Save brand to Firestore
+                          await _firestore.collection('tvBrands').add({
+                            'name': brandName,
+                            'createdAt': FieldValue.serverTimestamp(),
+                          });
+
+                          // Update local brands list
+                          setState(() {
+                            _brands.add(brandName);
+                            _brands.sort();
+                            _selectedBrand = brandName;
+                            _clearModalMessages();
+                          });
+
+                          // Show success message
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Brand "$brandName" added successfully!',
+                              ),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+
+                          // Close dialog
+                          Navigator.pop(context);
+                        } catch (e) {
+                          setDialogState(() => isAdding = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Failed to add brand: $e'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Add Brand', style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   void _handleModelSelection(String? value) {
@@ -1658,6 +1838,7 @@ class _TvStockScreenState extends State<TvStockScreen>
       onCloseModal: _closeAddStockModal,
       onSaveStock: _saveStock,
       onSaveNewModel: _saveNewModel,
+      onAddNewBrand: _showAddBrandDialog,
     );
   }
 

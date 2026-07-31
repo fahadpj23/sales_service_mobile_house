@@ -49,6 +49,12 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
   bool _showAddProductForm = false;
   bool _showAddStockModal = false;
 
+  // New brand related variables
+  String? _newBrandName;
+  bool _showAddBrandForm = false;
+  late TextEditingController
+  _newBrandNameController; // Add persistent controller
+
   List<Map<String, dynamic>> _shops = [];
   Map<String, dynamic>? _selectedModelForAction;
   String _selectedAction = 'sell';
@@ -179,6 +185,7 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
     _priceChangeController = TextEditingController();
     _newProductNameController = TextEditingController();
     _newProductPriceController = TextEditingController();
+    _newBrandNameController = TextEditingController(); // Initialize controller
 
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
@@ -190,6 +197,7 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
     });
     _loadExistingProducts();
     _loadShops();
+    _loadBrands();
   }
 
   @override
@@ -197,6 +205,7 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
     _tabController.dispose();
     _searchFocusNode.dispose();
     _disposeAllControllers();
+    _newBrandNameController.dispose(); // Dispose controller
     super.dispose();
   }
 
@@ -206,6 +215,7 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
     _priceChangeController.dispose();
     _newProductNameController.dispose();
     _newProductPriceController.dispose();
+    _newBrandNameController.dispose(); // Dispose controller
     _disposeImeiControllers();
   }
 
@@ -214,6 +224,26 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
       controller.dispose();
     }
     _imeiControllers.clear();
+  }
+
+  Future<void> _loadBrands() async {
+    try {
+      final snapshot = await _firestore.collection('brands').get();
+      final loadedBrands = snapshot.docs.map((doc) {
+        final data = doc.data();
+        return data['name'] as String;
+      }).toList();
+
+      // Merge with existing brands and remove duplicates
+      final allBrands = {..._brands.toSet(), ...loadedBrands.toSet()};
+      setState(() {
+        _brands.clear();
+        _brands.addAll(allBrands);
+        _brands.sort();
+      });
+    } catch (e) {
+      print('Error loading brands: $e');
+    }
   }
 
   Future<void> _loadShops() async {
@@ -299,6 +329,57 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
       setState(() {});
     } catch (e) {
       _showError('Failed to load products: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  // New method to save brand
+  Future<void> _saveNewBrand() async {
+    final brandName = _newBrandNameController.text
+        .trim(); // Get from controller
+
+    if (brandName.isEmpty) {
+      _showModalError('Please enter a brand name');
+      return;
+    }
+
+    // Check if brand already exists
+    if (_brands.any((b) => b.toLowerCase() == brandName.toLowerCase())) {
+      _showModalError('Brand "$brandName" already exists');
+      return;
+    }
+
+    try {
+      setState(() => _isLoading = true);
+
+      // Add brand to Firestore
+      await _firestore.collection('brands').add({
+        'name': brandName,
+        'createdAt': FieldValue.serverTimestamp(),
+        'createdBy':
+            Provider.of<AuthProvider>(context, listen: false).user?.uid ??
+            'unknown',
+      });
+
+      // Add to local list
+      setState(() {
+        _brands.add(brandName);
+        _brands.sort();
+        _selectedBrand = brandName;
+        _showAddBrandForm = false;
+        _newBrandName = '';
+        _newBrandNameController.clear(); // Clear controller
+        _clearModalMessages();
+        _showModalSuccess('Brand "$brandName" added successfully!');
+      });
+
+      // Load products for new brand if any
+      await _loadExistingProducts();
+    } catch (e) {
+      _showModalError('Failed to add brand: ${e.toString()}');
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -681,6 +762,8 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
       _showAddProductForm = false;
       _showPriceChangeOption = false;
       _originalProductPrice = null;
+      _showAddBrandForm = false;
+      _newBrandName = '';
       _clearModalMessages();
     });
 
@@ -688,6 +771,7 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
     _priceChangeController.clear();
     _newProductNameController.clear();
     _newProductPriceController.clear();
+    _newBrandNameController.clear(); // Clear controller
 
     _disposeImeiControllers();
 
@@ -1349,6 +1433,213 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
     );
   }
 
+  // New method to build brand dropdown with add brand option
+  Widget _buildBrandDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButtonFormField<String>(
+          value: _selectedBrand,
+          decoration: InputDecoration(
+            labelText: 'Brand *',
+            labelStyle: const TextStyle(fontSize: 12),
+            border: const OutlineInputBorder(),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 8,
+            ),
+          ),
+          style: const TextStyle(fontSize: 12, color: Colors.black),
+          items: [
+            const DropdownMenuItem<String>(
+              value: null,
+              child: Text(
+                'Select Brand',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ),
+            ..._brands.map((brand) {
+              return DropdownMenuItem<String>(
+                value: brand,
+                child: Text(brand, style: const TextStyle(fontSize: 12)),
+              );
+            }).toList(),
+            const DropdownMenuItem<String>(
+              value: 'add_new_brand',
+              child: Row(
+                children: [
+                  Icon(Icons.add, color: Colors.green, size: 16),
+                  SizedBox(width: 8),
+                  Text(
+                    'Add New Brand',
+                    style: TextStyle(fontSize: 12, color: Colors.green),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          onChanged: (value) {
+            if (value == 'add_new_brand') {
+              setState(() {
+                _showAddBrandForm = true;
+                _newBrandName = '';
+                _newBrandNameController.clear();
+                _selectedBrand = null;
+                _clearModalMessages();
+              });
+            } else {
+              setState(() {
+                _selectedBrand = value;
+                _selectedProduct = null;
+                _showAddProductForm = false;
+                _showAddBrandForm = false;
+                _newBrandName = '';
+                _newBrandNameController.clear();
+                _showPriceChangeOption = false;
+                _originalProductPrice = null;
+                _productSearchController.clear();
+                _priceChangeController.clear();
+                _newProductNameController.clear();
+                _newProductPriceController.clear();
+                _clearModalMessages();
+              });
+            }
+          },
+          validator: (value) {
+            if (value == null || value.isEmpty) {
+              return 'Please select a brand';
+            }
+            return null;
+          },
+        ),
+
+        // Add Brand Form
+        if (_showAddBrandForm) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.green.shade200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.add_business, color: Colors.green, size: 18),
+                    SizedBox(width: 8),
+                    Text(
+                      'Add New Brand',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller:
+                      _newBrandNameController, // Use persistent controller
+                  decoration: InputDecoration(
+                    labelText: 'New Brand Name *',
+                    labelStyle: const TextStyle(fontSize: 12),
+                    border: const OutlineInputBorder(),
+                    hintText: 'e.g., Apple, OnePlus, Xiaomi',
+                    hintStyle: const TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    suffixIcon: _newBrandNameController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 16),
+                            onPressed: () {
+                              setState(() {
+                                _newBrandNameController.clear();
+                                _newBrandName = '';
+                                _clearModalMessages();
+                              });
+                            },
+                          )
+                        : null,
+                  ),
+                  style: const TextStyle(fontSize: 12),
+                  onChanged: (value) {
+                    setState(() {
+                      _newBrandName = value.trim();
+                      _clearModalMessages();
+                    });
+                  },
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please enter brand name';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          setState(() {
+                            _showAddBrandForm = false;
+                            _newBrandName = '';
+                            _newBrandNameController.clear();
+                            _clearModalMessages();
+                          });
+                        },
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                        ),
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : _saveNewBrand,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                        ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                'Add Brand',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _buildProductSearchDropdown() {
     if (_selectedBrand == null) return const SizedBox();
 
@@ -1672,57 +1963,177 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
   }
 
   Widget _buildAddStockModal() {
-    return AddStockModal(
-      formKey: _formKey,
-      selectedBrand: _selectedBrand,
-      selectedProduct: _selectedProduct,
-      newProductName: _newProductName,
-      newProductPrice: _newProductPrice,
-      quantity: _quantity,
-      imeiNumbers: _imeiNumbers,
-      imeiControllers: _imeiControllers,
-      brands: _brands,
-      productsByBrand: _productsByBrand,
-      isLoading: _isLoading,
-      showAddProductForm: _showAddProductForm,
-      showPriceChangeOption: _showPriceChangeOption,
-      originalProductPrice: _originalProductPrice,
-      productSearchController: _productSearchController,
-      priceChangeController: _priceChangeController,
-      searchController: _searchController,
-      newProductNameController: _newProductNameController,
-      newProductPriceController: _newProductPriceController,
-      modalError: _modalError,
-      modalSuccess: _modalSuccess,
-      onBrandChanged: (value) {
-        setState(() {
-          _selectedBrand = value;
-          _selectedProduct = null;
-          _showAddProductForm = false;
-          _showPriceChangeOption = false;
-          _newProductName = null;
-          _newProductPrice = null;
-          _productSearchController.clear();
-          _priceChangeController.clear();
-          _newProductNameController.clear();
-          _newProductPriceController.clear();
-          _clearModalMessages();
-        });
-      },
-      onProductSelected: (value) {
-        _handleProductSelection(value);
-      },
-      onCancelAddNewProduct: _cancelAddNewProduct,
-      onQuantityChanged: (value) {
-        _handleQuantityChange(value);
-      },
-      onOpenScannerForImeiField: (index) {
-        _openScannerForImeiField(index);
-      },
-      onClearModalMessages: _clearModalMessages,
-      onCloseModal: _closeAddStockModal,
-      onSaveStock: _saveStock,
-      onSaveNewProduct: _saveNewProduct,
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
+          maxWidth: 400,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Add Base Model Stock',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: _closeAddStockModal,
+                  ),
+                ],
+              ),
+              const Divider(),
+
+              // Brand Dropdown with Add New Brand option
+              _buildBrandDropdown(),
+
+              const SizedBox(height: 16),
+
+              // Product selection
+              _buildProductSearchDropdown(),
+
+              const SizedBox(height: 16),
+
+              // Quantity
+              TextFormField(
+                decoration: InputDecoration(
+                  labelText: 'Quantity *',
+                  labelStyle: const TextStyle(fontSize: 12),
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.numbers, size: 18),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
+                ),
+                style: const TextStyle(fontSize: 12),
+                keyboardType: TextInputType.number,
+                onChanged: _handleQuantityChange,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter quantity';
+                  }
+                  final qty = int.tryParse(value);
+                  if (qty == null || qty <= 0) {
+                    return 'Please enter valid quantity';
+                  }
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 16),
+
+              // IMEI fields
+              if (_imeiNumbers.isNotEmpty) ...[
+                const Text(
+                  'IMEI Numbers',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                ...List.generate(
+                  _imeiNumbers.length,
+                  (index) => _buildImeiInputField(index),
+                ),
+              ],
+
+              const SizedBox(height: 20),
+
+              // Save button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _saveStock,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text(
+                          'Add to Stock',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                ),
+              ),
+
+              // Error/Success messages
+              if (_modalError != null)
+                Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.error, color: Colors.red, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _modalError!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.red.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              if (_modalSuccess != null)
+                Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.green.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.green, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _modalSuccess!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.green.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
