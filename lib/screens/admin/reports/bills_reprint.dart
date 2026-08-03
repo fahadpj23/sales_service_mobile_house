@@ -10,20 +10,25 @@ import 'dart:typed_data';
 import 'package:flutter/services.dart';
 
 class BillRePrint {
-  Uint8List? logoImage;
-  Uint8List? sealImage;
+  // Static variables to store images (shared across all instances)
+  static Uint8List? _logoImage;
+  static Uint8List? _sealImage;
+  static bool _imagesLoaded = false;
 
-  BillRePrint({this.logoImage, this.sealImage});
+  // Singleton pattern
+  static final BillRePrint _instance = BillRePrint._internal();
+  factory BillRePrint() => _instance;
+  BillRePrint._internal();
 
-  // Factory method to create instance with loaded images
-  static Future<BillRePrint> create() async {
-    Uint8List? logoImage;
-    Uint8List? sealImage;
+  // Initialize images once
+  static Future<void> initialize() async {
+    if (_imagesLoaded) return;
 
     try {
       // Load logo
       final logoByteData = await rootBundle.load('assets/mobileHouseLogo.png');
-      logoImage = logoByteData.buffer.asUint8List();
+      _logoImage = logoByteData.buffer.asUint8List();
+      print('Logo loaded successfully, size: ${_logoImage?.length} bytes');
     } catch (e) {
       print('Error loading logo: $e');
     }
@@ -31,13 +36,18 @@ class BillRePrint {
     try {
       // Load seal
       final sealByteData = await rootBundle.load('assets/mobileHouseSeal.jpeg');
-      sealImage = sealByteData.buffer.asUint8List();
+      _sealImage = sealByteData.buffer.asUint8List();
+      print('Seal loaded successfully, size: ${_sealImage?.length} bytes');
     } catch (e) {
       print('Error loading seal: $e');
     }
 
-    return BillRePrint(logoImage: logoImage, sealImage: sealImage);
+    _imagesLoaded = true;
   }
+
+  // Getter methods for images
+  static Uint8List? get logoImage => _logoImage;
+  static Uint8List? get sealImage => _sealImage;
 
   Future<void> printAndShareBill({
     required BuildContext context,
@@ -45,6 +55,9 @@ class BillRePrint {
     required void Function(void Function()) setState,
   }) async {
     try {
+      // Ensure images are loaded
+      await initialize();
+
       setState(() {
         // Show loading
       });
@@ -104,6 +117,9 @@ class BillRePrint {
   }
 
   Future<Uint8List> _generateBillPdf(Map<String, dynamic> bill) async {
+    // Ensure images are loaded
+    await initialize();
+
     final pdf = pw.Document();
     final pageFormat = PdfPageFormat.a4;
     String currentDate = DateFormat('dd MMMM yyyy').format(DateTime.now());
@@ -119,6 +135,10 @@ class BillRePrint {
     final purchaseMode = bill['purchaseMode'] ?? 'Ready Cash';
     final financeType = bill['financeType'];
     final sealApplied = bill['sealApplied'] == true;
+
+    // Check if address is null or empty
+    final bool hasAddress =
+        customerAddress.isNotEmpty && customerAddress != 'N/A';
 
     // Get product details based on type
     String productName = bill['productName'] ?? '';
@@ -185,11 +205,12 @@ class BillRePrint {
                   gstAmount,
                   totalAmount,
                 ),
+                // Conditional container height based on address presence
                 pw.Container(
-                  height: 280,
+                  height: hasAddress ? 250 : 280,
                   child: pw.Stack(
                     children: [
-                      if (sealApplied && sealImage != null)
+                      if (sealApplied && _sealImage != null)
                         pw.Positioned(
                           right: 15,
                           bottom: 18,
@@ -199,7 +220,7 @@ class BillRePrint {
                               width: 150,
                               height: 150,
                               child: pw.Image(
-                                pw.MemoryImage(sealImage!),
+                                pw.MemoryImage(_sealImage!),
                                 fit: pw.BoxFit.contain,
                               ),
                             ),
@@ -209,7 +230,7 @@ class BillRePrint {
                   ),
                 ),
                 _buildPdfTotalSection(totalAmount, taxableAmount, gstAmount),
-                _buildPdfBottomSection(),
+                _buildPdfBottomSection(taxableAmount, gstAmount),
               ],
             ),
           );
@@ -243,14 +264,15 @@ class BillRePrint {
             mainAxisAlignment: pw.MainAxisAlignment.center,
             children: [
               pw.Column(
+                mainAxisAlignment: pw.MainAxisAlignment.center,
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
                 children: [
-                  // Logo - FIXED: Check if logoImage is not null
-                  if (logoImage != null)
+                  // Logo display
+                  if (_logoImage != null)
                     pw.SizedBox(
                       height: 50,
-                      width: 150,
                       child: pw.Image(
-                        pw.MemoryImage(logoImage!),
+                        pw.MemoryImage(_logoImage!),
                         fit: pw.BoxFit.contain,
                       ),
                     )
@@ -258,7 +280,7 @@ class BillRePrint {
                     pw.Text(
                       'MOBILE HOUSE',
                       style: pw.TextStyle(
-                        fontSize: 18,
+                        fontSize: 14,
                         fontWeight: pw.FontWeight.bold,
                       ),
                     ),
@@ -348,6 +370,9 @@ class BillRePrint {
     String purchaseMode,
     String? financeType,
   ) {
+    // Check if address is null or empty
+    final bool hasAddress = address.isNotEmpty && address != 'N/A';
+
     return pw.Padding(
       padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       child: pw.Container(
@@ -360,7 +385,7 @@ class BillRePrint {
               style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
             ),
             pw.SizedBox(height: 4),
-            if (address.isNotEmpty && address != 'N/A')
+            if (hasAddress)
               pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
@@ -544,7 +569,7 @@ class BillRePrint {
     );
   }
 
-  pw.Widget _buildPdfBottomSection() {
+  pw.Widget _buildPdfBottomSection(double taxableAmount, double gstAmount) {
     return pw.Padding(
       padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: pw.Row(
@@ -554,7 +579,7 @@ class BillRePrint {
             flex: 2,
             child: pw.Container(
               padding: pw.EdgeInsets.all(2),
-              child: _buildPdfGstBreakdownTable(),
+              child: _buildPdfGstBreakdownTable(taxableAmount, gstAmount),
             ),
           ),
           pw.SizedBox(width: 10),
@@ -597,57 +622,28 @@ class BillRePrint {
     );
   }
 
-  pw.Table _buildPdfGstBreakdownTable() {
+  pw.Table _buildPdfGstBreakdownTable(double taxableAmount, double gstAmount) {
     return pw.Table(
       border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
       columnWidths: {
         0: pw.FixedColumnWidth(40),
-        1: pw.FixedColumnWidth(35),
-        2: pw.FixedColumnWidth(35),
-        3: pw.FixedColumnWidth(35),
-        4: pw.FixedColumnWidth(40),
-        5: pw.FixedColumnWidth(40),
+        1: pw.FixedColumnWidth(40),
+        2: pw.FixedColumnWidth(40),
       },
       defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
       children: [
         pw.TableRow(
           children: [
-            _buildPdfTableCell('', isHeader: true, fontSize: 9),
-            _buildPdfTableCell('GST 0%', isHeader: true, fontSize: 9),
-            _buildPdfTableCell('GST 5%', isHeader: true, fontSize: 9),
-            _buildPdfTableCell('GST 12%', isHeader: true, fontSize: 9),
+            _buildPdfTableCell('CGST 9%', isHeader: true, fontSize: 9),
+            _buildPdfTableCell('SGST 9%', isHeader: true, fontSize: 9),
             _buildPdfTableCell('GST 18%', isHeader: true, fontSize: 9),
-            _buildPdfTableCell('GST 28%', isHeader: true, fontSize: 9),
           ],
         ),
         pw.TableRow(
           children: [
-            _buildPdfTableCell('Taxable', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-          ],
-        ),
-        pw.TableRow(
-          children: [
-            _buildPdfTableCell('CGST Amt', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-          ],
-        ),
-        pw.TableRow(
-          children: [
-            _buildPdfTableCell('SGST Amt', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
-            _buildPdfTableCell('0.00', fontSize: 9),
+            _buildPdfTableCell((gstAmount / 2).toStringAsFixed(2), fontSize: 9),
+            _buildPdfTableCell((gstAmount / 2).toStringAsFixed(2), fontSize: 9),
+            _buildPdfTableCell(gstAmount.toStringAsFixed(2), fontSize: 9),
           ],
         ),
       ],

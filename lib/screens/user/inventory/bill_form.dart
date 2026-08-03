@@ -71,8 +71,11 @@ class _BillFormScreenState extends State<BillFormScreen> {
     'Other',
   ];
 
-  Uint8List? _logoImage;
-  Uint8List? _sealImage;
+  // Static images - shared across all instances
+  static Uint8List? _logoImage;
+  static Uint8List? _sealImage;
+  static bool _imagesLoaded = false;
+
   File? _savedPdfFile;
 
   @override
@@ -103,11 +106,10 @@ class _BillFormScreenState extends State<BillFormScreen> {
     await _requestCameraPermission();
     await _loadImages();
 
-    // ==================== AUTO SET SHOP BASED ON SHOP ID ====================
+    // Auto set shop based on shop ID
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final user = authProvider.user;
 
-    // Check if shop ID matches Cherpu shop ID
     if (user?.shopId == 'mG9QgP0dPMP8hGk2yQQO') {
       setState(() {
         _selectedShop = 'Cherpu';
@@ -117,7 +119,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
         _selectedShop = 'Peringottukara';
       });
     }
-    // ==================== END AUTO SET SHOP ====================
 
     _autoFillData();
     totalAmountController.addListener(_calculateGST);
@@ -325,7 +326,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
       await _updateBillRecord();
       await _updatePhoneStockForEdit();
 
-      final pdfBytes = await _generatePdf();
+      final pdfBytes = await _generateBillPdf();
       final filePath = await _savePdfToStorage(pdfBytes);
 
       final pdfFile = File(filePath);
@@ -473,18 +474,24 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
   Future<void> _loadImages() async {
     try {
+      // Load logo
       final logoByteData = await rootBundle.load('assets/mobileHouseLogo.png');
       _logoImage = logoByteData.buffer.asUint8List();
+      print('Logo loaded successfully, size: ${_logoImage?.length} bytes');
+    } catch (e) {
+      print('Error loading logo: $e');
+    }
 
+    try {
+      // Load seal
       final sealByteData = await rootBundle.load('assets/mobileHouseSeal.jpeg');
       _sealImage = sealByteData.buffer.asUint8List();
-
-      print('Images loaded successfully');
+      print('Seal loaded successfully, size: ${_sealImage?.length} bytes');
     } catch (e) {
-      print('Error loading images: $e');
-      _logoImage = null;
-      _sealImage = null;
+      print('Error loading seal: $e');
     }
+
+    _imagesLoaded = true;
   }
 
   Future<void> _requestCameraPermission() async {
@@ -576,7 +583,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
       await _markPhoneAsSold();
       _currentBillId = await _saveBillRecord();
 
-      final pdfBytes = await _generatePdf();
+      final pdfBytes = await _generateBillPdf();
       final filePath = await _savePdfToStorage(pdfBytes);
 
       final pdfFile = File(filePath);
@@ -929,17 +936,82 @@ class _BillFormScreenState extends State<BillFormScreen> {
     return words.trim();
   }
 
-  Future<Uint8List> _generatePdf() async {
+  // ==================== PDF GENERATION - MATCHING BILL REPRINT DESIGN ====================
+
+  Future<Uint8List> _generateBillPdf() async {
     final pdf = pw.Document();
     final pageFormat = PdfPageFormat.a4;
     String currentDate = DateFormat('dd MMMM yyyy').format(DateTime.now());
+
+    final billNumber = billNoController.text;
+    final customerName = customerNameController.text;
+    final customerMobile = mobileNumberController.text;
+    final customerAddress = addressController.text;
+    final totalAmount = double.tryParse(totalAmountController.text) ?? 0.0;
+    final taxableAmount = double.tryParse(taxableAmountController.text) ?? 0.0;
+    final gstAmount = double.tryParse(gstAmountController.text) ?? 0.0;
+
+    // Check if address is null or empty
+    final bool hasAddress =
+        customerAddress.isNotEmpty && customerAddress != 'N/A';
 
     pdf.addPage(
       pw.Page(
         pageFormat: pageFormat,
         margin: pw.EdgeInsets.all(15),
         build: (pw.Context context) {
-          return _buildInvoiceContent(currentDate, pageFormat);
+          return pw.Container(
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.black, width: 1.0),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                _buildPdfHeader(currentDate, billNumber),
+                _buildPdfCustomerDetails(
+                  customerName,
+                  customerMobile,
+                  customerAddress,
+                  _selectedPurchaseMode,
+                  _selectedFinanceType,
+                ),
+                pw.SizedBox(height: 4),
+                _buildPdfMainTable(
+                  phoneModelController.text,
+                  imei1Controller.text,
+                  taxableAmount,
+                  gstAmount,
+                  totalAmount,
+                ),
+                // Conditional container height based on address presence
+                pw.Container(
+                  height: hasAddress ? 250 : 280,
+                  child: pw.Stack(
+                    children: [
+                      if (_sealChecked && _sealImage != null)
+                        pw.Positioned(
+                          right: 15,
+                          bottom: 18,
+                          child: pw.Transform.rotate(
+                            angle: 25 * 3.14159 / 180,
+                            child: pw.SizedBox(
+                              width: 150,
+                              height: 150,
+                              child: pw.Image(
+                                pw.MemoryImage(_sealImage!),
+                                fit: pw.BoxFit.contain,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                _buildPdfTotalSection(totalAmount, taxableAmount, gstAmount),
+                _buildPdfBottomSection(taxableAmount, gstAmount),
+              ],
+            ),
+          );
         },
       ),
     );
@@ -947,52 +1019,10 @@ class _BillFormScreenState extends State<BillFormScreen> {
     return pdf.save();
   }
 
-  pw.Widget _buildInvoiceContent(String currentDate, PdfPageFormat pageFormat) {
-    return pw.Container(
-      decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: PdfColors.black, width: 1.0),
-      ),
-      child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          _buildHeader(currentDate),
-          _buildCustomerDetails(),
-          pw.SizedBox(height: 4),
-          _buildMainTable(),
-          pw.Container(
-            height: 280,
-            child: pw.Stack(
-              children: [
-                if (_sealImage != null && _sealChecked)
-                  pw.Positioned(
-                    right: 15,
-                    bottom: 18,
-                    child: pw.Transform.rotate(
-                      angle: 25 * 3.14159 / 180,
-                      child: pw.SizedBox(
-                        width: 150,
-                        height: 150,
-                        child: pw.Image(
-                          pw.MemoryImage(_sealImage!),
-                          fit: pw.BoxFit.contain,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          _buildTotalSection(),
-          _buildBottomSection(),
-        ],
-      ),
-    );
-  }
-
-  pw.Widget _buildHeader(String currentDate) {
-    final fullBillNumber = billNoController.text.startsWith('MH-')
-        ? billNoController.text
-        : 'MH-${billNoController.text}';
+  pw.Widget _buildPdfHeader(String currentDate, String billNumber) {
+    final fullBillNumber = billNumber.startsWith('MH-')
+        ? billNumber
+        : 'MH-$billNumber';
 
     return pw.Column(
       children: [
@@ -1012,10 +1042,12 @@ class _BillFormScreenState extends State<BillFormScreen> {
             mainAxisAlignment: pw.MainAxisAlignment.center,
             children: [
               pw.Column(
+                mainAxisAlignment: pw.MainAxisAlignment.center,
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
                 children: [
                   if (_logoImage != null)
                     pw.SizedBox(
-                      height: 45,
+                      height: 50,
                       child: pw.Image(
                         pw.MemoryImage(_logoImage!),
                         fit: pw.BoxFit.contain,
@@ -1108,7 +1140,15 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  pw.Widget _buildCustomerDetails() {
+  pw.Widget _buildPdfCustomerDetails(
+    String name,
+    String mobile,
+    String address,
+    String? purchaseMode,
+    String? financeType,
+  ) {
+    final bool hasAddress = address.isNotEmpty && address != 'N/A';
+
     return pw.Padding(
       padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       child: pw.Container(
@@ -1117,11 +1157,11 @@ class _BillFormScreenState extends State<BillFormScreen> {
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
             pw.Text(
-              'Customer  : ${customerNameController.text}',
+              'Customer  : $name',
               style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
             ),
             pw.SizedBox(height: 4),
-            if (addressController.text.isNotEmpty)
+            if (hasAddress)
               pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
@@ -1129,9 +1169,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
                   pw.SizedBox(width: 4),
                   pw.Expanded(
                     child: pw.Text(
-                      addressController.text.isNotEmpty
-                          ? addressController.text
-                          : "N/A",
+                      address.isNotEmpty ? address : "N/A",
                       style: pw.TextStyle(fontSize: 11),
                       maxLines: 2,
                     ),
@@ -1139,13 +1177,9 @@ class _BillFormScreenState extends State<BillFormScreen> {
                 ],
               ),
             pw.SizedBox(height: 4),
-            pw.Text(
-              'Mobile Tel  : ${mobileNumberController.text}',
-              style: pw.TextStyle(fontSize: 11),
-            ),
+            pw.Text('Mobile Tel  : $mobile', style: pw.TextStyle(fontSize: 11)),
             pw.SizedBox(height: 6),
-
-            if (_selectedPurchaseMode == 'EMI' && _selectedFinanceType != null)
+            if (purchaseMode == 'EMI' && financeType != null)
               pw.Row(
                 children: [
                   pw.Text(
@@ -1156,7 +1190,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
                     ),
                   ),
                   pw.Text(
-                    '$_selectedFinanceType',
+                    financeType,
                     style: pw.TextStyle(
                       fontSize: 11,
                       fontWeight: pw.FontWeight.normal,
@@ -1170,7 +1204,13 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  pw.Widget _buildMainTable() {
+  pw.Widget _buildPdfMainTable(
+    String productName,
+    String imei,
+    double taxableAmount,
+    double gstAmount,
+    double totalAmount,
+  ) {
     return pw.Table(
       border: pw.TableBorder.all(color: PdfColors.black, width: 0.5),
       columnWidths: {
@@ -1188,52 +1228,46 @@ class _BillFormScreenState extends State<BillFormScreen> {
       children: [
         pw.TableRow(
           children: [
-            _buildTableCell('SLNO', isHeader: true),
-            _buildTableCell('Name of Item/Commodity', isHeader: true),
-            _buildTableCell('HSNCode', isHeader: true),
-            _buildTableCell('Qty', isHeader: true),
-            _buildTableCell(' Rate', isHeader: true),
-            _buildTableCell(' Discount', isHeader: true),
-            _buildTableCell('GST%', isHeader: true),
-            _buildTableCell('GST Amt', isHeader: true),
-            _buildTableCell('Total ', isHeader: true),
+            _buildPdfTableCell('SLNO', isHeader: true),
+            _buildPdfTableCell('Name of Item/Commodity', isHeader: true),
+            _buildPdfTableCell('HSNCode', isHeader: true),
+            _buildPdfTableCell('Qty', isHeader: true),
+            _buildPdfTableCell(' Rate', isHeader: true),
+            _buildPdfTableCell(' Discount', isHeader: true),
+            _buildPdfTableCell('GST%', isHeader: true),
+            _buildPdfTableCell('GST Amt', isHeader: true),
+            _buildPdfTableCell('Total ', isHeader: true),
           ],
         ),
         pw.TableRow(
           children: [
-            _buildTableCell('1'),
-            _buildTableCell(
-              '${phoneModelController.text.isNotEmpty ? phoneModelController.text : ""}\nIMEI: ${imei1Controller.text.isNotEmpty ? imei1Controller.text : ""}',
+            _buildPdfTableCell('1'),
+            _buildPdfTableCell(
+              '$productName\nIMEI: $imei',
               textAlign: pw.TextAlign.left,
               fontSize: 11,
               maxLines: 3,
             ),
-            _buildTableCell('85171300'),
-            _buildTableCell('1'),
-            _buildTableCell(
-              taxableAmountController.text.isNotEmpty
-                  ? taxableAmountController.text
-                  : "0.00",
-            ),
-            _buildTableCell('0.00'),
-            _buildTableCell('18'),
-            _buildTableCell(
-              gstAmountController.text.isNotEmpty
-                  ? gstAmountController.text
-                  : "₹0.00",
-            ),
-            _buildTableCell(
-              totalAmountController.text.isNotEmpty
-                  ? '${totalAmountController.text}'
-                  : '0.00',
-            ),
+            _buildPdfTableCell('85171300'),
+            _buildPdfTableCell('1'),
+            _buildPdfTableCell(taxableAmount.toStringAsFixed(2)),
+            _buildPdfTableCell('0.00'),
+            _buildPdfTableCell('18'),
+            _buildPdfTableCell(gstAmount.toStringAsFixed(2)),
+            _buildPdfTableCell(totalAmount.toStringAsFixed(2)),
           ],
         ),
       ],
     );
   }
 
-  pw.Widget _buildTotalSection() {
+  pw.Widget _buildPdfTotalSection(
+    double totalAmount,
+    double taxableAmount,
+    double gstAmount,
+  ) {
+    String amountInWords = _amountToWords(totalAmount.toString());
+
     return pw.Column(
       children: [
         pw.SizedBox(height: 8),
@@ -1258,27 +1292,21 @@ class _BillFormScreenState extends State<BillFormScreen> {
                 ),
               ),
               pw.Text(
-                taxableAmountController.text.isNotEmpty
-                    ? taxableAmountController.text
-                    : '₹0.00',
+                taxableAmount.toStringAsFixed(2),
                 style: pw.TextStyle(
                   fontSize: 11,
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
               pw.Text(
-                gstAmountController.text.isNotEmpty
-                    ? gstAmountController.text
-                    : '0.00',
+                gstAmount.toStringAsFixed(2),
                 style: pw.TextStyle(
                   fontSize: 11,
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
               pw.Text(
-                totalAmountController.text.isNotEmpty
-                    ? '${totalAmountController.text}'
-                    : '0.00',
+                totalAmount.toStringAsFixed(2),
                 style: pw.TextStyle(
                   fontSize: 11,
                   fontWeight: pw.FontWeight.bold,
@@ -1294,7 +1322,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               pw.Text(
-                'In Words: ${totalAmountController.text.isNotEmpty ? _amountToWords(totalAmountController.text) : ""}',
+                'In Words: $amountInWords',
                 style: pw.TextStyle(fontSize: 11),
                 maxLines: 2,
               ),
@@ -1302,7 +1330,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
               pw.Align(
                 alignment: pw.Alignment.centerRight,
                 child: pw.Text(
-                  'Total Amount: ${totalAmountController.text.isNotEmpty ? '${totalAmountController.text}' : "0.00"}',
+                  'Total Amount: ${totalAmount.toStringAsFixed(2)}',
                   style: pw.TextStyle(
                     fontSize: 11,
                     fontWeight: pw.FontWeight.bold,
@@ -1316,7 +1344,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  pw.Widget _buildBottomSection() {
+  pw.Widget _buildPdfBottomSection(double taxableAmount, double gstAmount) {
     return pw.Padding(
       padding: pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: pw.Row(
@@ -1326,7 +1354,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
             flex: 2,
             child: pw.Container(
               padding: pw.EdgeInsets.all(2),
-              child: _buildGstBreakdownTable(),
+              child: _buildPdfGstBreakdownTable(taxableAmount, gstAmount),
             ),
           ),
           pw.SizedBox(width: 10),
@@ -1369,81 +1397,35 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  pw.Table _buildGstBreakdownTable() {
+  pw.Table _buildPdfGstBreakdownTable(double taxableAmount, double gstAmount) {
     return pw.Table(
       border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
       columnWidths: {
         0: pw.FixedColumnWidth(40),
-        1: pw.FixedColumnWidth(35),
-        2: pw.FixedColumnWidth(35),
-        3: pw.FixedColumnWidth(35),
-        4: pw.FixedColumnWidth(40),
-        5: pw.FixedColumnWidth(40),
+        1: pw.FixedColumnWidth(40),
+        2: pw.FixedColumnWidth(40),
       },
       defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
       children: [
         pw.TableRow(
           children: [
-            _buildTableCell('', isHeader: true, fontSize: 9),
-            _buildTableCell('GST 0%', isHeader: true, fontSize: 9),
-            _buildTableCell('GST 5%', isHeader: true, fontSize: 9),
-            _buildTableCell('GST 12%', isHeader: true, fontSize: 9),
-            _buildTableCell('GST 18%', isHeader: true, fontSize: 9),
-            _buildTableCell('GST 28%', isHeader: true, fontSize: 9),
+            _buildPdfTableCell('CGST 9%', isHeader: true, fontSize: 9),
+            _buildPdfTableCell('SGST 9%', isHeader: true, fontSize: 9),
+            _buildPdfTableCell('GST 18%', isHeader: true, fontSize: 9),
           ],
         ),
         pw.TableRow(
           children: [
-            _buildTableCell('Taxable', fontSize: 9),
-            _buildTableCell('0.00', fontSize: 9),
-            _buildTableCell('0.00', fontSize: 9),
-            _buildTableCell('0.00', fontSize: 9),
-            _buildTableCell(
-              gstAmountController.text.isNotEmpty
-                  ? gstAmountController.text
-                  : "0.00",
-              fontSize: 9,
-            ),
-            _buildTableCell('0.00', fontSize: 9),
-          ],
-        ),
-        pw.TableRow(
-          children: [
-            _buildTableCell('CGST Amt', fontSize: 9),
-            _buildTableCell('0.00', fontSize: 9),
-            _buildTableCell('0.00', fontSize: 9),
-            _buildTableCell('0.00', fontSize: 9),
-            _buildTableCell(
-              gstAmountController.text.isNotEmpty
-                  ? (double.parse(gstAmountController.text) / 2)
-                        .toStringAsFixed(2)
-                  : "0.00",
-              fontSize: 9,
-            ),
-            _buildTableCell('0.00', fontSize: 9),
-          ],
-        ),
-        pw.TableRow(
-          children: [
-            _buildTableCell('SGST Amt', fontSize: 9),
-            _buildTableCell('0.00', fontSize: 9),
-            _buildTableCell('0.00', fontSize: 9),
-            _buildTableCell('0.00', fontSize: 9),
-            _buildTableCell(
-              gstAmountController.text.isNotEmpty
-                  ? (double.parse(gstAmountController.text) / 2)
-                        .toStringAsFixed(2)
-                  : "0.00",
-              fontSize: 9,
-            ),
-            _buildTableCell('0.00', fontSize: 9),
+            _buildPdfTableCell((gstAmount / 2).toStringAsFixed(2), fontSize: 9),
+            _buildPdfTableCell((gstAmount / 2).toStringAsFixed(2), fontSize: 9),
+            _buildPdfTableCell(gstAmount.toStringAsFixed(2), fontSize: 9),
           ],
         ),
       ],
     );
   }
 
-  pw.Widget _buildTableCell(
+  pw.Widget _buildPdfTableCell(
     String text, {
     bool isHeader = false,
     double fontSize = 11,
@@ -1497,6 +1479,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
       ),
     );
   }
+
+  // ==================== END PDF GENERATION ====================
 
   @override
   Widget build(BuildContext context) {
@@ -1837,9 +1821,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  // ==================== MODIFIED BUILD INPUT CARD ====================
-  // Shop dropdown is now replaced with a display widget
-
   Widget _buildInputCard(bool isReadOnly) {
     return Card(
       elevation: 1,
@@ -1851,7 +1832,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
         padding: EdgeInsets.all(16),
         child: Column(
           children: [
-            // NEW: Shop display instead of dropdown
             _buildShopDisplay(),
             SizedBox(height: 12),
 
@@ -1925,7 +1905,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
-  // ==================== NEW SHOP DISPLAY WIDGET ====================
   Widget _buildShopDisplay() {
     return Container(
       padding: EdgeInsets.symmetric(vertical: 10, horizontal: 16),
@@ -1971,8 +1950,6 @@ class _BillFormScreenState extends State<BillFormScreen> {
       ),
     );
   }
-
-  // ==================== REST OF THE WIDGETS ====================
 
   Widget _buildPurchaseModeDropdown(bool isReadOnly) {
     return Container(
