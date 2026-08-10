@@ -38,8 +38,8 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
     'Last 30 Days',
     'This Month',
     'Last Month',
-    'This Year', // NEW: This Year
-    'Last Year', // NEW: Last Year
+    'This Year',
+    'Last Year',
     'Custom Range',
   ];
 
@@ -51,13 +51,22 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
     _loadPurchases();
   }
 
+  // Helper method to check if a date is within a range (inclusive)
+  bool _isDateInRange(DateTime date, DateTime startDate, DateTime? endDate) {
+    if (endDate == null) {
+      return date.isAfter(startDate) || date.isAtSameMomentAs(startDate);
+    }
+    return (date.isAfter(startDate) || date.isAtSameMomentAs(startDate)) &&
+        (date.isBefore(endDate) || date.isAtSameMomentAs(endDate));
+  }
+
   Future<void> _loadPurchases() async {
     setState(() => _isLoading = true);
 
     try {
       Query query = _firestore
           .collection('purchases')
-          .orderBy('date', descending: true);
+          .orderBy('createdAt', descending: true);
       QuerySnapshot snapshot = await query.get();
 
       _purchases = [];
@@ -107,63 +116,59 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
     if (_selectedFilter != null && _selectedFilter != 'All') {
       DateTime now = DateTime.now();
       DateTime startDate;
-      DateTime endDate;
+      DateTime? endDate;
 
       switch (_selectedFilter) {
         case 'Last 7 Days':
           startDate = now.subtract(const Duration(days: 7));
           filtered = filtered
-              .where((p) => p['date'].isAfter(startDate))
+              .where((p) => _isDateInRange(p['date'], startDate, null))
               .toList();
           break;
         case 'Last 30 Days':
           startDate = now.subtract(const Duration(days: 30));
           filtered = filtered
-              .where((p) => p['date'].isAfter(startDate))
+              .where((p) => _isDateInRange(p['date'], startDate, null))
               .toList();
           break;
         case 'This Month':
           startDate = DateTime(now.year, now.month, 1);
           filtered = filtered
-              .where((p) => p['date'].isAfter(startDate))
+              .where((p) => _isDateInRange(p['date'], startDate, null))
               .toList();
           break;
         case 'Last Month':
           startDate = DateTime(now.year, now.month - 1, 1);
           endDate = DateTime(now.year, now.month, 0);
           filtered = filtered
-              .where(
-                (p) =>
-                    p['date'].isAfter(startDate) && p['date'].isBefore(endDate),
-              )
+              .where((p) => _isDateInRange(p['date'], startDate, endDate))
               .toList();
           break;
         case 'This Year':
           startDate = DateTime(now.year, 1, 1);
           filtered = filtered
-              .where((p) => p['date'].isAfter(startDate))
+              .where((p) => _isDateInRange(p['date'], startDate, null))
               .toList();
           break;
         case 'Last Year':
           startDate = DateTime(now.year - 1, 1, 1);
           endDate = DateTime(now.year, 1, 1);
           filtered = filtered
-              .where(
-                (p) =>
-                    p['date'].isAfter(startDate) && p['date'].isBefore(endDate),
-              )
+              .where((p) => _isDateInRange(p['date'], startDate, endDate))
               .toList();
           break;
         case 'Custom Range':
           if (_startDate != null && _endDate != null) {
+            DateTime endOfDay = DateTime(
+              _endDate!.year,
+              _endDate!.month,
+              _endDate!.day,
+              23,
+              59,
+              59,
+            );
             filtered = filtered
-                .where(
-                  (p) =>
-                      p['date'].isAfter(_startDate!) &&
-                      p['date'].isBefore(
-                        _endDate!.add(const Duration(days: 1)),
-                      ),
-                )
+                .where((p) => _isDateInRange(p['date'], _startDate!, endOfDay))
                 .toList();
           }
           break;
@@ -239,7 +244,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
     setState(() => _isGeneratingPDF = true);
 
     try {
-      // Sort purchases by date
+      // Sort purchases by date (invoice date)
       List<Map<String, dynamic>> sortedPurchases = List.from(
         _filteredPurchases,
       );
@@ -307,18 +312,19 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                   ],
                 ),
               ),
-              // Table Header
+              // Table Header - Updated to include both dates
               pw.Table(
                 border: pw.TableBorder.all(),
                 columnWidths: {
-                  0: pw.FlexColumnWidth(0.12), // Date
-                  1: pw.FlexColumnWidth(0.15), // Bill No
-                  2: pw.FlexColumnWidth(0.20), // Seller Name
-                  3: pw.FlexColumnWidth(0.13), // Taxable
-                  4: pw.FlexColumnWidth(0.10), // Tax
-                  5: pw.FlexColumnWidth(0.10), // Cess
-                  6: pw.FlexColumnWidth(0.10), // Rounding
-                  7: pw.FlexColumnWidth(0.10), // Bill Amt
+                  0: pw.FlexColumnWidth(0.10), // Added Date
+                  1: pw.FlexColumnWidth(0.10), // Invoice Date
+                  2: pw.FlexColumnWidth(0.13), // Bill No
+                  3: pw.FlexColumnWidth(0.17), // Seller Name
+                  4: pw.FlexColumnWidth(0.12), // Taxable
+                  5: pw.FlexColumnWidth(0.10), // Tax
+                  6: pw.FlexColumnWidth(0.08), // Cess
+                  7: pw.FlexColumnWidth(0.10), // Rounding
+                  8: pw.FlexColumnWidth(0.10), // Bill Amt
                 },
                 children: [
                   pw.TableRow(
@@ -327,10 +333,21 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                       pw.Padding(
                         padding: const pw.EdgeInsets.all(4),
                         child: pw.Text(
-                          'Date',
+                          'Added Date',
                           style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold,
-                            fontSize: 9,
+                            fontSize: 8,
+                          ),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          'Inv Date',
+                          style: pw.TextStyle(
+                            fontWeight: pw.FontWeight.bold,
+                            fontSize: 8,
                           ),
                           textAlign: pw.TextAlign.center,
                         ),
@@ -341,7 +358,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                           'Bill No',
                           style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold,
-                            fontSize: 9,
+                            fontSize: 8,
                           ),
                           textAlign: pw.TextAlign.center,
                         ),
@@ -352,7 +369,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                           'Seller Name',
                           style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold,
-                            fontSize: 9,
+                            fontSize: 8,
                           ),
                           textAlign: pw.TextAlign.center,
                         ),
@@ -363,7 +380,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                           'Taxable',
                           style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold,
-                            fontSize: 9,
+                            fontSize: 8,
                           ),
                           textAlign: pw.TextAlign.right,
                         ),
@@ -374,7 +391,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                           'Tax',
                           style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold,
-                            fontSize: 9,
+                            fontSize: 8,
                           ),
                           textAlign: pw.TextAlign.right,
                         ),
@@ -385,7 +402,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                           'Cess',
                           style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold,
-                            fontSize: 9,
+                            fontSize: 8,
                           ),
                           textAlign: pw.TextAlign.right,
                         ),
@@ -396,7 +413,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                           'Rounding',
                           style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold,
-                            fontSize: 9,
+                            fontSize: 8,
                           ),
                           textAlign: pw.TextAlign.right,
                         ),
@@ -407,7 +424,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                           'Bill Amt',
                           style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold,
-                            fontSize: 9,
+                            fontSize: 8,
                           ),
                           textAlign: pw.TextAlign.right,
                         ),
@@ -421,8 +438,18 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(4),
                           child: pw.Text(
-                            DateFormat('dd/MM/yyyy').format(purchase['date']),
-                            style: const pw.TextStyle(fontSize: 8),
+                            DateFormat(
+                              'dd/MM/yy HH:mm',
+                            ).format(purchase['createdAt']),
+                            style: const pw.TextStyle(fontSize: 7),
+                            textAlign: pw.TextAlign.center,
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(4),
+                          child: pw.Text(
+                            DateFormat('dd/MM/yy').format(purchase['date']),
+                            style: const pw.TextStyle(fontSize: 7),
                             textAlign: pw.TextAlign.center,
                           ),
                         ),
@@ -430,7 +457,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                           padding: const pw.EdgeInsets.all(4),
                           child: pw.Text(
                             purchase['invoiceNo'] ?? 'N/A',
-                            style: const pw.TextStyle(fontSize: 8),
+                            style: const pw.TextStyle(fontSize: 7),
                             textAlign: pw.TextAlign.center,
                           ),
                         ),
@@ -438,7 +465,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                           padding: const pw.EdgeInsets.all(4),
                           child: pw.Text(
                             purchase['supplierName'] ?? 'Unknown',
-                            style: const pw.TextStyle(fontSize: 8),
+                            style: const pw.TextStyle(fontSize: 7),
                             textAlign: pw.TextAlign.left,
                           ),
                         ),
@@ -446,7 +473,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                           padding: const pw.EdgeInsets.all(4),
                           child: pw.Text(
                             (purchase['taxableAmount'] ?? 0).toStringAsFixed(2),
-                            style: const pw.TextStyle(fontSize: 8),
+                            style: const pw.TextStyle(fontSize: 7),
                             textAlign: pw.TextAlign.right,
                           ),
                         ),
@@ -454,7 +481,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                           padding: const pw.EdgeInsets.all(4),
                           child: pw.Text(
                             (purchase['gstAmount'] ?? 0).toStringAsFixed(2),
-                            style: const pw.TextStyle(fontSize: 8),
+                            style: const pw.TextStyle(fontSize: 7),
                             textAlign: pw.TextAlign.right,
                           ),
                         ),
@@ -462,7 +489,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                           padding: const pw.EdgeInsets.all(4),
                           child: pw.Text(
                             '0.00',
-                            style: const pw.TextStyle(fontSize: 8),
+                            style: const pw.TextStyle(fontSize: 7),
                             textAlign: pw.TextAlign.right,
                           ),
                         ),
@@ -473,7 +500,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                               2,
                             ),
                             style: pw.TextStyle(
-                              fontSize: 8,
+                              fontSize: 7,
                               color: (purchase['roundingAmount'] ?? 0) != 0
                                   ? ((purchase['roundingAmount'] ?? 0) > 0
                                         ? PdfColors.orange
@@ -488,7 +515,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                           child: pw.Text(
                             (purchase['grandTotal'] ?? 0).toStringAsFixed(2),
                             style: const pw.TextStyle(
-                              fontSize: 8,
+                              fontSize: 7,
                               fontWeight: pw.FontWeight.bold,
                             ),
                             textAlign: pw.TextAlign.right,
@@ -507,7 +534,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                           'TOTAL',
                           style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold,
-                            fontSize: 9,
+                            fontSize: 8,
                           ),
                           textAlign: pw.TextAlign.center,
                         ),
@@ -516,7 +543,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                         padding: const pw.EdgeInsets.all(4),
                         child: pw.Text(
                           '',
-                          style: const pw.TextStyle(fontSize: 8),
+                          style: const pw.TextStyle(fontSize: 7),
                           textAlign: pw.TextAlign.center,
                         ),
                       ),
@@ -524,7 +551,15 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                         padding: const pw.EdgeInsets.all(4),
                         child: pw.Text(
                           '',
-                          style: const pw.TextStyle(fontSize: 8),
+                          style: const pw.TextStyle(fontSize: 7),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          '',
+                          style: const pw.TextStyle(fontSize: 7),
                           textAlign: pw.TextAlign.center,
                         ),
                       ),
@@ -533,7 +568,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                         child: pw.Text(
                           totalTaxable.toStringAsFixed(2),
                           style: pw.TextStyle(
-                            fontSize: 9,
+                            fontSize: 8,
                             fontWeight: pw.FontWeight.bold,
                             color: PdfColors.blue,
                           ),
@@ -545,7 +580,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                         child: pw.Text(
                           totalTax.toStringAsFixed(2),
                           style: pw.TextStyle(
-                            fontSize: 9,
+                            fontSize: 8,
                             fontWeight: pw.FontWeight.bold,
                             color: PdfColors.blue,
                           ),
@@ -557,7 +592,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                         child: pw.Text(
                           '0.00',
                           style: pw.TextStyle(
-                            fontSize: 9,
+                            fontSize: 8,
                             fontWeight: pw.FontWeight.bold,
                             color: PdfColors.blue,
                           ),
@@ -569,7 +604,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                         child: pw.Text(
                           totalRounding.toStringAsFixed(2),
                           style: pw.TextStyle(
-                            fontSize: 9,
+                            fontSize: 8,
                             fontWeight: pw.FontWeight.bold,
                             color: totalRounding != 0
                                 ? (totalRounding > 0
@@ -585,7 +620,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                         child: pw.Text(
                           totalBillAmount.toStringAsFixed(2),
                           style: pw.TextStyle(
-                            fontSize: 9,
+                            fontSize: 8,
                             fontWeight: pw.FontWeight.bold,
                             color: PdfColors.green,
                           ),
@@ -641,7 +676,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
     }
   }
 
-  // NEW: Helper method to get filter display text
+  // Helper method to get filter display text
   String _getFilterDisplayText() {
     if (_selectedFilter == 'Custom Range' &&
         _startDate != null &&
@@ -725,7 +760,11 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                       style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
                     Text(
-                      'Date: ${DateFormat('dd/MM/yyyy').format(purchase['date'])}',
+                      'Added: ${DateFormat('dd/MM/yyyy HH:mm').format(purchase['createdAt'])}',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    ),
+                    Text(
+                      'Invoice Date: ${DateFormat('dd/MM/yyyy').format(purchase['date'])}',
                       style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
                   ],
@@ -985,8 +1024,12 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
             _buildDetailRow('Invoice No', purchase['invoiceNo']),
             _buildDetailRow('Supplier', purchase['supplierName']),
             _buildDetailRow(
-              'Date',
-              DateFormat('dd/MM/yyyy hh:mm a').format(purchase['date']),
+              'Invoice Date',
+              DateFormat('dd/MM/yyyy').format(purchase['date']),
+            ),
+            _buildDetailRow(
+              'Added Date & Time',
+              DateFormat('dd/MM/yyyy hh:mm a').format(purchase['createdAt']),
             ),
           ],
         ),
@@ -1669,13 +1712,32 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              DateFormat('dd/MM/yyyy').format(purchase['date']),
+                              'Added: ${DateFormat('dd/MM/yy').format(purchase['createdAt'])}',
                               style: TextStyle(
-                                fontSize: 10,
+                                fontSize: 9,
                                 color: Colors.grey[600],
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.orange[50],
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                'Inv: ${DateFormat('dd/MM/yy').format(purchase['date'])}',
+                                style: TextStyle(
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.orange[800],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 4,

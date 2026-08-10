@@ -590,6 +590,15 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
 
   int _totalQuantity = 0;
 
+  // Helper method to check if a date is within a range (inclusive)
+  bool _isDateInRange(DateTime date, DateTime startDate, DateTime? endDate) {
+    if (endDate == null) {
+      return date.isAfter(startDate) || date.isAtSameMomentAs(startDate);
+    }
+    return (date.isAfter(startDate) || date.isAtSameMomentAs(startDate)) &&
+        (date.isBefore(endDate) || date.isAtSameMomentAs(endDate));
+  }
+
   @override
   void initState() {
     super.initState();
@@ -614,11 +623,34 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
   }
 
   Future<void> _loadPurchasesByReportType() async {
-    Query query = _firestore.collection('purchases');
+    // First get all purchases
+    QuerySnapshot allPurchasesSnapshot = await _firestore
+        .collection('purchases')
+        .orderBy('date', descending: true)
+        .get();
 
+    List<Map<String, dynamic>> allPurchases = [];
+    for (var doc in allPurchasesSnapshot.docs) {
+      Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+      allPurchases.add({
+        'id': doc.id,
+        'supplierName': data['supplierName'] ?? 'Unknown',
+        'date': data['date'] != null
+            ? (data['date'] as Timestamp).toDate()
+            : DateTime.now(),
+        'createdAt': data['createdAt'] != null
+            ? (data['createdAt'] as Timestamp).toDate()
+            : DateTime.now(),
+        'grandTotal': (data['grandTotal'] ?? 0).toDouble(),
+        'items': List<Map<String, dynamic>>.from(data['items'] ?? []),
+        'invoiceNo': data['invoiceNo'] ?? 'N/A',
+      });
+    }
+
+    // Filter by date range using the date field (invoice date)
     DateTime now = DateTime.now();
     DateTime startDate = DateTime(now.year, now.month, now.day);
-    DateTime endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
+    DateTime? endDate;
 
     switch (_selectedReportType) {
       case ReportType.today:
@@ -668,24 +700,19 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
         break;
     }
 
-    QuerySnapshot purchaseSnapshot = await query
-        .where(
-          'createdAt',
-          isGreaterThanOrEqualTo: Timestamp.fromDate(startDate),
-        )
-        .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endDate))
-        .orderBy('createdAt', descending: true)
-        .get();
+    // Filter purchases using the date field with inclusive range
+    List<Map<String, dynamic>> filteredPurchases = allPurchases
+        .where((p) => _isDateInRange(p['date'], startDate, endDate))
+        .toList();
 
-    _totalPurchases = purchaseSnapshot.docs.length;
+    _totalPurchases = filteredPurchases.length;
     _totalPurchaseValue = 0;
     _totalQuantity = 0;
     _purchases = [];
 
-    for (var doc in purchaseSnapshot.docs) {
-      Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-      double grandTotal = (data['grandTotal'] ?? 0).toDouble();
-      List items = data['items'] ?? [];
+    for (var purchase in filteredPurchases) {
+      double grandTotal = purchase['grandTotal'] ?? 0;
+      List items = purchase['items'] ?? [];
 
       int quantity = 0;
       for (var item in items) {
@@ -707,17 +734,19 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
       _totalQuantity += quantity;
 
       _purchases.add({
-        'id': doc.id,
-        'supplierName': data['supplierName'] ?? 'Unknown',
-        'date': data['date'] != null
-            ? (data['date'] as Timestamp).toDate()
-            : DateTime.now(),
+        'id': purchase['id'],
+        'supplierName': purchase['supplierName'],
+        'date': purchase['date'],
+        'createdAt': purchase['createdAt'],
         'total': grandTotal,
         'items': items.length,
         'quantity': quantity,
-        'invoiceNo': data['invoiceNo'] ?? 'N/A',
+        'invoiceNo': purchase['invoiceNo'],
       });
     }
+
+    // Sort by date descending (most recent first)
+    _purchases.sort((a, b) => b['date'].compareTo(a['date']));
   }
 
   Future<void> _selectCustomDateRange() async {
@@ -1063,14 +1092,40 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
                                                       TextOverflow.ellipsis,
                                                 ),
                                                 const SizedBox(height: 2),
-                                                Text(
-                                                  DateFormat(
-                                                    'dd/MM/yy',
-                                                  ).format(purchase['date']),
-                                                  style: TextStyle(
-                                                    fontSize: 9,
-                                                    color: Colors.grey[500],
-                                                  ),
+                                                Row(
+                                                  children: [
+                                                    Icon(
+                                                      Icons.calendar_today,
+                                                      size: 10,
+                                                      color: Colors.grey[500],
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    Text(
+                                                      DateFormat(
+                                                        'dd/MM/yy',
+                                                      ).format(
+                                                        purchase['date'],
+                                                      ),
+                                                      style: TextStyle(
+                                                        fontSize: 9,
+                                                        color: Colors.grey[500],
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    Icon(
+                                                      Icons.access_time,
+                                                      size: 10,
+                                                      color: Colors.grey[400],
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    Text(
+                                                      'Added: ${DateFormat('dd/MM/yy HH:mm').format(purchase['createdAt'])}',
+                                                      style: TextStyle(
+                                                        fontSize: 8,
+                                                        color: Colors.grey[400],
+                                                      ),
+                                                    ),
+                                                  ],
                                                 ),
                                                 Text(
                                                   'Qty: ${purchase['quantity']} | Items: ${purchase['items']}',

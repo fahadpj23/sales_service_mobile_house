@@ -43,6 +43,15 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     _loadPurchases();
   }
 
+  // Helper method to check if a date is within a range (inclusive)
+  bool _isDateInRange(DateTime date, DateTime startDate, DateTime? endDate) {
+    if (endDate == null) {
+      return date.isAfter(startDate) || date.isAtSameMomentAs(startDate);
+    }
+    return (date.isAfter(startDate) || date.isAtSameMomentAs(startDate)) &&
+        (date.isBefore(endDate) || date.isAtSameMomentAs(endDate));
+  }
+
   Future<void> _loadPurchases() async {
     setState(() => _isLoading = true);
 
@@ -99,46 +108,46 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     if (_selectedFilter != null && _selectedFilter != 'All') {
       DateTime now = DateTime.now();
       DateTime startDate;
+      DateTime? endDate;
 
       switch (_selectedFilter) {
         case 'Last 7 Days':
           startDate = now.subtract(const Duration(days: 7));
           filtered = filtered
-              .where((p) => p['date'].isAfter(startDate))
+              .where((p) => _isDateInRange(p['date'], startDate, null))
               .toList();
           break;
         case 'Last 30 Days':
           startDate = now.subtract(const Duration(days: 30));
           filtered = filtered
-              .where((p) => p['date'].isAfter(startDate))
+              .where((p) => _isDateInRange(p['date'], startDate, null))
               .toList();
           break;
         case 'This Month':
           startDate = DateTime(now.year, now.month, 1);
           filtered = filtered
-              .where((p) => p['date'].isAfter(startDate))
+              .where((p) => _isDateInRange(p['date'], startDate, null))
               .toList();
           break;
         case 'Last Month':
           startDate = DateTime(now.year, now.month - 1, 1);
-          DateTime endDate = DateTime(now.year, now.month, 0);
+          endDate = DateTime(now.year, now.month, 0);
           filtered = filtered
-              .where(
-                (p) =>
-                    p['date'].isAfter(startDate) && p['date'].isBefore(endDate),
-              )
+              .where((p) => _isDateInRange(p['date'], startDate, endDate))
               .toList();
           break;
         case 'Custom Range':
           if (_startDate != null && _endDate != null) {
+            DateTime endOfDay = DateTime(
+              _endDate!.year,
+              _endDate!.month,
+              _endDate!.day,
+              23,
+              59,
+              59,
+            );
             filtered = filtered
-                .where(
-                  (p) =>
-                      p['date'].isAfter(_startDate!) &&
-                      p['date'].isBefore(
-                        _endDate!.add(const Duration(days: 1)),
-                      ),
-                )
+                .where((p) => _isDateInRange(p['date'], _startDate!, endOfDay))
                 .toList();
           }
           break;
@@ -249,7 +258,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                     ),
                     pw.SizedBox(height: 4),
                     pw.Text(
-                      'Period: ${DateFormat('dd/MM/yyyy').format(_startDate ?? DateTime.now().subtract(const Duration(days: 30)))} - ${DateFormat('dd/MM/yyyy').format(_endDate ?? DateTime.now())}',
+                      'Period: ${_getFilterDisplayText()}',
                       style: const pw.TextStyle(fontSize: 12),
                     ),
                     pw.SizedBox(height: 10),
@@ -258,18 +267,19 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                   ],
                 ),
               ),
-              // Table Header
+              // Table Header - Updated to include both dates
               pw.Table(
                 border: pw.TableBorder.all(),
                 columnWidths: {
-                  0: pw.FlexColumnWidth(0.12), // Date
-                  1: pw.FlexColumnWidth(0.15), // Bill No
-                  2: pw.FlexColumnWidth(0.20), // Seller Name
-                  3: pw.FlexColumnWidth(0.13), // Taxable
-                  4: pw.FlexColumnWidth(0.10), // Tax
-                  5: pw.FlexColumnWidth(0.10), // Cess
-                  6: pw.FlexColumnWidth(0.10), // Rounding
-                  7: pw.FlexColumnWidth(0.10), // Bill Amt
+                  0: pw.FlexColumnWidth(0.10), // Added Date
+                  1: pw.FlexColumnWidth(0.10), // Invoice Date
+                  2: pw.FlexColumnWidth(0.13), // Bill No
+                  3: pw.FlexColumnWidth(0.17), // Seller Name
+                  4: pw.FlexColumnWidth(0.12), // Taxable
+                  5: pw.FlexColumnWidth(0.10), // Tax
+                  6: pw.FlexColumnWidth(0.08), // Cess
+                  7: pw.FlexColumnWidth(0.10), // Rounding
+                  8: pw.FlexColumnWidth(0.10), // Bill Amt
                 },
                 children: [
                   pw.TableRow(
@@ -278,10 +288,21 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                       pw.Padding(
                         padding: const pw.EdgeInsets.all(4),
                         child: pw.Text(
-                          'Date',
+                          'Added Date',
                           style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold,
-                            fontSize: 9,
+                            fontSize: 8,
+                          ),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          'Inv Date',
+                          style: pw.TextStyle(
+                            fontWeight: pw.FontWeight.bold,
+                            fontSize: 8,
                           ),
                           textAlign: pw.TextAlign.center,
                         ),
@@ -292,7 +313,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           'Bill No',
                           style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold,
-                            fontSize: 9,
+                            fontSize: 8,
                           ),
                           textAlign: pw.TextAlign.center,
                         ),
@@ -303,7 +324,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           'Seller Name',
                           style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold,
-                            fontSize: 9,
+                            fontSize: 8,
                           ),
                           textAlign: pw.TextAlign.center,
                         ),
@@ -314,7 +335,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           'Taxable',
                           style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold,
-                            fontSize: 9,
+                            fontSize: 8,
                           ),
                           textAlign: pw.TextAlign.right,
                         ),
@@ -325,7 +346,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           'Tax',
                           style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold,
-                            fontSize: 9,
+                            fontSize: 8,
                           ),
                           textAlign: pw.TextAlign.right,
                         ),
@@ -336,7 +357,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           'Cess',
                           style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold,
-                            fontSize: 9,
+                            fontSize: 8,
                           ),
                           textAlign: pw.TextAlign.right,
                         ),
@@ -347,7 +368,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           'Rounding',
                           style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold,
-                            fontSize: 9,
+                            fontSize: 8,
                           ),
                           textAlign: pw.TextAlign.right,
                         ),
@@ -358,7 +379,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           'Bill Amt',
                           style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold,
-                            fontSize: 9,
+                            fontSize: 8,
                           ),
                           textAlign: pw.TextAlign.right,
                         ),
@@ -372,8 +393,18 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(4),
                           child: pw.Text(
-                            DateFormat('dd/MM/yyyy').format(purchase['date']),
-                            style: const pw.TextStyle(fontSize: 8),
+                            DateFormat(
+                              'dd/MM/yy HH:mm',
+                            ).format(purchase['createdAt']),
+                            style: const pw.TextStyle(fontSize: 7),
+                            textAlign: pw.TextAlign.center,
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(4),
+                          child: pw.Text(
+                            DateFormat('dd/MM/yy').format(purchase['date']),
+                            style: const pw.TextStyle(fontSize: 7),
                             textAlign: pw.TextAlign.center,
                           ),
                         ),
@@ -381,7 +412,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           padding: const pw.EdgeInsets.all(4),
                           child: pw.Text(
                             purchase['invoiceNo'] ?? 'N/A',
-                            style: const pw.TextStyle(fontSize: 8),
+                            style: const pw.TextStyle(fontSize: 7),
                             textAlign: pw.TextAlign.center,
                           ),
                         ),
@@ -389,7 +420,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           padding: const pw.EdgeInsets.all(4),
                           child: pw.Text(
                             purchase['supplierName'] ?? 'Unknown',
-                            style: const pw.TextStyle(fontSize: 8),
+                            style: const pw.TextStyle(fontSize: 7),
                             textAlign: pw.TextAlign.left,
                           ),
                         ),
@@ -397,7 +428,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           padding: const pw.EdgeInsets.all(4),
                           child: pw.Text(
                             (purchase['taxableAmount'] ?? 0).toStringAsFixed(2),
-                            style: const pw.TextStyle(fontSize: 8),
+                            style: const pw.TextStyle(fontSize: 7),
                             textAlign: pw.TextAlign.right,
                           ),
                         ),
@@ -405,7 +436,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           padding: const pw.EdgeInsets.all(4),
                           child: pw.Text(
                             (purchase['gstAmount'] ?? 0).toStringAsFixed(2),
-                            style: const pw.TextStyle(fontSize: 8),
+                            style: const pw.TextStyle(fontSize: 7),
                             textAlign: pw.TextAlign.right,
                           ),
                         ),
@@ -413,7 +444,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           padding: const pw.EdgeInsets.all(4),
                           child: pw.Text(
                             '0.00',
-                            style: const pw.TextStyle(fontSize: 8),
+                            style: const pw.TextStyle(fontSize: 7),
                             textAlign: pw.TextAlign.right,
                           ),
                         ),
@@ -423,7 +454,14 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                             (purchase['roundingAmount'] ?? 0).toStringAsFixed(
                               2,
                             ),
-                            style: const pw.TextStyle(fontSize: 8),
+                            style: pw.TextStyle(
+                              fontSize: 7,
+                              color: (purchase['roundingAmount'] ?? 0) != 0
+                                  ? ((purchase['roundingAmount'] ?? 0) > 0
+                                        ? PdfColors.orange
+                                        : PdfColors.blue)
+                                  : PdfColors.black,
+                            ),
                             textAlign: pw.TextAlign.right,
                           ),
                         ),
@@ -432,7 +470,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           child: pw.Text(
                             (purchase['grandTotal'] ?? 0).toStringAsFixed(2),
                             style: const pw.TextStyle(
-                              fontSize: 8,
+                              fontSize: 7,
                               fontWeight: pw.FontWeight.bold,
                             ),
                             textAlign: pw.TextAlign.right,
@@ -441,66 +479,112 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                       ],
                     );
                   }).toList(),
-                ],
-              ),
-              pw.SizedBox(height: 10),
-              // Summary Section - Row layout
-              pw.Container(
-                padding: const pw.EdgeInsets.all(8),
-                decoration: pw.BoxDecoration(border: pw.Border.all()),
-                child: pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    // Left side - Taxable and Tax
-                    pw.Row(
-                      children: [
-                        pw.Text(
-                          'Taxable Total: ',
-                          style: const pw.TextStyle(fontSize: 9),
-                        ),
-                        pw.Text(
-                          totalTaxable.toStringAsFixed(2),
-                          style: const pw.TextStyle(
-                            fontSize: 9,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
-                        ),
-                        pw.SizedBox(width: 20),
-                        pw.Text(
-                          'Tax Total: ',
-                          style: const pw.TextStyle(fontSize: 9),
-                        ),
-                        pw.Text(
-                          totalTax.toStringAsFixed(2),
-                          style: const pw.TextStyle(
-                            fontSize: 9,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
-                        ),
-                        pw.SizedBox(width: 20),
-                      ],
-                    ),
-                    // Right side - Grand Total
-                    pw.Row(
-                      children: [
-                        pw.Text(
-                          'Grand Total: ',
+                  // Total Row
+                  pw.TableRow(
+                    decoration: pw.BoxDecoration(color: PdfColors.grey200),
+                    children: [
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          'TOTAL',
                           style: pw.TextStyle(
-                            fontSize: 11,
                             fontWeight: pw.FontWeight.bold,
+                            fontSize: 8,
                           ),
+                          textAlign: pw.TextAlign.center,
                         ),
-                        pw.Text(
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          '',
+                          style: const pw.TextStyle(fontSize: 7),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          '',
+                          style: const pw.TextStyle(fontSize: 7),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          '',
+                          style: const pw.TextStyle(fontSize: 7),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          totalTaxable.toStringAsFixed(2),
+                          style: pw.TextStyle(
+                            fontSize: 8,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.blue,
+                          ),
+                          textAlign: pw.TextAlign.right,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          totalTax.toStringAsFixed(2),
+                          style: pw.TextStyle(
+                            fontSize: 8,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.blue,
+                          ),
+                          textAlign: pw.TextAlign.right,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          '0.00',
+                          style: pw.TextStyle(
+                            fontSize: 8,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.blue,
+                          ),
+                          textAlign: pw.TextAlign.right,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
+                          totalRounding.toStringAsFixed(2),
+                          style: pw.TextStyle(
+                            fontSize: 8,
+                            fontWeight: pw.FontWeight.bold,
+                            color: totalRounding != 0
+                                ? (totalRounding > 0
+                                      ? PdfColors.orange
+                                      : PdfColors.blue)
+                                : PdfColors.blue,
+                          ),
+                          textAlign: pw.TextAlign.right,
+                        ),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(
                           totalBillAmount.toStringAsFixed(2),
                           style: pw.TextStyle(
-                            fontSize: 11,
+                            fontSize: 8,
                             fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.green,
                           ),
+                          textAlign: pw.TextAlign.right,
                         ),
-                      ],
-                    ),
-                  ],
-                ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
               pw.SizedBox(height: 10),
             ];
@@ -520,7 +604,13 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       await Share.shareXFiles(
         [XFile(file.path)],
         text:
-            'Purchase Report - MOBILE HOUSE\nPeriod: ${DateFormat('dd/MM/yyyy').format(_startDate ?? DateTime.now().subtract(const Duration(days: 30)))} to ${DateFormat('dd/MM/yyyy').format(_endDate ?? DateTime.now())}\nTotal Purchases: ${_filteredPurchases.length}\nTotal Amount: ₹${totalBillAmount.toStringAsFixed(2)}',
+            'Purchase Report - MOBILE HOUSE\n'
+            'Period: ${_getFilterDisplayText()}\n'
+            'Total Purchases: ${_filteredPurchases.length}\n'
+            'Total Taxable: ₹${totalTaxable.toStringAsFixed(2)}\n'
+            'Total Tax: ₹${totalTax.toStringAsFixed(2)}\n'
+            'Total Rounding: ₹${totalRounding.toStringAsFixed(2)}\n'
+            'Grand Total: ₹${totalBillAmount.toStringAsFixed(2)}',
       );
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -538,6 +628,33 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       );
     } finally {
       setState(() => _isGeneratingPDF = false);
+    }
+  }
+
+  // Helper method to get filter display text
+  String _getFilterDisplayText() {
+    if (_selectedFilter == 'Custom Range' &&
+        _startDate != null &&
+        _endDate != null) {
+      return '${DateFormat('dd/MM/yyyy').format(_startDate!)} - ${DateFormat('dd/MM/yyyy').format(_endDate!)}';
+    } else if (_selectedFilter == 'This Year') {
+      return 'January ${DateTime.now().year} - December ${DateTime.now().year}';
+    } else if (_selectedFilter == 'Last Year') {
+      return 'January ${DateTime.now().year - 1} - December ${DateTime.now().year - 1}';
+    } else if (_selectedFilter == 'This Month') {
+      return '${DateFormat('MMMM yyyy').format(DateTime.now())}';
+    } else if (_selectedFilter == 'Last Month') {
+      DateTime lastMonth = DateTime(
+        DateTime.now().year,
+        DateTime.now().month - 1,
+      );
+      return '${DateFormat('MMMM yyyy').format(lastMonth)}';
+    } else if (_selectedFilter == 'Last 7 Days') {
+      return 'Last 7 Days';
+    } else if (_selectedFilter == 'Last 30 Days') {
+      return 'Last 30 Days';
+    } else {
+      return 'All Time';
     }
   }
 
@@ -598,7 +715,11 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                       style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
                     Text(
-                      'Date: ${DateFormat('dd/MM/yyyy').format(purchase['date'])}',
+                      'Invoice Date: ${DateFormat('dd/MM/yyyy').format(purchase['date'])}',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    ),
+                    Text(
+                      'Added Date: ${DateFormat('dd/MM/yyyy HH:mm').format(purchase['createdAt'])}',
                       style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
                   ],
@@ -855,8 +976,12 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
             _buildDetailRow('Invoice No', purchase['invoiceNo']),
             _buildDetailRow('Supplier', purchase['supplierName']),
             _buildDetailRow(
-              'Date',
-              DateFormat('dd/MM/yyyy hh:mm a').format(purchase['date']),
+              'Invoice Date',
+              DateFormat('dd/MM/yyyy').format(purchase['date']),
+            ),
+            _buildDetailRow(
+              'Added Date & Time',
+              DateFormat('dd/MM/yyyy hh:mm a').format(purchase['createdAt']),
             ),
           ],
         ),
@@ -1072,7 +1197,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
               ],
             ),
           ),
-          // PDF Generate & Share Button with Report text
           if (_filteredPurchases.isNotEmpty)
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -1142,7 +1266,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
             children: [
               Expanded(
                 child: Container(
-                  height: 40, // Set fixed height for proper vertical centering
+                  height: 40,
                   decoration: BoxDecoration(
                     color: Colors.grey[100],
                     borderRadius: BorderRadius.circular(8),
@@ -1165,25 +1289,21 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                       ),
                       border: InputBorder.none,
                       contentPadding: const EdgeInsets.symmetric(
-                        vertical: 0, // Remove vertical padding
+                        vertical: 0,
                         horizontal: 8,
                       ),
                       isDense: true,
                       filled: true,
                       fillColor: Colors.transparent,
                     ),
-                    style: const TextStyle(
-                      fontSize: 11,
-                      height: 1.0, // Ensures text is centered vertically
-                    ),
-                    textAlignVertical:
-                        TextAlignVertical.center, // Center text vertically
+                    style: const TextStyle(fontSize: 11, height: 1.0),
+                    textAlignVertical: TextAlignVertical.center,
                   ),
                 ),
               ),
               const SizedBox(width: 6),
               Container(
-                height: 40, // Match height with search field
+                height: 40,
                 decoration: BoxDecoration(
                   color: Colors.green[50],
                   borderRadius: BorderRadius.circular(8),
@@ -1222,12 +1342,42 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                     style: TextStyle(fontSize: 11, color: Colors.green[800]),
                     underline: Container(),
                     padding: const EdgeInsets.symmetric(horizontal: 6),
-                    alignment: Alignment.center, // Center the dropdown content
+                    alignment: Alignment.center,
                   ),
                 ),
               ),
             ],
           ),
+          if (_selectedFilter != null && _selectedFilter != 'All')
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.filter_alt, size: 12, color: Colors.green[700]),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Filter: $_selectedFilter',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.green[700],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (_startDate != null && _endDate != null) ...[
+                    const SizedBox(width: 4),
+                    Text(
+                      '(${DateFormat('dd/MM/yy').format(_startDate!)} - ${DateFormat('dd/MM/yy').format(_endDate!)})',
+                      style: TextStyle(fontSize: 9, color: Colors.green[600]),
+                    ),
+                  ],
+                  const Spacer(),
+                  Text(
+                    '${_filteredPurchases.length} records',
+                    style: TextStyle(fontSize: 9, color: Colors.grey[500]),
+                  ),
+                ],
+              ),
+            ),
           if (_startDate != null && _endDate != null)
             Padding(
               padding: const EdgeInsets.only(top: 6),
@@ -1384,10 +1534,24 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              DateFormat('dd/MM/yyyy').format(purchase['date']),
+                              'Inv: ${DateFormat('dd/MM/yy').format(purchase['date'])}',
                               style: TextStyle(
-                                fontSize: 10,
+                                fontSize: 9,
                                 color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.access_time,
+                              size: 10,
+                              color: Colors.grey[500],
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Added: ${DateFormat('dd/MM/yy HH:mm').format(purchase['createdAt'])}',
+                              style: TextStyle(
+                                fontSize: 8,
+                                color: Colors.grey[500],
                               ),
                             ),
                             const SizedBox(width: 8),
