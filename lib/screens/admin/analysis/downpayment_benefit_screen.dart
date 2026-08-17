@@ -19,27 +19,48 @@ class DownpaymentBenefitScreen extends StatefulWidget {
       _DownpaymentBenefitScreenState();
 }
 
-class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
+class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen>
+    with SingleTickerProviderStateMixin {
   List<Sale> _filteredSales = [];
+  List<Sale> _withoutExchangeSales = [];
+  List<Sale> _withExchangeSales = [];
   double _totalBenefit = 0.0;
+  double _withoutExchangeBenefit = 0.0;
+  double _withExchangeBenefit = 0.0;
   int _totalBenefitTransactions = 0;
+  int _withoutExchangeTransactions = 0;
+  int _withExchangeTransactions = 0;
   DateTime _selectedStartDate = DateTime.now().subtract(Duration(days: 30));
   DateTime _selectedEndDate = DateTime.now();
 
-  String _selectedFilter =
-      'monthly'; // daily, weekly, monthly, last_month, yearly, custom
+  String _selectedFilter = 'monthly';
+  int _selectedTabIndex = 0;
 
-  // Colors
   final Color primaryGreen = Color(0xFF0A4D2E);
   final Color secondaryGreen = Color(0xFF1A7D4A);
   final Color accentGreen = Color(0xFF28A745);
   final Color lightGreen = Color(0xFFE8F5E9);
   final Color benefitColor = Color(0xFF4CAF50);
+  final Color exchangeColor = Color(0xFFFF6B35);
+
+  late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      setState(() {
+        _selectedTabIndex = _tabController.index;
+      });
+    });
     _applyFilter('monthly');
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   void _applyFilter(String filterType) {
@@ -84,7 +105,6 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
           _selectedEndDate = now;
           break;
         case 'custom':
-          // Keep existing dates for custom
           break;
       }
     });
@@ -93,10 +113,15 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
 
   void _filterAndCalculateData() {
     _filteredSales = [];
+    _withoutExchangeSales = [];
+    _withExchangeSales = [];
     _totalBenefit = 0.0;
+    _withoutExchangeBenefit = 0.0;
+    _withExchangeBenefit = 0.0;
     _totalBenefitTransactions = 0;
+    _withoutExchangeTransactions = 0;
+    _withExchangeTransactions = 0;
 
-    // Filter phone sales within date range
     final phoneSales = widget.allSales.where((sale) {
       return sale.type == 'phone_sale' &&
           sale.date.isAfter(_selectedStartDate) &&
@@ -104,51 +129,65 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
     }).toList();
 
     for (var sale in phoneSales) {
+      bool hasExchange = (sale.exchangeValue ?? 0) != 0;
+      bool hasDiscount = (sale.discount ?? 0) != 0;
+
+      if (hasDiscount) {
+        continue;
+      }
+
       double benefit = _calculateDownpaymentBenefit(sale);
 
       if (benefit > 0) {
         _filteredSales.add(sale);
         _totalBenefit += benefit;
         _totalBenefitTransactions++;
+
+        if (hasExchange) {
+          _withExchangeSales.add(sale);
+          _withExchangeBenefit += benefit;
+          _withExchangeTransactions++;
+        } else {
+          _withoutExchangeSales.add(sale);
+          _withoutExchangeBenefit += benefit;
+          _withoutExchangeTransactions++;
+        }
       }
     }
 
-    // Sort by addedAt in DESCENDING order (newest first)
     _filteredSales.sort((a, b) {
-      // Use addedAt if available, fallback to date if not
       final DateTime aDateTime = a.addedAt ?? a.date;
       final DateTime bDateTime = b.addedAt ?? b.date;
-      return bDateTime.compareTo(aDateTime); // DESCENDING order (newest first)
+      return bDateTime.compareTo(aDateTime);
+    });
+
+    _withoutExchangeSales.sort((a, b) {
+      final DateTime aDateTime = a.addedAt ?? a.date;
+      final DateTime bDateTime = b.addedAt ?? b.date;
+      return bDateTime.compareTo(aDateTime);
+    });
+
+    _withExchangeSales.sort((a, b) {
+      final DateTime aDateTime = a.addedAt ?? a.date;
+      final DateTime bDateTime = b.addedAt ?? b.date;
+      return bDateTime.compareTo(aDateTime);
     });
 
     setState(() {});
   }
 
   double _calculateDownpaymentBenefit(Sale sale) {
-    // Only calculate benefit for EMI purchases
     if (sale.purchaseMode != 'EMI') {
       return 0.0;
     }
 
-    // Check if discount and exchange value are zero
-    if ((sale.discount ?? 0) != 0 || (sale.exchangeValue ?? 0) != 0) {
-      return 0.0;
-    }
-
-    // Extract required values - handle null price
     double price = sale.price ?? sale.amount;
     double downPayment = sale.downPayment ?? 0.0;
     double disbursementAmount = sale.disbursementAmount ?? 0.0;
-
-    // Calculate total payment customer makes
     double totalPayment = downPayment + disbursementAmount;
 
-    // Calculate benefit: totalPayment - price (company earns this extra amount)
-    // Customer pays more than actual price in EMI
     if (totalPayment > price) {
       double benefit = totalPayment - price;
-
-      // Only return benefit if it's positive (customer paid more than price)
       return benefit > 0 ? benefit : 0.0;
     } else
       return 0;
@@ -188,10 +227,10 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
   Widget _buildFilterChips() {
     final filters = [
       {'label': 'Today', 'value': 'daily'},
-      {'label': 'This Week', 'value': 'weekly'},
-      {'label': 'This Month', 'value': 'monthly'},
+      {'label': 'Week', 'value': 'weekly'},
+      {'label': 'Month', 'value': 'monthly'},
       {'label': 'Last Month', 'value': 'last_month'},
-      {'label': 'This Year', 'value': 'yearly'},
+      {'label': 'Year', 'value': 'yearly'},
       {'label': 'Custom', 'value': 'custom'},
     ];
 
@@ -201,11 +240,11 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
         children: filters.map((filter) {
           bool isSelected = _selectedFilter == filter['value'];
           return Padding(
-            padding: const EdgeInsets.only(right: 6.0),
+            padding: const EdgeInsets.only(right: 4.0),
             child: FilterChip(
               label: Text(
                 filter['label']!,
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500),
               ),
               selected: isSelected,
               backgroundColor: Colors.grey[200],
@@ -216,7 +255,7 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
               ),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(14),
                 side: BorderSide(
                   color: isSelected ? secondaryGreen : Colors.grey[300]!,
                   width: isSelected ? 1.2 : 0.8,
@@ -229,7 +268,7 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                   _applyFilter(filter['value']!);
                 }
               },
-              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               visualDensity: VisualDensity.compact,
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
@@ -240,8 +279,18 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
   }
 
   Widget _buildHeader() {
+    double totalBenefitDisplay = _selectedTabIndex == 0
+        ? _withoutExchangeBenefit
+        : _withExchangeBenefit;
+    int totalTransactionsDisplay = _selectedTabIndex == 0
+        ? _withoutExchangeTransactions
+        : _withExchangeTransactions;
+
+    String tabTitle = _selectedTabIndex == 0 ? 'No Exchange' : 'With Exchange';
+    Color tabColor = _selectedTabIndex == 0 ? benefitColor : exchangeColor;
+
     return Container(
-      padding: EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+      padding: EdgeInsets.symmetric(vertical: 12, horizontal: 10),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -256,7 +305,6 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Title and Date Range
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4.0),
             child: Row(
@@ -270,16 +318,16 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                         'Downpayment Benefit',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 20,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      SizedBox(height: 2),
+                      SizedBox(height: 1),
                       Text(
                         '${DateFormat('dd MMM yyyy').format(_selectedStartDate)} - ${DateFormat('dd MMM yyyy').format(_selectedEndDate)}',
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.9),
-                          fontSize: 12,
+                          fontSize: 10,
                         ),
                       ),
                     ],
@@ -289,7 +337,7 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                   icon: Icon(
                     Icons.calendar_today,
                     color: Colors.white,
-                    size: 20,
+                    size: 16,
                   ),
                   onPressed: () => _selectDateRange(context),
                   tooltip: 'Select Date Range',
@@ -300,26 +348,115 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
             ),
           ),
 
-          SizedBox(height: 16),
+          SizedBox(height: 10),
 
-          // Filter Chips with reduced size
-          Container(height: 32, child: _buildFilterChips()),
+          Container(height: 28, child: _buildFilterChips()),
 
-          SizedBox(height: 20),
+          SizedBox(height: 12),
 
-          // Stats Cards
+          Container(
+            margin: EdgeInsets.symmetric(horizontal: 4),
+            height: 32,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: TabBar(
+              controller: _tabController,
+              indicator: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                color: Colors.white.withOpacity(0.3),
+              ),
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white.withOpacity(0.6),
+              labelStyle: TextStyle(fontWeight: FontWeight.w600, fontSize: 11),
+              unselectedLabelStyle: TextStyle(
+                fontWeight: FontWeight.w400,
+                fontSize: 10,
+              ),
+              tabs: [
+                Tab(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.money_off, size: 13),
+                      SizedBox(width: 4),
+                      Text('No Exchange'),
+                      SizedBox(width: 3),
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: benefitColor.withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '$_withoutExchangeTransactions',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Tab(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.swap_horiz, size: 13),
+                      SizedBox(width: 4),
+                      Text('With Exchange'),
+                      SizedBox(width: 3),
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: exchangeColor.withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '$_withExchangeTransactions',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          SizedBox(height: 12),
+
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _buildStatCard(
-                'Total Benefit',
-                '₹${_totalBenefit.toStringAsFixed(2)}',
-                Icons.monetization_on,
+                tabTitle,
+                '₹${totalBenefitDisplay.toStringAsFixed(2)}',
+                _selectedTabIndex == 0 ? Icons.money_off : Icons.swap_horiz,
+                tabColor,
               ),
               _buildStatCard(
-                'Transactions',
-                '$_totalBenefitTransactions',
+                'Txn',
+                '$totalTransactionsDisplay',
                 Icons.receipt,
+                tabColor,
+              ),
+              _buildStatCard(
+                'Total',
+                '₹${_totalBenefit.toStringAsFixed(2)}',
+                Icons.monetization_on,
+                benefitColor,
               ),
             ],
           ),
@@ -328,37 +465,39 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon) {
+  Widget _buildStatCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
     return Container(
-      width: 80,
+      width: 70,
       child: Column(
         children: [
           Container(
-            padding: EdgeInsets.all(8),
+            padding: EdgeInsets.all(6),
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(icon, color: Colors.white, size: 20),
+            child: Icon(icon, color: Colors.white, size: 16),
           ),
-          SizedBox(height: 6),
+          SizedBox(height: 4),
           Text(
             value,
             style: TextStyle(
               color: Colors.white,
-              fontSize: 12,
+              fontSize: 11,
               fontWeight: FontWeight.bold,
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          SizedBox(height: 2),
+          SizedBox(height: 1),
           Text(
             title,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.9),
-              fontSize: 10,
-            ),
+            style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 9),
             textAlign: TextAlign.center,
             maxLines: 2,
           ),
@@ -367,7 +506,6 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
     );
   }
 
-  // Helper method to safely get numberOfEmi from sale
   int? _getNumberOfEmi(Sale sale) {
     try {
       final dynamic saleMap = sale as dynamic;
@@ -381,22 +519,36 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
   }
 
   Widget _buildBenefitList() {
-    if (_filteredSales.isEmpty) {
+    List<Sale> salesList = _selectedTabIndex == 0
+        ? _withoutExchangeSales
+        : _withExchangeSales;
+
+    String emptyMessage = _selectedTabIndex == 0
+        ? 'No benefit transactions without exchange'
+        : 'No benefit transactions with exchange';
+
+    Color tabColor = _selectedTabIndex == 0 ? benefitColor : exchangeColor;
+
+    if (salesList.isEmpty) {
       return Container(
-        height: 200,
+        height: 150,
         child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.money_off, size: 48, color: Colors.grey[400]),
-              SizedBox(height: 12),
+              Icon(
+                _selectedTabIndex == 0 ? Icons.money_off : Icons.swap_horiz,
+                size: 36,
+                color: Colors.grey[400],
+              ),
+              SizedBox(height: 8),
               Text(
-                'No benefit transactions',
-                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                emptyMessage,
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
               ),
               Text(
                 'for the selected period',
-                style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                style: TextStyle(fontSize: 10, color: Colors.grey[500]),
               ),
             ],
           ),
@@ -404,73 +556,69 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
       );
     }
 
-    // Sales are sorted in DESCENDING order by addedAt (newest first)
-
     return ListView.builder(
       shrinkWrap: true,
       physics: NeverScrollableScrollPhysics(),
-      itemCount: _filteredSales.length,
+      itemCount: salesList.length,
       itemBuilder: (context, index) {
-        final sale = _filteredSales[index];
+        final sale = salesList[index];
         final benefit = _calculateDownpaymentBenefit(sale);
         final price = sale.price ?? sale.amount;
         final downPayment = sale.downPayment ?? 0.0;
         final disbursementAmount = sale.disbursementAmount ?? 0.0;
         final totalReceived = downPayment + disbursementAmount;
+        final exchangeValue = sale.exchangeValue ?? 0.0;
 
-        // Get the timestamp to display (addedAt or date)
         final displayDateTime = sale.addedAt ?? sale.date;
-
-        // Safely get numberOfEmi
         final numberOfEmi = _getNumberOfEmi(sale);
+        bool hasExchange = (sale.exchangeValue ?? 0) != 0;
 
         return Card(
-          margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          margin: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           elevation: 1,
           child: Padding(
-            padding: EdgeInsets.all(12),
+            padding: EdgeInsets.all(10),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Benefit amount with icon
                 Container(
-                  padding: EdgeInsets.all(10),
+                  padding: EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: benefitColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
+                    color: tabColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
                   ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(
-                        Icons.monetization_on,
-                        color: benefitColor,
-                        size: 20,
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        '₹${widget.formatNumber(benefit)}',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: benefitColor,
-                        ),
+                        hasExchange ? Icons.swap_horiz : Icons.money_off,
+                        color: tabColor,
+                        size: 16,
                       ),
                       SizedBox(height: 2),
                       Text(
-                        'Benefit',
+                        '₹${widget.formatNumber(benefit)}',
                         style: TextStyle(
-                          fontSize: 10,
-                          color: benefitColor.withOpacity(0.8),
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: tabColor,
+                        ),
+                      ),
+                      SizedBox(height: 1),
+                      Text(
+                        hasExchange ? 'Exchange' : 'No Exch',
+                        style: TextStyle(
+                          fontSize: 8,
+                          color: tabColor.withOpacity(0.8),
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ],
                   ),
                 ),
 
-                SizedBox(width: 12),
+                SizedBox(width: 10),
 
-                // Customer and product info
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -483,7 +631,7 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                               sale.customerName,
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                fontSize: 14,
+                                fontSize: 12,
                                 color: primaryGreen,
                               ),
                               maxLines: 1,
@@ -492,17 +640,17 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                           ),
                           Container(
                             padding: EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
+                              horizontal: 4,
+                              vertical: 1,
                             ),
                             decoration: BoxDecoration(
                               color: Colors.grey[200],
-                              borderRadius: BorderRadius.circular(4),
+                              borderRadius: BorderRadius.circular(3),
                             ),
                             child: Text(
-                              '#${index + 1}', // Show sequence number (newest first)
+                              '#${index + 1}',
                               style: TextStyle(
-                                fontSize: 10,
+                                fontSize: 9,
                                 color: Colors.grey[600],
                                 fontWeight: FontWeight.w500,
                               ),
@@ -510,31 +658,30 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                           ),
                         ],
                       ),
-                      SizedBox(height: 4),
+                      SizedBox(height: 2),
                       Text(
                         '${sale.brand ?? ''} ${sale.model ?? ''}'.trim(),
-                        style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                        style: TextStyle(fontSize: 10, color: Colors.grey[700]),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
 
-                      // Date and Time
-                      SizedBox(height: 4),
+                      SizedBox(height: 3),
                       Row(
                         children: [
                           Icon(
                             Icons.access_time,
-                            size: 10,
+                            size: 9,
                             color: Colors.grey[500],
                           ),
-                          SizedBox(width: 4),
+                          SizedBox(width: 3),
                           Expanded(
                             child: Text(
                               DateFormat(
                                 'dd MMM yyyy hh:mm a',
                               ).format(displayDateTime),
                               style: TextStyle(
-                                fontSize: 10,
+                                fontSize: 9,
                                 color: Colors.grey[500],
                               ),
                             ),
@@ -542,9 +689,8 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                         ],
                       ),
 
-                      SizedBox(height: 6),
+                      SizedBox(height: 4),
 
-                      // Price and Disbursement info
                       Row(
                         children: [
                           Expanded(
@@ -554,16 +700,16 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                                 Text(
                                   'Price: ₹${widget.formatNumber(price)}',
                                   style: TextStyle(
-                                    fontSize: 11,
+                                    fontSize: 9,
                                     color: Colors.grey[700],
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
-                                SizedBox(height: 2),
+                                SizedBox(height: 1),
                                 Text(
-                                  'Disbursement: ₹${widget.formatNumber(disbursementAmount)}',
+                                  'Disb: ₹${widget.formatNumber(disbursementAmount)}',
                                   style: TextStyle(
-                                    fontSize: 11,
+                                    fontSize: 9,
                                     color: Colors.grey[600],
                                   ),
                                 ),
@@ -571,7 +717,7 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                             ),
                           ),
 
-                          SizedBox(width: 8),
+                          SizedBox(width: 6),
 
                           Expanded(
                             child: Column(
@@ -580,15 +726,15 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                                 Text(
                                   'Down: ₹${widget.formatNumber(downPayment)}',
                                   style: TextStyle(
-                                    fontSize: 11,
+                                    fontSize: 9,
                                     color: Colors.grey[600],
                                   ),
                                 ),
-                                SizedBox(height: 2),
+                                SizedBox(height: 1),
                                 Text(
-                                  'Total Received: ₹${widget.formatNumber(totalReceived)}',
+                                  'Recv: ₹${widget.formatNumber(totalReceived)}',
                                   style: TextStyle(
-                                    fontSize: 11,
+                                    fontSize: 9,
                                     color: Colors.grey[700],
                                     fontWeight: FontWeight.w500,
                                   ),
@@ -599,25 +745,46 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                         ],
                       ),
 
-                      SizedBox(height: 6),
+                      if (hasExchange) ...[
+                        SizedBox(height: 3),
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
+                            color: exchangeColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          child: Text(
+                            'Exchange: ₹${widget.formatNumber(exchangeValue)}',
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: exchangeColor,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
 
-                      // Shop info and EMI details
+                      SizedBox(height: 3),
+
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Container(
                             padding: EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
+                              horizontal: 6,
+                              vertical: 1,
                             ),
                             decoration: BoxDecoration(
                               color: secondaryGreen.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(4),
+                              borderRadius: BorderRadius.circular(3),
                             ),
                             child: Text(
                               sale.shopName,
                               style: TextStyle(
-                                fontSize: 10,
+                                fontSize: 8,
                                 color: secondaryGreen,
                               ),
                               maxLines: 1,
@@ -628,18 +795,18 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                           if (numberOfEmi != null && numberOfEmi > 0)
                             Container(
                               padding: EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
+                                horizontal: 4,
+                                vertical: 1,
                               ),
                               decoration: BoxDecoration(
-                                color: benefitColor.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(4),
+                                color: tabColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(3),
                               ),
                               child: Text(
                                 '$numberOfEmi EMI',
                                 style: TextStyle(
-                                  fontSize: 9,
-                                  color: benefitColor,
+                                  fontSize: 8,
+                                  color: tabColor,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
@@ -662,7 +829,7 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
     return Scaffold(
       backgroundColor: lightGreen,
       appBar: AppBar(
-        title: Text('Benefit Analysis'),
+        title: Text('Benefit Analysis', style: TextStyle(fontSize: 16)),
         backgroundColor: primaryGreen,
         foregroundColor: Colors.white,
         elevation: 0,
@@ -671,35 +838,51 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
         child: Column(
           children: [
             _buildHeader(),
-            SizedBox(height: 12),
+            SizedBox(height: 8),
             Padding(
-              padding: EdgeInsets.symmetric(horizontal: 12),
+              padding: EdgeInsets.symmetric(horizontal: 10),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Benefit Transactions (Newest First)',
+                    _selectedTabIndex == 0
+                        ? 'No Exchange Transactions'
+                        : 'With Exchange Transactions',
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: 13,
                       fontWeight: FontWeight.bold,
                       color: primaryGreen,
                     ),
                   ),
                   Container(
-                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
-                      color: benefitColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(16),
+                      color:
+                          (_selectedTabIndex == 0
+                                  ? benefitColor
+                                  : exchangeColor)
+                              .withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.timeline, size: 14, color: benefitColor),
-                        SizedBox(width: 4),
+                        Icon(
+                          _selectedTabIndex == 0
+                              ? Icons.timeline
+                              : Icons.swap_horiz,
+                          size: 12,
+                          color: _selectedTabIndex == 0
+                              ? benefitColor
+                              : exchangeColor,
+                        ),
+                        SizedBox(width: 3),
                         Text(
-                          '${_filteredSales.length} transactions',
+                          '${_selectedTabIndex == 0 ? _withoutExchangeSales.length : _withExchangeSales.length}',
                           style: TextStyle(
-                            fontSize: 12,
-                            color: benefitColor,
+                            fontSize: 10,
+                            color: _selectedTabIndex == 0
+                                ? benefitColor
+                                : exchangeColor,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -709,9 +892,9 @@ class _DownpaymentBenefitScreenState extends State<DownpaymentBenefitScreen> {
                 ],
               ),
             ),
-            SizedBox(height: 8),
+            SizedBox(height: 6),
             _buildBenefitList(),
-            SizedBox(height: 20),
+            SizedBox(height: 16),
           ],
         ),
       ),
