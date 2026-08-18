@@ -19,7 +19,7 @@ class TvStockScreen extends StatefulWidget {
 
 class _TvStockScreenState extends State<TvStockScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  String _selectedStatus = 'all';
+  String _selectedStatus = 'available';
   String? _selectedShopId;
   String? _selectedBrand;
   String _searchQuery = '';
@@ -31,9 +31,22 @@ class _TvStockScreenState extends State<TvStockScreen> {
   final Color warningColor = Color(0xFFFFC107);
   final Color dangerColor = Color(0xFFDC3545);
 
+  // Status colors
+  final Color availableColor = Color(0xFF4CAF50);
+  final Color soldColor = Color(0xFF2196F3);
+  final Color returnedColor = Color(0xFFFF9800);
+
   // Cache for brand list
   List<String> _brands = [];
   bool _isLoadingBrands = true;
+
+  // Cache for counts
+  Map<String, int> _statusCounts = {'available': 0, 'sold': 0, 'returned': 0};
+  Map<String, double> _statusValues = {
+    'available': 0,
+    'sold': 0,
+    'returned': 0,
+  };
 
   @override
   void initState() {
@@ -54,14 +67,18 @@ class _TvStockScreenState extends State<TvStockScreen> {
         }
       }
 
-      setState(() {
-        _brands = brands.toList()..sort();
-        _isLoadingBrands = false;
-      });
+      if (mounted) {
+        setState(() {
+          _brands = brands.toList()..sort();
+          _isLoadingBrands = false;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _isLoadingBrands = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoadingBrands = false;
+        });
+      }
     }
   }
 
@@ -101,34 +118,42 @@ class _TvStockScreenState extends State<TvStockScreen> {
               Text(
                 'Transfer TV to Another Shop',
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.bold,
                   color: primaryGreen,
                 ),
               ),
-              SizedBox(height: 8),
+              SizedBox(height: 6),
               Text(
                 'TV: ${data['modelName']}',
-                style: TextStyle(fontWeight: FontWeight.w500),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
               ),
               Text(
                 'Serial: ${data['serialNumber']}',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(fontSize: 11, color: Colors.grey),
               ),
-              Divider(height: 24),
+              Divider(height: 20),
               Text(
                 'Select Destination Shop:',
-                style: TextStyle(fontWeight: FontWeight.w600),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
               ),
-              SizedBox(height: 12),
+              SizedBox(height: 10),
               ...availableShops.map((shop) {
                 return ListTile(
+                  dense: true,
                   leading: CircleAvatar(
+                    radius: 16,
                     backgroundColor: primaryGreen.withOpacity(0.1),
-                    child: Icon(Icons.store, color: primaryGreen, size: 20),
+                    child: Icon(Icons.store, color: primaryGreen, size: 18),
                   ),
-                  title: Text(shop['name'] ?? 'Unknown'),
-                  subtitle: Text('Transfer TV to this shop'),
+                  title: Text(
+                    shop['name'] ?? 'Unknown',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  subtitle: Text(
+                    'Transfer TV to this shop',
+                    style: TextStyle(fontSize: 11),
+                  ),
                   onTap: () async {
                     Navigator.pop(context);
                     await _transferTV(docId, data, shop['id'], shop['name']);
@@ -162,11 +187,10 @@ class _TvStockScreenState extends State<TvStockScreen> {
         'shopName': newShopName,
         'transferredAt': FieldValue.serverTimestamp(),
         'transferredFrom': data['shopName'],
-        'status': 'available', // Reset status to available
+        'status': 'available',
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      // Add transfer record to history collection
       await _firestore.collection('tvTransferHistory').add({
         'tvId': docId,
         'serialNumber': data['serialNumber'],
@@ -179,21 +203,25 @@ class _TvStockScreenState extends State<TvStockScreen> {
         'transferredAt': FieldValue.serverTimestamp(),
       });
 
-      Navigator.pop(context); // Close loading dialog
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('TV transferred successfully to $newShopName'),
-          backgroundColor: accentGreen,
-        ),
-      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('TV transferred successfully to $newShopName'),
+            backgroundColor: accentGreen,
+          ),
+        );
+      }
     } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error transferring TV: $e'),
-          backgroundColor: dangerColor,
-        ),
-      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error transferring TV: $e'),
+            backgroundColor: dangerColor,
+          ),
+        );
+      }
     }
   }
 
@@ -206,30 +234,36 @@ class _TvStockScreenState extends State<TvStockScreen> {
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text('Delete TV Item'),
+          title: Text('Delete TV Item', style: TextStyle(fontSize: 16)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 'Are you sure you want to delete this TV?',
-                style: TextStyle(fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
               ),
-              SizedBox(height: 12),
-              Text('Model: ${data['modelName']}'),
-              Text('Serial: ${data['serialNumber']}'),
-              Text('Shop: ${data['shopName']}'),
-              SizedBox(height: 12),
+              SizedBox(height: 10),
+              Text(
+                'Model: ${data['modelName']}',
+                style: TextStyle(fontSize: 13),
+              ),
+              Text(
+                'Serial: ${data['serialNumber']}',
+                style: TextStyle(fontSize: 13),
+              ),
+              Text('Shop: ${data['shopName']}', style: TextStyle(fontSize: 13)),
+              SizedBox(height: 10),
               Text(
                 'This action cannot be undone!',
-                style: TextStyle(color: dangerColor, fontSize: 12),
+                style: TextStyle(fontSize: 11, color: dangerColor),
               ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text('Cancel'),
+              child: Text('Cancel', style: TextStyle(fontSize: 13)),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -237,7 +271,7 @@ class _TvStockScreenState extends State<TvStockScreen> {
                 await _deleteTV(docId, data);
               },
               style: ElevatedButton.styleFrom(backgroundColor: dangerColor),
-              child: Text('Delete'),
+              child: Text('Delete', style: TextStyle(fontSize: 13)),
             ),
           ],
         );
@@ -254,7 +288,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
     );
 
     try {
-      // Add to deleted records collection before deleting
       await _firestore.collection('tvDeletedRecords').add({
         'originalId': docId,
         'serialNumber': data['serialNumber'],
@@ -265,28 +298,31 @@ class _TvStockScreenState extends State<TvStockScreen> {
         'shopName': data['shopName'],
         'uploadedBy': data['uploadedBy'],
         'deletedAt': FieldValue.serverTimestamp(),
-        'deletedBy': data['uploadedBy'], // Or get current user
+        'deletedBy': data['uploadedBy'],
         'reason': 'Manual deletion',
       });
 
-      // Delete from main collection
       await _firestore.collection('tvStock').doc(docId).delete();
 
-      Navigator.pop(context); // Close loading dialog
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('TV deleted successfully'),
-          backgroundColor: dangerColor,
-        ),
-      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('TV deleted successfully'),
+            backgroundColor: dangerColor,
+          ),
+        );
+      }
     } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error deleting TV: $e'),
-          backgroundColor: dangerColor,
-        ),
-      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error deleting TV: $e'),
+            backgroundColor: dangerColor,
+          ),
+        );
+      }
     }
   }
 
@@ -295,47 +331,45 @@ class _TvStockScreenState extends State<TvStockScreen> {
     String docId,
     Map<String, dynamic> data,
   ) async {
-    String? returnReason;
     final TextEditingController reasonController = TextEditingController();
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text('Return TV'),
+          title: Text('Return TV', style: TextStyle(fontSize: 16)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 'TV: ${data['modelName']}',
-                style: TextStyle(fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
               ),
               Text(
                 'Serial: ${data['serialNumber']}',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(fontSize: 11, color: Colors.grey),
               ),
-              SizedBox(height: 16),
-              Text('Reason for return:'),
-              SizedBox(height: 8),
+              SizedBox(height: 14),
+              Text('Reason for return:', style: TextStyle(fontSize: 13)),
+              SizedBox(height: 6),
               TextField(
                 controller: reasonController,
                 maxLines: 3,
+                style: TextStyle(fontSize: 13),
                 decoration: InputDecoration(
                   hintText: 'e.g., Damaged, Wrong model, Customer return...',
+                  hintStyle: TextStyle(fontSize: 12),
                   border: OutlineInputBorder(),
-                  contentPadding: EdgeInsets.all(12),
+                  contentPadding: EdgeInsets.all(10),
                 ),
-                onChanged: (value) {
-                  returnReason = value;
-                },
               ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text('Cancel'),
+              child: Text('Cancel', style: TextStyle(fontSize: 13)),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -352,7 +386,7 @@ class _TvStockScreenState extends State<TvStockScreen> {
                 await _returnTV(docId, data, reasonController.text.trim());
               },
               style: ElevatedButton.styleFrom(backgroundColor: warningColor),
-              child: Text('Return'),
+              child: Text('Return', style: TextStyle(fontSize: 13)),
             ),
           ],
         );
@@ -373,7 +407,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
     );
 
     try {
-      // Update TV status to returned
       await _firestore.collection('tvStock').doc(docId).update({
         'status': 'returned',
         'returnedAt': FieldValue.serverTimestamp(),
@@ -382,7 +415,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      // Add to returns collection
       await _firestore.collection('tvReturns').add({
         'tvId': docId,
         'serialNumber': data['serialNumber'],
@@ -394,24 +426,54 @@ class _TvStockScreenState extends State<TvStockScreen> {
         'returnReason': reason,
         'returnedBy': data['uploadedBy'],
         'returnedAt': FieldValue.serverTimestamp(),
-        'status': 'returned', // Changed from 'pending_review' to 'returned'
+        'status': 'returned',
       });
 
-      Navigator.pop(context); // Close loading dialog
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('TV marked as returned successfully'),
-          backgroundColor: warningColor,
-        ),
-      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('TV marked as returned successfully'),
+            backgroundColor: warningColor,
+          ),
+        );
+      }
     } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error processing return: $e'),
-          backgroundColor: dangerColor,
-        ),
-      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error processing return: $e'),
+            backgroundColor: dangerColor,
+          ),
+        );
+      }
+    }
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'available':
+        return availableColor;
+      case 'sold':
+        return soldColor;
+      case 'returned':
+        return returnedColor;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _getStatusIcon(String status) {
+    switch (status) {
+      case 'available':
+        return '✓';
+      case 'sold':
+        return '✕';
+      case 'returned':
+        return '↺';
+      default:
+        return '';
     }
   }
 
@@ -425,7 +487,7 @@ class _TvStockScreenState extends State<TvStockScreen> {
           style: TextStyle(
             fontWeight: FontWeight.bold,
             color: Colors.white,
-            fontSize: 18,
+            fontSize: 16,
           ),
         ),
         backgroundColor: primaryGreen,
@@ -436,444 +498,150 @@ class _TvStockScreenState extends State<TvStockScreen> {
             icon: Icon(Icons.refresh, size: 20),
             onPressed: () {
               _loadBrands();
-              setState(() {});
             },
           ),
         ],
       ),
       body: Column(
         children: [
-          _buildSummaryCards(),
-          _buildFilterBar(),
+          _buildSearchField(),
+          _buildStatusChips(),
+          const Divider(height: 1, color: Colors.grey),
           Expanded(child: _buildStockList()),
         ],
       ),
     );
   }
 
-  Widget _buildSummaryCards() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _firestore.collection('tvStock').snapshots(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return Container(
-            height: 70,
-            child: Center(
-              child: CircularProgressIndicator(color: secondaryGreen),
-            ),
-          );
-        }
-
-        var docs = snapshot.data!.docs;
-
-        // Apply all filters in memory for summary
-        var filteredDocs = docs.where((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-
-          // Status filter
-          if (_selectedStatus != 'all') {
-            if (data['status'] != _selectedStatus) return false;
-          }
-
-          // Shop filter
-          if (_selectedShopId != null) {
-            if (data['shopId'] != _selectedShopId) return false;
-          }
-
-          // Brand filter
-          if (_selectedBrand != null) {
-            if (data['modelBrand'] != _selectedBrand) return false;
-          }
-
-          return true;
-        }).toList();
-
-        int totalItems = filteredDocs.length;
-        double totalValue = 0;
-        int availableItems = 0;
-        double availableValue = 0;
-        int returnedItems = 0;
-
-        for (var doc in filteredDocs) {
-          final data = doc.data() as Map<String, dynamic>;
-          double price = (data['modelPrice'] ?? 0).toDouble();
-          totalValue += price;
-
-          if (data['status'] == 'available') {
-            availableItems++;
-            availableValue += price;
-          } else if (data['status'] == 'returned') {
-            returnedItems++;
-          }
-        }
-
-        return Container(
-          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: _buildSummaryCard(
-                  'Total Stock',
-                  '$totalItems',
-                  '₹${widget.formatNumber(totalValue)}',
-                  Icons.inventory,
-                  primaryGreen,
-                ),
-              ),
-              SizedBox(width: 8),
-              Expanded(
-                child: _buildSummaryCard(
-                  'Available',
-                  '$availableItems',
-                  '₹${widget.formatNumber(availableValue)}',
-                  Icons.check_circle,
-                  accentGreen,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildSummaryCard(
-    String title,
-    String count,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
+  Widget _buildSearchField() {
     return Container(
       padding: EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 4,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: color, size: 16),
-          ),
-          SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                  textAlign: TextAlign.left,
-                ),
-                Text(
-                  count,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
-                  textAlign: TextAlign.left,
-                ),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 9,
-                    color: Colors.grey[700],
-                    fontWeight: FontWeight.w500,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.left,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFilterBar() {
-    return Container(
-      padding: EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 4,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          // Search Bar
-          Container(
-            height: 40,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey.shade300),
-            ),
-            child: TextField(
-              style: TextStyle(fontSize: 13),
-              textAlign: TextAlign.left,
-              decoration: InputDecoration(
-                hintText: 'Search by Serial, Model or Brand...',
-                hintStyle: TextStyle(fontSize: 12),
-                prefixIcon: Icon(Icons.search, color: primaryGreen, size: 18),
-                border: InputBorder.none,
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                isDense: true,
-              ),
-              onChanged: (value) {
-                setState(() {
-                  _searchQuery = value.toLowerCase();
-                });
-              },
-            ),
-          ),
-          SizedBox(height: 8),
-
-          // Filters Row
-          Row(
-            children: [
-              // Status Filter
-              Expanded(
-                child: Container(
-                  height: 38,
-                  padding: EdgeInsets.symmetric(horizontal: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.grey.shade300),
-                  ),
-                  child: DropdownButton<String>(
-                    value: _selectedStatus,
-                    isExpanded: true,
-                    underline: SizedBox(),
-                    icon: Icon(
-                      Icons.arrow_drop_down,
-                      size: 18,
-                      color: primaryGreen,
-                    ),
-                    style: TextStyle(fontSize: 12, color: primaryGreen),
-                    items: [
-                      DropdownMenuItem(
-                        value: 'all',
-                        child: Text(
-                          'All Status',
-                          style: TextStyle(fontSize: 12),
-                          textAlign: TextAlign.left,
-                        ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'available',
-                        child: Text(
-                          'Available',
-                          style: TextStyle(fontSize: 12),
-                          textAlign: TextAlign.left,
-                        ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'sold',
-                        child: Text(
-                          'Sold',
-                          style: TextStyle(fontSize: 12),
-                          textAlign: TextAlign.left,
-                        ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'returned',
-                        child: Text(
-                          'Returned',
-                          style: TextStyle(fontSize: 12),
-                          textAlign: TextAlign.left,
-                        ),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedStatus = value!;
-                      });
-                    },
-                  ),
-                ),
-              ),
-              SizedBox(width: 6),
-
-              // Shop Filter
-              Expanded(
-                child: Container(
-                  height: 38,
-                  padding: EdgeInsets.symmetric(horizontal: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.grey.shade300),
-                  ),
-                  child: DropdownButton<String>(
-                    value: _selectedShopId,
-                    isExpanded: true,
-                    underline: SizedBox(),
-                    icon: Icon(
-                      Icons.arrow_drop_down,
-                      size: 18,
-                      color: primaryGreen,
-                    ),
-                    style: TextStyle(fontSize: 12, color: primaryGreen),
-                    hint: Text(
-                      'All Shops',
-                      style: TextStyle(fontSize: 12),
-                      textAlign: TextAlign.left,
-                    ),
-                    items: [
-                      const DropdownMenuItem<String>(
-                        value: null,
-                        child: Text(
-                          'All Shops',
-                          style: TextStyle(fontSize: 12),
-                          textAlign: TextAlign.left,
-                        ),
-                      ),
-                      ...widget.shops.map((shop) {
-                        return DropdownMenuItem<String>(
-                          value: shop['id'] as String?,
-                          child: Text(
-                            shop['name'] as String? ?? 'Unknown',
-                            style: TextStyle(fontSize: 12),
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.left,
-                          ),
-                        );
-                      }).toList(),
-                    ],
-                    onChanged: (String? value) {
-                      setState(() {
-                        _selectedShopId = value;
-                      });
-                    },
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          SizedBox(height: 6),
-
-          // Brand Filter Row
-          Row(
-            children: [
-              Expanded(
-                child: Container(
-                  height: 38,
-                  padding: EdgeInsets.symmetric(horizontal: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.grey.shade300),
-                  ),
-                  child: _isLoadingBrands
-                      ? Center(
-                          child: SizedBox(
-                            height: 16,
-                            width: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: secondaryGreen,
-                            ),
-                          ),
-                        )
-                      : DropdownButton<String>(
-                          value: _selectedBrand,
-                          isExpanded: true,
-                          underline: SizedBox(),
-                          icon: Icon(
-                            Icons.arrow_drop_down,
-                            size: 18,
-                            color: primaryGreen,
-                          ),
-                          style: TextStyle(fontSize: 12, color: primaryGreen),
-                          hint: Text(
-                            'All Brands',
-                            style: TextStyle(fontSize: 12),
-                            textAlign: TextAlign.left,
-                          ),
-                          items: [
-                            const DropdownMenuItem<String>(
-                              value: null,
-                              child: Text(
-                                'All Brands',
-                                style: TextStyle(fontSize: 12),
-                                textAlign: TextAlign.left,
-                              ),
-                            ),
-                            ..._brands.map((brand) {
-                              return DropdownMenuItem<String>(
-                                value: brand,
-                                child: Text(
-                                  brand,
-                                  style: TextStyle(fontSize: 12),
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.left,
-                                ),
-                              );
-                            }).toList(),
-                          ],
-                          onChanged: (String? value) {
-                            setState(() {
-                              _selectedBrand = value;
-                            });
-                          },
-                        ),
-                ),
-              ),
-              if (_selectedBrand != null ||
-                  _selectedShopId != null ||
-                  _selectedStatus != 'all')
-                Container(
-                  margin: EdgeInsets.only(left: 6),
-                  child: IconButton(
-                    icon: Icon(Icons.clear, size: 16, color: dangerColor),
+      color: Colors.white,
+      child: Container(
+        height: 38,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: TextField(
+          style: TextStyle(fontSize: 12),
+          textAlign: TextAlign.left,
+          decoration: InputDecoration(
+            hintText: 'Search by Serial, Model or Brand...',
+            hintStyle: TextStyle(fontSize: 11, color: Colors.grey[400]),
+            prefixIcon: Icon(Icons.search, color: primaryGreen, size: 18),
+            suffixIcon: _searchQuery.isNotEmpty
+                ? IconButton(
+                    icon: Icon(Icons.clear, size: 16, color: Colors.grey),
                     onPressed: () {
                       setState(() {
-                        _selectedStatus = 'all';
-                        _selectedShopId = null;
-                        _selectedBrand = null;
                         _searchQuery = '';
                       });
                     },
-                    padding: EdgeInsets.all(6),
-                    constraints: BoxConstraints(),
-                  ),
-                ),
-            ],
+                  )
+                : null,
+            border: InputBorder.none,
+            contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            isDense: true,
           ),
+          onChanged: (value) {
+            setState(() {
+              _searchQuery = value.toLowerCase();
+            });
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusChips() {
+    return Container(
+      color: Colors.white,
+      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      child: Row(
+        children: [
+          _buildStatusChip('Available', 'available', availableColor),
+          SizedBox(width: 6),
+          _buildStatusChip('Sold', 'sold', soldColor),
+          SizedBox(width: 6),
+          _buildStatusChip('Returned', 'returned', returnedColor),
         ],
       ),
+    );
+  }
+
+  Widget _buildStatusChip(String label, String statusValue, Color color) {
+    final isSelected = _selectedStatus == statusValue;
+    int count = _statusCounts[statusValue] ?? 0;
+
+    return ChoiceChip(
+      label: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 5,
+            height: 5,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isSelected ? Colors.white : color,
+            ),
+          ),
+          SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              color: isSelected ? Colors.white : Colors.grey[700],
+            ),
+          ),
+          if (count > 0) ...[
+            SizedBox(width: 3),
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? Colors.white.withOpacity(0.3)
+                    : color.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected ? Colors.white : color,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+      selected: isSelected,
+      onSelected: (selected) {
+        if (selected) {
+          setState(() {
+            _selectedStatus = statusValue;
+          });
+        }
+      },
+      selectedColor: color,
+      backgroundColor: Colors.grey[100],
+      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: isSelected ? color : Colors.grey.shade300,
+          width: isSelected ? 1.5 : 1,
+        ),
+      ),
+      labelPadding: EdgeInsets.symmetric(horizontal: 3),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
   }
 
   Widget _buildStockList() {
-    // Simplified query - just get all documents and filter in memory
-    // This avoids Firestore index requirements
     return StreamBuilder<QuerySnapshot>(
       stream: _firestore
           .collection('tvStock')
@@ -881,21 +649,15 @@ class _TvStockScreenState extends State<TvStockScreen> {
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          print('Error: ${snapshot.error}');
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.error_outline, size: 40, color: dangerColor),
-                SizedBox(height: 8),
+                Icon(Icons.error_outline, size: 36, color: dangerColor),
+                SizedBox(height: 6),
                 Text(
                   'Error loading data',
-                  style: TextStyle(fontSize: 14, color: Colors.grey[700]),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  'Pull down to refresh',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                  style: TextStyle(fontSize: 13, color: Colors.grey[700]),
                 ),
               ],
             ),
@@ -913,12 +675,12 @@ class _TvStockScreenState extends State<TvStockScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.inventory, size: 48, color: Colors.grey[400]),
-                SizedBox(height: 8),
+                Icon(Icons.tv, size: 40, color: Colors.grey[400]),
+                SizedBox(height: 6),
                 Text(
                   'No TV stock found',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 13,
                     color: Colors.grey[600],
                     fontWeight: FontWeight.w500,
                   ),
@@ -928,14 +690,49 @@ class _TvStockScreenState extends State<TvStockScreen> {
           );
         }
 
-        // Apply all filters in memory
+        // Calculate counts from snapshot data
+        int available = 0;
+        int sold = 0;
+        int returned = 0;
+        double availableValue = 0;
+        double soldValue = 0;
+        double returnedValue = 0;
+
+        for (var doc in snapshot.data!.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          double price = (data['modelPrice'] ?? 0).toDouble();
+          String status = data['status'] ?? '';
+
+          if (status == 'available') {
+            available++;
+            availableValue += price;
+          } else if (status == 'sold') {
+            sold++;
+            soldValue += price;
+          } else if (status == 'returned') {
+            returned++;
+            returnedValue += price;
+          }
+        }
+
+        // Update counts without triggering setState during build
+        _statusCounts = {
+          'available': available,
+          'sold': sold,
+          'returned': returned,
+        };
+        _statusValues = {
+          'available': availableValue,
+          'sold': soldValue,
+          'returned': returnedValue,
+        };
+
+        // Apply filters
         var docs = snapshot.data!.docs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
 
           // Status filter
-          if (_selectedStatus != 'all') {
-            if (data['status'] != _selectedStatus) return false;
-          }
+          if (data['status'] != _selectedStatus) return false;
 
           // Shop filter
           if (_selectedShopId != null) {
@@ -973,12 +770,12 @@ class _TvStockScreenState extends State<TvStockScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.search_off, size: 48, color: Colors.grey[400]),
-                SizedBox(height: 8),
+                Icon(Icons.search_off, size: 40, color: Colors.grey[400]),
+                SizedBox(height: 6),
                 Text(
-                  'No matching items',
+                  'No ${_selectedStatus} items found',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 13,
                     color: Colors.grey[600],
                     fontWeight: FontWeight.w500,
                   ),
@@ -986,27 +783,75 @@ class _TvStockScreenState extends State<TvStockScreen> {
                 SizedBox(height: 4),
                 Text(
                   'Try changing your filters',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                 ),
               ],
             ),
           );
         }
 
-        return RefreshIndicator(
-          onRefresh: () async {
-            setState(() {});
-          },
-          color: secondaryGreen,
-          child: ListView.builder(
-            padding: EdgeInsets.all(10),
-            itemCount: docs.length,
-            itemBuilder: (context, index) {
-              final doc = docs[index];
-              final data = doc.data() as Map<String, dynamic>;
-              return _buildStockCard(doc.id, data);
-            },
-          ),
+        // Show count of selected status
+        int selectedCount = docs.length;
+        double selectedValue = 0;
+        for (var doc in docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          selectedValue += (data['modelPrice'] ?? 0).toDouble();
+        }
+
+        return Column(
+          children: [
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              color: Colors.white,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _getStatusColor(_selectedStatus),
+                        ),
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        '${_selectedStatus.toUpperCase()}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: _getStatusColor(_selectedStatus),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    '$selectedCount items · ₹${widget.formatNumber(selectedValue)}',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () async {
+                  _loadBrands();
+                },
+                color: secondaryGreen,
+                child: ListView.builder(
+                  padding: EdgeInsets.all(6),
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final doc = docs[index];
+                    final data = doc.data() as Map<String, dynamic>;
+                    return _buildStockCard(doc.id, data);
+                  },
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -1014,251 +859,261 @@ class _TvStockScreenState extends State<TvStockScreen> {
 
   Widget _buildStockCard(String docId, Map<String, dynamic> data) {
     DateTime uploadedAt = (data['uploadedAt'] as Timestamp).toDate();
-    DateTime? createdAt = data['createdAt'] != null
-        ? (data['createdAt'] as Timestamp).toDate()
-        : uploadedAt;
 
-    Color statusColor = data['status'] == 'available'
-        ? accentGreen
-        : data['status'] == 'returned'
-        ? warningColor
-        : Colors.grey;
-    String status = data['status']?.toString().toUpperCase() ?? 'UNKNOWN';
+    String status = data['status']?.toString() ?? 'unknown';
+    Color statusColor = _getStatusColor(status);
 
     return Card(
-      elevation: 2,
-      margin: EdgeInsets.only(bottom: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: data['status'] == 'available'
-              ? Border.all(color: accentGreen.withOpacity(0.2), width: 1)
-              : null,
-        ),
-        child: Padding(
-          padding: EdgeInsets.all(10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header with options button
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: primaryGreen.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Icon(Icons.tv, color: primaryGreen, size: 14),
+      margin: EdgeInsets.only(bottom: 6),
+      elevation: 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: statusColor.withOpacity(0.3), width: 1),
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header Row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        data['modelName'] ?? 'Unknown Model',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: primaryGreen,
                         ),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        data['modelBrand'] ?? 'Unknown Brand',
+                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+                Row(
+                  children: [
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: statusColor.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            _getStatusIcon(status),
+                            style: TextStyle(
+                              fontSize: 8,
+                              color: statusColor,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(width: 3),
+                          Text(
+                            status.toUpperCase(),
+                            style: TextStyle(
+                              fontSize: 8,
+                              fontWeight: FontWeight.bold,
+                              color: statusColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(width: 4),
+                    PopupMenuButton<String>(
+                      icon: Icon(
+                        Icons.more_vert,
+                        size: 16,
+                        color: primaryGreen,
+                      ),
+                      onSelected: (value) {
+                        if (value == 'transfer') {
+                          _showTransferDialog(docId, data);
+                        } else if (value == 'return') {
+                          _showReturnDialog(docId, data);
+                        } else if (value == 'delete') {
+                          _showDeleteDialog(docId, data);
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'transfer',
+                          child: Row(
                             children: [
-                              Text(
-                                data['modelName'] ?? 'Unknown Model',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: primaryGreen,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.left,
+                              Icon(
+                                Icons.swap_horiz,
+                                size: 16,
+                                color: primaryGreen,
                               ),
+                              SizedBox(width: 6),
                               Text(
-                                data['modelBrand'] ?? 'Unknown Brand',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey[600],
-                                ),
-                                textAlign: TextAlign.left,
+                                'Transfer Shop',
+                                style: TextStyle(fontSize: 12),
                               ),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'return',
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.assignment_return,
+                                size: 16,
+                                color: warningColor,
+                              ),
+                              SizedBox(width: 6),
+                              Text('Return', style: TextStyle(fontSize: 12)),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.delete_outline,
+                                size: 16,
+                                color: dangerColor,
+                              ),
+                              SizedBox(width: 6),
+                              Text('Delete', style: TextStyle(fontSize: 12)),
                             ],
                           ),
                         ),
                       ],
                     ),
-                  ),
+                  ],
+                ),
+              ],
+            ),
+            SizedBox(height: 6),
+
+            // Details Grid
+            Container(
+              padding: EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: statusColor.withOpacity(0.1)),
+              ),
+              child: Column(
+                children: [
                   Row(
                     children: [
-                      Container(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: statusColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: statusColor.withOpacity(0.2),
-                          ),
-                        ),
-                        child: Text(
-                          status,
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w600,
-                            color: statusColor,
-                          ),
-                          textAlign: TextAlign.center,
+                      Expanded(
+                        child: _buildDetailItem(
+                          'Serial',
+                          data['serialNumber'] ?? 'N/A',
                         ),
                       ),
-                      SizedBox(width: 4),
-                      // Options menu button
-                      PopupMenuButton<String>(
-                        icon: Icon(
-                          Icons.more_vert,
-                          size: 18,
-                          color: primaryGreen,
+                      Expanded(
+                        child: _buildDetailItem(
+                          'Price',
+                          '₹${widget.formatNumber((data['modelPrice'] ?? 0).toDouble())}',
+                          color: statusColor,
                         ),
-                        onSelected: (value) {
-                          if (value == 'transfer') {
-                            _showTransferDialog(docId, data);
-                          } else if (value == 'return') {
-                            _showReturnDialog(docId, data);
-                          } else if (value == 'delete') {
-                            _showDeleteDialog(docId, data);
-                          }
-                        },
-                        itemBuilder: (context) => [
-                          PopupMenuItem(
-                            value: 'transfer',
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.swap_horiz,
-                                  size: 18,
-                                  color: primaryGreen,
-                                ),
-                                SizedBox(width: 8),
-                                Text('Transfer Shop'),
-                              ],
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'return',
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.assignment_return,
-                                  size: 18,
-                                  color: warningColor,
-                                ),
-                                SizedBox(width: 8),
-                                Text('Return'),
-                              ],
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'delete',
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.delete_outline,
-                                  size: 18,
-                                  color: dangerColor,
-                                ),
-                                SizedBox(width: 8),
-                                Text('Delete'),
-                              ],
-                            ),
-                          ),
-                        ],
                       ),
                     ],
                   ),
-                ],
-              ),
-              SizedBox(height: 8),
-
-              // Details
-              Container(
-                padding: EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildCompactDetailRow(
-                            'Serial',
-                            data['serialNumber'] ?? 'N/A',
-                          ),
-                        ),
-                        Expanded(
-                          child: _buildCompactDetailRow(
-                            'Price',
-                            '₹${widget.formatNumber((data['modelPrice'] ?? 0).toDouble())}',
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildCompactDetailRow(
-                            'Shop',
-                            data['shopName'] ?? 'Unknown',
-                          ),
-                        ),
-                        Expanded(
-                          child: _buildCompactDetailRow(
-                            'By',
-                            data['uploadedBy'] ?? 'Unknown',
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildCompactDetailRow(
-                            'Uploaded',
-                            DateFormat('dd/MM/yy hh:mm a').format(uploadedAt),
-                          ),
-                        ),
-                        if (createdAt != uploadedAt)
-                          Expanded(
-                            child: _buildCompactDetailRow(
-                              'Created',
-                              DateFormat('dd/MM/yy hh:mm a').format(createdAt),
-                            ),
-                          ),
-                      ],
-                    ),
-                    // Show return info if returned
-                    if (data['status'] == 'returned' &&
-                        data['returnReason'] != null)
-                      Padding(
-                        padding: EdgeInsets.only(top: 4),
-                        child: _buildCompactDetailRow(
-                          'Return Reason',
-                          data['returnReason'] ?? 'N/A',
+                  SizedBox(height: 3),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildDetailItem(
+                          'Shop',
+                          data['shopName'] ?? 'Unknown',
                         ),
                       ),
+                      Expanded(
+                        child: _buildDetailItem(
+                          'By',
+                          data['uploadedBy'] ?? 'Unknown',
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 3),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildDetailItem(
+                          'Uploaded',
+                          DateFormat('dd/MM/yy').format(uploadedAt),
+                        ),
+                      ),
+                      Expanded(
+                        child: _buildDetailItem(
+                          'Time',
+                          DateFormat('hh:mm a').format(uploadedAt),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (status == 'returned' && data['returnReason'] != null) ...[
+                    SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildDetailItem(
+                            'Return Reason',
+                            data['returnReason'] ?? 'N/A',
+                            color: returnedColor,
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
-                ),
+                  if (status == 'sold') ...[
+                    SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildDetailItem(
+                            'Sold At',
+                            data['soldAt'] != null
+                                ? DateFormat('dd/MM/yy').format(
+                                    (data['soldAt'] as Timestamp).toDate(),
+                                  )
+                                : 'N/A',
+                            color: soldColor,
+                          ),
+                        ),
+                        Expanded(
+                          child: _buildDetailItem(
+                            'Sold By',
+                            data['soldBy'] ?? 'Unknown',
+                            color: soldColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildCompactDetailRow(String label, String value) {
+  Widget _buildDetailItem(String label, String value, {Color? color}) {
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 1),
       child: Row(
@@ -1267,23 +1122,21 @@ class _TvStockScreenState extends State<TvStockScreen> {
           Text(
             '$label: ',
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 10,
               color: Colors.grey[600],
               fontWeight: FontWeight.w500,
             ),
-            textAlign: TextAlign.left,
           ),
           Expanded(
             child: Text(
               value,
               style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey[800],
+                fontSize: 10,
+                color: color ?? Colors.grey[800],
                 fontWeight: FontWeight.w500,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.left,
             ),
           ),
         ],

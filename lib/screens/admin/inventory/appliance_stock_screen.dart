@@ -19,7 +19,7 @@ class ApplianceStockScreen extends StatefulWidget {
 
 class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  String _selectedStatus = 'all';
+  String _selectedStatus = 'available';
   String? _selectedShopId;
   String? _selectedBrand;
   String _searchQuery = '';
@@ -31,8 +31,21 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
   static const Color warningColor = Color(0xFFFFC107);
   static const Color dangerColor = Color(0xFFDC3545);
 
+  // Status colors
+  final Color availableColor = Color(0xFF4CAF50);
+  final Color soldColor = Color(0xFF2196F3);
+  final Color returnedColor = Color(0xFFFF9800);
+
   List<String> _brands = [];
   bool _isLoadingBrands = true;
+
+  // Cache for counts
+  Map<String, int> _statusCounts = {'available': 0, 'sold': 0, 'returned': 0};
+  Map<String, double> _statusValues = {
+    'available': 0,
+    'sold': 0,
+    'returned': 0,
+  };
 
   @override
   void initState() {
@@ -53,15 +66,19 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
         }
       }
 
-      setState(() {
-        _brands = brands.toList()..sort();
-        _isLoadingBrands = false;
-      });
+      if (mounted) {
+        setState(() {
+          _brands = brands.toList()..sort();
+          _isLoadingBrands = false;
+        });
+      }
     } catch (e) {
       print('Error loading brands: $e');
-      setState(() {
-        _isLoadingBrands = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoadingBrands = false;
+        });
+      }
     }
   }
 
@@ -73,7 +90,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
   ) async {
     int currentQuantity = (data['quantity'] ?? 0).toInt();
 
-    // Use a controller to manage the quantity
     int selectedQuantity = 1;
     TextEditingController reasonController = TextEditingController();
 
@@ -97,10 +113,13 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                         : action == 'return'
                         ? warningColor
                         : dangerColor,
-                    size: 24,
+                    size: 20,
                   ),
-                  const SizedBox(width: 12),
-                  Text('Select Quantity to $actionLabel'),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Select Quantity to $actionLabel',
+                    style: TextStyle(fontSize: 15),
+                  ),
                 ],
               ),
               content: Container(
@@ -110,7 +129,7 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
                         color: Colors.grey.shade50,
                         borderRadius: BorderRadius.circular(8),
@@ -123,46 +142,38 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                             'Product: ${data['productName']}',
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
-                              fontSize: 14,
+                              fontSize: 12,
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 3),
                           Text(
                             'Brand: ${data['productBrand']}',
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 11,
                               color: Colors.grey[600],
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 3),
                           Text(
-                            'Available Quantity: $currentQuantity units',
+                            'Available: $currentQuantity units',
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 11,
                               color: primaryGreen,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
-                          if (action == 'transfer')
-                            Text(
-                              'Transferring to: Another Shop',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.blue,
-                              ),
-                            ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     Text(
-                      'Select quantity to $actionLabel:',
+                      'Select quantity:',
                       style: const TextStyle(
                         fontWeight: FontWeight.w500,
-                        fontSize: 13,
+                        fontSize: 12,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     Row(
                       children: [
                         IconButton(
@@ -171,6 +182,7 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                             color: selectedQuantity > 1
                                 ? primaryGreen
                                 : Colors.grey,
+                            size: 24,
                           ),
                           onPressed: () {
                             if (selectedQuantity > 1) {
@@ -179,20 +191,22 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                               });
                             }
                           },
-                          iconSize: 28,
                         ),
                         Expanded(
                           child: Container(
-                            height: 50,
+                            height: 40,
                             decoration: BoxDecoration(
-                              border: Border.all(color: primaryGreen, width: 2),
+                              border: Border.all(
+                                color: primaryGreen,
+                                width: 1.5,
+                              ),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Center(
                               child: Text(
                                 '$selectedQuantity',
                                 style: const TextStyle(
-                                  fontSize: 22,
+                                  fontSize: 18,
                                   fontWeight: FontWeight.bold,
                                   color: primaryGreen,
                                 ),
@@ -206,6 +220,7 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                             color: selectedQuantity < currentQuantity
                                 ? primaryGreen
                                 : Colors.grey,
+                            size: 24,
                           ),
                           onPressed: () {
                             if (selectedQuantity < currentQuantity) {
@@ -214,11 +229,10 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                               });
                             }
                           },
-                          iconSize: 28,
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -228,7 +242,10 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                               selectedQuantity = 1;
                             });
                           },
-                          child: const Text('Reset'),
+                          child: const Text(
+                            'Reset',
+                            style: TextStyle(fontSize: 11),
+                          ),
                         ),
                         TextButton(
                           onPressed: () {
@@ -236,7 +253,10 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                               selectedQuantity = currentQuantity;
                             });
                           },
-                          child: const Text('Select All'),
+                          child: const Text(
+                            'Select All',
+                            style: TextStyle(fontSize: 11),
+                          ),
                         ),
                       ],
                     ),
@@ -244,22 +264,22 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 12),
                           const Text(
                             'Return Reason:',
                             style: TextStyle(
                               fontWeight: FontWeight.w500,
-                              fontSize: 13,
+                              fontSize: 12,
                             ),
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 6),
                           TextField(
                             controller: reasonController,
+                            style: TextStyle(fontSize: 12),
                             decoration: const InputDecoration(
-                              hintText:
-                                  'e.g., Damaged, Wrong model, Customer return...',
+                              hintText: 'e.g., Damaged, Wrong model...',
                               border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.all(12),
+                              contentPadding: EdgeInsets.all(10),
                             ),
                             maxLines: 2,
                           ),
@@ -271,7 +291,7 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context, null),
-                  child: const Text('Cancel'),
+                  child: const Text('Cancel', style: TextStyle(fontSize: 12)),
                 ),
                 ElevatedButton(
                   onPressed: () {
@@ -316,7 +336,8 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                     foregroundColor: Colors.white,
                   ),
                   child: Text(
-                    '$actionLabel $selectedQuantity Unit${selectedQuantity > 1 ? 's' : ''}',
+                    '$actionLabel $selectedQuantity',
+                    style: TextStyle(fontSize: 12),
                   ),
                 ),
               ],
@@ -332,7 +353,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
     String docId,
     Map<String, dynamic> data,
   ) async {
-    // First, show quantity selection
     int? quantityToTransfer = await _showQuantitySelectionDialog(
       data,
       'transfer',
@@ -341,7 +361,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
 
     if (quantityToTransfer == null || quantityToTransfer < 1) return;
 
-    // Filter out current shop
     final availableShops = widget.shops
         .where((shop) => shop['id'] != data['shopId'])
         .toList();
@@ -356,15 +375,14 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
       return;
     }
 
-    // Show shop selection dialog
     showModalBottomSheet(
       context: context,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (BuildContext context) {
         return Container(
-          padding: EdgeInsets.all(16),
+          padding: EdgeInsets.all(14),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -372,14 +390,14 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
               Text(
                 'Transfer Appliance',
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.bold,
                   color: primaryGreen,
                 ),
               ),
-              SizedBox(height: 8),
+              SizedBox(height: 6),
               Container(
-                padding: EdgeInsets.all(12),
+                padding: EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: Colors.grey.shade50,
                   borderRadius: BorderRadius.circular(8),
@@ -389,12 +407,15 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                   children: [
                     Text(
                       'Appliance: ${data['productName']}',
-                      style: TextStyle(fontWeight: FontWeight.w500),
-                    ),
-                    Text(
-                      'Quantity to transfer: $quantityToTransfer units',
                       style: TextStyle(
                         fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    Text(
+                      'Quantity: $quantityToTransfer units',
+                      style: TextStyle(
+                        fontSize: 11,
                         color: primaryGreen,
                         fontWeight: FontWeight.w500,
                       ),
@@ -402,21 +423,27 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                   ],
                 ),
               ),
-              Divider(height: 24),
+              Divider(height: 20),
               Text(
                 'Select Destination Shop:',
-                style: TextStyle(fontWeight: FontWeight.w600),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
               ),
-              SizedBox(height: 12),
+              SizedBox(height: 10),
               ...availableShops.map((shop) {
                 return ListTile(
+                  dense: true,
                   leading: CircleAvatar(
+                    radius: 16,
                     backgroundColor: primaryGreen.withOpacity(0.1),
-                    child: Icon(Icons.store, color: primaryGreen, size: 20),
+                    child: Icon(Icons.store, color: primaryGreen, size: 18),
                   ),
-                  title: Text(shop['name'] ?? 'Unknown'),
+                  title: Text(
+                    shop['name'] ?? 'Unknown',
+                    style: TextStyle(fontSize: 13),
+                  ),
                   subtitle: Text(
                     'Transfer $quantityToTransfer units to this shop',
+                    style: TextStyle(fontSize: 11),
                   ),
                   onTap: () async {
                     Navigator.pop(context);
@@ -456,7 +483,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
       int currentQuantity = (data['quantity'] ?? 0).toInt();
       int remainingQuantity = currentQuantity - quantityToTransfer;
 
-      // Update the original document
       final updateData = {
         'quantity': remainingQuantity,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -464,7 +490,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
         'lastUpdatedBy': data['uploadedBy'],
       };
 
-      // If quantity becomes 0, mark as transferred
       if (remainingQuantity == 0) {
         updateData['status'] = 'transferred';
         updateData['transferredAt'] = FieldValue.serverTimestamp();
@@ -476,7 +501,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
           .doc(docId)
           .update(updateData);
 
-      // Check if appliance exists in target shop
       final targetQuery = await _firestore
           .collection('applianceStock')
           .where('productName', isEqualTo: data['productName'])
@@ -485,7 +509,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
           .get();
 
       if (targetQuery.docs.isNotEmpty) {
-        // Update existing stock in target shop
         final targetDoc = targetQuery.docs.first;
         final targetData = targetDoc.data();
         int targetQuantity = (targetData['quantity'] ?? 0).toInt();
@@ -498,7 +521,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
           'status': 'available',
         });
       } else {
-        // Create new entry in target shop with transferred quantity
         await _firestore.collection('applianceStock').add({
           'productName': data['productName'],
           'productBrand': data['productBrand'],
@@ -515,7 +537,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
         });
       }
 
-      // Add transfer record to history collection
       await _firestore.collection('applianceTransferHistory').add({
         'applianceId': docId,
         'productName': data['productName'],
@@ -529,23 +550,27 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
         'transferredAt': FieldValue.serverTimestamp(),
       });
 
-      Navigator.pop(context); // Close loading dialog
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '$quantityToTransfer unit(s) transferred successfully to $newShopName',
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '$quantityToTransfer unit(s) transferred successfully to $newShopName',
+            ),
+            backgroundColor: accentGreen,
           ),
-          backgroundColor: accentGreen,
-        ),
-      );
+        );
+      }
     } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error transferring appliance: $e'),
-          backgroundColor: dangerColor,
-        ),
-      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error transferring appliance: $e'),
+            backgroundColor: dangerColor,
+          ),
+        );
+      }
     }
   }
 
@@ -554,7 +579,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
     String docId,
     Map<String, dynamic> data,
   ) async {
-    // Show quantity selection first
     int? quantityToDelete = await _showQuantitySelectionDialog(
       data,
       'delete',
@@ -563,23 +587,22 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
 
     if (quantityToDelete == null || quantityToDelete < 1) return;
 
-    // Show confirmation
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text('Delete Appliance'),
+          title: Text('Delete Appliance', style: TextStyle(fontSize: 16)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 'Are you sure you want to delete this appliance?',
-                style: TextStyle(fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
               ),
-              SizedBox(height: 12),
+              SizedBox(height: 10),
               Container(
-                padding: EdgeInsets.all(12),
+                padding: EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: Colors.grey.shade50,
                   borderRadius: BorderRadius.circular(8),
@@ -587,24 +610,36 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Product: ${data['productName']}'),
-                    Text('Brand: ${data['productBrand']}'),
-                    Text('Quantity to delete: $quantityToDelete units'),
-                    Text('Shop: ${data['shopName']}'),
+                    Text(
+                      'Product: ${data['productName']}',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    Text(
+                      'Brand: ${data['productBrand']}',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    Text(
+                      'Quantity to delete: $quantityToDelete units',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    Text(
+                      'Shop: ${data['shopName']}',
+                      style: TextStyle(fontSize: 12),
+                    ),
                   ],
                 ),
               ),
-              SizedBox(height: 12),
+              SizedBox(height: 10),
               Text(
                 'This action cannot be undone!',
-                style: TextStyle(color: dangerColor, fontSize: 12),
+                style: TextStyle(fontSize: 11, color: dangerColor),
               ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text('Cancel'),
+              child: Text('Cancel', style: TextStyle(fontSize: 12)),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -613,7 +648,8 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
               },
               style: ElevatedButton.styleFrom(backgroundColor: dangerColor),
               child: Text(
-                'Delete $quantityToDelete Unit${quantityToDelete > 1 ? 's' : ''}',
+                'Delete $quantityToDelete',
+                style: TextStyle(fontSize: 12),
               ),
             ),
           ],
@@ -643,7 +679,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
       }
 
       if (remainingQuantity == 0) {
-        // If no quantity left, delete the entire document
         await _firestore.collection('applianceDeletedRecords').add({
           'originalId': docId,
           'productName': data['productName'],
@@ -660,7 +695,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
 
         await _firestore.collection('applianceStock').doc(docId).delete();
       } else {
-        // Update quantity
         await _firestore.collection('applianceStock').doc(docId).update({
           'quantity': remainingQuantity,
           'updatedAt': FieldValue.serverTimestamp(),
@@ -668,7 +702,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
           'lastUpdatedBy': data['uploadedBy'],
         });
 
-        // Add partial deletion record
         await _firestore.collection('applianceDeletedRecords').add({
           'originalId': docId,
           'productName': data['productName'],
@@ -685,21 +718,25 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
         });
       }
 
-      Navigator.pop(context); // Close loading dialog
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$quantityToDelete unit(s) deleted successfully'),
-          backgroundColor: dangerColor,
-        ),
-      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$quantityToDelete unit(s) deleted successfully'),
+            backgroundColor: dangerColor,
+          ),
+        );
+      }
     } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error deleting appliance: $e'),
-          backgroundColor: dangerColor,
-        ),
-      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error deleting appliance: $e'),
+            backgroundColor: dangerColor,
+          ),
+        );
+      }
     }
   }
 
@@ -708,29 +745,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
     String docId,
     Map<String, dynamic> data,
   ) async {
-    // Show quantity selection with reason
-    int? quantityToReturn = await _showQuantitySelectionDialog(
-      data,
-      'return',
-      'Return',
-    );
-
-    if (quantityToReturn == null || quantityToReturn < 1) return;
-
-    // Get the reason from the dialog (it's already collected in the dialog)
-    // We need to get it from the dialog's controller
-    // The reason is already handled in the _showQuantitySelectionDialog
-    // So we just need to call the return function with the quantity
-    // But we need the reason, so let's use a separate dialog for return with reason
-
-    // Actually, the reason is already collected in the quantity selection dialog
-    // But we need to pass it back. Let's modify the approach.
-
-    // For now, let's use a simpler approach - show a separate reason dialog if needed
-    // But since we already have the reason in the quantity selection dialog,
-    // we'll use a different approach.
-
-    // Let's use a separate function for return with reason
     await _showReturnWithReasonDialog(docId, data);
   }
 
@@ -752,9 +766,9 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
             return AlertDialog(
               title: Row(
                 children: [
-                  Icon(Icons.assignment_return, color: warningColor, size: 24),
-                  const SizedBox(width: 12),
-                  const Text('Return Appliance'),
+                  Icon(Icons.assignment_return, color: warningColor, size: 20),
+                  const SizedBox(width: 10),
+                  Text('Return Appliance', style: TextStyle(fontSize: 15)),
                 ],
               ),
               content: Container(
@@ -764,7 +778,7 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
                         color: Colors.grey.shade50,
                         borderRadius: BorderRadius.circular(8),
@@ -777,22 +791,22 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                             'Product: ${data['productName']}',
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
-                              fontSize: 14,
+                              fontSize: 12,
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 3),
                           Text(
                             'Brand: ${data['productBrand']}',
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 11,
                               color: Colors.grey[600],
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 3),
                           Text(
-                            'Available Quantity: $currentQuantity units',
+                            'Available: $currentQuantity units',
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 11,
                               color: primaryGreen,
                               fontWeight: FontWeight.w500,
                             ),
@@ -800,15 +814,15 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    const Text(
+                    const SizedBox(height: 12),
+                    Text(
                       'Select quantity to return:',
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontWeight: FontWeight.w500,
-                        fontSize: 13,
+                        fontSize: 12,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     Row(
                       children: [
                         IconButton(
@@ -817,6 +831,7 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                             color: selectedQuantity > 1
                                 ? primaryGreen
                                 : Colors.grey,
+                            size: 24,
                           ),
                           onPressed: () {
                             if (selectedQuantity > 1) {
@@ -825,20 +840,22 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                               });
                             }
                           },
-                          iconSize: 28,
                         ),
                         Expanded(
                           child: Container(
-                            height: 50,
+                            height: 40,
                             decoration: BoxDecoration(
-                              border: Border.all(color: primaryGreen, width: 2),
+                              border: Border.all(
+                                color: primaryGreen,
+                                width: 1.5,
+                              ),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Center(
                               child: Text(
                                 '$selectedQuantity',
                                 style: const TextStyle(
-                                  fontSize: 22,
+                                  fontSize: 18,
                                   fontWeight: FontWeight.bold,
                                   color: primaryGreen,
                                 ),
@@ -852,6 +869,7 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                             color: selectedQuantity < currentQuantity
                                 ? primaryGreen
                                 : Colors.grey,
+                            size: 24,
                           ),
                           onPressed: () {
                             if (selectedQuantity < currentQuantity) {
@@ -860,11 +878,10 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                               });
                             }
                           },
-                          iconSize: 28,
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -874,7 +891,10 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                               selectedQuantity = 1;
                             });
                           },
-                          child: const Text('Reset'),
+                          child: const Text(
+                            'Reset',
+                            style: TextStyle(fontSize: 11),
+                          ),
                         ),
                         TextButton(
                           onPressed: () {
@@ -882,26 +902,29 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                               selectedQuantity = currentQuantity;
                             });
                           },
-                          child: const Text('Select All'),
+                          child: const Text(
+                            'Select All',
+                            style: TextStyle(fontSize: 11),
+                          ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    const Text(
+                    const SizedBox(height: 12),
+                    Text(
                       'Return Reason:',
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontWeight: FontWeight.w500,
-                        fontSize: 13,
+                        fontSize: 12,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     TextField(
                       controller: reasonController,
+                      style: TextStyle(fontSize: 12),
                       decoration: const InputDecoration(
-                        hintText:
-                            'e.g., Damaged, Wrong model, Customer return...',
+                        hintText: 'e.g., Damaged, Wrong model...',
                         border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.all(12),
+                        contentPadding: EdgeInsets.all(10),
                       ),
                       maxLines: 2,
                     ),
@@ -911,7 +934,7 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context, null),
-                  child: const Text('Cancel'),
+                  child: const Text('Cancel', style: TextStyle(fontSize: 12)),
                 ),
                 ElevatedButton(
                   onPressed: () {
@@ -951,7 +974,8 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                     foregroundColor: Colors.white,
                   ),
                   child: Text(
-                    'Return $selectedQuantity Unit${selectedQuantity > 1 ? 's' : ''}',
+                    'Return $selectedQuantity',
+                    style: TextStyle(fontSize: 12),
                   ),
                 ),
               ],
@@ -998,7 +1022,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
         throw Exception('Cannot return more than available quantity');
       }
 
-      // Update appliance stock
       final updateData = {
         'quantity': newQuantity,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -1006,7 +1029,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
         'lastUpdatedBy': data['uploadedBy'],
       };
 
-      // If quantity becomes 0, mark as returned
       if (newQuantity == 0) {
         updateData['status'] = 'returned';
         updateData['returnedAt'] = FieldValue.serverTimestamp();
@@ -1019,7 +1041,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
           .doc(docId)
           .update(updateData);
 
-      // Add to returns collection
       await _firestore.collection('applianceReturns').add({
         'applianceId': docId,
         'productName': data['productName'],
@@ -1035,21 +1056,25 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
         'status': 'returned',
       });
 
-      Navigator.pop(context); // Close loading dialog
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$quantityToReturn unit(s) returned successfully'),
-          backgroundColor: warningColor,
-        ),
-      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$quantityToReturn unit(s) returned successfully'),
+            backgroundColor: warningColor,
+          ),
+        );
+      }
     } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error processing return: $e'),
-          backgroundColor: dangerColor,
-        ),
-      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error processing return: $e'),
+            backgroundColor: dangerColor,
+          ),
+        );
+      }
     }
   }
 
@@ -1058,7 +1083,7 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
     showModalBottomSheet(
       context: context,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (BuildContext context) {
         return SafeArea(
@@ -1066,35 +1091,58 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: EdgeInsets.all(16),
+                padding: EdgeInsets.all(14),
                 child: Text(
                   'Options for ${data['productName']}',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                 ),
               ),
               Divider(height: 1),
               ListTile(
-                leading: Icon(Icons.swap_horiz, color: primaryGreen),
-                title: Text('Transfer to Another Shop'),
-                subtitle: Text('Move this appliance to a different shop'),
+                dense: true,
+                leading: Icon(Icons.swap_horiz, color: primaryGreen, size: 20),
+                title: Text(
+                  'Transfer to Another Shop',
+                  style: TextStyle(fontSize: 13),
+                ),
+                subtitle: Text(
+                  'Move this appliance to a different shop',
+                  style: TextStyle(fontSize: 11),
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   _showTransferDialog(docId, data);
                 },
               ),
               ListTile(
-                leading: Icon(Icons.assignment_return, color: warningColor),
-                title: Text('Return'),
-                subtitle: Text('Mark this appliance as returned'),
+                dense: true,
+                leading: Icon(
+                  Icons.assignment_return,
+                  color: warningColor,
+                  size: 20,
+                ),
+                title: Text('Return', style: TextStyle(fontSize: 13)),
+                subtitle: Text(
+                  'Mark this appliance as returned',
+                  style: TextStyle(fontSize: 11),
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   _showReturnDialog(docId, data);
                 },
               ),
               ListTile(
-                leading: Icon(Icons.delete_outline, color: dangerColor),
-                title: Text('Delete'),
-                subtitle: Text('Permanently remove this appliance'),
+                dense: true,
+                leading: Icon(
+                  Icons.delete_outline,
+                  color: dangerColor,
+                  size: 20,
+                ),
+                title: Text('Delete', style: TextStyle(fontSize: 13)),
+                subtitle: Text(
+                  'Permanently remove this appliance',
+                  style: TextStyle(fontSize: 11),
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   _showDeleteDialog(docId, data);
@@ -1108,6 +1156,32 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
     );
   }
 
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'available':
+        return availableColor;
+      case 'sold':
+        return soldColor;
+      case 'returned':
+        return returnedColor;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _getStatusIcon(String status) {
+    switch (status) {
+      case 'available':
+        return '✓';
+      case 'sold':
+        return '✕';
+      case 'returned':
+        return '↺';
+      default:
+        return '';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1118,7 +1192,7 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
           style: TextStyle(
             fontWeight: FontWeight.bold,
             color: Colors.white,
-            fontSize: 18,
+            fontSize: 16,
           ),
         ),
         backgroundColor: primaryGreen,
@@ -1129,464 +1203,149 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
             icon: const Icon(Icons.refresh, size: 20),
             onPressed: () {
               _loadBrands();
-              setState(() {});
             },
           ),
         ],
       ),
       body: Column(
         children: [
-          _buildSummaryCards(),
-          _buildFilterBar(),
+          _buildSearchField(),
+          _buildStatusChips(),
+          const Divider(height: 1, color: Colors.grey),
           Expanded(child: _buildStockList()),
         ],
       ),
     );
   }
 
-  Widget _buildSummaryCards() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _firestore.collection('applianceStock').snapshots(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return Container(
-            height: 70,
-            child: const Center(child: CircularProgressIndicator()),
-          );
-        }
-
-        var docs = snapshot.data!.docs;
-
-        // Apply all filters in memory for summary
-        var filteredDocs = docs.where((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-
-          // Status filter
-          if (_selectedStatus != 'all') {
-            if (data['status'] != _selectedStatus) return false;
-          }
-
-          // Shop filter
-          if (_selectedShopId != null) {
-            if (data['shopId'] != _selectedShopId) return false;
-          }
-
-          // Brand filter
-          if (_selectedBrand != null) {
-            if (data['productBrand'] != _selectedBrand) return false;
-          }
-
-          return true;
-        }).toList();
-
-        int totalItems = 0;
-        double totalValue = 0;
-        int availableItems = 0;
-        double availableValue = 0;
-        int returnedItems = 0;
-
-        for (var doc in filteredDocs) {
-          final data = doc.data() as Map<String, dynamic>;
-          int quantity = (data['quantity'] ?? 0).toInt();
-          double price = (data['productPrice'] ?? 0).toDouble();
-
-          totalItems += quantity;
-          totalValue += (price * quantity);
-
-          if (data['status'] == 'available') {
-            availableItems += quantity;
-            availableValue += (price * quantity);
-          } else if (data['status'] == 'returned') {
-            returnedItems += quantity;
-          }
-        }
-
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: _buildSummaryCard(
-                  'Total Stock',
-                  '$totalItems',
-                  '₹${widget.formatNumber(totalValue)}',
-                  Icons.inventory,
-                  primaryGreen,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildSummaryCard(
-                  'Available',
-                  '$availableItems',
-                  '₹${widget.formatNumber(availableValue)}',
-                  Icons.check_circle,
-                  accentGreen,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildSummaryCard(
-    String title,
-    String count,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
+  Widget _buildSearchField() {
     return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: color, size: 16),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(fontSize: 10, color: Colors.grey),
-                  textAlign: TextAlign.left,
-                ),
-                Text(
-                  count,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
-                  textAlign: TextAlign.left,
-                ),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 9,
-                    color: Colors.grey,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.left,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFilterBar() {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          // Search Bar
-          Container(
-            height: 40,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey.shade300),
-            ),
-            child: TextField(
-              style: const TextStyle(fontSize: 13, color: Colors.black87),
-              textAlign: TextAlign.left,
-              decoration: InputDecoration(
-                hintText: 'Search by Product Name, Brand...',
-                hintStyle: const TextStyle(fontSize: 12, color: Colors.grey),
-                prefixIcon: Icon(Icons.search, color: primaryGreen, size: 18),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                isDense: true,
-              ),
-              onChanged: (value) {
-                setState(() {
-                  _searchQuery = value.toLowerCase();
-                });
-              },
-            ),
-          ),
-          const SizedBox(height: 8),
-
-          // Filters Row
-          Row(
-            children: [
-              // Status Filter
-              Expanded(
-                child: Container(
-                  height: 38,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.grey.shade300),
-                  ),
-                  child: DropdownButton<String>(
-                    value: _selectedStatus,
-                    isExpanded: true,
-                    underline: const SizedBox(),
-                    icon: Icon(
-                      Icons.arrow_drop_down,
-                      size: 18,
-                      color: primaryGreen,
-                    ),
-                    dropdownColor: Colors.white,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Colors.black87,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'all',
-                        child: Text(
-                          'All Status',
-                          style: TextStyle(fontSize: 12, color: Colors.black87),
-                          textAlign: TextAlign.left,
-                        ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'available',
-                        child: Text(
-                          'Available',
-                          style: TextStyle(fontSize: 12, color: Colors.black87),
-                          textAlign: TextAlign.left,
-                        ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'sold',
-                        child: Text(
-                          'Sold',
-                          style: TextStyle(fontSize: 12, color: Colors.black87),
-                          textAlign: TextAlign.left,
-                        ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'returned',
-                        child: Text(
-                          'Returned',
-                          style: TextStyle(fontSize: 12, color: Colors.black87),
-                          textAlign: TextAlign.left,
-                        ),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedStatus = value!;
-                      });
-                    },
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-
-              // Shop Filter
-              Expanded(
-                child: Container(
-                  height: 38,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.grey.shade300),
-                  ),
-                  child: DropdownButton<String>(
-                    value: _selectedShopId,
-                    isExpanded: true,
-                    underline: const SizedBox(),
-                    icon: Icon(
-                      Icons.arrow_drop_down,
-                      size: 18,
-                      color: primaryGreen,
-                    ),
-                    dropdownColor: Colors.white,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Colors.black87,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    hint: const Text(
-                      'All Shops',
-                      style: TextStyle(fontSize: 12, color: Colors.black87),
-                      textAlign: TextAlign.left,
-                    ),
-                    items: [
-                      const DropdownMenuItem<String>(
-                        value: null,
-                        child: Text(
-                          'All Shops',
-                          style: TextStyle(fontSize: 12, color: Colors.black87),
-                          textAlign: TextAlign.left,
-                        ),
-                      ),
-                      ...widget.shops.map((shop) {
-                        return DropdownMenuItem<String>(
-                          value: shop['id'] as String?,
-                          child: Text(
-                            shop['name'] as String? ?? 'Unknown',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.black87,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.left,
-                          ),
-                        );
-                      }).toList(),
-                    ],
-                    onChanged: (String? value) {
-                      setState(() {
-                        _selectedShopId = value;
-                      });
-                    },
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 6),
-
-          // Brand Filter Row
-          Row(
-            children: [
-              Expanded(
-                child: Container(
-                  height: 38,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.grey.shade300),
-                  ),
-                  child: _isLoadingBrands
-                      ? const Center(
-                          child: SizedBox(
-                            height: 16,
-                            width: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        )
-                      : DropdownButton<String>(
-                          value: _selectedBrand,
-                          isExpanded: true,
-                          underline: const SizedBox(),
-                          icon: Icon(
-                            Icons.arrow_drop_down,
-                            size: 18,
-                            color: primaryGreen,
-                          ),
-                          dropdownColor: Colors.white,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.black87,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          hint: const Text(
-                            'All Brands',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.black87,
-                            ),
-                            textAlign: TextAlign.left,
-                          ),
-                          items: [
-                            const DropdownMenuItem<String>(
-                              value: null,
-                              child: Text(
-                                'All Brands',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.black87,
-                                ),
-                                textAlign: TextAlign.left,
-                              ),
-                            ),
-                            ..._brands.map((brand) {
-                              return DropdownMenuItem<String>(
-                                value: brand,
-                                child: Text(
-                                  brand,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.black87,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.left,
-                                ),
-                              );
-                            }).toList(),
-                          ],
-                          onChanged: (String? value) {
-                            setState(() {
-                              _selectedBrand = value;
-                            });
-                          },
-                        ),
-                ),
-              ),
-              if (_selectedBrand != null ||
-                  _selectedShopId != null ||
-                  _selectedStatus != 'all')
-                Container(
-                  margin: const EdgeInsets.only(left: 6),
-                  child: IconButton(
-                    icon: const Icon(Icons.clear, size: 16),
-                    color: dangerColor,
+      padding: EdgeInsets.all(10),
+      color: Colors.white,
+      child: Container(
+        height: 38,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: TextField(
+          style: TextStyle(fontSize: 12, color: Colors.black87),
+          textAlign: TextAlign.left,
+          decoration: InputDecoration(
+            hintText: 'Search by Product Name, Brand...',
+            hintStyle: TextStyle(fontSize: 11, color: Colors.grey[400]),
+            prefixIcon: Icon(Icons.search, color: primaryGreen, size: 18),
+            suffixIcon: _searchQuery.isNotEmpty
+                ? IconButton(
+                    icon: Icon(Icons.clear, size: 16, color: Colors.grey),
                     onPressed: () {
                       setState(() {
-                        _selectedStatus = 'all';
-                        _selectedShopId = null;
-                        _selectedBrand = null;
                         _searchQuery = '';
                       });
                     },
-                    padding: const EdgeInsets.all(6),
-                    constraints: const BoxConstraints(),
-                  ),
-                ),
-            ],
+                  )
+                : null,
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 8,
+            ),
+            isDense: true,
           ),
+          onChanged: (value) {
+            setState(() {
+              _searchQuery = value.toLowerCase();
+            });
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusChips() {
+    return Container(
+      color: Colors.white,
+      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      child: Row(
+        children: [
+          _buildStatusChip('Available', 'available', availableColor),
+          SizedBox(width: 6),
+          _buildStatusChip('Sold', 'sold', soldColor),
+          SizedBox(width: 6),
+          _buildStatusChip('Returned', 'returned', returnedColor),
         ],
       ),
+    );
+  }
+
+  Widget _buildStatusChip(String label, String statusValue, Color color) {
+    final isSelected = _selectedStatus == statusValue;
+    int count = _statusCounts[statusValue] ?? 0;
+
+    return ChoiceChip(
+      label: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 5,
+            height: 5,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isSelected ? Colors.white : color,
+            ),
+          ),
+          SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              color: isSelected ? Colors.white : Colors.grey[700],
+            ),
+          ),
+          if (count > 0) ...[
+            SizedBox(width: 3),
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? Colors.white.withOpacity(0.3)
+                    : color.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected ? Colors.white : color,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+      selected: isSelected,
+      onSelected: (selected) {
+        if (selected) {
+          setState(() {
+            _selectedStatus = statusValue;
+          });
+        }
+      },
+      selectedColor: color,
+      backgroundColor: Colors.grey[100],
+      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: isSelected ? color : Colors.grey.shade300,
+          width: isSelected ? 1.5 : 1,
+        ),
+      ),
+      labelPadding: EdgeInsets.symmetric(horizontal: 3),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
   }
 
@@ -1603,16 +1362,11 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.error_outline, size: 40, color: dangerColor),
-                const SizedBox(height: 8),
+                Icon(Icons.error_outline, size: 36, color: dangerColor),
+                const SizedBox(height: 6),
                 Text(
                   'Error loading data',
-                  style: TextStyle(fontSize: 14, color: Colors.grey[700]),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Pull down to refresh',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                  style: TextStyle(fontSize: 13, color: Colors.grey[700]),
                 ),
               ],
             ),
@@ -1630,12 +1384,12 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.kitchen, size: 48, color: Colors.grey[400]),
-                const SizedBox(height: 8),
+                Icon(Icons.kitchen, size: 40, color: Colors.grey[400]),
+                const SizedBox(height: 6),
                 Text(
                   'No appliances found',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 13,
                     color: Colors.grey[600],
                     fontWeight: FontWeight.w500,
                   ),
@@ -1645,14 +1399,50 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
           );
         }
 
-        // Apply all filters in memory
+        // Calculate counts from snapshot data
+        int available = 0;
+        int sold = 0;
+        int returned = 0;
+        double availableValue = 0;
+        double soldValue = 0;
+        double returnedValue = 0;
+
+        for (var doc in snapshot.data!.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          int quantity = (data['quantity'] ?? 0).toInt();
+          double price = (data['productPrice'] ?? 0).toDouble();
+          String status = data['status'] ?? '';
+
+          if (status == 'available') {
+            available += quantity;
+            availableValue += (price * quantity);
+          } else if (status == 'sold') {
+            sold += quantity;
+            soldValue += (price * quantity);
+          } else if (status == 'returned') {
+            returned += quantity;
+            returnedValue += (price * quantity);
+          }
+        }
+
+        // Update counts without triggering setState during build
+        _statusCounts = {
+          'available': available,
+          'sold': sold,
+          'returned': returned,
+        };
+        _statusValues = {
+          'available': availableValue,
+          'sold': soldValue,
+          'returned': returnedValue,
+        };
+
+        // Apply filters
         var docs = snapshot.data!.docs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
 
           // Status filter
-          if (_selectedStatus != 'all') {
-            if (data['status'] != _selectedStatus) return false;
-          }
+          if (data['status'] != _selectedStatus) return false;
 
           // Shop filter
           if (_selectedShopId != null) {
@@ -1686,12 +1476,12 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.search_off, size: 48, color: Colors.grey[400]),
-                const SizedBox(height: 8),
+                Icon(Icons.search_off, size: 40, color: Colors.grey[400]),
+                const SizedBox(height: 6),
                 Text(
-                  'No matching items',
+                  'No ${_selectedStatus} items found',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 13,
                     color: Colors.grey[600],
                     fontWeight: FontWeight.w500,
                   ),
@@ -1699,27 +1489,78 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                 const SizedBox(height: 4),
                 Text(
                   'Try changing your filters',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                 ),
               ],
             ),
           );
         }
 
-        return RefreshIndicator(
-          onRefresh: () async {
-            setState(() {});
-          },
-          color: secondaryGreen,
-          child: ListView.builder(
-            padding: const EdgeInsets.all(10),
-            itemCount: docs.length,
-            itemBuilder: (context, index) {
-              final doc = docs[index];
-              final data = doc.data() as Map<String, dynamic>;
-              return _buildStockCard(doc.id, data);
-            },
-          ),
+        // Show count of selected status
+        int selectedCount = 0;
+        double selectedValue = 0;
+        for (var doc in docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          int quantity = (data['quantity'] ?? 0).toInt();
+          double price = (data['productPrice'] ?? 0).toDouble();
+          selectedCount += quantity;
+          selectedValue += (price * quantity);
+        }
+
+        return Column(
+          children: [
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              color: Colors.white,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _getStatusColor(_selectedStatus),
+                        ),
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        '${_selectedStatus.toUpperCase()}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: _getStatusColor(_selectedStatus),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    '$selectedCount units · ₹${widget.formatNumber(selectedValue)}',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () async {
+                  _loadBrands();
+                },
+                color: secondaryGreen,
+                child: ListView.builder(
+                  padding: EdgeInsets.all(6),
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final doc = docs[index];
+                    final data = doc.data() as Map<String, dynamic>;
+                    return _buildStockCard(doc.id, data);
+                  },
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -1727,308 +1568,311 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
 
   Widget _buildStockCard(String docId, Map<String, dynamic> data) {
     DateTime uploadedAt = (data['uploadedAt'] as Timestamp).toDate();
-    DateTime? createdAt = data['createdAt'] != null
-        ? (data['createdAt'] as Timestamp).toDate()
-        : uploadedAt;
     DateTime? lastUpdatedAt = data['lastUpdatedAt'] != null
         ? (data['lastUpdatedAt'] as Timestamp).toDate()
         : null;
 
-    Color statusColor = data['status'] == 'available'
-        ? accentGreen
-        : data['status'] == 'returned'
-        ? warningColor
-        : Colors.grey;
-    String status = data['status']?.toString().toUpperCase() ?? 'UNKNOWN';
+    String status = data['status']?.toString() ?? 'unknown';
+    Color statusColor = _getStatusColor(status);
     int quantity = (data['quantity'] ?? 0).toInt();
     double price = (data['productPrice'] ?? 0).toDouble();
-    double totalValue = price * quantity;
 
     return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: data['status'] == 'available'
-              ? Border.all(color: accentGreen.withOpacity(0.2), width: 1)
-              : null,
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header with options button
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: primaryGreen.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(6),
+      margin: EdgeInsets.only(bottom: 6),
+      elevation: 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: statusColor.withOpacity(0.3), width: 1),
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header Row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        data['productName'] ?? 'Unknown Product',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: primaryGreen,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        data['productBrand'] ?? 'Unknown Brand',
+                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+                Row(
+                  children: [
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: statusColor.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            _getStatusIcon(status),
+                            style: TextStyle(
+                              fontSize: 8,
+                              color: statusColor,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                          child: Icon(
-                            Icons.kitchen,
-                            color: primaryGreen,
-                            size: 14,
+                          SizedBox(width: 3),
+                          Text(
+                            status.toUpperCase(),
+                            style: TextStyle(
+                              fontSize: 8,
+                              fontWeight: FontWeight.bold,
+                              color: statusColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(width: 4),
+                    PopupMenuButton<String>(
+                      icon: Icon(
+                        Icons.more_vert,
+                        size: 16,
+                        color: primaryGreen,
+                      ),
+                      onSelected: (value) {
+                        if (value == 'transfer') {
+                          _showTransferDialog(docId, data);
+                        } else if (value == 'return') {
+                          _showReturnDialog(docId, data);
+                        } else if (value == 'delete') {
+                          _showDeleteDialog(docId, data);
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'transfer',
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.swap_horiz,
+                                size: 16,
+                                color: primaryGreen,
+                              ),
+                              SizedBox(width: 6),
+                              Text(
+                                'Transfer Shop',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                        PopupMenuItem(
+                          value: 'return',
+                          child: Row(
                             children: [
-                              Text(
-                                data['productName'] ?? 'Unknown Product',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: primaryGreen,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.left,
+                              Icon(
+                                Icons.assignment_return,
+                                size: 16,
+                                color: warningColor,
                               ),
-                              Text(
-                                data['productBrand'] ?? 'Unknown Brand',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey[600],
-                                ),
-                                textAlign: TextAlign.left,
+                              SizedBox(width: 6),
+                              Text('Return', style: TextStyle(fontSize: 12)),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.delete_outline,
+                                size: 16,
+                                color: dangerColor,
                               ),
+                              SizedBox(width: 6),
+                              Text('Delete', style: TextStyle(fontSize: 12)),
                             ],
                           ),
                         ),
                       ],
                     ),
-                  ),
+                  ],
+                ),
+              ],
+            ),
+            SizedBox(height: 6),
+
+            // Details Grid
+            Container(
+              padding: EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: statusColor.withOpacity(0.1)),
+              ),
+              child: Column(
+                children: [
                   Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: statusColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: statusColor.withOpacity(0.2),
-                          ),
-                        ),
-                        child: Text(
-                          status,
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w600,
-                            color: statusColor,
-                          ),
-                          textAlign: TextAlign.center,
+                      Expanded(
+                        child: _buildDetailItem('Qty', '$quantity units'),
+                      ),
+                      Expanded(
+                        child: _buildDetailItem(
+                          'Price',
+                          '₹${widget.formatNumber(price)}',
                         ),
                       ),
-                      SizedBox(width: 4),
-                      // Options menu button
-                      PopupMenuButton<String>(
-                        icon: Icon(
-                          Icons.more_vert,
-                          size: 18,
-                          color: primaryGreen,
+                      Expanded(
+                        child: _buildDetailItem(
+                          'Total',
+                          '₹${widget.formatNumber(price * quantity)}',
+                          color: statusColor,
                         ),
-                        onSelected: (value) {
-                          if (value == 'transfer') {
-                            _showTransferDialog(docId, data);
-                          } else if (value == 'return') {
-                            _showReturnDialog(docId, data);
-                          } else if (value == 'delete') {
-                            _showDeleteDialog(docId, data);
-                          }
-                        },
-                        itemBuilder: (context) => [
-                          PopupMenuItem(
-                            value: 'transfer',
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.swap_horiz,
-                                  size: 18,
-                                  color: primaryGreen,
-                                ),
-                                SizedBox(width: 8),
-                                Text('Transfer Shop'),
-                              ],
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'return',
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.assignment_return,
-                                  size: 18,
-                                  color: warningColor,
-                                ),
-                                SizedBox(width: 8),
-                                Text('Return'),
-                              ],
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'delete',
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.delete_outline,
-                                  size: 18,
-                                  color: dangerColor,
-                                ),
-                                SizedBox(width: 8),
-                                Text('Delete'),
-                              ],
-                            ),
-                          ),
-                        ],
                       ),
                     ],
                   ),
+                  SizedBox(height: 3),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildDetailItem(
+                          'Shop',
+                          data['shopName'] ?? 'Unknown',
+                        ),
+                      ),
+                      Expanded(
+                        child: _buildDetailItem(
+                          'By',
+                          data['uploadedBy'] ?? 'Unknown',
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 3),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildDetailItem(
+                          'Uploaded',
+                          DateFormat('dd/MM/yy').format(uploadedAt),
+                        ),
+                      ),
+                      Expanded(
+                        child: _buildDetailItem(
+                          'Time',
+                          DateFormat('hh:mm a').format(uploadedAt),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (lastUpdatedAt != null) ...[
+                    SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildDetailItem(
+                            'Updated',
+                            DateFormat('dd/MM/yy').format(lastUpdatedAt),
+                          ),
+                        ),
+                        Expanded(
+                          child: _buildDetailItem(
+                            'By',
+                            data['lastUpdatedBy'] ?? 'Unknown',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  if (status == 'returned' && data['returnReason'] != null) ...[
+                    SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildDetailItem(
+                            'Return Reason',
+                            data['returnReason'] ?? 'N/A',
+                            color: returnedColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  if (status == 'sold') ...[
+                    SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildDetailItem(
+                            'Sold At',
+                            data['soldAt'] != null
+                                ? DateFormat('dd/MM/yy').format(
+                                    (data['soldAt'] as Timestamp).toDate(),
+                                  )
+                                : 'N/A',
+                            color: soldColor,
+                          ),
+                        ),
+                        Expanded(
+                          child: _buildDetailItem(
+                            'Sold By',
+                            data['soldBy'] ?? 'Unknown',
+                            color: soldColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
-              const SizedBox(height: 8),
-
-              // Details
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildCompactDetailRow(
-                            'Quantity',
-                            '$quantity units',
-                          ),
-                        ),
-                        Expanded(
-                          child: _buildCompactDetailRow(
-                            'Price',
-                            '₹${widget.formatNumber(price)}',
-                          ),
-                        ),
-                        Expanded(
-                          child: _buildCompactDetailRow(
-                            'Total',
-                            '₹${widget.formatNumber(totalValue)}',
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildCompactDetailRow(
-                            'Shop',
-                            data['shopName'] ?? 'Unknown',
-                          ),
-                        ),
-                        Expanded(
-                          child: _buildCompactDetailRow(
-                            'By',
-                            data['uploadedBy'] ?? 'Unknown',
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildCompactDetailRow(
-                            'Uploaded',
-                            DateFormat('dd/MM/yy hh:mm a').format(uploadedAt),
-                          ),
-                        ),
-                        if (lastUpdatedAt != null)
-                          Expanded(
-                            child: _buildCompactDetailRow(
-                              'Updated',
-                              DateFormat(
-                                'dd/MM/yy hh:mm a',
-                              ).format(lastUpdatedAt),
-                            ),
-                          ),
-                      ],
-                    ),
-                    if (lastUpdatedAt != null && data['lastUpdatedBy'] != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: _buildCompactDetailRow(
-                                'Updated By',
-                                data['lastUpdatedBy'] ?? 'Unknown',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    // Show return info if returned
-                    if (data['status'] == 'returned' &&
-                        data['returnReason'] != null)
-                      Padding(
-                        padding: EdgeInsets.only(top: 4),
-                        child: _buildCompactDetailRow(
-                          'Return Reason',
-                          data['returnReason'] ?? 'N/A',
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildCompactDetailRow(String label, String value) {
+  Widget _buildDetailItem(String label, String value, {Color? color}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1),
+      padding: EdgeInsets.symmetric(vertical: 1),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             '$label: ',
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 10,
               color: Colors.grey[600],
               fontWeight: FontWeight.w500,
             ),
-            textAlign: TextAlign.left,
           ),
           Expanded(
             child: Text(
               value,
               style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey[800],
+                fontSize: 10,
+                color: color ?? Colors.grey[800],
                 fontWeight: FontWeight.w500,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.left,
             ),
           ),
         ],
