@@ -10,9 +10,11 @@ import 'package:sales_stock/screens/finance_dashboard_tabs/seconds_phone_verific
 import 'package:sales_stock/screens/finance_dashboard_tabs/base_model_verification.dart';
 import 'package:sales_stock/screens/finance_dashboard_tabs/accessories_service_verification.dart';
 import 'package:sales_stock/screens/finance_dashboard_tabs/overdue_verification.dart';
+import 'package:sales_stock/screens/finance_dashboard_tabs/tv_verification_tab.dart';
+import 'package:sales_stock/screens/finance_dashboard_tabs/appliance_verification_tab.dart';
 
 import 'package:sales_stock/screens/finance_dashboard_tabs/dialogs/generic_payment_dialog.dart';
-import 'package:sales_stock/screens/login_screen.dart'; // Add this import
+import 'package:sales_stock/screens/login_screen.dart';
 import '../providers/auth_provider.dart';
 import '../services/auth_service.dart';
 
@@ -34,10 +36,31 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
   final authService = AuthService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  // Data lists
   List<Map<String, dynamic>> _phoneSales = [];
   List<Map<String, dynamic>> _accessoriesServiceSales = [];
   List<Map<String, dynamic>> _baseModelSales = [];
   List<Map<String, dynamic>> _secondsPhoneSales = [];
+  List<Map<String, dynamic>> _tvSales = [];
+  List<Map<String, dynamic>> _applianceSales = [];
+
+  // Loading states for each tab
+  bool _isPhoneLoading = false;
+  bool _isSecondsPhoneLoading = false;
+  bool _isBaseModelLoading = false;
+  bool _isAccessoriesLoading = false;
+  bool _isTvLoading = false;
+  bool _isApplianceLoading = false;
+  bool _isOverdueLoading = false;
+
+  // Data loaded flags
+  bool _phoneLoaded = false;
+  bool _secondsPhoneLoaded = false;
+  bool _baseModelLoaded = false;
+  bool _accessoriesLoaded = false;
+  bool _tvLoaded = false;
+  bool _applianceLoaded = false;
+  bool _overdueLoaded = false;
 
   List<String> _allShops = ['All Shops'];
   List<String> _availableShops = [];
@@ -45,32 +68,357 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
   @override
   void initState() {
     super.initState();
-    _loadAllData();
+    // Load only phone sales initially
+    _loadPhoneSales();
   }
 
-  Future<void> _loadAllData() async {
+  // ==================== LAZY LOADING METHODS ====================
+
+  void _loadDataForTab(int index) {
+    switch (index) {
+      case 0:
+        if (!_phoneLoaded) _loadPhoneSales();
+        break;
+      case 1:
+        if (!_secondsPhoneLoaded) _loadSecondsPhoneSales();
+        break;
+      case 2:
+        if (!_baseModelLoaded) _loadBaseModelSales();
+        break;
+      case 3:
+        if (!_accessoriesLoaded) _loadAccessoriesServiceSales();
+        break;
+      case 4:
+        if (!_tvLoaded) _loadTvSales();
+        break;
+      case 5:
+        if (!_applianceLoaded) _loadApplianceSales();
+        break;
+      case 6:
+        if (!_overdueLoaded) _loadOverdueSales();
+        break;
+    }
+  }
+
+  Future<void> _loadPhoneSales() async {
+    if (_phoneLoaded) return;
     setState(() {
-      _isLoading = true;
+      _isPhoneLoading = true;
     });
 
     try {
-      await Future.wait([
-        _fetchPhoneSales(),
-        _fetchAccessoriesServiceSales(),
-        _fetchBaseModelSales(),
-        _fetchSecondsPhoneSales(),
-      ]);
+      final querySnapshot = await _firestore
+          .collection('phoneSales')
+          .orderBy('saleDate', descending: true)
+          .limit(100)
+          .get();
+
+      _phoneSales = querySnapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        data['downPaymentReceived'] = data['downPaymentReceived'] ?? false;
+        data['disbursementReceived'] = data['disbursementReceived'] ?? false;
+        data['paymentVerified'] = data['paymentVerified'] ?? false;
+        _initializePhoneSalePaymentData(data);
+        return data;
+      }).toList();
 
       _extractShopsFromData();
 
-      print('Data loaded successfully');
-    } catch (e) {
-      print('Error loading data: $e');
-      _showSnackBar('Error loading data: $e', Colors.red);
-    } finally {
       setState(() {
-        _isLoading = false;
+        _phoneLoaded = true;
+        _isPhoneLoading = false;
       });
+    } catch (e) {
+      print('Error fetching PhoneSales: $e');
+      setState(() {
+        _isPhoneLoading = false;
+      });
+      _showSnackBar('Error loading phone sales: $e', Colors.red);
+    }
+  }
+
+  Future<void> _loadSecondsPhoneSales() async {
+    if (_secondsPhoneLoaded) return;
+    setState(() {
+      _isSecondsPhoneLoading = true;
+    });
+
+    try {
+      final querySnapshot = await _firestore
+          .collection('seconds_phone_sale')
+          .orderBy('date', descending: true)
+          .limit(100)
+          .get();
+
+      _secondsPhoneSales = querySnapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        data['paymentVerified'] = data['paymentVerified'] ?? false;
+        _initializeGenericPaymentData(data);
+        return data;
+      }).toList();
+
+      _extractShopsFromData();
+
+      setState(() {
+        _secondsPhoneLoaded = true;
+        _isSecondsPhoneLoading = false;
+      });
+    } catch (e) {
+      print('Error fetching seconds_phone_sale: $e');
+      setState(() {
+        _isSecondsPhoneLoading = false;
+      });
+      _showSnackBar('Error loading seconds phone sales: $e', Colors.red);
+    }
+  }
+
+  Future<void> _loadBaseModelSales() async {
+    if (_baseModelLoaded) return;
+    setState(() {
+      _isBaseModelLoading = true;
+    });
+
+    try {
+      final querySnapshot = await _firestore
+          .collection('base_model_sale')
+          .orderBy('date', descending: true)
+          .limit(100)
+          .get();
+
+      _baseModelSales = querySnapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        data['paymentVerified'] = data['paymentVerified'] ?? false;
+        _initializeGenericPaymentData(data);
+        return data;
+      }).toList();
+
+      _extractShopsFromData();
+
+      setState(() {
+        _baseModelLoaded = true;
+        _isBaseModelLoading = false;
+      });
+    } catch (e) {
+      print('Error fetching base_model_sale: $e');
+      setState(() {
+        _isBaseModelLoading = false;
+      });
+      _showSnackBar('Error loading base model sales: $e', Colors.red);
+    }
+  }
+
+  Future<void> _loadAccessoriesServiceSales() async {
+    if (_accessoriesLoaded) return;
+    setState(() {
+      _isAccessoriesLoading = true;
+    });
+
+    try {
+      final querySnapshot = await _firestore
+          .collection('accessories_service_sales')
+          .orderBy('date', descending: true)
+          .limit(100)
+          .get();
+
+      _accessoriesServiceSales = querySnapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        data['paymentVerified'] = data['paymentVerified'] ?? false;
+        _initializeGenericPaymentData(data);
+        return data;
+      }).toList();
+
+      _extractShopsFromData();
+
+      setState(() {
+        _accessoriesLoaded = true;
+        _isAccessoriesLoading = false;
+      });
+    } catch (e) {
+      print('Error fetching accessories_service_sales: $e');
+      setState(() {
+        _isAccessoriesLoading = false;
+      });
+      _showSnackBar('Error loading accessories sales: $e', Colors.red);
+    }
+  }
+
+  Future<void> _loadTvSales() async {
+    if (_tvLoaded) return;
+    setState(() {
+      _isTvLoading = true;
+    });
+
+    try {
+      // Fetch TV bills from bills collection where type == 'tv'
+      final querySnapshot = await _firestore
+          .collection('bills')
+          .where('type', isEqualTo: 'tv')
+          .limit(200)
+          .get();
+
+      _tvSales = querySnapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        data['paymentVerified'] = data['paymentVerified'] ?? false;
+
+        // Extract serial number from originalTvData if available
+        if (data['originalTvData'] != null) {
+          final originalData = data['originalTvData'] as Map<String, dynamic>;
+          data['serialNumber'] =
+              originalData['serialNumber'] ?? data['serialNumber'];
+          data['modelBrand'] = originalData['modelBrand'] ?? data['modelBrand'];
+          data['modelName'] = originalData['modelName'] ?? data['modelName'];
+          data['modelPrice'] = originalData['modelPrice'] ?? data['modelPrice'];
+        }
+
+        _initializeGenericPaymentData(data);
+        return data;
+      }).toList();
+
+      _tvSales.sort((a, b) {
+        final aDate =
+            a['billDate'] as Timestamp? ?? a['createdAt'] as Timestamp?;
+        final bDate =
+            b['billDate'] as Timestamp? ?? b['createdAt'] as Timestamp?;
+        if (aDate == null && bDate == null) return 0;
+        if (aDate == null) return 1;
+        if (bDate == null) return -1;
+        return bDate.compareTo(aDate);
+      });
+
+      _extractShopsFromData();
+
+      setState(() {
+        _tvLoaded = true;
+        _isTvLoading = false;
+      });
+    } catch (e) {
+      print('Error fetching TV sales: $e');
+      setState(() {
+        _isTvLoading = false;
+      });
+      _showSnackBar('Error loading TV sales: $e', Colors.red);
+    }
+  }
+
+  Future<void> _loadApplianceSales() async {
+    if (_applianceLoaded) return;
+    setState(() {
+      _isApplianceLoading = true;
+    });
+
+    try {
+      // Fetch Appliance bills from bills collection where billType is 'Appliances' or 'Applianaces'
+      final querySnapshot = await _firestore
+          .collection('bills')
+          .where('billType', isEqualTo: 'Applianaces')
+          .limit(200)
+          .get();
+
+      // Also fetch 'Applianaces' billType (with 'a' at the end)
+      final querySnapshot2 = await _firestore
+          .collection('bills')
+          .where('billType', isEqualTo: 'Applianaces')
+          .limit(200)
+          .get();
+
+      // Also fetch 'Appliance' billType
+      final querySnapshot3 = await _firestore
+          .collection('bills')
+          .where('billType', isEqualTo: 'Appliance')
+          .limit(200)
+          .get();
+
+      // Combine all results
+      final allDocs = <QueryDocumentSnapshot>[];
+      allDocs.addAll(querySnapshot.docs);
+      allDocs.addAll(querySnapshot2.docs);
+      allDocs.addAll(querySnapshot3.docs);
+
+      // Remove duplicates by id
+      final uniqueDocs = <String, QueryDocumentSnapshot>{};
+      for (var doc in allDocs) {
+        if (!uniqueDocs.containsKey(doc.id)) {
+          uniqueDocs[doc.id] = doc;
+        }
+      }
+
+      _applianceSales = uniqueDocs.values.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        data['paymentVerified'] = data['paymentVerified'] ?? false;
+
+        // Extract product details from 'product' map if available
+        if (data['product'] != null) {
+          final product = data['product'] as Map<String, dynamic>;
+          data['productName'] = product['productName'] ?? data['productName'];
+          data['quantity'] = product['quantity'] ?? data['quantity'];
+          data['price'] = product['price'] ?? data['price'];
+          data['discount'] = product['discount'] ?? data['discount'];
+          data['taxableAmount'] =
+              product['taxableAmount'] ?? data['taxableAmount'];
+          data['gstAmount'] = product['gstAmount'] ?? data['gstAmount'];
+        }
+
+        _initializeGenericPaymentData(data);
+        return data;
+      }).toList();
+
+      _applianceSales.sort((a, b) {
+        final aDate =
+            a['billDate'] as Timestamp? ?? a['createdAt'] as Timestamp?;
+        final bDate =
+            b['billDate'] as Timestamp? ?? b['createdAt'] as Timestamp?;
+        if (aDate == null && bDate == null) return 0;
+        if (aDate == null) return 1;
+        if (bDate == null) return -1;
+        return bDate.compareTo(aDate);
+      });
+
+      _extractShopsFromData();
+
+      setState(() {
+        _applianceLoaded = true;
+        _isApplianceLoading = false;
+      });
+    } catch (e) {
+      print('Error fetching Appliance sales: $e');
+      setState(() {
+        _isApplianceLoading = false;
+      });
+      _showSnackBar('Error loading appliance sales: $e', Colors.red);
+    }
+  }
+
+  Future<void> _loadOverdueSales() async {
+    if (_overdueLoaded) return;
+    setState(() {
+      _isOverdueLoading = true;
+    });
+
+    try {
+      // Load all data first if not loaded
+      if (!_phoneLoaded) await _loadPhoneSales();
+      if (!_secondsPhoneLoaded) await _loadSecondsPhoneSales();
+      if (!_baseModelLoaded) await _loadBaseModelSales();
+      if (!_accessoriesLoaded) await _loadAccessoriesServiceSales();
+      if (!_tvLoaded) await _loadTvSales();
+      if (!_applianceLoaded) await _loadApplianceSales();
+
+      setState(() {
+        _overdueLoaded = true;
+        _isOverdueLoading = false;
+      });
+    } catch (e) {
+      print('Error loading overdue sales: $e');
+      setState(() {
+        _isOverdueLoading = false;
+      });
+      _showSnackBar('Error loading overdue sales: $e', Colors.red);
     }
   }
 
@@ -105,35 +453,24 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       }
     }
 
+    for (var sale in _tvSales) {
+      final shop = _getShopName(sale);
+      if (shop.isNotEmpty && shop != 'Main Store') {
+        shops.add(shop);
+      }
+    }
+
+    for (var sale in _applianceSales) {
+      final shop = _getShopName(sale);
+      if (shop.isNotEmpty && shop != 'Main Store') {
+        shops.add(shop);
+      }
+    }
+
     setState(() {
       _availableShops = shops.toList();
       _allShops = shops.toList();
     });
-  }
-
-  Future<void> _fetchPhoneSales() async {
-    try {
-      final querySnapshot = await _firestore
-          .collection('phoneSales')
-          .orderBy('saleDate', descending: true)
-          .limit(100)
-          .get();
-
-      _phoneSales = querySnapshot.docs.map((doc) {
-        final data = doc.data();
-        data['id'] = doc.id;
-        data['downPaymentReceived'] = data['downPaymentReceived'] ?? false;
-        data['disbursementReceived'] = data['disbursementReceived'] ?? false;
-        data['paymentVerified'] = data['paymentVerified'] ?? false;
-
-        _initializePhoneSalePaymentData(data);
-
-        return data;
-      }).toList();
-    } catch (e) {
-      print('Error fetching PhoneSales: $e');
-      rethrow;
-    }
   }
 
   void _initializePhoneSalePaymentData(Map<String, dynamic> data) {
@@ -171,69 +508,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     }
   }
 
-  Future<void> _fetchAccessoriesServiceSales() async {
-    try {
-      final querySnapshot = await _firestore
-          .collection('accessories_service_sales')
-          .orderBy('date', descending: true)
-          .limit(100)
-          .get();
-
-      _accessoriesServiceSales = querySnapshot.docs.map((doc) {
-        final data = doc.data();
-        data['id'] = doc.id;
-        data['paymentVerified'] = data['paymentVerified'] ?? false;
-        _initializeGenericPaymentData(data);
-        return data;
-      }).toList();
-    } catch (e) {
-      print('Error fetching accessories_service_sales: $e');
-      rethrow;
-    }
-  }
-
-  Future<void> _fetchBaseModelSales() async {
-    try {
-      final querySnapshot = await _firestore
-          .collection('base_model_sale')
-          .orderBy('date', descending: true)
-          .limit(100)
-          .get();
-
-      _baseModelSales = querySnapshot.docs.map((doc) {
-        final data = doc.data();
-        data['id'] = doc.id;
-        data['paymentVerified'] = data['paymentVerified'] ?? false;
-        _initializeGenericPaymentData(data);
-        return data;
-      }).toList();
-    } catch (e) {
-      print('Error fetching base_model_sale: $e');
-      rethrow;
-    }
-  }
-
-  Future<void> _fetchSecondsPhoneSales() async {
-    try {
-      final querySnapshot = await _firestore
-          .collection('seconds_phone_sale')
-          .orderBy('date', descending: true)
-          .limit(100)
-          .get();
-
-      _secondsPhoneSales = querySnapshot.docs.map((doc) {
-        final data = doc.data();
-        data['id'] = doc.id;
-        data['paymentVerified'] = data['paymentVerified'] ?? false;
-        _initializeGenericPaymentData(data);
-        return data;
-      }).toList();
-    } catch (e) {
-      print('Error fetching seconds_phone_sale: $e');
-      rethrow;
-    }
-  }
-
   void _initializeGenericPaymentData(Map<String, dynamic> data) {
     final paymentBreakdown = data['paymentBreakdownVerified'];
 
@@ -265,7 +539,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
   }
 
   double _extractAmount(dynamic data, List<String> fieldNames) {
-    // Handle Map<String, dynamic>
     if (data is Map<String, dynamic>) {
       for (String fieldName in fieldNames) {
         final value = data[fieldName];
@@ -278,9 +551,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           }
         }
       }
-    }
-    // Handle Map<dynamic, dynamic>
-    else if (data is Map) {
+    } else if (data is Map) {
       for (String fieldName in fieldNames) {
         final value = data[fieldName];
         if (value != null) {
@@ -305,7 +576,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     double gpayAmount = 0;
 
     if (collection == 'accessories_service_sales') {
-      // For accessories: cashAmount, cardAmount, gpayAmount fields
       cashAmount = _extractAmount(sale, [
         'cashAmount',
         'cashPayment',
@@ -327,8 +597,8 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
         'upi',
       ]);
     } else if (collection == 'base_model_sale' ||
-        collection == 'seconds_phone_sale') {
-      // For base models and seconds phones: cash, card, gpay fields
+        collection == 'seconds_phone_sale' ||
+        collection == 'bills') {
       cashAmount = _extractAmount(sale, ['cash', 'cashAmount', 'cashPayment']);
       cardAmount = _extractAmount(sale, ['card', 'cardAmount', 'cardPayment']);
       gpayAmount = _extractAmount(sale, [
@@ -352,6 +622,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       'amount',
       'totalPayment',
       'effectivePrice',
+      'modelPrice',
     ];
 
     for (String fieldName in possibleFields) {
@@ -424,6 +695,10 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       case 3:
         return _filterByShop(_accessoriesServiceSales);
       case 4:
+        return _filterByShop(_tvSales);
+      case 5:
+        return _filterByShop(_applianceSales);
+      case 6:
         return _getOverdueSales();
       default:
         return _filterByShop(_phoneSales);
@@ -441,6 +716,10 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       case 3:
         return _accessoriesServiceSales;
       case 4:
+        return _tvSales;
+      case 5:
+        return _applianceSales;
+      case 6:
         return _getOverdueSales();
       default:
         return _phoneSales;
@@ -453,6 +732,8 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     allSales.addAll(_secondsPhoneSales);
     allSales.addAll(_baseModelSales);
     allSales.addAll(_accessoriesServiceSales);
+    allSales.addAll(_tvSales);
+    allSales.addAll(_applianceSales);
 
     final now = DateTime.now();
     return allSales.where((sale) {
@@ -463,6 +744,10 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
         saleDate = _parseDate(sale['saleDate']);
       } else if (sale.containsKey('date')) {
         saleDate = _parseDate(sale['date']);
+      } else if (sale.containsKey('billDate')) {
+        saleDate = _parseDate(sale['billDate']);
+      } else if (sale.containsKey('createdAt')) {
+        saleDate = _parseDate(sale['createdAt']);
       } else if (sale.containsKey('timestamp')) {
         saleDate = _parseDate(sale['timestamp']);
       }
@@ -485,7 +770,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       print('📝 Updates: $updates');
       _showSnackBar('Updated successfully!', Colors.green);
 
-      // Refresh data immediately after update
       await _refreshUpdatedData(collection, docId, updates);
     } catch (e) {
       print('❌ Error updating payment verification: $e');
@@ -499,7 +783,6 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     String docId,
     Map<String, dynamic> updates,
   ) async {
-    // Update the local data immediately without reloading everything
     switch (collection) {
       case 'phoneSales':
         final index = _phoneSales.indexWhere((sale) => sale['id'] == docId);
@@ -534,6 +817,23 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
         if (index != -1) {
           setState(() {
             _secondsPhoneSales[index].addAll(updates);
+          });
+        }
+        break;
+      case 'bills':
+        // For TV and Appliance bills
+        int tvIndex = _tvSales.indexWhere((sale) => sale['id'] == docId);
+        if (tvIndex != -1) {
+          setState(() {
+            _tvSales[tvIndex].addAll(updates);
+          });
+        }
+        int applianceIndex = _applianceSales.indexWhere(
+          (sale) => sale['id'] == docId,
+        );
+        if (applianceIndex != -1) {
+          setState(() {
+            _applianceSales[applianceIndex].addAll(updates);
           });
         }
         break;
@@ -615,6 +915,29 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       description = 'Accessories & Services';
       amount = _getTotalAmount(sale);
       date = sale['date'] ?? '';
+    } else if (collection == 'bills') {
+      final billType = sale['billType'] as String?;
+      final typeField = sale['type'] as String?;
+
+      if (typeField == 'tv') {
+        type = 'TV';
+        description = sale['modelName'] ?? sale['productName'] ?? '';
+        amount = _getTotalAmount(sale);
+        date = sale['billDate'] ?? sale['createdAt'];
+      } else if (billType == 'Appliances' ||
+          billType == 'Applianaces' ||
+          billType == 'Appliance') {
+        type = 'Appliance';
+        // Check if product map exists
+        if (sale['product'] != null) {
+          final product = sale['product'] as Map<String, dynamic>;
+          description = product['productName'] ?? sale['productName'] ?? '';
+        } else {
+          description = sale['productName'] ?? sale['modelName'] ?? '';
+        }
+        amount = _getTotalAmount(sale);
+        date = sale['billDate'] ?? sale['createdAt'];
+      }
     }
 
     return {
@@ -630,7 +953,11 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           ? 'seconds'
           : collection == 'base_model_sale'
           ? 'base_model'
-          : 'accessories',
+          : collection == 'accessories_service_sales'
+          ? 'accessories'
+          : collection == 'bills' && sale['type'] == 'tv'
+          ? 'tv'
+          : 'appliance',
       'collection': collection,
       'docId': sale['id'],
     };
@@ -801,6 +1128,13 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 case 'seconds_phone_sale':
                   targetList = _secondsPhoneSales;
                   break;
+                case 'bills':
+                  if (sale['type'] == 'tv') {
+                    targetList = _tvSales;
+                  } else {
+                    targetList = _applianceSales;
+                  }
+                  break;
                 default:
                   targetList = _phoneSales;
               }
@@ -825,8 +1159,32 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     }
   }
 
+  bool _isCurrentTabLoading() {
+    switch (_selectedIndex) {
+      case 0:
+        return _isPhoneLoading;
+      case 1:
+        return _isSecondsPhoneLoading;
+      case 2:
+        return _isBaseModelLoading;
+      case 3:
+        return _isAccessoriesLoading;
+      case 4:
+        return _isTvLoading;
+      case 5:
+        return _isApplianceLoading;
+      case 6:
+        return _isOverdueLoading;
+      default:
+        return false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Load data when tab changes
+    _loadDataForTab(_selectedIndex);
+
     final filteredData = _getFilteredDataForCurrentTab();
     final allData = _getAllDataForCurrentTab();
 
@@ -836,13 +1194,10 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           'Payment Verification',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: primaryGreen, // Use the primaryGreen color
-        foregroundColor: Colors.white, // Make icons white
+        backgroundColor: primaryGreen,
+        foregroundColor: Colors.white,
         leading: IconButton(
-          icon: const Icon(
-            Icons.menu,
-            color: Colors.white, // Explicitly set icon color to white
-          ),
+          icon: const Icon(Icons.menu, color: Colors.white),
           onPressed: () {
             setState(() {
               _isDrawerOpen = !_isDrawerOpen;
@@ -855,20 +1210,57 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
               IconButton(
                 icon: Icon(
                   Icons.refresh,
-                  color: _isLoading ? Colors.grey : Colors.white,
+                  color: _isCurrentTabLoading() ? Colors.grey : Colors.white,
                 ),
-                onPressed: _isLoading ? null : _loadAllData,
+                onPressed: _isCurrentTabLoading()
+                    ? null
+                    : () {
+                        // Reload current tab data
+                        switch (_selectedIndex) {
+                          case 0:
+                            _phoneLoaded = false;
+                            _loadPhoneSales();
+                            break;
+                          case 1:
+                            _secondsPhoneLoaded = false;
+                            _loadSecondsPhoneSales();
+                            break;
+                          case 2:
+                            _baseModelLoaded = false;
+                            _loadBaseModelSales();
+                            break;
+                          case 3:
+                            _accessoriesLoaded = false;
+                            _loadAccessoriesServiceSales();
+                            break;
+                          case 4:
+                            _tvLoaded = false;
+                            _loadTvSales();
+                            break;
+                          case 5:
+                            _applianceLoaded = false;
+                            _loadApplianceSales();
+                            break;
+                          case 6:
+                            _overdueLoaded = false;
+                            _loadOverdueSales();
+                            break;
+                        }
+                      },
                 tooltip: 'Refresh Data',
               ),
               IconButton(
                 icon: const Icon(Icons.logout),
-                color: _isLoading ? Colors.grey : Colors.white,
-                onPressed: () async {
-                  // Clear data before logout
-
-                  await authService.signOut();
-                  Provider.of<AuthProvider>(context, listen: false).clearUser();
-                },
+                color: _isCurrentTabLoading() ? Colors.grey : Colors.white,
+                onPressed: _isCurrentTabLoading()
+                    ? null
+                    : () async {
+                        await authService.signOut();
+                        Provider.of<AuthProvider>(
+                          context,
+                          listen: false,
+                        ).clearUser();
+                      },
               ),
             ],
           ),
@@ -879,13 +1271,15 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           _isDrawerOpen
               ? Container(
                   width: 250,
-                  color: primaryGreen, // Use primaryGreen for sidebar
+                  color: primaryGreen,
                   child: FinanceDashboardSidebar(
                     selectedIndex: _selectedIndex,
                     phoneSales: _phoneSales,
                     secondsPhoneSales: _secondsPhoneSales,
                     baseModelSales: _baseModelSales,
                     accessoriesServiceSales: _accessoriesServiceSales,
+                    tvSales: _tvSales,
+                    applianceSales: _applianceSales,
                     selectedShop: _selectedShop,
                     getShopName: _getShopName,
                     onIndexChanged: (index) {
@@ -898,7 +1292,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 )
               : const SizedBox.shrink(),
           Expanded(
-            child: _isLoading
+            child: _isCurrentTabLoading()
                 ? const Center(child: CircularProgressIndicator())
                 : _buildCurrentTab(filteredData, allData),
           ),
@@ -997,6 +1391,46 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           ),
         );
       case 4:
+        return TvVerificationTab(
+          filteredData: filteredData,
+          allData: allData,
+          selectedShop: _selectedShop,
+          availableShops: _availableShops,
+          onShopChanged: (shop) {
+            setState(() {
+              _selectedShop = shop == 'All Shops' ? null : shop;
+            });
+          },
+          onVerifyPayment: _verifyPayment,
+          getShopName: _getShopName,
+          getTotalAmount: _getTotalAmount,
+          formatNumber: _formatNumber,
+          formatDate: _formatDate,
+          convertToBool: _convertToBool,
+          createTransaction: (sale) =>
+              _createTransactionFromGenericSale('bills', sale),
+        );
+      case 5:
+        return ApplianceVerificationTab(
+          filteredData: filteredData,
+          allData: allData,
+          selectedShop: _selectedShop,
+          availableShops: _availableShops,
+          onShopChanged: (shop) {
+            setState(() {
+              _selectedShop = shop == 'All Shops' ? null : shop;
+            });
+          },
+          onVerifyPayment: _verifyPayment,
+          getShopName: _getShopName,
+          getTotalAmount: _getTotalAmount,
+          formatNumber: _formatNumber,
+          formatDate: _formatDate,
+          convertToBool: _convertToBool,
+          createTransaction: (sale) =>
+              _createTransactionFromGenericSale('bills', sale),
+        );
+      case 6:
         return OverdueVerificationTab(
           filteredData: filteredData,
           allData: allData,
@@ -1014,21 +1448,36 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           formatDate: _formatDate,
           parseDate: _parseDate,
           createTransaction: (sale) {
-            if (sale.containsKey('purchaseMode')) {
+            if (sale.containsKey('purchaseMode') &&
+                !sale.containsKey('billType')) {
               return _createTransactionFromPhoneSale(sale);
             } else if (sale.containsKey('productName') &&
-                !sale.containsKey('modelName')) {
+                !sale.containsKey('modelName') &&
+                sale['type'] != 'tv' &&
+                sale['billType'] != 'Appliances' &&
+                sale['billType'] != 'Applianaces' &&
+                sale['billType'] != 'Appliance') {
               return _createTransactionFromGenericSale(
                 'seconds_phone_sale',
                 sale,
               );
-            } else if (sale.containsKey('modelName')) {
+            } else if (sale.containsKey('modelName') &&
+                sale['type'] != 'tv' &&
+                sale['billType'] != 'Appliances' &&
+                sale['billType'] != 'Applianaces' &&
+                sale['billType'] != 'Appliance') {
               return _createTransactionFromGenericSale('base_model_sale', sale);
             } else if (sale.containsKey('totalSaleAmount')) {
               return _createTransactionFromGenericSale(
                 'accessories_service_sales',
                 sale,
               );
+            } else if (sale['type'] == 'tv') {
+              return _createTransactionFromGenericSale('bills', sale);
+            } else if (sale['billType'] == 'Appliances' ||
+                sale['billType'] == 'Applianaces' ||
+                sale['billType'] == 'Appliance') {
+              return _createTransactionFromGenericSale('bills', sale);
             }
             return _createTransactionFromPhoneSale(sale);
           },

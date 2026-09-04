@@ -506,7 +506,7 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen> {
       ),
       body: Column(
         children: [
-          _buildSearchField(),
+          _buildSearchAndFilterArea(), // Updated: Now includes shop filter
           _buildStatusChips(),
           const Divider(height: 1, color: Colors.grey),
           Expanded(child: _buildStockList()),
@@ -515,44 +515,154 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen> {
     );
   }
 
-  Widget _buildSearchField() {
+  // NEW: Combined search and filter area with shop dropdown
+  Widget _buildSearchAndFilterArea() {
     return Container(
       padding: EdgeInsets.all(10),
       color: Colors.white,
-      child: Container(
-        height: 38,
-        decoration: BoxDecoration(
-          color: Colors.grey.shade50,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.grey.shade300),
-        ),
-        child: TextField(
-          style: TextStyle(fontSize: 12),
-          textAlign: TextAlign.left,
-          decoration: InputDecoration(
-            hintText: 'Search by IMEI, Product Name or Brand...',
-            hintStyle: TextStyle(fontSize: 11, color: Colors.grey[400]),
-            prefixIcon: Icon(Icons.search, color: primaryGreen, size: 18),
-            suffixIcon: _searchQuery.isNotEmpty
-                ? IconButton(
-                    icon: Icon(Icons.clear, size: 16, color: Colors.grey),
-                    onPressed: () {
-                      setState(() {
-                        _searchQuery = '';
-                      });
-                    },
-                  )
-                : null,
-            border: InputBorder.none,
-            contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            isDense: true,
+      child: Column(
+        children: [
+          // Search field
+          Container(
+            height: 38,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.shade300),
+            ),
+            child: TextField(
+              style: TextStyle(fontSize: 12),
+              textAlign: TextAlign.left,
+              decoration: InputDecoration(
+                hintText: 'Search by IMEI, Product Name or Brand...',
+                hintStyle: TextStyle(fontSize: 11, color: Colors.grey[400]),
+                prefixIcon: Icon(Icons.search, color: primaryGreen, size: 18),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: Icon(Icons.clear, size: 16, color: Colors.grey),
+                        onPressed: () {
+                          setState(() {
+                            _searchQuery = '';
+                          });
+                        },
+                      )
+                    : null,
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                isDense: true,
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _searchQuery = value.toLowerCase();
+                });
+              },
+            ),
           ),
-          onChanged: (value) {
-            setState(() {
-              _searchQuery = value.toLowerCase();
-            });
-          },
+          SizedBox(height: 6),
+          // Shop filter dropdown
+          Row(
+            children: [
+              Expanded(child: _buildShopFilterDropdown()),
+              if (_selectedShopId != null) ...[
+                SizedBox(width: 6),
+                IconButton(
+                  icon: Icon(Icons.close, size: 16, color: Colors.grey),
+                  onPressed: () {
+                    setState(() {
+                      _selectedShopId = null;
+                    });
+                  },
+                  padding: EdgeInsets.zero,
+                  constraints: BoxConstraints(),
+                  style: IconButton.styleFrom(
+                    minimumSize: Size(24, 24),
+                    padding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // NEW: Shop filter dropdown widget
+  Widget _buildShopFilterDropdown() {
+    return Container(
+      height: 34,
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      padding: EdgeInsets.symmetric(horizontal: 8),
+      child: DropdownButton<String>(
+        value: _selectedShopId,
+        isExpanded: true,
+        underline: SizedBox(),
+        icon: Icon(Icons.storefront, size: 16, color: primaryGreen),
+        iconSize: 16,
+        style: TextStyle(
+          fontSize: 11,
+          color: Colors.grey[800],
+          fontWeight: FontWeight.w500,
         ),
+        hint: Row(
+          children: [
+            Icon(Icons.storefront, size: 14, color: Colors.grey[500]),
+            SizedBox(width: 4),
+            Text(
+              'All Shops',
+              style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+            ),
+          ],
+        ),
+        items: [
+          // "All Shops" option
+          DropdownMenuItem<String>(
+            value: null,
+            child: Row(
+              children: [
+                Icon(Icons.storefront, size: 14, color: Colors.grey[600]),
+                SizedBox(width: 4),
+                Text(
+                  'All Shops',
+                  style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                ),
+              ],
+            ),
+          ),
+          // Shop options
+          ...widget.shops.map((shop) {
+            final shopName = shop['name'] ?? 'Unknown';
+            return DropdownMenuItem<String>(
+              value: shop['id'],
+              child: Row(
+                children: [
+                  Icon(Icons.store, size: 14, color: primaryGreen),
+                  SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      shopName,
+                      style: TextStyle(fontSize: 11, color: Colors.grey[800]),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        ],
+        onChanged: (String? newValue) {
+          setState(() {
+            _selectedShopId = newValue;
+          });
+        },
+        borderRadius: BorderRadius.circular(8),
       ),
     );
   }
@@ -800,6 +910,16 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen> {
           selectedValue += (data['productPrice'] ?? 0).toDouble();
         }
 
+        // Get selected shop name for display
+        String selectedShopName = 'All Shops';
+        if (_selectedShopId != null) {
+          final shop = widget.shops.firstWhere(
+            (s) => s['id'] == _selectedShopId,
+            orElse: () => {'name': 'Unknown'},
+          );
+          selectedShopName = shop['name'] ?? 'Unknown';
+        }
+
         return Column(
           children: [
             Container(
@@ -825,6 +945,25 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen> {
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                           color: _getStatusColor(_selectedStatus),
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: primaryGreen.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          selectedShopName,
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: primaryGreen,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ),
                     ],

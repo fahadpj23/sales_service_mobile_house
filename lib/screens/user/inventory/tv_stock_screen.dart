@@ -227,7 +227,6 @@ class _TvStockScreenState extends State<TvStockScreen>
             .where((name) => name.isNotEmpty)
             .toList();
 
-        // Merge with existing brands, avoiding duplicates
         final allBrands = {..._brands.toSet(), ...brandsFromFirestore.toSet()};
         _brands = allBrands.toList()..sort();
 
@@ -327,7 +326,6 @@ class _TvStockScreenState extends State<TvStockScreen>
     }
   }
 
-  // Method to show Add Brand Dialog
   void _showAddBrandDialog() {
     final brandNameController = TextEditingController();
     bool isAdding = false;
@@ -434,13 +432,11 @@ class _TvStockScreenState extends State<TvStockScreen>
                         setDialogState(() => isAdding = true);
 
                         try {
-                          // Save brand to Firestore
                           await _firestore.collection('tvBrands').add({
                             'name': brandName,
                             'createdAt': FieldValue.serverTimestamp(),
                           });
 
-                          // Update local brands list
                           setState(() {
                             _brands.add(brandName);
                             _brands.sort();
@@ -448,7 +444,6 @@ class _TvStockScreenState extends State<TvStockScreen>
                             _clearModalMessages();
                           });
 
-                          // Show success message
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(
@@ -458,7 +453,6 @@ class _TvStockScreenState extends State<TvStockScreen>
                             ),
                           );
 
-                          // Close dialog
                           Navigator.pop(context);
                         } catch (e) {
                           setDialogState(() => isAdding = false);
@@ -540,10 +534,14 @@ class _TvStockScreenState extends State<TvStockScreen>
   }
 
   void _handleQuantityChange(String value) {
+    print('Quantity changed: $value');
     final qty = int.tryParse(value);
-    if (qty != null && qty > 0) {
-      _disposeSerialControllers();
 
+    // Dispose old controllers first
+    _disposeSerialControllers();
+
+    if (qty != null && qty > 0) {
+      print('Setting quantity to: $qty');
       setState(() {
         _quantity = qty;
         _serialNumbers = List.filled(qty, '');
@@ -553,8 +551,8 @@ class _TvStockScreenState extends State<TvStockScreen>
         }
         _clearModalMessages();
       });
-    } else if (value.isEmpty) {
-      _disposeSerialControllers();
+    } else if (value.isEmpty || qty == 0 || qty == null) {
+      print('Resetting quantity');
       setState(() {
         _quantity = null;
         _serialNumbers = [];
@@ -598,7 +596,7 @@ class _TvStockScreenState extends State<TvStockScreen>
         'createdAt': FieldValue.serverTimestamp(),
       };
 
-      await _firestore.collection('tvModels').add(newModel);
+      final docRef = await _firestore.collection('tvModels').add(newModel);
 
       if (!_modelsByBrand.containsKey(_selectedBrand!)) {
         _modelsByBrand[_selectedBrand!] = [];
@@ -610,7 +608,7 @@ class _TvStockScreenState extends State<TvStockScreen>
 
       if (existingModelIndex == -1) {
         _modelsByBrand[_selectedBrand!]!.add({
-          'id': 'temp',
+          'id': docRef.id,
           'modelName': modelName,
           'price': price,
         });
@@ -642,7 +640,17 @@ class _TvStockScreenState extends State<TvStockScreen>
   }
 
   Future<void> _saveStock() async {
+    // Read serial numbers from controllers first
+    for (int i = 0; i < _serialControllers.length; i++) {
+      if (i < _serialNumbers.length) {
+        _serialNumbers[i] = _serialControllers[i].text.trim();
+      }
+    }
+
+    // Validate form
     if (!_formKey.currentState!.validate()) {
+      _showModalError('Please fill all required fields correctly.');
+      setState(() => _isLoading = false);
       return;
     }
 
@@ -652,8 +660,10 @@ class _TvStockScreenState extends State<TvStockScreen>
         _clearModalMessages();
       });
 
+      // Check brand selection
       if (_selectedBrand == null || _selectedBrand!.isEmpty) {
         _showModalError('Please select a brand');
+        setState(() => _isLoading = false);
         return;
       }
 
@@ -667,36 +677,58 @@ class _TvStockScreenState extends State<TvStockScreen>
 
         if (newModelName.isEmpty) {
           _showModalError('Please enter model name');
+          setState(() => _isLoading = false);
           return;
         }
 
         if (newPriceText.isEmpty) {
           _showModalError('Please enter model price');
+          setState(() => _isLoading = false);
           return;
         }
 
         final newPrice = double.tryParse(newPriceText);
         if (newPrice == null || newPrice <= 0) {
           _showModalError('Please enter valid price');
+          setState(() => _isLoading = false);
           return;
         }
 
         modelName = newModelName;
         modelPrice = newPrice;
+
+        // Save new model to Firestore
         await _saveNewModel();
+
+        // Check if model was selected after creation
         if (_selectedModel == null) {
           _showModalError('Model not selected after creation');
+          setState(() => _isLoading = false);
           return;
         }
+
+        // Get the model ID from the models list
+        final models = _modelsByBrand[_selectedBrand!] ?? [];
+        final model = models.firstWhere(
+          (m) => m['modelName'] == _selectedModel,
+          orElse: () => <String, dynamic>{},
+        );
+        modelId = model['id'] as String?;
+        modelPrice = model['price'] is int
+            ? (model['price'] as int).toDouble()
+            : model['price'] as double;
       } else {
+        print('Using existing model...');
         if (_selectedModel == null || _selectedModel!.isEmpty) {
           _showModalError('Please select a model');
+          setState(() => _isLoading = false);
           return;
         }
 
         final models = _modelsByBrand[_selectedBrand!];
         if (models == null || models.isEmpty) {
           _showModalError('No models found for selected brand');
+          setState(() => _isLoading = false);
           return;
         }
 
@@ -707,6 +739,7 @@ class _TvStockScreenState extends State<TvStockScreen>
 
         if (model.isEmpty) {
           _showModalError('Selected model not found');
+          setState(() => _isLoading = false);
           return;
         }
 
@@ -736,78 +769,79 @@ class _TvStockScreenState extends State<TvStockScreen>
         }
       }
 
+      print('Model Name: $modelName');
+      print('Model Price: $modelPrice');
+
+      // Check quantity
       if (_quantity == null || _quantity! <= 0) {
         _showModalError('Please enter valid quantity');
+        setState(() => _isLoading = false);
         return;
       }
 
+      // Ensure serial numbers match quantity
       if (_serialNumbers.length != _quantity) {
+        print('Serial count mismatch: ${_serialNumbers.length} vs $_quantity');
         _showModalError('Serial numbers count does not match quantity');
+        setState(() => _isLoading = false);
         return;
       }
 
-      for (int i = 0; i < _serialNumbers.length; i++) {
-        final serial = _serialNumbers[i];
-        if (serial.isEmpty) {
-          _showModalError('Please enter serial number for item ${i + 1}');
-          return;
-        }
+      // **REMOVED: Serial number validation conditions**
+      // No length validation, no character validation
 
-        if (serial.length < 8 || serial.length > 20) {
-          _showModalError(
-            'Serial ${i + 1} must be 8-20 characters (${serial.length} entered)',
-          );
-          return;
-        }
-
-        if (!RegExp(r'^[A-Za-z0-9/]+$').hasMatch(serial)) {
-          _showModalError(
-            'Serial ${i + 1} contains invalid characters. Use only letters, numbers, and forward slash (/)',
-          );
-          return;
-        }
-      }
-
-      final uniqueSerials = _serialNumbers.toSet();
+      // Check for duplicates within the batch
+      final uniqueSerials = _serialNumbers.map((s) => s.trim()).toSet();
       if (uniqueSerials.length != _serialNumbers.length) {
         _showModalError('Duplicate serial numbers found in this batch');
+        setState(() => _isLoading = false);
         return;
       }
 
+      // Get user info
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final user = authProvider.user;
 
       if (user == null) {
         _showModalError('User not authenticated. Please log in again.');
+        setState(() => _isLoading = false);
         return;
       }
 
       final shopId = user.shopId?.trim() ?? 'unknown_shop';
       final shopName =
-          user.shopName?.trim() ?? user.name.trim() ?? 'Unknown Shop';
+          user.shopName?.trim() ?? user.name?.trim() ?? 'Unknown Shop';
       final uploadedBy =
-          user.email.trim() ?? user.name.trim() ?? 'Unknown User';
+          user.email?.trim() ?? user.name?.trim() ?? 'Unknown User';
       final uploadedById = user.uid;
 
+      print('Shop ID: $shopId');
+      print('Shop Name: $shopName');
+
+      // Check for existing serial numbers in database
       try {
         for (String serial in _serialNumbers) {
+          final trimmedSerial = serial.trim();
           final existingQuery = await _firestore
               .collection('tvStock')
-              .where('serialNumber', isEqualTo: serial)
+              .where('serialNumber', isEqualTo: trimmedSerial)
               .limit(1)
               .get();
 
           if (existingQuery.docs.isNotEmpty) {
             _showModalError(
-              'Serial number ${_formatSerialForDisplay(serial)} already exists in stock database',
+              'Serial number "$trimmedSerial" already exists in stock database',
             );
+            setState(() => _isLoading = false);
             return;
           }
         }
       } catch (e) {
         print('Serial check error: $e');
+        // Continue even if check fails - we'll let Firestore handle duplicates
       }
 
+      // Save all TVs in batch
       final savedCount = _serialNumbers.length;
       final batch = _firestore.batch();
 
@@ -828,20 +862,27 @@ class _TvStockScreenState extends State<TvStockScreen>
           'createdAt': FieldValue.serverTimestamp(),
         };
 
+        print('Saving TV ${i + 1}: $serial');
+        print('Stock Data: $stockData');
+
         final docRef = _firestore.collection('tvStock').doc();
         batch.set(docRef, stockData);
       }
 
       await batch.commit();
+      print('Batch commit successful! Saved $savedCount TVs');
 
       if (!mounted) return;
 
       _showSuccess('Successfully added $savedCount TV(s) to stock!');
 
+      // Close modal and reset form
       _closeAddStockModal();
     } catch (e) {
       print('Save stock error: $e');
+      print('Stack trace: ${StackTrace.current}');
       _showModalError('Failed to save stock: ${e.toString()}');
+      setState(() => _isLoading = false);
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -1132,23 +1173,11 @@ class _TvStockScreenState extends State<TvStockScreen>
 
   String _formatSerialForDisplay(String serial) {
     if (serial.isEmpty) return '';
-
-    if (serial.contains('/')) {
-      return serial;
-    }
-
-    if (serial.length >= 12) {
-      return '${serial.substring(0, 4)}-${serial.substring(4, 8)}-${serial.substring(8)}';
-    } else if (serial.length >= 8) {
-      return '${serial.substring(0, 4)}-${serial.substring(4)}';
-    }
     return serial;
   }
 
   bool _isValidSerial(String serial) {
     if (serial.isEmpty) return false;
-    if (serial.length < 8 || serial.length > 20) return false;
-    if (!RegExp(r'^[A-Za-z0-9/]+$').hasMatch(serial)) return false;
     return true;
   }
 
@@ -1692,13 +1721,9 @@ class _TvStockScreenState extends State<TvStockScreen>
                   children: [
                     if (index < _serialNumbers.length &&
                         _serialNumbers[index].isNotEmpty)
-                      Icon(
-                        _serialNumbers[index].length >= 8
-                            ? Icons.check_circle
-                            : Icons.warning,
-                        color: _serialNumbers[index].length >= 8
-                            ? Colors.green
-                            : Colors.orange,
+                      const Icon(
+                        Icons.check_circle,
+                        color: Colors.green,
                         size: 16,
                       ),
                     const SizedBox(width: 8),
@@ -1720,25 +1745,17 @@ class _TvStockScreenState extends State<TvStockScreen>
               onChanged: (value) {
                 if (index < _serialNumbers.length) {
                   setState(() {
-                    _serialNumbers[index] = value;
+                    _serialNumbers[index] = value.trim();
                     _clearModalMessages();
                   });
                 }
               },
+              // **REMOVED: Serial number validation**
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
                   return 'Please enter serial number';
                 }
-                final trimmedValue = value.trim();
-                if (trimmedValue.length < 8) {
-                  return 'Serial must be at least 8 characters';
-                }
-                if (trimmedValue.length > 20) {
-                  return 'Serial must be at most 20 characters';
-                }
-                if (!RegExp(r'^[A-Za-z0-9/]+$').hasMatch(trimmedValue)) {
-                  return 'Use only letters, numbers, and forward slash (/)';
-                }
+                // No length validation, no character validation
                 return null;
               },
             ),
