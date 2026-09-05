@@ -8,7 +8,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'dart:async';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/services.dart';
-import '../../../models/add_tv_stock_modal.dart';
+import 'add_tv_stock_modal.dart';
 
 class TvStockScreen extends StatefulWidget {
   const TvStockScreen({super.key});

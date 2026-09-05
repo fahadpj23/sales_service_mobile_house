@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // ← ADD THIS IMPORT
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AddTvStockModal extends StatelessWidget {
@@ -32,7 +33,7 @@ class AddTvStockModal extends StatelessWidget {
   final VoidCallback onCloseModal;
   final VoidCallback onSaveStock;
   final VoidCallback onSaveNewModel;
-  final VoidCallback onAddNewBrand; // New callback for adding brand
+  final VoidCallback onAddNewBrand;
 
   const AddTvStockModal({
     super.key,
@@ -195,14 +196,21 @@ class AddTvStockModal extends StatelessWidget {
                               vertical: 8,
                             ),
                           ),
-                          style: const TextStyle(fontSize: 12, color: Colors.black),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.black,
+                          ),
                           items: [
                             // Add "Add New Brand" option at the top
                             const DropdownMenuItem<String>(
                               value: 'add_new_brand',
                               child: Row(
                                 children: [
-                                  Icon(Icons.add, color: Colors.green, size: 16),
+                                  Icon(
+                                    Icons.add,
+                                    color: Colors.green,
+                                    size: 16,
+                                  ),
                                   SizedBox(width: 8),
                                   Text(
                                     'Add New Brand...',
@@ -272,7 +280,10 @@ class AddTvStockModal extends StatelessWidget {
                               vertical: 8,
                             ),
                           ),
-                          style: const TextStyle(fontSize: 12, color: Colors.black),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.black,
+                          ),
                           keyboardType: TextInputType.number,
                           onChanged: onQuantityChanged,
                           validator: (value) {
@@ -305,7 +316,7 @@ class AddTvStockModal extends StatelessWidget {
                             const SizedBox(height: 8),
                             ...List.generate(
                               quantity!,
-                              (index) => _buildSerialInputField(index),
+                              (index) => _buildSerialInputField(context, index),
                             ),
                           ],
                         ),
@@ -323,9 +334,7 @@ class AddTvStockModal extends StatelessWidget {
                 borderRadius: const BorderRadius.vertical(
                   bottom: Radius.circular(16),
                 ),
-                border: Border(
-                  top: BorderSide(color: Colors.grey.shade200),
-                ),
+                border: Border(top: BorderSide(color: Colors.grey.shade200)),
               ),
               child: Row(
                 children: [
@@ -723,9 +732,9 @@ class AddTvStockModal extends StatelessWidget {
     } else if (modelSearchController.text.isNotEmpty &&
         modelsByBrand[selectedBrand]!.where((model) {
           final modelName = model['modelName'] as String? ?? '';
-          return modelName
-              .toLowerCase()
-              .contains(modelSearchController.text.toLowerCase());
+          return modelName.toLowerCase().contains(
+            modelSearchController.text.toLowerCase(),
+          );
         }).isEmpty) {
       subtitleText = 'No matching models found';
     }
@@ -751,7 +760,7 @@ class AddTvStockModal extends StatelessWidget {
     );
   }
 
-  Widget _buildSerialInputField(int index) {
+  Widget _buildSerialInputField(BuildContext context, int index) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -762,7 +771,7 @@ class AddTvStockModal extends StatelessWidget {
                   ? serialControllers[index]
                   : null,
               decoration: InputDecoration(
-                labelText: 'Serial Number ${index + 1} *',
+                labelText: 'Serial Number ${index + 1}',
                 border: const OutlineInputBorder(),
                 prefixIcon: const Icon(Icons.qr_code, size: 18),
                 suffixIcon: Row(
@@ -770,13 +779,9 @@ class AddTvStockModal extends StatelessWidget {
                   children: [
                     if (index < serialNumbers.length &&
                         serialNumbers[index].isNotEmpty)
-                      Icon(
-                        serialNumbers[index].length >= 8
-                            ? Icons.check_circle
-                            : Icons.warning,
-                        color: serialNumbers[index].length >= 8
-                            ? Colors.green
-                            : Colors.orange,
+                      const Icon(
+                        Icons.check_circle,
+                        color: Colors.green,
                         size: 16,
                       ),
                     const SizedBox(width: 8),
@@ -795,27 +800,32 @@ class AddTvStockModal extends StatelessWidget {
                 ),
               ),
               style: const TextStyle(fontSize: 12, color: Colors.black),
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return 'Please enter serial number';
-                }
-                final trimmedValue = value.trim();
-                if (trimmedValue.length < 8) {
-                  return 'Serial must be at least 8 characters';
-                }
-                if (trimmedValue.length > 20) {
-                  return 'Serial must be at most 20 characters';
-                }
-                if (!RegExp(r'^[A-Za-z0-9/]+$').hasMatch(trimmedValue)) {
-                  return 'Use only letters, numbers, and forward slash (/)';
-                }
-                return null;
-              },
+              // NO VALIDATION - ACCEPT ANY VALUE
+              validator: null,
             ),
           ),
           const SizedBox(width: 8),
           Column(
             children: [
+              IconButton(
+                icon: const Icon(Icons.content_copy, size: 18),
+                onPressed: () {
+                  if (index < serialNumbers.length &&
+                      serialNumbers[index].isNotEmpty) {
+                    Clipboard.setData(
+                      ClipboardData(text: serialNumbers[index]),
+                    );
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Serial copied to clipboard'),
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
+                  }
+                },
+                tooltip: 'Copy Serial',
+                color: Colors.grey,
+              ),
               if (index > 0)
                 IconButton(
                   icon: const Icon(Icons.arrow_upward, size: 18),
