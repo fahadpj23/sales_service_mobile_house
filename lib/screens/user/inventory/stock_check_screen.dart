@@ -1,4 +1,4 @@
-// lib/screens/inventory/stock_check_screen.dart
+// lib/screens/user/inventory/stock_check_screen.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -22,6 +22,7 @@ class StockItem {
   final String uploadedById;
   final DateTime createdAt;
   final String type;
+  final int? quantity;
 
   StockItem({
     required this.id,
@@ -37,6 +38,7 @@ class StockItem {
     required this.uploadedById,
     required this.createdAt,
     required this.type,
+    this.quantity,
   });
 
   factory StockItem.fromFirestore(
@@ -99,19 +101,39 @@ class StockItem {
               (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
           type: type,
         );
+      case 'appliance':
+        return StockItem(
+          id: id,
+          identifier: data['productName'] ?? '',
+          brand: data['productBrand'] ?? '',
+          model: data['productName'] ?? '',
+          price: (data['productPrice'] ?? 0).toDouble(),
+          shopId: data['shopId'] ?? '',
+          shopName: data['shopName'] ?? '',
+          status: data['status'] ?? 'available',
+          uploadedAt:
+              (data['uploadedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+          uploadedBy: data['uploadedBy'] ?? '',
+          uploadedById: data['uploadedById'] ?? '',
+          createdAt:
+              (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+          type: type,
+          quantity: data['quantity'] as int? ?? 1,
+        );
       default:
         throw Exception('Invalid type');
     }
   }
 }
 
-// Compact Stock Service
+// Stock Service
 class StockService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final Map<String, String> _collections = {
     'phone': 'phoneStock',
     'base_model': 'baseModelStock',
     'tv': 'tvStock',
+    'appliance': 'applianceStock',
   };
 
   Future<List<StockItem>> getStock(String type) async {
@@ -160,40 +182,50 @@ class _StockCheckScreenState extends State<StockCheckScreen>
   final StockService _service = StockService();
   late TabController _tabController;
 
-  // Data storage
   final Map<String, List<StockItem>> _stock = {
     'phone': [],
     'base_model': [],
     'tv': [],
+    'appliance': [],
   };
   final Map<String, List<StockItem>> _filtered = {
     'phone': [],
     'base_model': [],
     'tv': [],
+    'appliance': [],
   };
   final Map<String, Map<String, int>> _stats = {
     'phone': {'total': 0, 'available': 0, 'sold': 0},
     'base_model': {'total': 0, 'available': 0, 'sold': 0},
     'tv': {'total': 0, 'available': 0, 'sold': 0},
+    'appliance': {'total': 0, 'available': 0, 'sold': 0},
   };
 
   bool _isLoading = true;
   String _searchQuery = '';
-  String _statusFilter = 'available'; // Default to available
-  bool _sortByPrice = false; // false = no sorting, true = low to high
+  String _statusFilter = 'available';
+  bool _sortByPrice = false;
   int _currentTab = 0;
 
   final TextEditingController _searchController = TextEditingController();
-  final List<String> _tabTitles = ['Phones', 'Base Models', 'TVs'];
-  final List<String> _tabTypes = ['phone', 'base_model', 'tv'];
+  final List<String> _tabTitles = [
+    'Phones',
+    'Base Models',
+    'TVs',
+    'Appliances',
+  ];
+  final List<String> _tabTypes = ['phone', 'base_model', 'tv', 'appliance'];
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(() {
-      setState(() => _currentTab = _tabController.index);
-      _applyFilters();
+      if (_tabController.index >= 0 &&
+          _tabController.index < _tabTypes.length) {
+        setState(() => _currentTab = _tabController.index);
+        _applyFilters();
+      }
     });
     _loadAllData();
   }
@@ -209,7 +241,6 @@ class _StockCheckScreenState extends State<StockCheckScreen>
     setState(() => _isLoading = true);
 
     try {
-      // Load all stock types
       for (final type in _tabTypes) {
         _stock[type] = await _service.getStock(type);
         _filtered[type] = List.from(_stock[type]!);
@@ -223,26 +254,21 @@ class _StockCheckScreenState extends State<StockCheckScreen>
     }
   }
 
-  // Smart search with partial matching and sorting
   void _applyFilters() {
     final String currentType = _tabTypes[_currentTab];
     final List<StockItem> source = _stock[currentType] ?? [];
     final String query = _searchQuery.trim().toLowerCase();
 
     List<StockItem> results = source.where((item) {
-      // If no search query, include all items
       if (query.isEmpty) return true;
 
-      // Searchable fields
       final String identifier = item.identifier.toLowerCase();
       final String model = item.model.toLowerCase();
       final String brand = item.brand.toLowerCase();
 
-      // Remove spaces for better matching (for formatted identifiers)
       final String cleanIdentifier = identifier.replaceAll(' ', '');
       final String cleanQuery = query.replaceAll(' ', '');
 
-      // Check for partial matches in ANY field
       final bool matchesIdentifier =
           identifier.contains(query) || cleanIdentifier.contains(cleanQuery);
       final bool matchesModel = model.contains(query);
@@ -251,15 +277,10 @@ class _StockCheckScreenState extends State<StockCheckScreen>
       return matchesIdentifier || matchesModel || matchesBrand;
     }).toList();
 
-    // Apply status filter (only available or sold)
     results = results.where((item) => item.status == _statusFilter).toList();
 
-    // Apply price sorting (low to high) - FIXED
     if (_sortByPrice) {
-      print('Sorting by price low to high'); // Debug
-      results.sort((a, b) {
-        return a.price.compareTo(b.price);
-      });
+      results.sort((a, b) => a.price.compareTo(b.price));
     }
 
     setState(() {
@@ -287,12 +308,17 @@ class _StockCheckScreenState extends State<StockCheckScreen>
   }
 
   void _openScanner() async {
+    final String currentType = _tabTypes[_currentTab];
+
+    if (currentType == 'appliance') {
+      _showApplianceSearchDialog();
+      return;
+    }
+
     if (!await _checkCameraPermission()) {
       _showMessage('Camera permission required', isError: true);
       return;
     }
-
-    final String currentType = _tabTypes[_currentTab];
 
     showDialog(
       context: context,
@@ -306,6 +332,90 @@ class _StockCheckScreenState extends State<StockCheckScreen>
           _applyFilters();
         },
       ),
+    );
+  }
+
+  void _showApplianceSearchDialog() {
+    final TextEditingController searchController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text(
+            'Search Appliances',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.kitchen, size: 48, color: Colors.teal),
+              const SizedBox(height: 12),
+              const Text(
+                'Enter product name or brand to search',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: searchController,
+                autofocus: true,
+                style: const TextStyle(fontSize: 13),
+                decoration: InputDecoration(
+                  hintText: 'Enter product name...',
+                  hintStyle: const TextStyle(fontSize: 12),
+                  prefixIcon: const Icon(
+                    Icons.search,
+                    size: 20,
+                    color: Colors.teal,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                ),
+                onSubmitted: (value) {
+                  if (value.trim().isNotEmpty) {
+                    setState(() {
+                      _searchController.text = value.trim();
+                      _searchQuery = value.trim();
+                    });
+                    _applyFilters();
+                    Navigator.pop(context);
+                  }
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final value = searchController.text.trim();
+                if (value.isNotEmpty) {
+                  setState(() {
+                    _searchController.text = value;
+                    _searchQuery = value;
+                  });
+                  _applyFilters();
+                  Navigator.pop(context);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.teal,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Search', style: TextStyle(fontSize: 12)),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -326,6 +436,8 @@ class _StockCheckScreenState extends State<StockCheckScreen>
       if (identifier.length >= 8) {
         return '${identifier.substring(0, 4)}-${identifier.substring(4)}';
       }
+    } else if (type == 'appliance') {
+      return identifier;
     }
     return identifier;
   }
@@ -354,290 +466,80 @@ class _StockCheckScreenState extends State<StockCheckScreen>
   void _toggleSortByPrice() {
     setState(() {
       _sortByPrice = !_sortByPrice;
-      print('Sort by price enabled: $_sortByPrice'); // Debug
     });
     _applyFilters();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final String currentType = _tabTypes[_currentTab];
-    final List<StockItem> currentItems = _filtered[currentType] ?? [];
-    final Map<String, int> currentStats =
-        _stats[currentType] ?? {'total': 0, 'available': 0, 'sold': 0};
+  IconData _getTypeIcon(String type) {
+    switch (type) {
+      case 'phone':
+        return Icons.phone_iphone;
+      case 'base_model':
+        return Icons.devices;
+      case 'tv':
+        return Icons.tv;
+      case 'appliance':
+        return Icons.kitchen;
+      default:
+        return Icons.devices;
+    }
+  }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Stock Check', style: TextStyle(fontSize: 16)),
-        backgroundColor: Colors.teal,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: Colors.white,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          labelStyle: const TextStyle(fontSize: 12),
-          tabs: const [
-            Tab(text: 'Phones'),
-            Tab(text: 'Base Models'),
-            Tab(text: 'TVs'),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh, size: 20),
-            onPressed: _isLoading ? null : _loadAllData,
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.teal))
-          : Column(
-              children: [
-                // Search Bar
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  color: Colors.white,
-                  child: Column(
-                    children: [
-                      // Search field with scanner
-                      TextField(
-                        controller: _searchController,
-                        style: const TextStyle(fontSize: 13),
-                        decoration: InputDecoration(
-                          hintText: 'Search IMEI/serial (partial ok), model...',
-                          hintStyle: const TextStyle(fontSize: 12),
-                          prefixIcon: const Icon(
-                            Icons.search,
-                            size: 18,
-                            color: Colors.teal,
-                          ),
-                          suffixIcon: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (_searchQuery.isNotEmpty)
-                                IconButton(
-                                  icon: const Icon(Icons.clear, size: 18),
-                                  onPressed: () {
-                                    _searchController.clear();
-                                    setState(() => _searchQuery = '');
-                                    _applyFilters();
-                                  },
-                                ),
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.qr_code_scanner,
-                                  size: 20,
-                                ),
-                                onPressed: _openScanner,
-                                color: Colors.teal,
-                              ),
-                            ],
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                        ),
-                        onChanged: (value) {
-                          setState(() => _searchQuery = value);
-                          _applyFilters();
-                        },
-                      ),
+  Widget _buildStockList(String type) {
+    final List<StockItem> items = _filtered[type] ?? [];
+    final String title = _tabTitles[_tabTypes.indexOf(type)];
 
-                      const SizedBox(height: 8),
-
-                      // Stats Row
-                      Row(
-                        children: [
-                          _buildStatItem(
-                            'Total',
-                            currentStats['total']!,
-                            Colors.teal,
-                            Icons.inventory,
-                          ),
-                          _buildStatItem(
-                            'Available',
-                            currentStats['available']!,
-                            Colors.green,
-                            Icons.check_circle,
-                          ),
-                          _buildStatItem(
-                            'Sold',
-                            currentStats['sold']!,
-                            Colors.red,
-                            Icons.shopping_cart,
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      // Filter Chips Row (Status + Sort)
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            // Status filters (only Available and Sold)
-                            _buildStatusChip('Available', 'available'),
-                            const SizedBox(width: 6),
-                            _buildStatusChip('Sold', 'sold'),
-                            const SizedBox(width: 12),
-
-                            // Sort by price button (toggles on/off)
-                            ActionChip(
-                              label: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.attach_money,
-                                    size: 14,
-                                    color: _sortByPrice
-                                        ? Colors.teal
-                                        : Colors.grey,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    'Sort by Price',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: _sortByPrice
-                                          ? Colors.teal
-                                          : Colors.grey,
-                                      fontWeight: _sortByPrice
-                                          ? FontWeight.w600
-                                          : FontWeight.normal,
-                                    ),
-                                  ),
-                                  if (_sortByPrice)
-                                    const Padding(
-                                      padding: EdgeInsets.only(left: 4),
-                                      child: Icon(
-                                        Icons.arrow_upward,
-                                        size: 12,
-                                        color: Colors.teal,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              onPressed: _toggleSortByPrice,
-                              backgroundColor: _sortByPrice
-                                  ? Colors.teal.withOpacity(0.1)
-                                  : Colors.grey.shade100,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                side: BorderSide(
-                                  color: _sortByPrice
-                                      ? Colors.teal
-                                      : Colors.grey.shade300,
-                                  width: 0.5,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+    if (items.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.inventory_outlined,
+              size: 48,
+              color: Colors.grey.shade300,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _searchQuery.isNotEmpty
+                  ? 'No matching items found'
+                  : 'No ${_statusFilter} $title available',
+              style: const TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            if (_searchQuery.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              ElevatedButton.icon(
+                onPressed: _clearFilters,
+                icon: const Icon(Icons.clear_all, size: 14),
+                label: const Text(
+                  'Clear Search',
+                  style: TextStyle(fontSize: 12),
                 ),
-
-                // Results count
-                Padding(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal,
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
+                    horizontal: 12,
                     vertical: 6,
                   ),
-                  child: Row(
-                    children: [
-                      Text(
-                        '${currentItems.length} items found',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey,
-                        ),
-                      ),
-                      const Spacer(),
-                      if (_searchQuery.isNotEmpty ||
-                          _statusFilter != 'available' ||
-                          _sortByPrice)
-                        TextButton(
-                          onPressed: _clearFilters,
-                          style: TextButton.styleFrom(
-                            padding: EdgeInsets.zero,
-                            minimumSize: const Size(40, 24),
-                          ),
-                          child: const Text(
-                            'Clear',
-                            style: TextStyle(fontSize: 11),
-                          ),
-                        ),
-                    ],
-                  ),
                 ),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
 
-                // Stock List
-                Expanded(
-                  child: currentItems.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.inventory_outlined,
-                                size: 48,
-                                color: Colors.grey.shade300,
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                _searchQuery.isNotEmpty
-                                    ? 'No matching items found'
-                                    : 'No ${_statusFilter} ${_tabTitles[_currentTab].toLowerCase()} available',
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                              if (_searchQuery.isNotEmpty) ...[
-                                const SizedBox(height: 8),
-                                ElevatedButton.icon(
-                                  onPressed: _clearFilters,
-                                  icon: const Icon(Icons.clear_all, size: 14),
-                                  label: const Text(
-                                    'Clear Search',
-                                    style: TextStyle(fontSize: 12),
-                                  ),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.teal,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 6,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        )
-                      : RefreshIndicator(
-                          onRefresh: _loadAllData,
-                          color: Colors.teal,
-                          child: ListView.separated(
-                            padding: const EdgeInsets.all(10),
-                            itemCount: currentItems.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 4),
-                            itemBuilder: (context, index) {
-                              return _buildStockItem(currentItems[index]);
-                            },
-                          ),
-                        ),
-                ),
-              ],
-            ),
+    return RefreshIndicator(
+      onRefresh: _loadAllData,
+      color: Colors.teal,
+      child: ListView.separated(
+        padding: const EdgeInsets.all(10),
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 4),
+        itemBuilder: (context, index) {
+          return _buildStockItem(items[index]);
+        },
+      ),
     );
   }
 
@@ -681,7 +583,7 @@ class _StockCheckScreenState extends State<StockCheckScreen>
       selected: isSelected,
       onSelected: (selected) {
         setState(() {
-          _statusFilter = value; // Directly set to the selected value
+          _statusFilter = value;
         });
         _applyFilters();
       },
@@ -699,7 +601,11 @@ class _StockCheckScreenState extends State<StockCheckScreen>
   }
 
   Widget _buildStockItem(StockItem item) {
-    final label = item.type == 'phone' ? 'IMEI' : 'Serial';
+    final label = item.type == 'phone'
+        ? 'IMEI'
+        : item.type == 'appliance'
+        ? 'Product'
+        : 'Serial';
 
     return Card(
       elevation: 0.5,
@@ -712,7 +618,6 @@ class _StockCheckScreenState extends State<StockCheckScreen>
           padding: const EdgeInsets.all(8),
           child: Row(
             children: [
-              // Status indicator
               Container(
                 width: 3,
                 height: 36,
@@ -722,8 +627,6 @@ class _StockCheckScreenState extends State<StockCheckScreen>
                 ),
               ),
               const SizedBox(width: 8),
-
-              // Content
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -747,6 +650,15 @@ class _StockCheckScreenState extends State<StockCheckScreen>
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
+                    if (item.type == 'appliance' && item.quantity != null)
+                      Text(
+                        'Qty: ${item.quantity}',
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: Colors.orange.shade700,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
                     const SizedBox(height: 2),
                     Text(
                       '${item.brand} • ${item.shopName}',
@@ -760,8 +672,6 @@ class _StockCheckScreenState extends State<StockCheckScreen>
                   ],
                 ),
               ),
-
-              // Price and status
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
@@ -773,6 +683,14 @@ class _StockCheckScreenState extends State<StockCheckScreen>
                       color: Colors.teal,
                     ),
                   ),
+                  if (item.type == 'appliance' && item.quantity != null)
+                    Text(
+                      'x${item.quantity}',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
                   const SizedBox(height: 2),
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -801,7 +719,11 @@ class _StockCheckScreenState extends State<StockCheckScreen>
   }
 
   void _showItemDetails(StockItem item) {
-    final label = item.type == 'phone' ? 'IMEI' : 'Serial';
+    final label = item.type == 'phone'
+        ? 'IMEI'
+        : item.type == 'appliance'
+        ? 'Product'
+        : 'Serial';
 
     showModalBottomSheet(
       context: context,
@@ -821,7 +743,6 @@ class _StockCheckScreenState extends State<StockCheckScreen>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Handle
                   Container(
                     width: 30,
                     height: 3,
@@ -831,8 +752,6 @@ class _StockCheckScreenState extends State<StockCheckScreen>
                     ),
                   ),
                   const SizedBox(height: 12),
-
-                  // Header
                   Row(
                     children: [
                       Container(
@@ -842,11 +761,7 @@ class _StockCheckScreenState extends State<StockCheckScreen>
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Icon(
-                          item.type == 'phone'
-                              ? Icons.phone_iphone
-                              : item.type == 'tv'
-                              ? Icons.tv
-                              : Icons.devices,
+                          _getTypeIcon(item.type),
                           color: _getStatusColor(item.status),
                           size: 18,
                         ),
@@ -875,11 +790,8 @@ class _StockCheckScreenState extends State<StockCheckScreen>
                       ),
                     ],
                   ),
-
                   const SizedBox(height: 12),
                   const Divider(height: 1),
-
-                  // Details
                   Expanded(
                     child: ListView(
                       controller: scrollController,
@@ -903,6 +815,11 @@ class _StockCheckScreenState extends State<StockCheckScreen>
                           'Price:',
                           '₹${item.price.toStringAsFixed(0)}',
                         ),
+                        if (item.type == 'appliance' && item.quantity != null)
+                          _buildDetailRow(
+                            'Quantity:',
+                            item.quantity.toString(),
+                          ),
                         _buildDetailRow(
                           'Status:',
                           item.status,
@@ -920,10 +837,7 @@ class _StockCheckScreenState extends State<StockCheckScreen>
                       ],
                     ),
                   ),
-
                   const SizedBox(height: 12),
-
-                  // Actions
                   Row(
                     children: [
                       Expanded(
@@ -1016,9 +930,237 @@ class _StockCheckScreenState extends State<StockCheckScreen>
       ),
     );
   }
+
+  @override
+  Widget build(BuildContext context) {
+    final String currentType = _tabTypes[_currentTab];
+    final List<StockItem> currentItems = _filtered[currentType] ?? [];
+    final Map<String, int> currentStats =
+        _stats[currentType] ?? {'total': 0, 'available': 0, 'sold': 0};
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Stock Check', style: TextStyle(fontSize: 16)),
+        backgroundColor: Colors.teal,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          labelStyle: const TextStyle(fontSize: 11),
+          isScrollable: true,
+          tabs: const [
+            Tab(text: 'Phones'),
+            Tab(text: 'Base Models'),
+            Tab(text: 'TVs'),
+            Tab(text: 'Appliances'),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, size: 20),
+            onPressed: _isLoading ? null : _loadAllData,
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Colors.teal))
+          : Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  color: Colors.white,
+                  child: Column(
+                    children: [
+                      TextField(
+                        controller: _searchController,
+                        style: const TextStyle(fontSize: 13),
+                        decoration: InputDecoration(
+                          hintText: currentType == 'appliance'
+                              ? 'Search product name, brand...'
+                              : 'Search IMEI/serial (partial ok), model...',
+                          hintStyle: const TextStyle(fontSize: 12),
+                          prefixIcon: const Icon(
+                            Icons.search,
+                            size: 18,
+                            color: Colors.teal,
+                          ),
+                          suffixIcon: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_searchQuery.isNotEmpty)
+                                IconButton(
+                                  icon: const Icon(Icons.clear, size: 18),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    setState(() => _searchQuery = '');
+                                    _applyFilters();
+                                  },
+                                ),
+                              IconButton(
+                                icon: Icon(
+                                  currentType == 'appliance'
+                                      ? Icons.search
+                                      : Icons.qr_code_scanner,
+                                  size: 20,
+                                ),
+                                onPressed: _openScanner,
+                                color: Colors.teal,
+                              ),
+                            ],
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                        ),
+                        onChanged: (value) {
+                          setState(() => _searchQuery = value);
+                          _applyFilters();
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          _buildStatItem(
+                            'Total',
+                            currentStats['total']!,
+                            Colors.teal,
+                            Icons.inventory,
+                          ),
+                          _buildStatItem(
+                            'Available',
+                            currentStats['available']!,
+                            Colors.green,
+                            Icons.check_circle,
+                          ),
+                          _buildStatItem(
+                            'Sold',
+                            currentStats['sold']!,
+                            Colors.red,
+                            Icons.shopping_cart,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            _buildStatusChip('Available', 'available'),
+                            const SizedBox(width: 6),
+                            _buildStatusChip('Sold', 'sold'),
+                            const SizedBox(width: 12),
+                            ActionChip(
+                              label: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.attach_money,
+                                    size: 14,
+                                    color: _sortByPrice
+                                        ? Colors.teal
+                                        : Colors.grey,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Sort by Price',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: _sortByPrice
+                                          ? Colors.teal
+                                          : Colors.grey,
+                                      fontWeight: _sortByPrice
+                                          ? FontWeight.w600
+                                          : FontWeight.normal,
+                                    ),
+                                  ),
+                                  if (_sortByPrice)
+                                    const Padding(
+                                      padding: EdgeInsets.only(left: 4),
+                                      child: Icon(
+                                        Icons.arrow_upward,
+                                        size: 12,
+                                        color: Colors.teal,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              onPressed: _toggleSortByPrice,
+                              backgroundColor: _sortByPrice
+                                  ? Colors.teal.withOpacity(0.1)
+                                  : Colors.grey.shade100,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(
+                                  color: _sortByPrice
+                                      ? Colors.teal
+                                      : Colors.grey.shade300,
+                                  width: 0.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  child: Row(
+                    children: [
+                      Text(
+                        '${currentItems.length} items found',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      const Spacer(),
+                      if (_searchQuery.isNotEmpty ||
+                          _statusFilter != 'available' ||
+                          _sortByPrice)
+                        TextButton(
+                          onPressed: _clearFilters,
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(40, 24),
+                          ),
+                          child: const Text(
+                            'Clear',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: IndexedStack(
+                    index: _currentTab,
+                    children: [
+                      _buildStockList('phone'),
+                      _buildStockList('base_model'),
+                      _buildStockList('tv'),
+                      _buildStockList('appliance'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
 }
 
-// Scanner Dialog
+// Scanner Dialog - Only for phones, TVs, and base models
 class ScannerDialog extends StatefulWidget {
   final String type;
   final Function(String) onScan;
@@ -1055,10 +1197,8 @@ class _ScannerDialogState extends State<ScannerDialog> {
 
   String _cleanIdentifier(String rawData) {
     if (widget.type == 'phone') {
-      // For IMEI: remove all non-numeric characters
       return rawData.replaceAll(RegExp(r'[^0-9]'), '');
     } else {
-      // For serial numbers: allow alphanumeric, convert to uppercase
       return rawData.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
     }
   }
@@ -1189,7 +1329,6 @@ class _ScannerDialogState extends State<ScannerDialog> {
         ),
         child: Column(
           children: [
-            // Header
             Container(
               padding: const EdgeInsets.all(10),
               decoration: const BoxDecoration(
@@ -1220,8 +1359,6 @@ class _ScannerDialogState extends State<ScannerDialog> {
                 ],
               ),
             ),
-
-            // Scanner
             Expanded(
               child: Stack(
                 alignment: Alignment.center,
@@ -1239,8 +1376,6 @@ class _ScannerDialogState extends State<ScannerDialog> {
                         child: CircularProgressIndicator(color: Colors.white),
                       ),
                     ),
-
-                  // Scanner overlay
                   Container(
                     width: MediaQuery.of(context).size.width * 0.65,
                     height: MediaQuery.of(context).size.width * 0.65,
@@ -1249,8 +1384,6 @@ class _ScannerDialogState extends State<ScannerDialog> {
                       borderRadius: BorderRadius.circular(6),
                     ),
                   ),
-
-                  // Scan message
                   if (_lastScanMessage != null)
                     Positioned(
                       bottom: 15,
@@ -1277,8 +1410,6 @@ class _ScannerDialogState extends State<ScannerDialog> {
                 ],
               ),
             ),
-
-            // Actions
             Padding(
               padding: const EdgeInsets.all(10),
               child: Row(

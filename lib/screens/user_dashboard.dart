@@ -1590,7 +1590,7 @@ class _UserDashboardState extends State<UserDashboard> {
                                   },
                                 ),
                                 _buildDrawerTile(
-                                  icon: Icons.phone_iphone,
+                                  icon: Icons.kitchen,
                                   title: 'appliance Sales',
                                   color: Colors.green,
                                   onTap: () {
