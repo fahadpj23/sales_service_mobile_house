@@ -278,7 +278,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
           // CRITICAL FIX: Check for TV sales with type "tv"
           final isTvSale = (typeValue == 'tv');
           final isGstAccessories = (billType == 'GST Accessories');
-          final isApplianceSale = (billType == 'Appliances');
+          final isApplianceSale = (billType == 'appliances');
           final isBillTypeTv = (billType == 'TV');
 
           // Allow all valid bill types including TV sales with type "tv"
@@ -444,7 +444,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               .where(
                 (sale) =>
                     sale['collection'] == 'bills' &&
-                    sale['billType'] == 'Appliances',
+                    sale['billType'] == 'appliances',
               )
               .toList();
           break;
@@ -2493,7 +2493,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         sale['collection'] == 'bills' &&
         (typeValue == 'tv' || billTypeValue == 'TV');
     final isApplianceSale =
-        sale['collection'] == 'bills' && sale['billType'] == 'Appliances';
+        sale['collection'] == 'bills' && sale['billType'] == 'appliances';
     final customerPhone =
         sale['customerPhone']?.toString() ??
         sale['customerMobile']?.toString() ??
@@ -3564,7 +3564,7 @@ ${filteredSales.map((sale) {
                                                 typeValue == 'tv' ||
                                                 billTypeValue == 'TV' ||
                                                 sale['billType'] ==
-                                                    'Appliances'));
+                                                    'appliances'));
 
                                     return Card(
                                       margin: const EdgeInsets.symmetric(
@@ -3907,7 +3907,7 @@ ${filteredSales.map((sale) {
         sale['collection'] == 'bills' &&
         (typeValue == 'tv' || billTypeValue == 'TV');
     final isApplianceSale =
-        sale['collection'] == 'bills' && sale['billType'] == 'Appliances';
+        sale['collection'] == 'bills' && sale['billType'] == 'appliances';
     final accessoriesAmount = sale['accessoriesAmount'] as double? ?? 0.0;
     final serviceAmount = sale['serviceAmount'] as double? ?? 0.0;
     final totalAmount = (sale['displayAmount'] as double).toStringAsFixed(0);

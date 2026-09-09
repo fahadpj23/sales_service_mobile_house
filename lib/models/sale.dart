@@ -233,7 +233,7 @@ class Sale {
       final billType = data['billType'] as String?;
       final typeField = data['type'] as String?;
 
-      if (billType == 'Applianaces') {
+      if (billType == 'appliances') {
         type = 'appliances_sale';
         category = 'Appliances';
       } else if (billType == 'GST Accessories') {

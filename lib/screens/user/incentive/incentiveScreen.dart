@@ -154,6 +154,11 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
       startDate,
       endDate,
     );
+    final applianceData = await _fetchApplianceSales(
+      shopId,
+      startDate,
+      endDate,
+    );
 
     final accessoriesIncentive = _calculateAccessoriesIncentive(
       accessoriesData,
@@ -164,6 +169,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
       secondPhoneData,
     );
     final baseModelIncentive = _calculateBaseModelIncentive(baseModelData);
+    final applianceIncentive = _calculateApplianceIncentive(applianceData);
 
     return IncentiveData(
       accessoriesTotalAmount: _toDouble(accessoriesData['totalAmount']),
@@ -214,12 +220,22 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
       baseModelSalesList: List<Map<String, dynamic>>.from(
         baseModelData['sales'] as List? ?? [],
       ),
+      applianceTotalAmount: _toDouble(applianceData['totalAmount']),
+      applianceSaleCount: _toInt(applianceData['count']),
+      applianceIncentive: _toDouble(applianceIncentive['amount']),
+      applianceBreakdown: List<Map<String, dynamic>>.from(
+        applianceIncentive['breakdown'] as List? ?? [],
+      ),
+      applianceSalesList: List<Map<String, dynamic>>.from(
+        applianceData['sales'] as List? ?? [],
+      ),
       totalIncentive:
           _toDouble(accessoriesIncentive['amount']) +
           _toDouble(phoneIncentive['amount']) +
           _toDouble(tvIncentive['amount']) +
           _toDouble(secondPhoneIncentive['amount']) +
-          _toDouble(baseModelIncentive['amount']),
+          _toDouble(baseModelIncentive['amount']) +
+          _toDouble(applianceIncentive['amount']),
     );
   }
 
@@ -384,6 +400,62 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
       }
     } catch (e) {
       print('Error fetching TV sales: $e');
+    }
+
+    return data;
+  }
+
+  Future<Map<String, dynamic>> _fetchApplianceSales(
+    String shopId,
+    DateTime startDate,
+    DateTime endDate,
+  ) async {
+    final Map<String, dynamic> data = {
+      'totalAmount': 0.0,
+      'count': 0,
+      'sales': <Map<String, dynamic>>[],
+    };
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('bills')
+          .where('shopId', isEqualTo: shopId)
+          .where('billType', isEqualTo: 'appliances')
+          .get();
+
+      for (var doc in snapshot.docs) {
+        final saleData = doc.data();
+        final saleDate = _getSaleDate(saleData);
+
+        if (_isDateInRange(saleDate, startDate, endDate)) {
+          final amount = _toDouble(saleData['totalAmount']);
+
+          data['totalAmount'] = _toDouble(data['totalAmount']) + amount;
+          data['count'] = _toInt(data['count']) + 1;
+
+          // Get product details from the product map if it exists
+          final productData = saleData['product'] as Map<String, dynamic>?;
+          final productName =
+              productData?['productName'] ??
+              saleData['applianceProductName'] ??
+              saleData['productName'] ??
+              'Appliance';
+          final brand =
+              productData?['brand'] ?? saleData['applianceBrand'] ?? 'Unknown';
+
+          (data['sales'] as List<Map<String, dynamic>>).add({
+            'amount': amount,
+            'productName': productName,
+            'customerName': saleData['customerName'] ?? 'Walk-in Customer',
+            'date': saleDate,
+            'brand': brand,
+            'billNumber': saleData['billNumber'] ?? '',
+            'applianceModelId': saleData['applianceModelId'] ?? '',
+          });
+        }
+      }
+    } catch (e) {
+      print('Error fetching appliance sales: $e');
     }
 
     return data;
@@ -571,6 +643,41 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
         dateOnly.isBefore(endOnly.add(const Duration(days: 1)));
   }
 
+  Map<String, dynamic> _calculateApplianceIncentive(
+    Map<String, dynamic> salesData,
+  ) {
+    final totalAmount = _toDouble(salesData['totalAmount']);
+    final saleCount = _toInt(salesData['count']);
+
+    if (totalAmount < 100000) {
+      return {
+        'amount': 0.0,
+        'breakdown': [
+          {
+            'message': 'Total appliance sales below ₹1,00,000 - No incentive',
+            'amount': 0,
+          },
+        ],
+      };
+    }
+
+    // Calculate incentive: ₹1000 for each ₹1,00,000 slab
+    // 1L -> 1000, 2L -> 2000, 3L -> 3000, etc.
+    final slabs = (totalAmount / 100000).floor();
+    final incentive = slabs * 1000.0;
+
+    List<Map<String, dynamic>> breakdown = [
+      {
+        'title': 'Appliance Sales Incentive',
+        'calculation':
+            '₹${_formatNumber(totalAmount)} total sales → ${slabs} slabs × ₹1000',
+        'amount': incentive,
+      },
+    ];
+
+    return {'amount': incentive, 'breakdown': breakdown};
+  }
+
   Map<String, dynamic> _calculateAccessoriesIncentive(
     Map<String, dynamic> salesData,
   ) {
@@ -623,13 +730,12 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
       salesData['priceDetails'] as List? ?? [],
     );
 
-    if (saleCount >= 20 && totalAmount >= 300000) {
+    if (saleCount >= 25) {
       double totalIncentive = 0;
       List<Map<String, dynamic>> breakdown = [
         {
           'title': 'Qualification Met',
-          'calculation':
-              '$saleCount phones | ₹${(totalAmount / 1000).toStringAsFixed(0)}k',
+          'calculation': '$saleCount phones sold',
           'amount': 0,
           'note': 'No base incentive, only per-phone incentives apply',
         },
@@ -667,16 +773,14 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
 
       return {'amount': totalIncentive, 'breakdown': breakdown};
     } else {
-      String reason = saleCount < 20 && totalAmount < 300000
-          ? 'Need 20+ phones ($saleCount) AND ₹3L+ value (₹${(totalAmount / 1000).toStringAsFixed(0)}k)'
-          : saleCount < 20
-          ? 'Need 20+ phones (currently $saleCount)'
-          : 'Need ₹3,00,000+ value (currently ₹${(totalAmount / 1000).toStringAsFixed(0)}k)';
-
       return {
         'amount': 0.0,
         'breakdown': [
-          {'message': reason, 'amount': 0},
+          {
+            'message':
+                'Need 25+ phones to qualify (currently $saleCount phones sold)',
+            'amount': 0,
+          },
         ],
       };
     }
@@ -821,6 +925,13 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
         totalAmount = data.baseModelTotalAmount;
         saleCount = data.baseModelSaleCount;
         incentive = data.baseModelIncentive;
+        break;
+      case 'appliance':
+        breakdown = data.applianceBreakdown;
+        salesList = data.applianceSalesList;
+        totalAmount = data.applianceTotalAmount;
+        saleCount = data.applianceSaleCount;
+        incentive = data.applianceIncentive;
         break;
     }
 
@@ -1259,6 +1370,18 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                             ),
                           ),
                         ),
+                      if (sale['billNumber'] != null &&
+                          sale['billNumber'].toString().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Bill: ${sale['billNumber']}',
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ),
                       if (sale['imei'] != null &&
                           sale['imei'].toString().isNotEmpty)
                         Padding(
@@ -1405,7 +1528,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                             icon: Icons.phone_iphone,
                             color: Colors.green,
                             rules: [
-                              '🎯 Qualification: 20+ phones AND ₹3,00,000+ total value',
+                              '🎯 Qualification: 25+ phones sold',
                               '📱 Per Phone Incentive (based on price) after qualification:',
                               '   • Below ₹15,000 → ₹30',
                               '   • ₹15,000 - ₹24,999 → ₹40',
@@ -1456,6 +1579,21 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                               '   • Above 10 pieces → ₹25 per piece',
                               '✨ No minimum quantity required',
                               '📦 Source: base_model_sale collection',
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          _buildConditionCard(
+                            title: 'Appliance Sales',
+                            icon: Icons.kitchen,
+                            color: Colors.teal,
+                            rules: [
+                              '💰 Incentive Structure (based on total sales):',
+                              '   • ₹1,00,000 - ₹1,99,999 → ₹1,000',
+                              '   • ₹2,00,000 - ₹2,99,999 → ₹2,000',
+                              '   • ₹3,00,000 - ₹3,99,999 → ₹3,000',
+                              '   • And so on... ₹1,000 for each ₹1,00,000 slab',
+                              '✨ No minimum quantity required',
+                              '📦 Source: bills collection (billType: "appliances")',
                             ],
                           ),
                           const SizedBox(height: 20),
@@ -1937,6 +2075,20 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
                     'baseModel',
                   ),
                 ),
+                const SizedBox(height: 10),
+                _buildIncentiveCard(
+                  title: 'Appliance Sales',
+                  icon: Icons.kitchen,
+                  color: Colors.teal,
+                  data: currentIncentiveData!,
+                  type: 'appliance',
+                  onTap: () => _showDetailedCalculation(
+                    'Appliance Sales Incentive',
+                    currentIncentiveData!,
+                    Colors.teal,
+                    'appliance',
+                  ),
+                ),
               ],
             ),
           ),
@@ -1969,7 +2121,7 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
         totalAmount = data.phoneTotalAmount;
         saleCount = data.phoneSaleCount;
         incentive = data.phoneIncentive;
-        ruleText = '20+ phones & ₹3L+: Per-phone incentive';
+        ruleText = '25+ phones: Per-phone incentive';
         break;
       case 'tv':
         totalAmount = data.tvTotalAmount;
@@ -1994,6 +2146,15 @@ class _IncentiveScreenState extends State<IncentiveScreen> {
         ruleText = saleCount <= 10
             ? '₹15/piece (1-10 pieces)'
             : '₹25/piece (10+ pieces)';
+        break;
+      case 'appliance':
+        totalAmount = data.applianceTotalAmount;
+        saleCount = data.applianceSaleCount;
+        incentive = data.applianceIncentive;
+        final slabs = (totalAmount / 100000).floor();
+        ruleText = slabs > 0
+            ? '₹${slabs * 1000} (${slabs} slab${slabs > 1 ? 's' : ''})'
+            : 'No incentive';
         break;
     }
 
@@ -2205,6 +2366,12 @@ class IncentiveData {
   final List<Map<String, dynamic>> baseModelBreakdown;
   final List<Map<String, dynamic>> baseModelSalesList;
 
+  final double applianceTotalAmount;
+  final int applianceSaleCount;
+  final double applianceIncentive;
+  final List<Map<String, dynamic>> applianceBreakdown;
+  final List<Map<String, dynamic>> applianceSalesList;
+
   final double totalIncentive;
 
   IncentiveData({
@@ -2234,6 +2401,11 @@ class IncentiveData {
     required this.baseModelIncentive,
     required this.baseModelBreakdown,
     required this.baseModelSalesList,
+    required this.applianceTotalAmount,
+    required this.applianceSaleCount,
+    required this.applianceIncentive,
+    required this.applianceBreakdown,
+    required this.applianceSalesList,
     required this.totalIncentive,
   });
 }

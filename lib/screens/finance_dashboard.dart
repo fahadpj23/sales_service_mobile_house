@@ -312,17 +312,17 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     });
 
     try {
-      // Fetch Appliance bills from bills collection where billType is 'Appliances' or 'Applianaces'
+      // Fetch Appliance bills from bills collection where billType is 'Appliances' or 'appliances'
       final querySnapshot = await _firestore
           .collection('bills')
-          .where('billType', isEqualTo: 'Applianaces')
+          .where('billType', isEqualTo: 'appliances')
           .limit(200)
           .get();
 
-      // Also fetch 'Applianaces' billType (with 'a' at the end)
+      // Also fetch 'appliances' billType (with 'a' at the end)
       final querySnapshot2 = await _firestore
           .collection('bills')
-          .where('billType', isEqualTo: 'Applianaces')
+          .where('billType', isEqualTo: 'appliances')
           .limit(200)
           .get();
 
@@ -925,7 +925,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
         amount = _getTotalAmount(sale);
         date = sale['billDate'] ?? sale['createdAt'];
       } else if (billType == 'Appliances' ||
-          billType == 'Applianaces' ||
+          billType == 'appliances' ||
           billType == 'Appliance') {
         type = 'Appliance';
         // Check if product map exists
@@ -1455,7 +1455,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 !sale.containsKey('modelName') &&
                 sale['type'] != 'tv' &&
                 sale['billType'] != 'Appliances' &&
-                sale['billType'] != 'Applianaces' &&
+                sale['billType'] != 'appliances' &&
                 sale['billType'] != 'Appliance') {
               return _createTransactionFromGenericSale(
                 'seconds_phone_sale',
@@ -1464,7 +1464,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
             } else if (sale.containsKey('modelName') &&
                 sale['type'] != 'tv' &&
                 sale['billType'] != 'Appliances' &&
-                sale['billType'] != 'Applianaces' &&
+                sale['billType'] != 'appliances' &&
                 sale['billType'] != 'Appliance') {
               return _createTransactionFromGenericSale('base_model_sale', sale);
             } else if (sale.containsKey('totalSaleAmount')) {
@@ -1475,7 +1475,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
             } else if (sale['type'] == 'tv') {
               return _createTransactionFromGenericSale('bills', sale);
             } else if (sale['billType'] == 'Appliances' ||
-                sale['billType'] == 'Applianaces' ||
+                sale['billType'] == 'appliances' ||
                 sale['billType'] == 'Appliance') {
               return _createTransactionFromGenericSale('bills', sale);
             }

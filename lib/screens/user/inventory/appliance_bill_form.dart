@@ -62,7 +62,21 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
   String? _selectedShop = 'Peringottukara';
   final List<String> _shopOptions = ['Peringottukara', 'Cherpu'];
 
-  final String _purchaseMode = 'Ready Cash';
+  // Purchase Mode and Finance Type
+  String? _selectedPurchaseMode = 'Ready Cash';
+  String? _selectedFinanceType;
+  bool _showFinanceFields = false;
+
+  final List<String> _purchaseModes = ['Ready Cash', 'Credit Card', 'EMI'];
+  final List<String> _financeCompaniesList = [
+    'Bajaj Finance',
+    'TVS Credit',
+    'HDB Financial',
+    'Samsung Finance',
+    'First credit private Finance',
+    'Chola Murugappa',
+    'Other',
+  ];
 
   Uint8List? _logoImage;
   Uint8List? _sealImage;
@@ -196,10 +210,29 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
     });
   }
 
+  void _onPurchaseModeSelected(String? mode) {
+    setState(() {
+      _selectedPurchaseMode = mode;
+      if (mode == 'EMI') {
+        _showFinanceFields = true;
+      } else {
+        _selectedFinanceType = null;
+        _showFinanceFields = false;
+      }
+    });
+  }
+
   Future<void> _saveAndPrintBill() async {
     if (!_formKey.currentState!.validate()) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fill all required fields')),
+      );
+      return;
+    }
+
+    if (_selectedPurchaseMode == 'EMI' && _selectedFinanceType == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select finance company for EMI')),
       );
       return;
     }
@@ -275,21 +308,15 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
         'createdByName': user?.name ?? 'User',
         'sealApplied': _sealChecked,
         'billType': 'Applianaces',
-        'purchaseMode': _purchaseMode,
+        'purchaseMode': _selectedPurchaseMode,
+        'financeType': _selectedFinanceType,
         'applianceModelId': _stockModelId,
         'applianceProductName': widget.productData?['productName'],
         'applianceBrand': widget.productData?['productBrand'],
-        'stockAlreadyUpdated': widget.isStockAlreadyUpdated, // Add this flag
+        'stockAlreadyUpdated': widget.isStockAlreadyUpdated,
       };
 
       final docRef = await _firestore.collection('bills').add(billData);
-
-      await _firestore.collection('applianaces_sales').add({
-        ...billData,
-        'billId': docRef.id,
-        'timestamp': FieldValue.serverTimestamp(),
-        'saleDate': now.toIso8601String(),
-      });
 
       // Only update stock if it wasn't already updated
       if (!widget.isStockAlreadyUpdated && _stockModelId != null) {
@@ -297,54 +324,90 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
             .collection('applianceStock')
             .doc(_stockModelId);
 
-        final stockSnapshot = await stockRef.get();
+        try {
+          await _firestore.runTransaction((transaction) async {
+            final stockSnapshot = await transaction.get(stockRef);
 
-        if (stockSnapshot.exists) {
-          final stockData = stockSnapshot.data() as Map<String, dynamic>;
-          final currentQuantity = stockData['quantity'] as int? ?? 0;
-          final newQuantity = currentQuantity - quantity;
+            if (!stockSnapshot.exists) {
+              throw Exception('Stock record not found');
+            }
 
-          if (newQuantity == 0) {
-            await stockRef.update({
-              'status': 'sold',
-              'quantity': 0,
-              'soldAt': FieldValue.serverTimestamp(),
+            final stockData = stockSnapshot.data() as Map<String, dynamic>;
+            final currentQuantity = stockData['quantity'] as int? ?? 0;
+            final newQuantity = currentQuantity - quantity;
+
+            if (newQuantity < 0) {
+              throw Exception('Insufficient stock');
+            }
+
+            if (newQuantity == 0) {
+              transaction.update(stockRef, {
+                'status': 'sold',
+                'quantity': 0,
+                'soldAt': FieldValue.serverTimestamp(),
+                'soldBy': user?.email ?? user?.name ?? 'Unknown',
+                'soldById': user?.uid ?? '',
+                'sellingPrice': priceWithGst,
+                'soldQuantity': quantity,
+                'billGenerated': true,
+                'billGeneratedAt': FieldValue.serverTimestamp(),
+                'lastUpdatedAt': FieldValue.serverTimestamp(),
+                'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
+              });
+            } else {
+              transaction.update(stockRef, {
+                'quantity': newQuantity,
+                'lastUpdatedAt': FieldValue.serverTimestamp(),
+                'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
+              });
+            }
+
+            // Create sold record
+            final soldRecordRef = _firestore
+                .collection('applianceSoldRecords')
+                .doc();
+            transaction.set(soldRecordRef, {
+              'category': widget.productData?['category'] ?? 'Appliances',
+              'productBrand': widget.productData?['productBrand'] ?? 'Unknown',
+              'productName': widget.productData?['productName'] ?? 'Unknown',
+              'productPrice': widget.productData?['productPrice'] ?? 0,
+              'quantity': quantity,
+              'sellingPrice': priceWithGst,
+              'totalAmount': quantity * priceWithGst,
+              'shopId': stockData['shopId'],
+              'shopName': stockData['shopName'],
               'soldBy': user?.email ?? user?.name ?? 'Unknown',
               'soldById': user?.uid ?? '',
-              'sellingPrice': priceWithGst,
-              'soldQuantity': quantity,
+              'soldAt': FieldValue.serverTimestamp(),
+              'originalStockId': _stockModelId,
               'billGenerated': true,
               'billGeneratedAt': FieldValue.serverTimestamp(),
-              'lastUpdatedAt': FieldValue.serverTimestamp(),
-              'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
+              'remainingQuantity': newQuantity,
             });
-          } else {
-            await stockRef.update({
-              'quantity': newQuantity,
-              'lastUpdatedAt': FieldValue.serverTimestamp(),
-              'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
-            });
-          }
-
-          // Create sold record
-          await _firestore.collection('applianceSoldRecords').add({
-            'category': widget.productData?['category'] ?? 'Appliances',
-            'productBrand': widget.productData?['productBrand'] ?? 'Unknown',
-            'productName': widget.productData?['productName'] ?? 'Unknown',
-            'productPrice': widget.productData?['productPrice'] ?? 0,
-            'quantity': quantity,
-            'sellingPrice': priceWithGst,
-            'totalAmount': quantity * priceWithGst,
-            'shopId': stockData['shopId'],
-            'shopName': stockData['shopName'],
-            'soldBy': user?.email ?? user?.name ?? 'Unknown',
-            'soldById': user?.uid ?? '',
-            'soldAt': FieldValue.serverTimestamp(),
-            'originalStockId': _stockModelId,
-            'billGenerated': true,
-            'billGeneratedAt': FieldValue.serverTimestamp(),
-            'remainingQuantity': newQuantity,
           });
+        } on FirebaseException catch (firebaseError) {
+          print(
+            'Firebase error updating stock: ${firebaseError.code} - ${firebaseError.message}',
+          );
+          // Don't rethrow - bill is already created
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Bill created but stock update failed: ${firebaseError.message}',
+              ),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        } catch (stockError) {
+          print('Stock update error: $stockError');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Bill created but stock update failed. Please check stock manually.',
+              ),
+              backgroundColor: Colors.orange,
+            ),
+          );
         }
       }
 
@@ -372,12 +435,10 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
         );
 
         await _sharePdf(pdfFile);
-
-        // Return success to the appliance screen
         Navigator.pop(context, true);
       }
     } catch (e) {
-      print('Error: $e');
+      print('Error in _saveAndPrintBill: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -782,6 +843,25 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
               style: pw.TextStyle(fontSize: 11),
             ),
             pw.SizedBox(height: 6),
+            if (_selectedPurchaseMode == 'EMI' && _selectedFinanceType != null)
+              pw.Row(
+                children: [
+                  pw.Text(
+                    'Finance       : ',
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.Text(
+                    _selectedFinanceType!,
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.normal,
+                    ),
+                  ),
+                ],
+              ),
           ],
         ),
       ),
@@ -1079,6 +1159,9 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
 
     setState(() {
       _sealChecked = false;
+      _selectedPurchaseMode = 'Ready Cash';
+      _selectedFinanceType = null;
+      _showFinanceFields = false;
     });
   }
 
@@ -1145,6 +1228,12 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
             const SizedBox(height: 12),
             _buildGSTSummaryCard(),
             const SizedBox(height: 12),
+            _buildPurchaseModeDropdown(),
+            const SizedBox(height: 12),
+            if (_showFinanceFields) ...[
+              _buildFinanceTypeDropdown(),
+              const SizedBox(height: 12),
+            ],
             _buildSealCheckbox(),
             const SizedBox(height: 12),
             _buildActionButton(),
@@ -1406,70 +1495,7 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
       ),
       child: Column(
         children: [
-          Row(
-            children: [
-              Icon(Icons.shopping_cart, color: Colors.green[700], size: 16),
-              const SizedBox(width: 8),
-              const Text(
-                'Purchase Mode:',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.green[100],
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  _purchaseMode,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.green[800],
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 12),
-          const Divider(height: 1),
-          const SizedBox(height: 12),
-
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.green[700],
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Text(
-                  'GST 18%',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                'Inclusive in price',
-                style: TextStyle(fontSize: 11, color: Colors.grey),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 12),
-
+          const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
@@ -1528,6 +1554,89 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
                   ],
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPurchaseModeDropdown() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: Colors.green[200]!),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.shopping_cart, color: Colors.green[700], size: 16),
+          const SizedBox(width: 10),
+          const Text(
+            'Purchase Mode:',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedPurchaseMode,
+                isExpanded: true,
+                style: TextStyle(fontSize: 12, color: Colors.grey[800]),
+                items: _purchaseModes.map((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    child: Text(value, style: const TextStyle(fontSize: 12)),
+                  );
+                }).toList(),
+                onChanged: _onPurchaseModeSelected,
+                icon: Icon(Icons.arrow_drop_down, color: Colors.green[700]),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFinanceTypeDropdown() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: Colors.green[200]!),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.account_balance, color: Colors.grey[700], size: 16),
+          const SizedBox(width: 10),
+          const Text(
+            'Finance:',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedFinanceType,
+                isExpanded: true,
+                hint: const Text(
+                  'Select Finance Company',
+                  style: TextStyle(fontSize: 12),
+                ),
+                style: TextStyle(fontSize: 12, color: Colors.grey[800]),
+                items: _financeCompaniesList.map((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    child: Text(value, style: const TextStyle(fontSize: 12)),
+                  );
+                }).toList(),
+                onChanged: (String? newValue) =>
+                    setState(() => _selectedFinanceType = newValue),
+                icon: Icon(Icons.arrow_drop_down, color: Colors.green[700]),
+              ),
             ),
           ),
         ],

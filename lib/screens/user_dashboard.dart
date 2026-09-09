@@ -4,6 +4,7 @@ import 'package:sales_stock/screens/user/incentive/incentiveScreen.dart';
 import 'package:sales_stock/screens/user/inventory/base_model_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/tv_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/appliances_stock_screen.dart'; // Add this import
+import 'package:sales_stock/screens/user/sale/appliance_sale_upload.dart';
 
 import 'package:sales_stock/screens/user/sale/gst_accessories_sale_upload.dart';
 import 'package:sales_stock/screens/user/inventory/phone_stock_screen.dart';
@@ -1586,6 +1587,17 @@ class _UserDashboardState extends State<UserDashboard> {
                                   onTap: () {
                                     _scaffoldKey.currentState?.closeDrawer();
                                     _navigateToScreen(const PhoneSaleUpload());
+                                  },
+                                ),
+                                _buildDrawerTile(
+                                  icon: Icons.phone_iphone,
+                                  title: 'appliance Sales',
+                                  color: Colors.green,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(
+                                      const ApplianceSaleUpload(),
+                                    );
                                   },
                                 ),
                                 _buildDrawerTile(

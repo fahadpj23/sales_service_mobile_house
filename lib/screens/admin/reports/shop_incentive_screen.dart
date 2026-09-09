@@ -381,12 +381,14 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
     return incentive;
   }
 
+  // Updated: Changed qualification from 20 to 25, removed ₹3,00,000 criteria
   double _calculatePhoneIncentive(
     List<Sale> phoneSales,
     int count,
     double totalAmount,
   ) {
-    if (count < 20 || totalAmount < 300000) return 0;
+    // Only require 25+ phones, removed totalAmount condition
+    if (count < 25) return 0;
 
     double totalIncentive = 0;
     for (var sale in phoneSales) {
@@ -543,7 +545,7 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                             icon: Icons.phone_iphone,
                             color: Colors.green,
                             rules: [
-                              '🎯 Qualification: 20+ phones AND ₹3,00,000+ total value',
+                              '🎯 Qualification: 25+ phones sold', // Updated: Changed from 20 to 25, removed ₹3L
                               '📱 Per Phone Incentive (based on price) after qualification:',
                               '   • Below ₹15,000 → ₹30',
                               '   • ₹15,000 - ₹24,999 → ₹40',
@@ -843,7 +845,8 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
                             totalAmount: data.phoneTotalAmount,
                             count: data.phoneCount,
                             incentive: data.phoneIncentive,
-                            rule: '20+ phones & ₹3L+: Only per-phone incentive',
+                            rule:
+                                '25+ phones: Only per-phone incentive', // Updated
                             calculation: _getPhoneCalculation(data),
                             showDetails: true,
                             details: data.phonePriceDetails,
@@ -960,15 +963,10 @@ class _ShopIncentiveScreenState extends State<ShopIncentiveScreen> {
     return '₹1000 base incentive';
   }
 
+  // Updated: Changed qualification logic to only check for 25+ phones
   String _getPhoneCalculation(ShopIncentiveData data) {
-    if (data.phoneCount < 20 || data.phoneTotalAmount < 300000) {
-      if (data.phoneCount < 20 && data.phoneTotalAmount < 300000) {
-        return 'Not qualified (need 20+ phones and ₹3L+ value) | Current: ${data.phoneCount} phones, ₹${_formatNumber(data.phoneTotalAmount)}';
-      } else if (data.phoneCount < 20) {
-        return 'Not qualified (need ${20 - data.phoneCount} more phones)';
-      } else {
-        return 'Not qualified (need ₹${_formatNumber(300000 - data.phoneTotalAmount)} more value)';
-      }
+    if (data.phoneCount < 25) {
+      return 'Not qualified (need ${25 - data.phoneCount} more phones) | Current: ${data.phoneCount} phones';
     }
     return 'Qualified! Per-phone incentives total: ₹${_formatNumber(data.phoneIncentive)}';
   }

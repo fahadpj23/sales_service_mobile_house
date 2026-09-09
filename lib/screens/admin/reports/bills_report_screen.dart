@@ -184,7 +184,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
         _allBills.add(data);
 
-        if (billType == 'Applianaces' || billType == 'Appliance') {
+        if (billType == 'appliances' || billType == 'Appliance') {
           _applianceBills.add(data);
         } else if (billType == 'GST Accessories') {
           _accessoriesBills.add(data);

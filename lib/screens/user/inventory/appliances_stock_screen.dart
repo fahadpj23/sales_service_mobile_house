@@ -915,6 +915,13 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final user = authProvider.user;
 
+      if (user == null) {
+        _showError('User not authenticated. Please log in again.');
+        setState(() => _isLoading = false);
+        setState(() => _selectedModelForAction = null);
+        return;
+      }
+
       final DocumentReference stockRef = _firestore
           .collection('applianceStock')
           .doc(modelId);
@@ -922,6 +929,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
       bool stockUpdated = false;
       int newQuantityAfterSale = 0;
 
+      // ============ FIXED: Transaction with proper error handling ============
       try {
         await _firestore.runTransaction((transaction) async {
           final stockSnapshot = await transaction.get(stockRef);
@@ -993,26 +1001,73 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
 
           stockUpdated = true;
         });
+      } on FirebaseException catch (firebaseError) {
+        // Handle Firebase-specific errors
+        print('Firebase error code: ${firebaseError.code}');
+        print('Firebase error message: ${firebaseError.message}');
 
-        if (!stockUpdated) {
-          throw Exception('Stock update failed');
+        String errorMessage = 'Database error: ';
+        switch (firebaseError.code) {
+          case 'permission-denied':
+            errorMessage += 'You do not have permission to update stock.';
+            break;
+          case 'not-found':
+            errorMessage += 'Stock record not found.';
+            break;
+          case 'unavailable':
+            errorMessage +=
+                'Database is currently unavailable. Please try again.';
+            break;
+          default:
+            errorMessage += firebaseError.message ?? 'Unknown database error';
         }
 
-        final productDataForBill = {
-          'productName': modelData['productName'],
-          'productBrand': modelData['productBrand'],
-          'productPrice': modelData['productPrice'],
-          'quantity': selectedQuantity,
-          'modelId': modelId,
-          'sellingPrice': sellingPrice,
-          'totalAmount': selectedQuantity * sellingPrice,
-          'category': _fixedCategory,
-          'originalQuantity': currentQuantity,
-          'billType': 'applianceSale',
-          'stockAlreadyUpdated': true,
-          'newStockQuantity': newQuantityAfterSale,
-        };
+        _showError(errorMessage);
+        setState(() => _isLoading = false);
+        setState(() => _selectedModelForAction = null);
+        return;
+      } on Exception catch (e) {
+        // Handle general exceptions
+        print('Transaction exception: $e');
+        _showError('Failed to process sale: ${e.toString()}');
+        setState(() => _isLoading = false);
+        setState(() => _selectedModelForAction = null);
+        return;
+      } catch (e, stackTrace) {
+        // Handle any other errors
+        print('Unexpected error: $e');
+        print('Stack trace: $stackTrace');
+        _showError('An unexpected error occurred: ${e.toString()}');
+        setState(() => _isLoading = false);
+        setState(() => _selectedModelForAction = null);
+        return;
+      }
+      // ============ END OF FIXED TRANSACTION ============
 
+      if (!stockUpdated) {
+        _showError('Stock update failed. Please try again.');
+        setState(() => _isLoading = false);
+        setState(() => _selectedModelForAction = null);
+        return;
+      }
+
+      // Proceed to bill generation
+      final productDataForBill = {
+        'productName': modelData['productName'],
+        'productBrand': modelData['productBrand'],
+        'productPrice': modelData['productPrice'],
+        'quantity': selectedQuantity,
+        'modelId': modelId,
+        'sellingPrice': sellingPrice,
+        'totalAmount': selectedQuantity * sellingPrice,
+        'category': _fixedCategory,
+        'originalQuantity': currentQuantity,
+        'billType': 'applianceSale',
+        'stockAlreadyUpdated': true,
+        'newStockQuantity': newQuantityAfterSale,
+      };
+
+      try {
         final gstResult = await Navigator.push<bool>(
           context,
           MaterialPageRoute(
@@ -1030,23 +1085,26 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
             'Stock has been updated. Please complete the bill to finish the sale.',
           );
         }
-
-        _sellQuantityController.clear();
-        _sellPriceController.clear();
-        setState(() => _selectedModelForAction = null);
-      } catch (e) {
-        print('Error updating stock: $e');
-        _showError('Failed to update stock: ${e.toString()}');
+      } catch (navError) {
+        print('Navigation error: $navError');
+        _showError(
+          'Sale processed but bill generation failed. Please check bills.',
+        );
       }
-    } catch (e) {
-      print('Error in _markAsSold: $e');
+
+      _sellQuantityController.clear();
+      _sellPriceController.clear();
+      setState(() => _selectedModelForAction = null);
+      setState(() => _isLoading = false);
+    } catch (e, stackTrace) {
+      // Outer catch - should rarely be hit
+      print('Outer error in _markAsSold: $e');
+      print('Outer stack trace: $stackTrace');
       if (mounted) {
         _showError('Failed to process sale: ${e.toString()}');
       }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      setState(() => _isLoading = false);
+      setState(() => _selectedModelForAction = null);
     }
   }
 
