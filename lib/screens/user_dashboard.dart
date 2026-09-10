@@ -11,6 +11,7 @@ import 'package:sales_stock/screens/user/inventory/phone_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/stock_check_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:sales_stock/screens/user/sale/tv_sale_upload.dart';
 import '../providers/auth_provider.dart';
 import '../services/auth_service.dart';
 import 'user/sale/accessories_sale_upload.dart';
@@ -1598,6 +1599,15 @@ class _UserDashboardState extends State<UserDashboard> {
                                     _navigateToScreen(
                                       const ApplianceSaleUpload(),
                                     );
+                                  },
+                                ),
+                                _buildDrawerTile(
+                                  icon: Icons.tv,
+                                  title: 'Tv Sales',
+                                  color: Colors.green,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(const TvSaleUpload());
                                   },
                                 ),
                                 _buildDrawerTile(
