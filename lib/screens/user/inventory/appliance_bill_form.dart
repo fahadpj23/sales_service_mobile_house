@@ -307,7 +307,7 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
         'createdById': user?.uid,
         'createdByName': user?.name ?? 'User',
         'sealApplied': _sealChecked,
-        'billType': 'Applianaces',
+        'billType': 'appliances',
         'purchaseMode': _selectedPurchaseMode,
         'financeType': _selectedFinanceType,
         'applianceModelId': _stockModelId,
