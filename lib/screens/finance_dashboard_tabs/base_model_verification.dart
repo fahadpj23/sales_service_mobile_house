@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
-class BaseModelVerificationTab extends StatelessWidget {
+class BaseModelVerificationTab extends StatefulWidget {
   final List<Map<String, dynamic>> filteredData;
   final List<Map<String, dynamic>> allData;
   final String? selectedShop;
@@ -32,55 +33,175 @@ class BaseModelVerificationTab extends StatelessWidget {
   }) : super(key: key);
 
   @override
-  Widget build(BuildContext context) {
-    return _buildMobileListView(
-      title: 'Base Models',
-      filteredData: filteredData,
-      allData: allData,
-      selectedShop: selectedShop,
-      availableShops: availableShops,
-      onShopChanged: onShopChanged,
-      buildItem: (sale) => _buildGenericSaleCard(sale, context),
-      emptyMessage: 'No base model sales found',
-    );
+  State<BaseModelVerificationTab> createState() =>
+      _BaseModelVerificationTabState();
+}
+
+class _BaseModelVerificationTabState extends State<BaseModelVerificationTab> {
+  // ── Internal date filter state ──
+  String? _selectedDateRange;
+
+  // ── Date parser (handles Firestore Timestamp / DateTime / String / int) ──
+  DateTime? _parseSaleDate(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is String) return DateTime.tryParse(value);
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    return null;
   }
 
-  Widget _buildMobileListView({
-    required String title,
-    required List<Map<String, dynamic>> filteredData,
-    required List<Map<String, dynamic>> allData,
-    required String? selectedShop,
-    required List<String> availableShops,
-    required Function(String?) onShopChanged,
-    required Widget Function(Map<String, dynamic>) buildItem,
-    required String emptyMessage,
-  }) {
+  // ── Apply date filter to widget.filteredData ──
+  List<Map<String, dynamic>> get _displayData {
+    if (_selectedDateRange == null) return widget.filteredData;
+
+    final now = DateTime.now();
+    return widget.filteredData.where((sale) {
+      final date = _parseSaleDate(
+        sale['date'] ?? sale['timestamp'] ?? sale['saleDate'],
+      );
+      if (date == null) return false;
+
+      switch (_selectedDateRange) {
+        case 'thisMonth':
+          return date.year == now.year && date.month == now.month;
+        case 'lastMonth':
+          final lm = DateTime(now.year, now.month - 1);
+          return date.year == lm.year && date.month == lm.month;
+        case 'thisYear':
+          return date.year == now.year;
+        case 'lastYear':
+          return date.year == now.year - 1;
+        default:
+          return true;
+      }
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final data = _displayData;
+
     return Column(
       children: [
-        _buildVerificationSummary(title, filteredData, allData),
+        _buildVerificationSummary('Base Models', data, widget.allData),
         const SizedBox(height: 8),
-        _buildShopFilter(selectedShop, availableShops, onShopChanged),
+        _buildDateRangeFilter(),
+        const SizedBox(height: 8),
+        _buildShopFilter(
+          widget.selectedShop,
+          widget.availableShops,
+          widget.onShopChanged,
+        ),
         const SizedBox(height: 8),
         Expanded(
-          child: filteredData.isEmpty
-              ? Center(
+          child: data.isEmpty
+              ? const Center(
                   child: Text(
-                    emptyMessage,
-                    style: const TextStyle(fontSize: 14, color: Colors.grey),
+                    'No base model sales found',
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
                   ),
                 )
               : ListView.builder(
                   padding: const EdgeInsets.all(12.0),
-                  itemCount: filteredData.length,
+                  itemCount: data.length,
                   itemBuilder: (context, index) {
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 12.0),
-                      child: buildItem(filteredData[index]),
+                      child: _buildGenericSaleCard(data[index], context),
                     );
                   },
                 ),
         ),
       ],
+    );
+  }
+
+  Widget _buildDateRangeFilter() {
+    final options = <Map<String, String?>>[
+      {'label': 'All Time', 'value': null},
+      {'label': 'This Month', 'value': 'thisMonth'},
+      {'label': 'Last Month', 'value': 'lastMonth'},
+      {'label': 'This Year', 'value': 'thisYear'},
+      {'label': 'Last Year', 'value': 'lastYear'},
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12.0),
+      child: Card(
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Report Period',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.green[900],
+                    ),
+                  ),
+                  if (_selectedDateRange != null)
+                    GestureDetector(
+                      onTap: () => setState(() => _selectedDateRange = null),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.clear, size: 14, color: Colors.grey),
+                          SizedBox(width: 2),
+                          Text(
+                            'Clear',
+                            style: TextStyle(fontSize: 11, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: options.map((opt) {
+                    final isSelected = _selectedDateRange == opt['value'];
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8.0),
+                      child: ChoiceChip(
+                        label: Text(
+                          opt['label']!,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: isSelected
+                                ? Colors.white
+                                : Colors.green[900],
+                          ),
+                        ),
+                        selected: isSelected,
+                        selectedColor: Colors.green[700],
+                        backgroundColor: Colors.green.withOpacity(0.08),
+                        side: BorderSide(
+                          color: isSelected
+                              ? Colors.green[700]!
+                              : Colors.green.withOpacity(0.3),
+                        ),
+                        onSelected: (_) {
+                          setState(() => _selectedDateRange = opt['value']);
+                        },
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -149,9 +270,7 @@ class BaseModelVerificationTab extends StatelessWidget {
                   if (selectedShop != null)
                     IconButton(
                       icon: const Icon(Icons.clear, size: 20),
-                      onPressed: () {
-                        onShopChanged(null);
-                      },
+                      onPressed: () => onShopChanged(null),
                     ),
                 ],
               ),
@@ -193,7 +312,7 @@ class BaseModelVerificationTab extends StatelessWidget {
                     color: Colors.green[900],
                   ),
                 ),
-                if (selectedShop != null)
+                if (widget.selectedShop != null)
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 8,
@@ -209,7 +328,7 @@ class BaseModelVerificationTab extends StatelessWidget {
                         const Icon(Icons.store, size: 12, color: Colors.green),
                         const SizedBox(width: 4),
                         Text(
-                          selectedShop!,
+                          widget.selectedShop!,
                           style: const TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
@@ -297,12 +416,12 @@ class BaseModelVerificationTab extends StatelessWidget {
         sale['paymentBreakdownVerified'] ??
         {'cash': false, 'card': false, 'gpay': false};
 
-    bool cashVerified = convertToBool(paymentBreakdown['cash']);
-    bool cardVerified = convertToBool(paymentBreakdown['card']);
-    bool gpayVerified = convertToBool(paymentBreakdown['gpay']);
+    bool cashVerified = widget.convertToBool(paymentBreakdown['cash']);
+    bool cardVerified = widget.convertToBool(paymentBreakdown['card']);
+    bool gpayVerified = widget.convertToBool(paymentBreakdown['gpay']);
 
-    String shopName = getShopName(sale);
-    double amount = getTotalAmount(sale);
+    String shopName = widget.getShopName(sale);
+    double amount = widget.getTotalAmount(sale);
 
     Map<String, dynamic> displayData = _getBaseModelDisplayData(sale);
 
@@ -351,7 +470,8 @@ class BaseModelVerificationTab extends StatelessWidget {
                     color: Colors.green[800],
                     size: 20,
                   ),
-                  onPressed: () => onVerifyPayment(createTransaction(sale)),
+                  onPressed: () =>
+                      widget.onVerifyPayment(widget.createTransaction(sale)),
                 ),
               ],
             ),
@@ -398,7 +518,7 @@ class BaseModelVerificationTab extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '₹${formatNumber(amount)}',
+                        '₹${widget.formatNumber(amount)}',
                         style: const TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
@@ -445,7 +565,7 @@ class BaseModelVerificationTab extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        formatDate(displayData['date']),
+                        widget.formatDate(displayData['date']),
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
@@ -557,7 +677,7 @@ class BaseModelVerificationTab extends StatelessWidget {
       'customer': sale['customerName'] ?? '',
       'description': sale['modelName'] ?? '',
       'amount': (sale['price'] as num?)?.toDouble() ?? 0,
-      'date': sale['date'] ?? sale['timestamp'],
+      'date': sale['date'] ?? sale['timestamp'] ?? sale['saleDate'],
     };
   }
 }

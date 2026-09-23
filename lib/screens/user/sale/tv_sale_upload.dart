@@ -86,6 +86,9 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
   final TextEditingController _billSearchController = TextEditingController();
   final FocusNode _billSearchFocusNode = FocusNode();
 
+  // Brand controller (persistent, not recreated every build)
+  final TextEditingController _brandController = TextEditingController();
+
   // TV Brands list
   final List<String> _tvBrands = [
     'Samsung',
@@ -243,6 +246,19 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
   bool _isFieldEditable(String fieldName) {
     if (!_isAutofilledFromBill) return true;
 
+    // Always editable if the autofilled value is empty/missing
+    if (fieldName == 'brand' &&
+        (_selectedBrand == null || _selectedBrand!.isEmpty)) {
+      return true;
+    }
+    if (fieldName == 'productModel' &&
+        _productModelController.text.trim().isEmpty) {
+      return true;
+    }
+    if (fieldName == 'price' && _getSelectedPrice() <= 0) {
+      return true;
+    }
+
     final editableFields = [
       'exchange',
       'customerCredit',
@@ -266,6 +282,8 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
       'dpCard',
       'dpCredit',
       'customerPhone',
+      'purchaseMode',
+      'financeType',
     ];
 
     return editableFields.contains(fieldName);
@@ -313,6 +331,20 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
     });
   }
 
+  // Sync brand controller with _selectedBrand
+  void _syncBrandController() {
+    if (_selectedBrand != null) {
+      final displayValue = _selectedBrand!;
+      if (_brandController.text != displayValue) {
+        _brandController.text = displayValue;
+      }
+    } else {
+      if (_brandController.text.isNotEmpty) {
+        _brandController.clear();
+      }
+    }
+  }
+
   // Load ONLY TV bills (type == "tv")
   Future<void> _loadBillNumbers() async {
     try {
@@ -335,7 +367,6 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
 
       debugPrint('Loading TV bills for shop: $_shopId');
 
-      // Get ALL bills for the shop
       final billsSnapshot = await _firestore
           .collection('bills')
           .where('shopId', isEqualTo: _shopId)
@@ -346,12 +377,10 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
       final billNumbers = <String>[];
       final billDataMap = <String, Map<String, dynamic>>{};
 
-      // Filter for TV bills (type == "tv")
       for (var doc in billsSnapshot.docs) {
         final billData = doc.data();
         final type = billData['type']?.toString() ?? '';
 
-        // Only include TV bills
         if (type == 'tv') {
           final billNumber = billData['billNumber']?.toString();
           if (billNumber != null && billNumber.isNotEmpty) {
@@ -362,7 +391,6 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
         }
       }
 
-      // Sort bills by billDate (newest first)
       billNumbers.sort((a, b) {
         final aData = billDataMap[a];
         final bData = billDataMap[b];
@@ -397,6 +425,7 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
       _customerPhoneController.clear();
       _imeiController.clear();
       _selectedBrand = null;
+      _brandController.clear();
       _productModelController.clear();
       _selectedProductModel = null;
       _priceController.clear();
@@ -471,23 +500,21 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
       final customerName = billData['customerName']?.toString() ?? '';
       final customerPhone = billData['customerMobile']?.toString() ?? '';
 
-      // Get TV details from originalTvData map if available
       final originalTvData =
           billData['originalTvData'] as Map<String, dynamic>?;
 
-      // Get model name - priority: modelName > originalTvData.modelName
+      // Get model name
       String modelName = billData['modelName']?.toString() ?? '';
       if (modelName.isEmpty && originalTvData != null) {
         modelName = originalTvData['modelName']?.toString() ?? '';
       }
 
-      // Get brand - priority: originalTvData.modelBrand > extract from modelName
+      // Get brand
       String brand = '';
       if (originalTvData != null) {
         brand = originalTvData['modelBrand']?.toString() ?? '';
       }
       if (brand.isEmpty && modelName.isNotEmpty) {
-        // Try to extract brand from modelName (first word)
         brand = modelName.split(' ').first;
       }
 
@@ -497,7 +524,7 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
         serialNumber = originalTvData['serialNumber']?.toString() ?? '';
       }
 
-      // Get price - priority: totalAmount > originalTvData.modelPrice
+      // Get price
       double productPrice = 0.0;
       if (billData['totalAmount'] != null) {
         productPrice = (billData['totalAmount'] as num).toDouble();
@@ -506,11 +533,9 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
         productPrice = (originalTvData['modelPrice'] as num).toDouble();
       }
 
-      // Get purchase mode and finance type
       String? purchaseMode = billData['purchaseMode']?.toString();
       String? financeType = billData['financeType']?.toString();
 
-      // Get bill date
       Timestamp? billDateTimestamp = billData['billDate'];
       DateTime? billDate = billDateTimestamp?.toDate();
 
@@ -524,7 +549,19 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
       debugPrint('Purchase Mode: "$purchaseMode"');
       debugPrint('Finance Type: "$financeType"');
 
-      // Set the values in the form
+      // Match brand with list (case-insensitive)
+      String? finalBrand;
+      if (brand.isNotEmpty) {
+        try {
+          final matched = _tvBrands.firstWhere(
+            (b) => b.toLowerCase() == brand.toLowerCase(),
+          );
+          finalBrand = matched;
+        } catch (_) {
+          finalBrand = brand;
+        }
+      }
+
       setState(() {
         // Set customer details
         _customerNameController.text = customerName;
@@ -532,25 +569,19 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
 
         // Set product details
         _productModelController.text = modelName;
-        _selectedProductModel = modelName;
+        _selectedProductModel = modelName.isNotEmpty ? modelName : null;
 
         // Set brand
-        if (brand.isNotEmpty) {
-          // Try to match with known brands (case insensitive)
-          final matchedBrand = _tvBrands.firstWhere(
-            (b) => b.toLowerCase() == brand.toLowerCase(),
-            orElse: () => brand,
-          );
-          _selectedBrand = matchedBrand;
-          debugPrint('Brand set to: ${_selectedBrand}');
+        _selectedBrand = finalBrand;
+        if (finalBrand != null) {
+          _brandController.text = finalBrand;
         } else {
-          _selectedBrand = null;
+          _brandController.clear();
         }
 
         // Set price
         if (productPrice > 0) {
           _priceController.text = productPrice.toStringAsFixed(2);
-          debugPrint('Price set to: ${_priceController.text}');
         } else {
           _priceController.clear();
         }
@@ -558,7 +589,6 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
         // Set Serial Number
         if (serialNumber.isNotEmpty) {
           _imeiController.text = serialNumber;
-          debugPrint('Serial Number set to: $serialNumber');
         }
 
         // Set purchase mode
@@ -578,7 +608,6 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
           if (_purchaseModes.contains(normalizedMode)) {
             _selectedPurchaseMode = normalizedMode;
             _selectedPaymentBreakdown = PaymentBreakdown();
-            debugPrint('Purchase mode set to: $normalizedMode');
           } else {
             _selectedPurchaseMode = null;
           }
@@ -600,7 +629,6 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
                 ? matchedFinance
                 : financeType;
           }
-          debugPrint('Finance type set to: ${_selectedFinanceType}');
         } else {
           _selectedFinanceType = null;
         }
@@ -608,7 +636,6 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
         // Set sale date
         if (billDate != null) {
           _saleDate = billDate;
-          debugPrint('Sale date set to: $billDate');
         }
       });
 
@@ -1045,6 +1072,127 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
     );
   }
 
+  // ═══════════════════════════════════════════════════════
+  // Check if bill number already exists in tvSales collection
+  // for the current shop.
+  // ═══════════════════════════════════════════════════════
+  Future<bool> _checkBillNumberAlreadyUsed(String billNumber) async {
+    try {
+      if (_shopId == null) return false;
+
+      debugPrint(
+        'Checking duplicate bill number: $billNumber for shop: $_shopId',
+      );
+
+      final querySnapshot = await _firestore
+          .collection('tvSales')
+          .where('shopId', isEqualTo: _shopId)
+          .where('billNumber', isEqualTo: billNumber)
+          .limit(1)
+          .get();
+
+      debugPrint('Duplicate check found ${querySnapshot.docs.length} matches');
+
+      return querySnapshot.docs.isNotEmpty;
+    } catch (e) {
+      debugPrint('Error checking duplicate bill number: $e');
+      return false;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // Show an info dialog when the bill number already exists.
+  // Upload is BLOCKED - user can only close.
+  // ═══════════════════════════════════════════════════════
+  Future<void> _showDuplicateBillBlockedDialog(String billNumber) async {
+    return await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _errorColor.withOpacity(0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.block, color: _errorColor, size: 22),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Bill Number Already Used',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Bill number "$billNumber" has already been used in a TV sale for this shop.',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: _errorColor.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _errorColor.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.info_outline, color: _errorColor, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'This sale cannot be uploaded. Please select a different bill number.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _secondaryColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _errorColor,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 8,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text(
+                'OK',
+                style: TextStyle(fontSize: 13, color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void _uploadTvSale() async {
     if (_shopId == null || _shopName == null) {
       _showMessage('Shop information not found.');
@@ -1059,17 +1207,28 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
       return;
     }
 
-    if (_selectedBrand == null ||
-        _productModelController.text.isEmpty ||
-        _priceController.text.isEmpty ||
-        _selectedPurchaseMode == null ||
-        _getSelectedPrice() == 0) {
-      _showMessage('Please complete all required fields');
-      return;
+    // Collect all missing required fields with detailed messages
+    final List<String> missingFields = [];
+
+    if (_selectedBrand == null || _selectedBrand!.trim().isEmpty) {
+      missingFields.add('Brand');
+    }
+    if (_productModelController.text.trim().isEmpty) {
+      missingFields.add('TV Model');
+    }
+    if (_priceController.text.trim().isEmpty || _getSelectedPrice() <= 0) {
+      missingFields.add('Price');
+    }
+    if (_selectedPurchaseMode == null ||
+        _selectedPurchaseMode!.trim().isEmpty) {
+      missingFields.add('Purchase Mode');
+    }
+    if (_customerNameController.text.trim().isEmpty) {
+      missingFields.add('Customer Name');
     }
 
-    if (_customerNameController.text.isEmpty) {
-      _showMessage('Please enter customer name');
+    if (missingFields.isNotEmpty) {
+      _showMessage('Please fill: ${missingFields.join(', ')}');
       return;
     }
 
@@ -1193,6 +1352,29 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
       }
     }
 
+    // ═══════════════════════════════════════════════════════
+    // CHECK IF BILL NUMBER ALREADY EXISTS IN tvSales
+    // Only check when a bill number is provided (not "Without Bill Number")
+    // If it exists, BLOCK the upload completely.
+    // ═══════════════════════════════════════════════════════
+    if (!_withoutBillNumber &&
+        _selectedBillNumber != null &&
+        _selectedBillNumber!.isNotEmpty) {
+      setState(() => _isLoading = true);
+
+      final bool alreadyExists = await _checkBillNumberAlreadyUsed(
+        _selectedBillNumber!,
+      );
+
+      setState(() => _isLoading = false);
+
+      if (alreadyExists) {
+        await _showDuplicateBillBlockedDialog(_selectedBillNumber!);
+        return;
+      }
+    }
+    // ═══════════════════════════════════════════════════════
+
     final shouldUpload = await _showConfirmationDialog();
     if (!shouldUpload) return;
 
@@ -1209,7 +1391,6 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
 
       final customerName = _customerNameController.text;
       final customerPhone = _customerPhoneController.text;
-      final isEmiMode = _selectedPurchaseMode == 'EMI';
 
       await _getShopDetails();
 
@@ -1730,6 +1911,7 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
   void _resetForm() {
     setState(() {
       _selectedBrand = null;
+      _brandController.clear();
       _selectedProductModel = null;
       _selectedPurchaseMode = null;
       _selectedPaymentBreakdown = PaymentBreakdown();
@@ -2468,13 +2650,10 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
   }
 
   Widget _buildBrandTextField() {
-    final TextEditingController brandController = TextEditingController();
-
-    if (_selectedBrand != null && brandController.text.isEmpty) {
-      brandController.text = _selectedBrand!;
-    }
-
     final isEditable = _isFieldEditable('brand');
+
+    // Sync controller with selected brand
+    _syncBrandController();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2489,33 +2668,29 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
         ),
         const SizedBox(height: 4),
         Autocomplete<String>(
+          key: ValueKey('brand_${_selectedBrand ?? ''}'),
           optionsBuilder: (TextEditingValue textEditingValue) {
             if (textEditingValue.text.isEmpty) {
-              return const Iterable<String>.empty();
+              return _tvBrands;
             }
             final searchTerm = textEditingValue.text.toLowerCase();
-            return _tvBrands.where((brand) {
-              return brand.toLowerCase().contains(searchTerm);
-            });
+            return _tvBrands.where(
+              (brand) => brand.toLowerCase().contains(searchTerm),
+            );
           },
           onSelected: isEditable
               ? (String selection) {
                   setState(() {
                     _selectedBrand = selection;
-                    brandController.text = selection;
+                    _brandController.text = selection;
                   });
                 }
               : null,
           fieldViewBuilder:
-              (
-                BuildContext context,
-                TextEditingController fieldController,
-                FocusNode focusNode,
-                VoidCallback onFieldSubmitted,
-              ) {
-                if (fieldController.text != brandController.text &&
-                    _selectedBrand != null) {
-                  fieldController.text = _selectedBrand!;
+              (context, fieldController, focusNode, onFieldSubmitted) {
+                // Keep field controller in sync with our brand controller
+                if (fieldController.text != _brandController.text) {
+                  fieldController.text = _brandController.text;
                 }
 
                 return TextField(
@@ -2523,8 +2698,9 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
                   focusNode: focusNode,
                   enabled: isEditable,
                   onChanged: (value) {
-                    if (isEditable) {
-                      if (_selectedBrand != null) {
+                    _brandController.text = value;
+                    if (isEditable && _selectedBrand != null) {
+                      if (value != _selectedBrand) {
                         setState(() {
                           _selectedBrand = null;
                         });
@@ -2545,7 +2721,7 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
                             onPressed: () {
                               setState(() {
                                 _selectedBrand = null;
-                                fieldController.clear();
+                                _brandController.clear();
                               });
                             },
                           )
@@ -2574,11 +2750,7 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
                 );
               },
           optionsViewBuilder:
-              (
-                BuildContext context,
-                AutocompleteOnSelected<String> onSelected,
-                Iterable<String> options,
-              ) {
+              (context, AutocompleteOnSelected<String> onSelected, options) {
                 return Align(
                   alignment: Alignment.topLeft,
                   child: Material(
@@ -2706,7 +2878,6 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
             ),
           ),
           const SizedBox(height: 10),
-
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -2762,7 +2933,6 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
               ],
             ),
           ),
-
           const SizedBox(height: 8),
           Container(
             width: double.infinity,
@@ -2824,7 +2994,6 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
 
   Widget _buildTvSaleForm() {
     final balanceReturned = _calculateBalanceReturned();
-    final amountToPay = _calculateAmountToPay();
     final price = _getSelectedPrice();
 
     return Column(
@@ -2845,7 +3014,7 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
               icon: Icons.person,
               iconColor: _primaryColor,
               keyboardType: TextInputType.text,
-              enabled: !_isAutofilledFromBill,
+              enabled: _isFieldEditable('customerName'),
             ),
             const SizedBox(height: 6),
             _buildAdditionalField(
@@ -2862,55 +3031,50 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
 
         const SizedBox(height: 10),
 
+        // Always show brand field
         _buildBrandTextField(),
         const SizedBox(height: 10),
 
-        if (_selectedBrand != null) ...[
-          _buildAdditionalField(
-            label: 'TV Model *',
-            controller: _productModelController,
-            hint: 'Enter TV model name',
-            icon: Icons.tv,
-            iconColor: _tvColor,
-            keyboardType: TextInputType.text,
-            enabled: !_isAutofilledFromBill,
-            onChanged: (value) {
-              setState(() {
-                _selectedProductModel = value;
-              });
-            },
-          ),
-          const SizedBox(height: 10),
-        ],
+        // Always show TV Model field (not gated on brand)
+        _buildAdditionalField(
+          label: 'TV Model *',
+          controller: _productModelController,
+          hint: 'Enter TV model name',
+          icon: Icons.tv,
+          iconColor: _tvColor,
+          keyboardType: TextInputType.text,
+          enabled: _isFieldEditable('productModel'),
+          onChanged: (value) {
+            setState(() {
+              _selectedProductModel = value.isEmpty ? null : value;
+            });
+          },
+        ),
+        const SizedBox(height: 10),
 
-        if (_selectedProductModel != null &&
-            _selectedProductModel!.isNotEmpty) ...[
-          _buildAdditionalField(
-            label: 'Serial Number (Optional)',
-            controller: _imeiController,
-            hint: 'Enter serial number',
-            icon: Icons.fingerprint,
-            iconColor: _purpleColor,
-            keyboardType: TextInputType.text,
-            enabled: !_isAutofilledFromBill,
-          ),
-          const SizedBox(height: 10),
-        ],
+        _buildAdditionalField(
+          label: 'Serial Number (Optional)',
+          controller: _imeiController,
+          hint: 'Enter serial number',
+          icon: Icons.fingerprint,
+          iconColor: _purpleColor,
+          keyboardType: TextInputType.text,
+          enabled: _isFieldEditable('imei'),
+        ),
+        const SizedBox(height: 10),
 
-        if (_selectedProductModel != null &&
-            _selectedProductModel!.isNotEmpty) ...[
-          _buildAdditionalField(
-            label: 'Price *',
-            controller: _priceController,
-            hint: 'Enter TV price',
-            icon: Icons.attach_money,
-            iconColor: _primaryColor,
-            keyboardType: TextInputType.numberWithOptions(decimal: true),
-            enabled: !_isAutofilledFromBill,
-            onChanged: (value) => setState(() {}),
-          ),
-          const SizedBox(height: 10),
-        ],
+        // Always show Price field
+        _buildAdditionalField(
+          label: 'Price *',
+          controller: _priceController,
+          hint: 'Enter TV price',
+          icon: Icons.attach_money,
+          iconColor: _primaryColor,
+          keyboardType: TextInputType.numberWithOptions(decimal: true),
+          enabled: _isFieldEditable('price'),
+          onChanged: (value) => setState(() {}),
+        ),
+        const SizedBox(height: 10),
 
         if (price > 0) ...[
           Container(
@@ -2955,7 +3119,9 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
                 child: Text(mode, style: const TextStyle(fontSize: 12)),
               );
             }).toList(),
-            onChanged: !_isAutofilledFromBill ? _onPurchaseModeSelected : null,
+            onChanged: _isFieldEditable('purchaseMode')
+                ? _onPurchaseModeSelected
+                : null,
             hint: 'Select purchase mode',
           ),
           const SizedBox(height: 10),
@@ -3161,7 +3327,7 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
                 child: Text(company, style: const TextStyle(fontSize: 12)),
               );
             }).toList(),
-            onChanged: !_isAutofilledFromBill
+            onChanged: _isFieldEditable('financeType')
                 ? (value) => setState(() => _selectedFinanceType = value)
                 : null,
             hint: 'Select finance company',
@@ -3448,7 +3614,6 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
     final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
     final customerCredit =
         double.tryParse(_customerCreditController.text) ?? 0.0;
-    final amountToPay = _calculateAmountToPay();
     final balanceReturned = _calculateBalanceReturned();
 
     final downPayment = double.tryParse(_downPaymentController.text) ?? 0.0;
@@ -4121,6 +4286,15 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
     required ValueChanged<String?>? onChanged,
     required String hint,
   }) {
+    // Guard against value not present in items
+    String? safeValue = value;
+    if (value != null) {
+      final exists = items.any((item) => item.value == value);
+      if (!exists) {
+        safeValue = null;
+      }
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -4140,7 +4314,7 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
             color: onChanged == null ? Colors.grey.shade50 : null,
           ),
           child: DropdownButtonFormField<String>(
-            value: value,
+            value: safeValue,
             items: items,
             onChanged: onChanged,
             decoration: InputDecoration(
@@ -4480,6 +4654,7 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
     _perMonthEmiController.dispose();
     _loanIdController.dispose();
     _otherGiftController.dispose();
+    _brandController.dispose();
     super.dispose();
   }
 }

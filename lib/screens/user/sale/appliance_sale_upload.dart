@@ -86,6 +86,9 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
   final TextEditingController _billSearchController = TextEditingController();
   final FocusNode _billSearchFocusNode = FocusNode();
 
+  // Brand controller (persistent, not recreated every build)
+  final TextEditingController _brandController = TextEditingController();
+
   // Lists
   final List<String> _applianceBrands = [
     'VOLTAS',
@@ -247,6 +250,19 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
   bool _isFieldEditable(String fieldName) {
     if (!_isAutofilledFromBill) return true;
 
+    // Always editable if the autofilled value is empty/missing
+    if (fieldName == 'brand' &&
+        (_selectedBrand == null || _selectedBrand!.isEmpty)) {
+      return true;
+    }
+    if (fieldName == 'productModel' &&
+        _productModelController.text.trim().isEmpty) {
+      return true;
+    }
+    if (fieldName == 'price' && _getSelectedPrice() <= 0) {
+      return true;
+    }
+
     final editableFields = [
       'exchange',
       'customerCredit',
@@ -270,6 +286,8 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
       'dpCard',
       'dpCredit',
       'customerPhone',
+      'purchaseMode',
+      'financeType',
     ];
 
     return editableFields.contains(fieldName);
@@ -330,6 +348,20 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
     });
   }
 
+  // Sync brand controller with _selectedBrand
+  void _syncBrandController() {
+    if (_selectedBrand != null) {
+      final displayValue = _selectedBrand!.toUpperCase();
+      if (_brandController.text != displayValue) {
+        _brandController.text = displayValue;
+      }
+    } else {
+      if (_brandController.text.isNotEmpty) {
+        _brandController.clear();
+      }
+    }
+  }
+
   // Load ONLY appliance bills (billType == "appliances")
   Future<void> _loadBillNumbers() async {
     try {
@@ -352,7 +384,6 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
 
       debugPrint('Loading appliance bills for shop: $_shopId');
 
-      // Get ALL bills for the shop first
       final billsSnapshot = await _firestore
           .collection('bills')
           .where('shopId', isEqualTo: _shopId)
@@ -363,12 +394,10 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
       final billNumbers = <String>[];
       final billDataMap = <String, Map<String, dynamic>>{};
 
-      // Filter for appliance bills (billType == "appliances")
       for (var doc in billsSnapshot.docs) {
         final billData = doc.data();
         final billType = billData['billType']?.toString() ?? '';
 
-        // Only include appliance bills
         if (billType == 'appliances') {
           final billNumber = billData['billNumber']?.toString();
           if (billNumber != null && billNumber.isNotEmpty) {
@@ -379,7 +408,6 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
         }
       }
 
-      // Sort bills by billDate (newest first)
       billNumbers.sort((a, b) {
         final aData = billDataMap[a];
         final bData = billDataMap[b];
@@ -414,6 +442,7 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
       _customerPhoneController.clear();
       _imeiController.clear();
       _selectedBrand = null;
+      _brandController.clear();
       _productModelController.clear();
       _selectedProductModel = null;
       _priceController.clear();
@@ -450,7 +479,6 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
     });
   }
 
-  // Autofill from appliance bill
   // Autofill from appliance bill - FIXED
   Future<void> _autofillFromBill(String? billNumber) async {
     if (billNumber == null || billNumber.isEmpty) {
@@ -473,7 +501,6 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
       debugPrint('=== APPLIANCE BILL DATA STRUCTURE ===');
       debugPrint('All keys in bill: ${billData.keys.join(', ')}');
 
-      // Debug: Print the appliance fields
       debugPrint('billType: ${billData['billType']}');
       debugPrint('applianceBrand: ${billData['applianceBrand']}');
       debugPrint('applianceProductName: ${billData['applianceProductName']}');
@@ -490,16 +517,15 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
       final customerName = billData['customerName']?.toString() ?? '';
       final customerPhone = billData['customerMobile']?.toString() ?? '';
 
-      // Get appliance details - DIRECTLY from billData
+      // Get appliance details
       String applianceBrand = billData['applianceBrand']?.toString() ?? '';
       String applianceProductName =
           billData['applianceProductName']?.toString() ?? '';
       String applianceModelId = billData['applianceModelId']?.toString() ?? '';
 
-      // Get product details from product map if exists
       final productData = billData['product'] as Map<String, dynamic>?;
 
-      // Get product name - priority: applianceProductName > productData.productName > productName
+      // Get product name
       String productName = applianceProductName;
       if (productName.isEmpty && productData != null) {
         productName = productData['productName']?.toString() ?? '';
@@ -508,7 +534,7 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
         productName = billData['productName']?.toString() ?? '';
       }
 
-      // Get price - priority: totalAmount > productData.price
+      // Get price
       double productPrice = 0.0;
       if (billData['totalAmount'] != null) {
         productPrice = (billData['totalAmount'] as num).toDouble();
@@ -516,7 +542,7 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
         productPrice = (productData['price'] as num).toDouble();
       }
 
-      // Get brand - priority: applianceBrand > productData.brand > productBrand
+      // Get brand
       String brand = applianceBrand;
       if (brand.isEmpty && productData != null) {
         brand = productData['brand']?.toString() ?? '';
@@ -543,7 +569,20 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
       debugPrint('Purchase Mode: "$purchaseMode"');
       debugPrint('Finance Type: "$financeType"');
 
-      // Set the values in the form
+      // Determine the final brand value to use
+      String? finalBrand;
+      if (brand.isNotEmpty) {
+        final brandUpper = brand.toUpperCase();
+        try {
+          final matched = _applianceBrands.firstWhere(
+            (b) => b.toUpperCase() == brandUpper,
+          );
+          finalBrand = matched;
+        } catch (_) {
+          finalBrand = brandUpper;
+        }
+      }
+
       setState(() {
         // Set customer details
         _customerNameController.text = customerName;
@@ -551,20 +590,19 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
 
         // Set product details
         _productModelController.text = productName;
-        _selectedProductModel = productName;
+        _selectedProductModel = productName.isNotEmpty ? productName : null;
 
         // Set brand
-        if (brand.isNotEmpty) {
-          _selectedBrand = brand.toUpperCase();
-          debugPrint('Brand set to: ${_selectedBrand}');
+        _selectedBrand = finalBrand;
+        if (finalBrand != null) {
+          _brandController.text = finalBrand.toUpperCase();
         } else {
-          _selectedBrand = null;
+          _brandController.clear();
         }
 
         // Set price
         if (productPrice > 0) {
           _priceController.text = productPrice.toStringAsFixed(2);
-          debugPrint('Price set to: ${_priceController.text}');
         } else {
           _priceController.clear();
         }
@@ -572,7 +610,6 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
         // Set IMEI/Serial
         if (applianceModelId.isNotEmpty) {
           _imeiController.text = applianceModelId;
-          debugPrint('Model ID set to: $applianceModelId');
         }
 
         // Set purchase mode
@@ -591,8 +628,6 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
 
           if (_purchaseModes.contains(normalizedMode)) {
             _selectedPurchaseMode = normalizedMode;
-            _selectedPaymentBreakdown = PaymentBreakdown();
-            debugPrint('Purchase mode set to: $normalizedMode');
           } else {
             _selectedPurchaseMode = null;
           }
@@ -614,7 +649,6 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
                 ? matchedFinance
                 : financeType;
           }
-          debugPrint('Finance type set to: ${_selectedFinanceType}');
         } else {
           _selectedFinanceType = null;
         }
@@ -622,7 +656,6 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
         // Set sale date
         if (billDate != null) {
           _saleDate = billDate;
-          debugPrint('Sale date set to: $billDate');
         }
       });
 
@@ -650,7 +683,6 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
 
       _showMessage(autofillMessage, isError: missingFields.isNotEmpty);
 
-      // Force UI update
       setState(() {});
     } catch (e) {
       debugPrint('Error autofilling data: $e');
@@ -859,7 +891,6 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
 
     final purchaseMode = _lastSaleData!['purchaseMode']?.toString() ?? '';
     final isEmiMode = purchaseMode == 'EMI';
-    final isReadyCashMode = purchaseMode == 'Ready Cash';
 
     showDialog(
       context: context,
@@ -1062,6 +1093,128 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
     );
   }
 
+  // ═══════════════════════════════════════════════════════
+  // Check if bill number already exists in applianceSales collection
+  // for the current shop.
+  // ═══════════════════════════════════════════════════════
+  Future<bool> _checkBillNumberAlreadyUsed(String billNumber) async {
+    try {
+      if (_shopId == null) return false;
+
+      debugPrint(
+        'Checking duplicate bill number: $billNumber for shop: $_shopId',
+      );
+
+      final querySnapshot = await _firestore
+          .collection('applianceSales')
+          .where('shopId', isEqualTo: _shopId)
+          .where('billNumber', isEqualTo: billNumber)
+          .limit(1)
+          .get();
+
+      debugPrint('Duplicate check found ${querySnapshot.docs.length} matches');
+
+      return querySnapshot.docs.isNotEmpty;
+    } catch (e) {
+      debugPrint('Error checking duplicate bill number: $e');
+      // On error, allow the upload (fail-open) but log it
+      return false;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // Show an info dialog when the bill number already exists.
+  // Upload is BLOCKED - user can only close.
+  // ═══════════════════════════════════════════════════════
+  Future<void> _showDuplicateBillBlockedDialog(String billNumber) async {
+    return await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _errorColor.withOpacity(0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.block, color: _errorColor, size: 22),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Bill Number Already Used',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Bill number "$billNumber" has already been used in an appliance sale for this shop.',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: _errorColor.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _errorColor.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.info_outline, color: _errorColor, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'This sale cannot be uploaded. Please select a different bill number.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _secondaryColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _errorColor,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 8,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text(
+                'OK',
+                style: TextStyle(fontSize: 13, color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void _uploadApplianceSale() async {
     if (_shopId == null || _shopName == null) {
       _showMessage('Shop information not found.');
@@ -1076,17 +1229,28 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
       return;
     }
 
-    if (_selectedBrand == null ||
-        _productModelController.text.isEmpty ||
-        _priceController.text.isEmpty ||
-        _selectedPurchaseMode == null ||
-        _getSelectedPrice() == 0) {
-      _showMessage('Please complete all required fields');
-      return;
+    // Collect all missing required fields with detailed messages
+    final List<String> missingFields = [];
+
+    if (_selectedBrand == null || _selectedBrand!.trim().isEmpty) {
+      missingFields.add('Brand');
+    }
+    if (_productModelController.text.trim().isEmpty) {
+      missingFields.add('Product Model');
+    }
+    if (_priceController.text.trim().isEmpty || _getSelectedPrice() <= 0) {
+      missingFields.add('Price');
+    }
+    if (_selectedPurchaseMode == null ||
+        _selectedPurchaseMode!.trim().isEmpty) {
+      missingFields.add('Purchase Mode');
+    }
+    if (_customerNameController.text.trim().isEmpty) {
+      missingFields.add('Customer Name');
     }
 
-    if (_customerNameController.text.isEmpty) {
-      _showMessage('Please enter customer name');
+    if (missingFields.isNotEmpty) {
+      _showMessage('Please fill: ${missingFields.join(', ')}');
       return;
     }
 
@@ -1210,6 +1374,29 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
       }
     }
 
+    // ═══════════════════════════════════════════════════════
+    // CHECK IF BILL NUMBER ALREADY EXISTS IN applianceSales
+    // Only check when a bill number is provided (not "Without Bill Number")
+    // If it exists, BLOCK the upload completely.
+    // ═══════════════════════════════════════════════════════
+    if (!_withoutBillNumber &&
+        _selectedBillNumber != null &&
+        _selectedBillNumber!.isNotEmpty) {
+      setState(() => _isLoading = true);
+
+      final bool alreadyExists = await _checkBillNumberAlreadyUsed(
+        _selectedBillNumber!,
+      );
+
+      setState(() => _isLoading = false);
+
+      if (alreadyExists) {
+        await _showDuplicateBillBlockedDialog(_selectedBillNumber!);
+        return;
+      }
+    }
+    // ═══════════════════════════════════════════════════════
+
     final shouldUpload = await _showConfirmationDialog();
     if (!shouldUpload) return;
 
@@ -1321,7 +1508,6 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
     final discount = (sale['discount'] as num?)?.toDouble() ?? 0.0;
     final exchange = (sale['exchangeValue'] as num?)?.toDouble() ?? 0.0;
     final customerCredit = (sale['customerCredit'] as num?)?.toDouble() ?? 0.0;
-    final effectivePrice = (sale['effectivePrice'] as num?)?.toDouble() ?? 0.0;
     final amountToPay = (sale['amountToPay'] as num?)?.toDouble() ?? 0.0;
     final balanceReturned =
         (sale['balanceReturnedToCustomer'] as num?)?.toDouble() ?? 0.0;
@@ -1747,6 +1933,7 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
   void _resetForm() {
     setState(() {
       _selectedBrand = null;
+      _brandController.clear();
       _selectedProductModel = null;
       _selectedPurchaseMode = null;
       _selectedPaymentBreakdown = PaymentBreakdown();
@@ -2485,13 +2672,10 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
   }
 
   Widget _buildBrandTextField() {
-    final TextEditingController brandController = TextEditingController();
-
-    if (_selectedBrand != null && brandController.text.isEmpty) {
-      brandController.text = _selectedBrand!.toUpperCase();
-    }
-
     final isEditable = _isFieldEditable('brand');
+
+    // Sync controller with selected brand
+    _syncBrandController();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2506,33 +2690,29 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
         ),
         const SizedBox(height: 4),
         Autocomplete<String>(
+          key: ValueKey('brand_${_selectedBrand ?? ''}'),
           optionsBuilder: (TextEditingValue textEditingValue) {
             if (textEditingValue.text.isEmpty) {
-              return const Iterable<String>.empty();
+              return _applianceBrands;
             }
             final searchTerm = textEditingValue.text.toLowerCase();
-            return _applianceBrands.where((brand) {
-              return brand.toLowerCase().contains(searchTerm);
-            });
+            return _applianceBrands.where(
+              (brand) => brand.toLowerCase().contains(searchTerm),
+            );
           },
           onSelected: isEditable
               ? (String selection) {
                   setState(() {
                     _selectedBrand = selection;
-                    brandController.text = selection.toUpperCase();
+                    _brandController.text = selection.toUpperCase();
                   });
                 }
               : null,
           fieldViewBuilder:
-              (
-                BuildContext context,
-                TextEditingController fieldController,
-                FocusNode focusNode,
-                VoidCallback onFieldSubmitted,
-              ) {
-                if (fieldController.text != brandController.text &&
-                    _selectedBrand != null) {
-                  fieldController.text = _selectedBrand!.toUpperCase();
+              (context, fieldController, focusNode, onFieldSubmitted) {
+                // Keep field controller in sync with our brand controller
+                if (fieldController.text != _brandController.text) {
+                  fieldController.text = _brandController.text;
                 }
 
                 return TextField(
@@ -2540,8 +2720,10 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
                   focusNode: focusNode,
                   enabled: isEditable,
                   onChanged: (value) {
-                    if (isEditable) {
-                      if (_selectedBrand != null) {
+                    _brandController.text = value;
+                    if (isEditable && _selectedBrand != null) {
+                      final currentUpper = _selectedBrand!.toUpperCase();
+                      if (value.toUpperCase() != currentUpper) {
                         setState(() {
                           _selectedBrand = null;
                         });
@@ -2566,7 +2748,7 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
                             onPressed: () {
                               setState(() {
                                 _selectedBrand = null;
-                                fieldController.clear();
+                                _brandController.clear();
                               });
                             },
                           )
@@ -2598,11 +2780,7 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
                 );
               },
           optionsViewBuilder:
-              (
-                BuildContext context,
-                AutocompleteOnSelected<String> onSelected,
-                Iterable<String> options,
-              ) {
+              (context, AutocompleteOnSelected<String> onSelected, options) {
                 return Align(
                   alignment: Alignment.topLeft,
                   child: Material(
@@ -2734,7 +2912,6 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
             ),
           ),
           const SizedBox(height: 10),
-
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -2790,7 +2967,6 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
               ],
             ),
           ),
-
           const SizedBox(height: 8),
           Container(
             width: double.infinity,
@@ -2852,7 +3028,6 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
 
   Widget _buildApplianceSaleForm() {
     final balanceReturned = _calculateBalanceReturned();
-    final amountToPay = _calculateAmountToPay();
     final price = _getSelectedPrice();
 
     return Column(
@@ -2873,7 +3048,7 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
               icon: Icons.person,
               iconColor: _primaryColor,
               keyboardType: TextInputType.text,
-              enabled: !_isAutofilledFromBill,
+              enabled: _isFieldEditable('customerName'),
             ),
             const SizedBox(height: 6),
             _buildAdditionalField(
@@ -2890,55 +3065,50 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
 
         const SizedBox(height: 10),
 
+        // Always show brand field
         _buildBrandTextField(),
         const SizedBox(height: 10),
 
-        if (_selectedBrand != null) ...[
-          _buildAdditionalField(
-            label: 'Product Model *',
-            controller: _productModelController,
-            hint: 'Enter appliance model',
-            icon: Icons.kitchen,
-            iconColor: _applianceColor,
-            keyboardType: TextInputType.text,
-            enabled: !_isAutofilledFromBill,
-            onChanged: (value) {
-              setState(() {
-                _selectedProductModel = value;
-              });
-            },
-          ),
-          const SizedBox(height: 10),
-        ],
+        // Always show Product Model field (not gated on brand)
+        _buildAdditionalField(
+          label: 'Product Model *',
+          controller: _productModelController,
+          hint: 'Enter appliance model',
+          icon: Icons.kitchen,
+          iconColor: _applianceColor,
+          keyboardType: TextInputType.text,
+          enabled: _isFieldEditable('productModel'),
+          onChanged: (value) {
+            setState(() {
+              _selectedProductModel = value.isEmpty ? null : value;
+            });
+          },
+        ),
+        const SizedBox(height: 10),
 
-        if (_selectedProductModel != null &&
-            _selectedProductModel!.isNotEmpty) ...[
-          _buildAdditionalField(
-            label: 'Serial Number / IMEI (Optional)',
-            controller: _imeiController,
-            hint: 'Enter serial number or IMEI',
-            icon: Icons.fingerprint,
-            iconColor: _purpleColor,
-            keyboardType: TextInputType.text,
-            enabled: !_isAutofilledFromBill,
-          ),
-          const SizedBox(height: 10),
-        ],
+        _buildAdditionalField(
+          label: 'Serial Number / IMEI (Optional)',
+          controller: _imeiController,
+          hint: 'Enter serial number or IMEI',
+          icon: Icons.fingerprint,
+          iconColor: _purpleColor,
+          keyboardType: TextInputType.text,
+          enabled: _isFieldEditable('imei'),
+        ),
+        const SizedBox(height: 10),
 
-        if (_selectedProductModel != null &&
-            _selectedProductModel!.isNotEmpty) ...[
-          _buildAdditionalField(
-            label: 'Price *',
-            controller: _priceController,
-            hint: 'Enter appliance price',
-            icon: Icons.attach_money,
-            iconColor: _primaryColor,
-            keyboardType: TextInputType.numberWithOptions(decimal: true),
-            enabled: !_isAutofilledFromBill,
-            onChanged: (value) => setState(() {}),
-          ),
-          const SizedBox(height: 10),
-        ],
+        // Always show Price field
+        _buildAdditionalField(
+          label: 'Price *',
+          controller: _priceController,
+          hint: 'Enter appliance price',
+          icon: Icons.attach_money,
+          iconColor: _primaryColor,
+          keyboardType: TextInputType.numberWithOptions(decimal: true),
+          enabled: _isFieldEditable('price'),
+          onChanged: (value) => setState(() {}),
+        ),
+        const SizedBox(height: 10),
 
         if (price > 0) ...[
           Container(
@@ -2983,7 +3153,9 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
                 child: Text(mode, style: const TextStyle(fontSize: 12)),
               );
             }).toList(),
-            onChanged: !_isAutofilledFromBill ? _onPurchaseModeSelected : null,
+            onChanged: _isFieldEditable('purchaseMode')
+                ? _onPurchaseModeSelected
+                : null,
             hint: 'Select purchase mode',
           ),
           const SizedBox(height: 10),
@@ -3189,7 +3361,7 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
                 child: Text(company, style: const TextStyle(fontSize: 12)),
               );
             }).toList(),
-            onChanged: !_isAutofilledFromBill
+            onChanged: _isFieldEditable('financeType')
                 ? (value) => setState(() => _selectedFinanceType = value)
                 : null,
             hint: 'Select finance company',
@@ -3476,7 +3648,6 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
     final exchange = double.tryParse(_exchangeController.text) ?? 0.0;
     final customerCredit =
         double.tryParse(_customerCreditController.text) ?? 0.0;
-    final amountToPay = _calculateAmountToPay();
     final balanceReturned = _calculateBalanceReturned();
 
     final downPayment = double.tryParse(_downPaymentController.text) ?? 0.0;
@@ -4149,6 +4320,15 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
     required ValueChanged<String?>? onChanged,
     required String hint,
   }) {
+    // Guard against value not present in items (Firestore data mismatch)
+    String? safeValue = value;
+    if (value != null) {
+      final exists = items.any((item) => item.value == value);
+      if (!exists) {
+        safeValue = null;
+      }
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -4168,7 +4348,7 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
             color: onChanged == null ? Colors.grey.shade50 : null,
           ),
           child: DropdownButtonFormField<String>(
-            value: value,
+            value: safeValue,
             items: items,
             onChanged: onChanged,
             decoration: InputDecoration(
@@ -4521,6 +4701,7 @@ class _ApplianceSaleUploadState extends State<ApplianceSaleUpload> {
     _perMonthEmiController.dispose();
     _loanIdController.dispose();
     _otherGiftController.dispose();
+    _brandController.dispose();
     super.dispose();
   }
 }

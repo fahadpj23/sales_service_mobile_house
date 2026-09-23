@@ -86,6 +86,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   final TextEditingController _billSearchController = TextEditingController();
   final FocusNode _billSearchFocusNode = FocusNode();
 
+  // Brand controller (persistent, not recreated every build)
+  final TextEditingController _brandController = TextEditingController();
+
   // Lists
   final List<String> _phoneBrands = [
     'samsung',
@@ -225,7 +228,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     _discountController.addListener(_updateCreditCardPayment);
     _priceController.addListener(_updatePrice);
 
-    // Initialize with empty values
     _downPaymentController.text = "";
     _numberOfEmiController.text = "";
     _perMonthEmiController.text = "";
@@ -243,7 +245,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
   bool get _isSamsungBrand => _selectedBrand?.toLowerCase() == 'samsung';
 
-  // Check if form is autofilled from bill (read-only mode for certain fields)
+  // Check if form is autofilled from bill
   bool get _isAutofilledFromBill =>
       _selectedBillNumber != null && !_withoutBillNumber;
 
@@ -251,7 +253,19 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   bool _isFieldEditable(String fieldName) {
     if (!_isAutofilledFromBill) return true;
 
-    // These fields should be editable even when bill is selected
+    // Always editable if the autofilled value is empty/missing
+    if (fieldName == 'brand' &&
+        (_selectedBrand == null || _selectedBrand!.isEmpty)) {
+      return true;
+    }
+    if (fieldName == 'productModel' &&
+        _productModelController.text.trim().isEmpty) {
+      return true;
+    }
+    if (fieldName == 'price' && _getSelectedPrice() <= 0) {
+      return true;
+    }
+
     final editableFields = [
       'exchange',
       'customerCredit',
@@ -275,6 +289,8 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       'dpCard',
       'dpCredit',
       'customerPhone',
+      'purchaseMode',
+      'financeType',
     ];
 
     return editableFields.contains(fieldName);
@@ -291,7 +307,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  // Get formatted gift list for display
   String get _formattedGiftList {
     if (_selectedGifts.isEmpty) return '';
     final gifts = _selectedGifts.where((g) => g.isNotEmpty).toList();
@@ -300,13 +315,11 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     return '${gifts.length} items: ${gifts.join(', ')}';
   }
 
-  // Get final gift value for database
   List<String>? get _finalGiftValues {
     if (_selectedGifts.isEmpty) return null;
     return _selectedGifts.where((g) => g.isNotEmpty).toList();
   }
 
-  // Toggle gift selection
   void _toggleGift(String giftName) {
     setState(() {
       if (giftName == 'Other') {
@@ -322,7 +335,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     });
   }
 
-  // Add custom gift
   void _addCustomGift() {
     if (_otherGiftController.text.trim().isNotEmpty) {
       setState(() {
@@ -333,15 +345,27 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  // Remove gift
   void _removeGift(String gift) {
     setState(() {
       _selectedGifts.remove(gift);
     });
   }
 
-  // Load bill numbers with proper sorting and debug info
-  // Load bill numbers with proper sorting and debug info
+  // Sync brand controller with _selectedBrand
+  void _syncBrandController() {
+    if (_selectedBrand != null) {
+      final displayValue = _selectedBrand!.toUpperCase();
+      if (_brandController.text != displayValue) {
+        _brandController.text = displayValue;
+      }
+    } else {
+      if (_brandController.text.isNotEmpty) {
+        _brandController.clear();
+      }
+    }
+  }
+
+  // Load bill numbers
   Future<void> _loadBillNumbers() async {
     try {
       setState(() => _loadingBills = true);
@@ -420,13 +444,13 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  // Clear all form data
   void _clearFormData() {
     setState(() {
       _customerNameController.clear();
       _customerPhoneController.clear();
       _imeiController.clear();
       _selectedBrand = null;
+      _brandController.clear();
       _productModelController.clear();
       _selectedProductModel = null;
       _priceController.clear();
@@ -463,7 +487,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     });
   }
 
-  // Autofill from bill - only fill non-editable fields
+  // Autofill from bill
   Future<void> _autofillFromBill(String? billNumber) async {
     if (billNumber == null || billNumber.isEmpty) {
       _showMessage('No bill number selected');
@@ -485,27 +509,22 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       debugPrint('=== BILL DATA STRUCTURE ===');
       debugPrint('All keys in bill: ${billData.keys.join(', ')}');
 
-      // CRITICAL: Clear ALL existing data first
       _clearFormData();
 
       final customerName = billData['customerName']?.toString() ?? '';
       final customerPhone = billData['customerMobile']?.toString() ?? '';
 
-      // Get serial number/IMEI
       String serialNumber = billData['serialNumber']?.toString() ?? '';
 
-      // Check for IMEI in phone bill
       if (serialNumber.isEmpty && billData.containsKey('imei')) {
         serialNumber = billData['imei']?.toString() ?? '';
       }
 
-      // Check for original data objects
       final originalPhoneData =
           billData['originalPhoneData'] as Map<String, dynamic>?;
       final originalTvData =
           billData['originalTvData'] as Map<String, dynamic>?;
 
-      // Determine product type
       final productType = billData['type']?.toString() ?? '';
       final isTv = productType.toLowerCase() == 'tv' || originalTvData != null;
       final isPhone =
@@ -514,123 +533,98 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               billData['productBrand'] != null) ||
           (billData.containsKey('imei') && billData['imei'] != null);
 
-      // Get bill date
       Timestamp? billDateTimestamp = billData['billDate'];
       DateTime? billDate = billDateTimestamp?.toDate();
 
       // === GET BRAND ===
       String? productBrand;
 
-      // For TV: check modelBrand from bill first
       if (billData.containsKey('modelBrand') &&
           billData['modelBrand'] != null) {
         productBrand = billData['modelBrand']?.toString();
-        debugPrint('Brand from bill.modelBrand: $productBrand');
       }
 
-      // For Phone: check productBrand from bill
       if ((productBrand == null || productBrand.isEmpty) &&
           billData.containsKey('productBrand') &&
           billData['productBrand'] != null) {
         productBrand = billData['productBrand']?.toString();
-        debugPrint('Brand from bill.productBrand: $productBrand');
       }
 
-      // Check originalTvData
       if ((productBrand == null || productBrand.isEmpty) &&
           originalTvData != null) {
         productBrand =
             originalTvData['modelBrand']?.toString() ??
             originalTvData['brand']?.toString() ??
             originalTvData['productBrand']?.toString();
-        debugPrint('Brand from originalTvData: $productBrand');
       }
 
-      // Check originalPhoneData
       if ((productBrand == null || productBrand.isEmpty) &&
           originalPhoneData != null) {
         productBrand =
             originalPhoneData['productBrand']?.toString() ??
             originalPhoneData['brand']?.toString() ??
             originalPhoneData['modelBrand']?.toString();
-        debugPrint('Brand from originalPhoneData: $productBrand');
       }
 
       // === GET MODEL ===
       String? productModel;
 
-      // For TV: check modelName from bill
       if (billData.containsKey('modelName') && billData['modelName'] != null) {
         productModel = billData['modelName']?.toString();
-        debugPrint('Model from bill.modelName: $productModel');
       }
 
-      // For Phone: check productName from bill
       if ((productModel == null || productModel.isEmpty) &&
           billData.containsKey('productName') &&
           billData['productName'] != null) {
         productModel = billData['productName']?.toString();
-        debugPrint('Model from bill.productName: $productModel');
       }
 
-      // Check originalTvData
       if ((productModel == null || productModel.isEmpty) &&
           originalTvData != null) {
         productModel =
             originalTvData['modelName']?.toString() ??
             originalTvData['productName']?.toString() ??
             originalTvData['model']?.toString();
-        debugPrint('Model from originalTvData: $productModel');
       }
 
-      // Check originalPhoneData
       if ((productModel == null || productModel.isEmpty) &&
           originalPhoneData != null) {
         productModel =
             originalPhoneData['productName']?.toString() ??
             originalPhoneData['modelName']?.toString() ??
             originalPhoneData['productModel']?.toString();
-        debugPrint('Model from originalPhoneData: $productModel');
       }
 
       // === GET PRICE ===
       double productPrice = 0.0;
 
-      // Check totalAmount (common for both)
       if (billData.containsKey('totalAmount') &&
           billData['totalAmount'] != null) {
         final priceValue = billData['totalAmount'];
         if (priceValue is num) productPrice = priceValue.toDouble();
-        debugPrint('Price from totalAmount: $productPrice');
       }
 
-      // Check modelPrice
       if (productPrice == 0 &&
           billData.containsKey('modelPrice') &&
           billData['modelPrice'] != null) {
         final priceValue = billData['modelPrice'];
         if (priceValue is num) productPrice = priceValue.toDouble();
-        debugPrint('Price from modelPrice: $productPrice');
       }
 
-      // Check originalTvData
       if (productPrice == 0 && originalTvData != null) {
         final priceValue =
             originalTvData['modelPrice'] ??
             originalTvData['price'] ??
             originalTvData['totalAmount'];
         if (priceValue is num) productPrice = priceValue.toDouble();
-        debugPrint('Price from originalTvData: $productPrice');
       }
 
-      // Check originalPhoneData
       if (productPrice == 0 && originalPhoneData != null) {
         final priceValue =
             originalPhoneData['productPrice'] ??
             originalPhoneData['modelPrice'] ??
             originalPhoneData['price'];
         if (priceValue is num) productPrice = priceValue.toDouble();
-        debugPrint('Price from originalPhoneData: $productPrice');
       }
 
       // === GET PURCHASE MODE ===
@@ -638,11 +632,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       if (billData.containsKey('purchaseMode') &&
           billData['purchaseMode'] != null) {
         purchaseMode = billData['purchaseMode']?.toString();
-        debugPrint('Purchase mode found: $purchaseMode');
       } else if (originalPhoneData != null &&
           originalPhoneData.containsKey('purchaseMode')) {
         purchaseMode = originalPhoneData['purchaseMode']?.toString();
-        debugPrint('Purchase mode from originalPhoneData: $purchaseMode');
       }
 
       // === GET FINANCE TYPE ===
@@ -650,7 +642,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       if (billData.containsKey('financeType') &&
           billData['financeType'] != null) {
         financeType = billData['financeType']?.toString();
-        debugPrint('Finance type found: $financeType');
       }
 
       // Get IMEI/serial number from original data if not found
@@ -667,33 +658,39 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         _imeiController.text = serialNumber;
 
         if (productBrand != null && productBrand.isNotEmpty) {
-          _selectedBrand = productBrand.toLowerCase();
-          debugPrint('Final brand set to: ${_selectedBrand}');
+          // Try to match with known phone brands (case-insensitive)
+          final brandLower = productBrand.toLowerCase();
+          String finalBrand = brandLower;
+          try {
+            final matched = _phoneBrands.firstWhere(
+              (b) => b.toLowerCase() == brandLower,
+            );
+            finalBrand = matched;
+          } catch (_) {
+            finalBrand = brandLower;
+          }
+          _selectedBrand = finalBrand;
+          _brandController.text = finalBrand.toUpperCase();
         } else {
-          debugPrint('No brand found in bill data');
           _selectedBrand = null;
+          _brandController.clear();
         }
 
         if (productModel != null && productModel.isNotEmpty) {
           _productModelController.text = productModel;
           _selectedProductModel = productModel;
-          debugPrint('Final product model set to: $productModel');
         } else {
-          debugPrint('No product model found in bill data');
           _productModelController.clear();
           _selectedProductModel = null;
         }
 
         if (productPrice > 0) {
           _priceController.text = productPrice.toStringAsFixed(2);
-          debugPrint('Price set to: ₹$productPrice');
         } else {
-          debugPrint('No price found in bill data');
           _priceController.clear();
         }
 
         if (purchaseMode != null && purchaseMode.isNotEmpty) {
-          debugPrint('Found purchaseMode in bill: $purchaseMode');
           String normalizedMode = purchaseMode;
           final lowerMode = purchaseMode.toLowerCase();
 
@@ -709,23 +706,16 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
           if (_purchaseModes.contains(normalizedMode)) {
             _selectedPurchaseMode = normalizedMode;
             _selectedPaymentBreakdown = PaymentBreakdown();
-            debugPrint('Set purchase mode to: $normalizedMode');
           } else {
-            debugPrint(
-              'Normalized mode "$normalizedMode" not in purchase modes list',
-            );
             _selectedPurchaseMode = null;
           }
         } else {
-          debugPrint('No purchaseMode found in bill data');
           _selectedPurchaseMode = null;
         }
 
         if (financeType != null && financeType.isNotEmpty) {
-          debugPrint('Found financeType in bill: $financeType');
           if (_financeCompaniesList.contains(financeType)) {
             _selectedFinanceType = financeType;
-            debugPrint('Set finance type to: $financeType');
           } else {
             final matchedFinance = _financeCompaniesList.firstWhere(
               (company) => company.toLowerCase().contains(
@@ -735,20 +725,16 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
             );
             if (matchedFinance.isNotEmpty) {
               _selectedFinanceType = matchedFinance;
-              debugPrint('Set finance type to (matched): $matchedFinance');
             } else {
               _selectedFinanceType = financeType;
-              debugPrint('Set finance type to (original): $financeType');
             }
           }
         } else {
-          debugPrint('No financeType found in bill data');
           _selectedFinanceType = null;
         }
 
         if (billDate != null) {
           _saleDate = billDate;
-          debugPrint('Set sale date to: $billDate');
         }
       });
 
@@ -784,26 +770,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       autofillMessage +=
           '\n\nNote: You can edit Exchange, Credit, Discount, Gifts, and other payment fields.';
 
-      debugPrint('=== Bill Autofill Summary ===');
-      debugPrint('Bill Number: $billNumber');
-      debugPrint(
-        'Product Type: ${isTv ? "TV" : (isPhone ? "Phone" : "Unknown")}',
-      );
-      debugPrint('Brand Found: ${productBrand ?? "NO"}');
-      debugPrint('Model Found: ${productModel ?? "NO"}');
-      debugPrint(
-        'Price Found: ${productPrice > 0 ? "YES (₹$productPrice)" : "NO"}',
-      );
-      debugPrint(
-        'Customer Name Found: ${customerName.isNotEmpty ? "YES" : "NO"}',
-      );
-      debugPrint('Purchase Mode Found: ${purchaseMode ?? "NO"}');
-      debugPrint('Finance Type Found: ${financeType ?? "NO"}');
-      debugPrint(
-        'Serial/IMEI Found: ${serialNumber.isNotEmpty ? "YES" : "NO"}',
-      );
-      debugPrint('===========================');
-
       _showMessage(autofillMessage, isError: missingFields.isNotEmpty);
     } catch (e) {
       debugPrint('Error autofilling data: $e');
@@ -812,7 +778,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  // Fetch shop details from Mobile_house_Shops collection
   Future<void> _getShopDetails() async {
     try {
       if (_shopId == null) return;
@@ -964,7 +929,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         _selectedFinanceType = null;
       }
 
-      // Keep default zero values
       _discountController.text = "0";
       _exchangeController.text = "0";
       _customerCreditController.text = "0";
@@ -972,20 +936,17 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       _upgradeController.text = "0";
       _supportController.text = "0";
 
-      // EMI fields
       _numberOfEmiController.text = "";
       _perMonthEmiController.text = "";
       _loanIdController.clear();
       _autoDebit = false;
       _insurance = false;
 
-      // Gift fields
       _selectedGifts.clear();
       _isOtherGift = false;
       _otherGiftController.clear();
       _showGiftDropdown = false;
 
-      // Reset payment breakdown controllers with zero
       _rcCashController.text = "0";
       _rcGpayController.text = "0";
       _rcCardController.text = "0";
@@ -1006,20 +967,17 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     });
   }
 
-  // Clear last sale data
   void _clearLastSaleData() {
     setState(() {
       _lastSaleData = null;
     });
   }
 
-  // Show share popup after successful upload
   void _showSharePopup() {
     if (_lastSaleData == null) return;
 
     final purchaseMode = _lastSaleData!['purchaseMode']?.toString() ?? '';
     final isEmiMode = purchaseMode == 'EMI';
-    final isReadyCashMode = purchaseMode == 'Ready Cash';
 
     showDialog(
       context: context,
@@ -1104,7 +1062,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     );
   }
 
-  // Show share options dialog
   Future<void> _showShareOptionsDialog() async {
     if (_lastSaleData == null) return;
 
@@ -1189,16 +1146,130 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     );
   }
 
-  // Replace the _buildDropdown for brand with this new method
-  Widget _buildBrandTextField() {
-    final TextEditingController brandController = TextEditingController();
+  // ═══════════════════════════════════════════════════════
+  // Check if bill number already exists in phoneSales
+  // ═══════════════════════════════════════════════════════
+  Future<bool> _checkBillNumberAlreadyUsed(String billNumber) async {
+    try {
+      if (_shopId == null) return false;
 
-    // Set initial value if brand is selected
-    if (_selectedBrand != null && brandController.text.isEmpty) {
-      brandController.text = _selectedBrand!.toUpperCase();
+      debugPrint(
+        'Checking duplicate bill number: $billNumber for shop: $_shopId',
+      );
+
+      final querySnapshot = await _firestore
+          .collection('phoneSales')
+          .where('shopId', isEqualTo: _shopId)
+          .where('billNumber', isEqualTo: billNumber)
+          .limit(1)
+          .get();
+
+      debugPrint('Duplicate check found ${querySnapshot.docs.length} matches');
+
+      return querySnapshot.docs.isNotEmpty;
+    } catch (e) {
+      debugPrint('Error checking duplicate bill number: $e');
+      return false;
     }
+  }
 
+  // ═══════════════════════════════════════════════════════
+  // Show blocked dialog when bill number already exists
+  // ═══════════════════════════════════════════════════════
+  Future<void> _showDuplicateBillBlockedDialog(String billNumber) async {
+    return await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _errorColor.withOpacity(0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.block, color: _errorColor, size: 22),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Bill Number Already Used',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Bill number "$billNumber" has already been used in a phone sale for this shop.',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: _errorColor.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _errorColor.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.info_outline, color: _errorColor, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'This sale cannot be uploaded. Please select a different bill number.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _secondaryColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _errorColor,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 8,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text(
+                'OK',
+                style: TextStyle(fontSize: 13, color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildBrandTextField() {
     final isEditable = _isFieldEditable('brand');
+
+    // Sync controller with selected brand
+    _syncBrandController();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1213,20 +1284,21 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         ),
         const SizedBox(height: 4),
         Autocomplete<String>(
+          key: ValueKey('brand_${_selectedBrand ?? ''}'),
           optionsBuilder: (TextEditingValue textEditingValue) {
             if (textEditingValue.text.isEmpty) {
-              return const Iterable<String>.empty();
+              return _phoneBrands;
             }
             final searchTerm = textEditingValue.text.toLowerCase();
-            return _phoneBrands.where((brand) {
-              return brand.toLowerCase().contains(searchTerm);
-            });
+            return _phoneBrands.where(
+              (brand) => brand.toLowerCase().contains(searchTerm),
+            );
           },
           onSelected: isEditable
               ? (String selection) {
                   setState(() {
                     _selectedBrand = selection;
-                    brandController.text = selection.toUpperCase();
+                    _brandController.text = selection.toUpperCase();
                     if (!_isSamsungBrand) {
                       _upgradeController.text = "0";
                       _supportController.text = "0";
@@ -1235,15 +1307,10 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 }
               : null,
           fieldViewBuilder:
-              (
-                BuildContext context,
-                TextEditingController fieldController,
-                FocusNode focusNode,
-                VoidCallback onFieldSubmitted,
-              ) {
-                if (fieldController.text != brandController.text &&
-                    _selectedBrand != null) {
-                  fieldController.text = _selectedBrand!.toUpperCase();
+              (context, fieldController, focusNode, onFieldSubmitted) {
+                // Keep field controller in sync with our brand controller
+                if (fieldController.text != _brandController.text) {
+                  fieldController.text = _brandController.text;
                 }
 
                 return TextField(
@@ -1251,8 +1318,10 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                   focusNode: focusNode,
                   enabled: isEditable,
                   onChanged: (value) {
-                    if (isEditable) {
-                      if (_selectedBrand != null) {
+                    _brandController.text = value;
+                    if (isEditable && _selectedBrand != null) {
+                      final currentUpper = _selectedBrand!.toUpperCase();
+                      if (value.toUpperCase() != currentUpper) {
                         setState(() {
                           _selectedBrand = null;
                         });
@@ -1277,7 +1346,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                             onPressed: () {
                               setState(() {
                                 _selectedBrand = null;
-                                fieldController.clear();
+                                _brandController.clear();
                               });
                             },
                           )
@@ -1306,11 +1375,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 );
               },
           optionsViewBuilder:
-              (
-                BuildContext context,
-                AutocompleteOnSelected<String> onSelected,
-                Iterable<String> options,
-              ) {
+              (context, AutocompleteOnSelected<String> onSelected, options) {
                 return Align(
                   alignment: Alignment.topLeft,
                   child: Material(
@@ -1373,7 +1438,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     );
   }
 
-  // Build share option button
   Widget _buildShareOption({
     required IconData icon,
     required String label,
@@ -1422,17 +1486,28 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       return;
     }
 
-    if (_selectedBrand == null ||
-        _productModelController.text.isEmpty ||
-        _priceController.text.isEmpty ||
-        _selectedPurchaseMode == null ||
-        _getSelectedPrice() == 0) {
-      _showMessage('Please complete all required fields');
-      return;
+    // Collect all missing required fields with detailed messages
+    final List<String> missingFields = [];
+
+    if (_selectedBrand == null || _selectedBrand!.trim().isEmpty) {
+      missingFields.add('Brand');
+    }
+    if (_productModelController.text.trim().isEmpty) {
+      missingFields.add('Product Model');
+    }
+    if (_priceController.text.trim().isEmpty || _getSelectedPrice() <= 0) {
+      missingFields.add('Price');
+    }
+    if (_selectedPurchaseMode == null ||
+        _selectedPurchaseMode!.trim().isEmpty) {
+      missingFields.add('Purchase Mode');
+    }
+    if (_customerNameController.text.trim().isEmpty) {
+      missingFields.add('Customer Name');
     }
 
-    if (_customerNameController.text.isEmpty) {
-      _showMessage('Please enter customer name');
+    if (missingFields.isNotEmpty) {
+      _showMessage('Please fill: ${missingFields.join(', ')}');
       return;
     }
 
@@ -1556,6 +1631,27 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       }
     }
 
+    // ═══════════════════════════════════════════════════════
+    // CHECK IF BILL NUMBER ALREADY EXISTS IN phoneSales
+    // ═══════════════════════════════════════════════════════
+    if (!_withoutBillNumber &&
+        _selectedBillNumber != null &&
+        _selectedBillNumber!.isNotEmpty) {
+      setState(() => _isLoading = true);
+
+      final bool alreadyExists = await _checkBillNumberAlreadyUsed(
+        _selectedBillNumber!,
+      );
+
+      setState(() => _isLoading = false);
+
+      if (alreadyExists) {
+        await _showDuplicateBillBlockedDialog(_selectedBillNumber!);
+        return;
+      }
+    }
+    // ═══════════════════════════════════════════════════════
+
     final shouldUpload = await _showConfirmationDialog();
     if (!shouldUpload) return;
 
@@ -1570,14 +1666,12 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         return;
       }
 
-      // STORE ALL NECESSARY DATA BEFORE RESETTING
       final customerName = _customerNameController.text;
       final customerPhone = _customerPhoneController.text;
       final isEmiMode = _selectedPurchaseMode == 'EMI';
       final isReadyCashMode = _selectedPurchaseMode == 'Ready Cash';
       final isCreditCardMode = _selectedPurchaseMode == 'Credit Card';
 
-      // Fetch shop details for WhatsApp number
       await _getShopDetails();
 
       final upgradeValue = _isSamsungBrand
@@ -1639,19 +1733,15 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
       await _firestore.collection('phoneSales').add(salesData);
 
-      // Store last sale data for sharing
       setState(() {
         _lastSaleData = {...salesData, 'customerPhone': customerPhone};
       });
 
       _showMessage('✓ Phone sale uploaded successfully!', isError: false);
 
-      // Show share popup for all purchase modes
       if (isEmiMode || isReadyCashMode || isCreditCardMode) {
-        // Reset form but keep lastSaleData
         _resetForm();
 
-        // Show popup after a short delay
         Future.delayed(const Duration(milliseconds: 500), () {
           _showSharePopup();
         });
@@ -1666,7 +1756,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     setState(() => _isLoading = false);
   }
 
-  // Generate sale details message for sharing
   String _generateEmiShareMessage() {
     if (_lastSaleData == null) return '';
 
@@ -1681,7 +1770,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     final discount = (sale['discount'] as num?)?.toDouble() ?? 0.0;
     final exchange = (sale['exchangeValue'] as num?)?.toDouble() ?? 0.0;
     final customerCredit = (sale['customerCredit'] as num?)?.toDouble() ?? 0.0;
-    final effectivePrice = (sale['effectivePrice'] as num?)?.toDouble() ?? 0.0;
     final amountToPay = (sale['amountToPay'] as num?)?.toDouble() ?? 0.0;
     final balanceReturned =
         (sale['balanceReturnedToCustomer'] as num?)?.toDouble() ?? 0.0;
@@ -1690,7 +1778,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     final customerPhone = sale['customerPhone']?.toString() ?? '';
     final gifts = sale['giftsList']?.toString() ?? '';
 
-    // Get payment breakdown
     final paymentBreakdown =
         sale['paymentBreakdown'] as Map<String, dynamic>? ?? {};
     final cashAmount = (paymentBreakdown['cash'] as num?)?.toDouble() ?? 0.0;
@@ -1699,7 +1786,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     final creditAmount =
         (paymentBreakdown['credit'] as num?)?.toDouble() ?? 0.0;
 
-    // EMI specific fields
     final downPayment = (sale['downPayment'] as num?)?.toDouble() ?? 0.0;
     final numberOfEmi = sale['numberOfEmi'] ?? 0;
     final perMonthEmi = (sale['perMonthEmi'] as num?)?.toDouble() ?? 0.0;
@@ -1748,7 +1834,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       buffer.writeln(' Down Payment : ₹${downPayment.toStringAsFixed(0)}');
     }
 
-    // Add payment breakdown
     if (cashAmount > 0 ||
         gpayAmount > 0 ||
         cardAmount > 0 ||
@@ -1829,7 +1914,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     return buffer.toString();
   }
 
-  // Share via intent
   void _shareViaIntent(String message) async {
     try {
       await Share.share(message);
@@ -1838,7 +1922,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  // Share to WhatsApp
   void _shareToWhatsApp(String message) async {
     try {
       String customerPhone = '';
@@ -2137,6 +2220,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   void _resetForm() {
     setState(() {
       _selectedBrand = null;
+      _brandController.clear();
       _selectedProductModel = null;
       _selectedPurchaseMode = null;
       _selectedPaymentBreakdown = PaymentBreakdown();
@@ -2264,7 +2348,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  // Build gift selection widget
   Widget _buildGiftSelection() {
     final isEditable = _isFieldEditable('gifts');
 
@@ -2466,7 +2549,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     );
   }
 
-  // Bill number field with better refresh and autofill button
   Widget _buildBillNumberField() {
     if (_shopId == null) {
       return Container(
@@ -2546,7 +2628,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                   if (_withoutBillNumber) {
                     _selectedBillNumber = null;
                     _billSearchController.clear();
-                    // Clear form data when switching to without bill
                     _clearFormData();
                   }
                 });
@@ -2629,7 +2710,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                                   setState(() {
                                     _selectedBillNumber = null;
                                     _billSearchController.clear();
-                                    // Clear form data when changing bill
                                     _clearFormData();
                                   });
                                 }
@@ -2647,7 +2727,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                                 setState(() {
                                   _selectedBillNumber = null;
                                   _billSearchController.clear();
-                                  // Clear form data when clearing bill selection
                                   _clearFormData();
                                 });
                               },
@@ -2703,7 +2782,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                                     _selectedBillNumber = billNumber;
                                     _billSearchController.text = billNumber;
                                   });
-                                  // Use a short delay to ensure state is updated
                                   Future.delayed(Duration.zero, () {
                                     _autofillFromBill(billNumber);
                                   });
@@ -2783,9 +2861,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                               'Re-autofilling data from bill...',
                               isError: false,
                             );
-                            // Clear old data before re-autofilling
                             _clearFormData();
-                            // Small delay to ensure clear completes
                             await Future.delayed(
                               const Duration(milliseconds: 50),
                             );
@@ -2881,7 +2957,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     );
   }
 
-  // Loan ID field
   Widget _buildLoanIdField() {
     final isEditable = _isFieldEditable('loanId');
 
@@ -2929,7 +3004,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     );
   }
 
-  // Auto Debit and Insurance selection
   Widget _buildLoanOptions() {
     final isEditable = _isFieldEditable('autoDebit');
 
@@ -2953,7 +3027,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
           ),
           const SizedBox(height: 10),
 
-          // Auto Debit
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -3011,7 +3084,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
           ),
 
           const SizedBox(height: 8),
-          // Insurance
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -3072,7 +3144,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
   Widget _buildPhoneSaleForm() {
     final balanceReturned = _calculateBalanceReturned();
-    final amountToPay = _calculateAmountToPay();
     final price = _getSelectedPrice();
 
     return Column(
@@ -3093,8 +3164,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               icon: Icons.person,
               iconColor: _primaryColor,
               keyboardType: TextInputType.text,
-              enabled:
-                  !_isAutofilledFromBill, // Non-editable when bill selected
+              enabled: _isFieldEditable('customerName'),
             ),
             const SizedBox(height: 6),
             _buildAdditionalField(
@@ -3104,73 +3174,65 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               icon: Icons.phone,
               iconColor: _primaryColor,
               keyboardType: TextInputType.phone,
-              enabled: _isFieldEditable(
-                'customerPhone',
-              ), // Editable even with bill
+              enabled: _isFieldEditable('customerPhone'),
             ),
           ],
         ),
 
         const SizedBox(height: 10),
 
-        // Brand selection - disabled when autofilled
+        // Always show brand field
         _buildBrandTextField(),
         const SizedBox(height: 10),
 
-        if (_selectedBrand != null) ...[
-          _buildAdditionalField(
-            label: 'Product Model *',
-            controller: _productModelController,
-            hint: 'Enter phone model (e.g., iPhone 15 Pro, Galaxy S23)',
-            icon: Icons.phone_android,
-            iconColor: _primaryColor,
-            keyboardType: TextInputType.text,
-            enabled: !_isAutofilledFromBill, // Non-editable when bill selected
-            onChanged: (value) {
-              setState(() {
-                _selectedProductModel = value;
-              });
-            },
-          ),
-          const SizedBox(height: 10),
-        ],
+        // Always show Product Model field (not gated on brand)
+        _buildAdditionalField(
+          label: 'Product Model *',
+          controller: _productModelController,
+          hint: 'Enter phone model (e.g., iPhone 15 Pro, Galaxy S23)',
+          icon: Icons.phone_android,
+          iconColor: _primaryColor,
+          keyboardType: TextInputType.text,
+          enabled: _isFieldEditable('productModel'),
+          onChanged: (value) {
+            setState(() {
+              _selectedProductModel = value.isEmpty ? null : value;
+            });
+          },
+        ),
+        const SizedBox(height: 10),
 
-        if (_selectedProductModel != null &&
-            _selectedProductModel!.isNotEmpty) ...[
-          _buildAdditionalField(
-            label: 'IMEI Number (Optional)',
-            controller: _imeiController,
-            hint: 'Enter 15-digit IMEI number',
-            icon: Icons.fingerprint,
-            iconColor: _purpleColor,
-            keyboardType: TextInputType.number,
-            enabled: !_isAutofilledFromBill, // Non-editable when bill selected
-            onChanged: (value) {
-              if (value.length > 15) {
-                _imeiController.text = value.substring(0, 15);
-                _imeiController.selection = TextSelection.fromPosition(
-                  TextPosition(offset: _imeiController.text.length),
-                );
-              }
-            },
-          ),
-          const SizedBox(height: 10),
-        ],
+        _buildAdditionalField(
+          label: 'IMEI Number (Optional)',
+          controller: _imeiController,
+          hint: 'Enter 15-digit IMEI number',
+          icon: Icons.fingerprint,
+          iconColor: _purpleColor,
+          keyboardType: TextInputType.number,
+          enabled: _isFieldEditable('imei'),
+          onChanged: (value) {
+            if (value.length > 15) {
+              _imeiController.text = value.substring(0, 15);
+              _imeiController.selection = TextSelection.fromPosition(
+                TextPosition(offset: _imeiController.text.length),
+              );
+            }
+          },
+        ),
+        const SizedBox(height: 10),
 
-        if (_selectedProductModel != null &&
-            _selectedProductModel!.isNotEmpty) ...[
-          _buildAdditionalField(
-            label: 'Price *',
-            controller: _priceController,
-            hint: 'Enter phone price',
-            icon: Icons.attach_money,
-            iconColor: _primaryColor,
-            keyboardType: TextInputType.numberWithOptions(decimal: true),
-            enabled: !_isAutofilledFromBill, // Non-editable when bill selected
-            onChanged: (value) => setState(() {}),
-          ),
-          const SizedBox(height: 10),
-        ],
+        // Always show Price field
+        _buildAdditionalField(
+          label: 'Price *',
+          controller: _priceController,
+          hint: 'Enter phone price',
+          icon: Icons.attach_money,
+          iconColor: _primaryColor,
+          keyboardType: TextInputType.numberWithOptions(decimal: true),
+          enabled: _isFieldEditable('price'),
+          onChanged: (value) => setState(() {}),
+        ),
+        const SizedBox(height: 10),
 
         if (price > 0) ...[
           Container(
@@ -3215,9 +3277,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 child: Text(mode, style: const TextStyle(fontSize: 12)),
               );
             }).toList(),
-            onChanged: !_isAutofilledFromBill
+            onChanged: _isFieldEditable('purchaseMode')
                 ? _onPurchaseModeSelected
-                : null, // Non-editable when bill selected
+                : null,
             hint: 'Select purchase mode',
           ),
           const SizedBox(height: 10),
@@ -3423,9 +3485,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 child: Text(company, style: const TextStyle(fontSize: 12)),
               );
             }).toList(),
-            onChanged: !_isAutofilledFromBill
+            onChanged: _isFieldEditable('financeType')
                 ? (value) => setState(() => _selectedFinanceType = value)
-                : null, // Non-editable when bill selected
+                : null,
             hint: 'Select finance company',
           ),
           const SizedBox(height: 10),
@@ -4676,6 +4738,15 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     required ValueChanged<String?>? onChanged,
     required String hint,
   }) {
+    // Guard against value not present in items
+    String? safeValue = value;
+    if (value != null) {
+      final exists = items.any((item) => item.value == value);
+      if (!exists) {
+        safeValue = null;
+      }
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -4695,7 +4766,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
             color: onChanged == null ? Colors.grey.shade50 : null,
           ),
           child: DropdownButtonFormField<String>(
-            value: value,
+            value: safeValue,
             items: items,
             onChanged: onChanged,
             decoration: InputDecoration(
@@ -5093,6 +5164,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     _perMonthEmiController.dispose();
     _loanIdController.dispose();
     _otherGiftController.dispose();
+    _brandController.dispose();
     super.dispose();
   }
 }

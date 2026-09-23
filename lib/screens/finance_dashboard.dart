@@ -246,6 +246,9 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     }
   }
 
+  // ══════════════════════════════════════════════════════════════════════
+  // TV SALES — now loading from 'tvSales' collection
+  // ══════════════════════════════════════════════════════════════════════
   Future<void> _loadTvSales() async {
     if (_tvLoaded) return;
     setState(() {
@@ -253,10 +256,8 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     });
 
     try {
-      // Fetch TV bills from bills collection where type == 'tv'
       final querySnapshot = await _firestore
-          .collection('bills')
-          .where('type', isEqualTo: 'tv')
+          .collection('tvSales')
           .limit(200)
           .get();
 
@@ -265,14 +266,29 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
         data['id'] = doc.id;
         data['paymentVerified'] = data['paymentVerified'] ?? false;
 
-        // Extract serial number from originalTvData if available
-        if (data['originalTvData'] != null) {
+        // Support both direct fields and nested 'product' map
+        if (data['product'] != null && data['product'] is Map) {
+          final product = data['product'] as Map<String, dynamic>;
+          data['serialNumber'] =
+              product['serialNumber'] ?? data['serialNumber'];
+          data['modelBrand'] =
+              product['modelBrand'] ?? product['brand'] ?? data['modelBrand'];
+          data['modelName'] =
+              product['modelName'] ??
+              product['productName'] ??
+              data['modelName'];
+          data['modelPrice'] =
+              product['modelPrice'] ?? product['price'] ?? data['modelPrice'];
+        }
+
+        // Also pull from originalTvData if present (legacy)
+        if (data['originalTvData'] != null && data['originalTvData'] is Map) {
           final originalData = data['originalTvData'] as Map<String, dynamic>;
           data['serialNumber'] =
-              originalData['serialNumber'] ?? data['serialNumber'];
-          data['modelBrand'] = originalData['modelBrand'] ?? data['modelBrand'];
-          data['modelName'] = originalData['modelName'] ?? data['modelName'];
-          data['modelPrice'] = originalData['modelPrice'] ?? data['modelPrice'];
+              data['serialNumber'] ?? originalData['serialNumber'];
+          data['modelBrand'] = data['modelBrand'] ?? originalData['modelBrand'];
+          data['modelName'] = data['modelName'] ?? originalData['modelName'];
+          data['modelPrice'] = data['modelPrice'] ?? originalData['modelPrice'];
         }
 
         _initializeGenericPaymentData(data);
@@ -280,10 +296,12 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       }).toList();
 
       _tvSales.sort((a, b) {
-        final aDate =
-            a['billDate'] as Timestamp? ?? a['createdAt'] as Timestamp?;
-        final bDate =
-            b['billDate'] as Timestamp? ?? b['createdAt'] as Timestamp?;
+        final aDate = _parseDate(
+          a['saleDate'] ?? a['billDate'] ?? a['createdAt'],
+        );
+        final bDate = _parseDate(
+          b['saleDate'] ?? b['billDate'] ?? b['createdAt'],
+        );
         if (aDate == null && bDate == null) return 0;
         if (aDate == null) return 1;
         if (bDate == null) return -1;
@@ -305,6 +323,10 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     }
   }
 
+  // ══════════════════════════════════════════════════════════════════════
+  // APPLIANCE SALES — now loading from 'applianceSales' collection
+  // (matches what ApplianceSaleUpload writes)
+  // ══════════════════════════════════════════════════════════════════════
   Future<void> _loadApplianceSales() async {
     if (_applianceLoaded) return;
     setState(() {
@@ -312,56 +334,36 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     });
 
     try {
-      // Fetch Appliance bills from bills collection where billType is 'Appliances' or 'appliances'
       final querySnapshot = await _firestore
-          .collection('bills')
-          .where('billType', isEqualTo: 'appliances')
+          .collection('applianceSales')
           .limit(200)
           .get();
 
-      // Also fetch 'appliances' billType (with 'a' at the end)
-      final querySnapshot2 = await _firestore
-          .collection('bills')
-          .where('billType', isEqualTo: 'appliances')
-          .limit(200)
-          .get();
-
-      // Also fetch 'Appliance' billType
-      final querySnapshot3 = await _firestore
-          .collection('bills')
-          .where('billType', isEqualTo: 'Appliance')
-          .limit(200)
-          .get();
-
-      // Combine all results
-      final allDocs = <QueryDocumentSnapshot>[];
-      allDocs.addAll(querySnapshot.docs);
-      allDocs.addAll(querySnapshot2.docs);
-      allDocs.addAll(querySnapshot3.docs);
-
-      // Remove duplicates by id
-      final uniqueDocs = <String, QueryDocumentSnapshot>{};
-      for (var doc in allDocs) {
-        if (!uniqueDocs.containsKey(doc.id)) {
-          uniqueDocs[doc.id] = doc;
-        }
-      }
-
-      _applianceSales = uniqueDocs.values.map((doc) {
+      _applianceSales = querySnapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
         data['paymentVerified'] = data['paymentVerified'] ?? false;
 
-        // Extract product details from 'product' map if available
-        if (data['product'] != null) {
-          final product = data['product'] as Map<String, dynamic>;
-          data['productName'] = product['productName'] ?? data['productName'];
-          data['quantity'] = product['quantity'] ?? data['quantity'];
-          data['price'] = product['price'] ?? data['price'];
-          data['discount'] = product['discount'] ?? data['discount'];
-          data['taxableAmount'] =
-              product['taxableAmount'] ?? data['taxableAmount'];
-          data['gstAmount'] = product['gstAmount'] ?? data['gstAmount'];
+        // ApplianceSaleUpload writes flat fields directly:
+        //   brand, productModel, imei, price, discount, effectivePrice,
+        //   purchaseMode, paymentBreakdown, financeType, gifts, giftsList,
+        //   giftsCount, exchangeValue, customerCredit, amountToPay,
+        //   balanceReturnedToCustomer, customerName, customerPhone,
+        //   billNumber, saleDate, shopId, shopName, saleType
+        //
+        // Normalize a few things so downstream code keeps working:
+        data['productName'] = data['productModel'] ?? data['productName'] ?? '';
+        data['customerMobile'] =
+            data['customerPhone'] ?? data['customerMobile'] ?? '';
+
+        // If paymentBreakdown map is present, mirror it under
+        // paymentBreakdownVerified-friendly defaults so GenericPaymentDialog
+        // can pick it up if needed.
+        if (data['paymentBreakdown'] is Map) {
+          final pb = data['paymentBreakdown'] as Map<String, dynamic>;
+          data['cashAmount'] = (pb['cash'] as num?)?.toDouble() ?? 0;
+          data['cardAmount'] = (pb['card'] as num?)?.toDouble() ?? 0;
+          data['gpayAmount'] = (pb['gpay'] as num?)?.toDouble() ?? 0;
         }
 
         _initializeGenericPaymentData(data);
@@ -369,10 +371,12 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       }).toList();
 
       _applianceSales.sort((a, b) {
-        final aDate =
-            a['billDate'] as Timestamp? ?? a['createdAt'] as Timestamp?;
-        final bDate =
-            b['billDate'] as Timestamp? ?? b['createdAt'] as Timestamp?;
+        final aDate = _parseDate(
+          a['saleDate'] ?? a['billDate'] ?? a['createdAt'],
+        );
+        final bDate = _parseDate(
+          b['saleDate'] ?? b['billDate'] ?? b['createdAt'],
+        );
         if (aDate == null && bDate == null) return 0;
         if (aDate == null) return 1;
         if (bDate == null) return -1;
@@ -598,15 +602,36 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       ]);
     } else if (collection == 'base_model_sale' ||
         collection == 'seconds_phone_sale' ||
-        collection == 'bills') {
-      cashAmount = _extractAmount(sale, ['cash', 'cashAmount', 'cashPayment']);
-      cardAmount = _extractAmount(sale, ['card', 'cardAmount', 'cardPayment']);
-      gpayAmount = _extractAmount(sale, [
-        'gpay',
-        'gpayAmount',
-        'upiAmount',
-        'upi',
-      ]);
+        collection == 'applianceSales' ||
+        collection == 'tvSales') {
+      // ApplianceSaleUpload and TV sale uploaders store a 'paymentBreakdown'
+      // map with cash/gpay/card/credit. Check for that first.
+      final pb = sale['paymentBreakdown'];
+      if (pb is Map) {
+        cashAmount = _extractAmount(pb, ['cash']);
+        cardAmount = _extractAmount(pb, ['card']);
+        gpayAmount = _extractAmount(pb, ['gpay']);
+      }
+
+      // Fall back to flat fields if breakdown missing
+      if (cashAmount == 0 && cardAmount == 0 && gpayAmount == 0) {
+        cashAmount = _extractAmount(sale, [
+          'cash',
+          'cashAmount',
+          'cashPayment',
+        ]);
+        cardAmount = _extractAmount(sale, [
+          'card',
+          'cardAmount',
+          'cardPayment',
+        ]);
+        gpayAmount = _extractAmount(sale, [
+          'gpay',
+          'gpayAmount',
+          'upiAmount',
+          'upi',
+        ]);
+      }
     }
 
     return {'cash': cashAmount, 'card': cardAmount, 'gpay': gpayAmount};
@@ -820,8 +845,24 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           });
         }
         break;
+      case 'applianceSales':
+        final index = _applianceSales.indexWhere((sale) => sale['id'] == docId);
+        if (index != -1) {
+          setState(() {
+            _applianceSales[index].addAll(updates);
+          });
+        }
+        break;
+      case 'tvSales':
+        final index = _tvSales.indexWhere((sale) => sale['id'] == docId);
+        if (index != -1) {
+          setState(() {
+            _tvSales[index].addAll(updates);
+          });
+        }
+        break;
       case 'bills':
-        // For TV and Appliance bills
+        // Legacy fallback — if any old records still live in 'bills'
         int tvIndex = _tvSales.indexWhere((sale) => sale['id'] == docId);
         if (tvIndex != -1) {
           setState(() {
@@ -899,23 +940,41 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     String description = '';
     double amount = 0;
     dynamic date;
+    String category = '';
 
     if (collection == 'seconds_phone_sale') {
       type = '2nd Hand Phone';
       description = sale['productName'] ?? '';
       amount = _getTotalAmount(sale);
       date = sale['date'] ?? sale['timestamp'];
+      category = 'seconds';
     } else if (collection == 'base_model_sale') {
       type = 'Base Model';
       description = sale['modelName'] ?? '';
       amount = _getTotalAmount(sale);
       date = sale['date'] ?? sale['timestamp'];
+      category = 'base_model';
     } else if (collection == 'accessories_service_sales') {
       type = 'Accessory/Service';
       description = 'Accessories & Services';
       amount = _getTotalAmount(sale);
       date = sale['date'] ?? '';
+      category = 'accessories';
+    } else if (collection == 'tvSales') {
+      type = 'TV';
+      description =
+          sale['modelName'] ?? sale['productName'] ?? sale['modelBrand'] ?? '';
+      amount = _getTotalAmount(sale);
+      date = sale['saleDate'] ?? sale['billDate'] ?? sale['createdAt'];
+      category = 'tv';
+    } else if (collection == 'applianceSales') {
+      type = 'Appliance';
+      description = sale['productModel'] ?? sale['productName'] ?? '';
+      amount = _getTotalAmount(sale);
+      date = sale['saleDate'] ?? sale['billDate'] ?? sale['createdAt'];
+      category = 'appliance';
     } else if (collection == 'bills') {
+      // Legacy fallback — decide TV vs Appliance by type / billType
       final billType = sale['billType'] as String?;
       final typeField = sale['type'] as String?;
 
@@ -924,11 +983,11 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
         description = sale['modelName'] ?? sale['productName'] ?? '';
         amount = _getTotalAmount(sale);
         date = sale['billDate'] ?? sale['createdAt'];
+        category = 'tv';
       } else if (billType == 'Appliances' ||
           billType == 'appliances' ||
           billType == 'Appliance') {
         type = 'Appliance';
-        // Check if product map exists
         if (sale['product'] != null) {
           final product = sale['product'] as Map<String, dynamic>;
           description = product['productName'] ?? sale['productName'] ?? '';
@@ -937,6 +996,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
         }
         amount = _getTotalAmount(sale);
         date = sale['billDate'] ?? sale['createdAt'];
+        category = 'appliance';
       }
     }
 
@@ -949,15 +1009,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
       'status': 'Completed',
       'paymentVerified': sale['paymentVerified'] ?? false,
       'data': sale,
-      'category': collection == 'seconds_phone_sale'
-          ? 'seconds'
-          : collection == 'base_model_sale'
-          ? 'base_model'
-          : collection == 'accessories_service_sales'
-          ? 'accessories'
-          : collection == 'bills' && sale['type'] == 'tv'
-          ? 'tv'
-          : 'appliance',
+      'category': category,
       'collection': collection,
       'docId': sale['id'],
     };
@@ -1029,7 +1081,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     String mode = purchaseMode.toLowerCase();
     bool isEMI = mode == 'emi';
 
-    if (isEMI) {
+    if (isEMI && transaction['category'] == 'phone') {
       showDialog(
         context: context,
         builder: (context) => EMIPaymentDialog(
@@ -1128,7 +1180,14 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 case 'seconds_phone_sale':
                   targetList = _secondsPhoneSales;
                   break;
+                case 'applianceSales':
+                  targetList = _applianceSales;
+                  break;
+                case 'tvSales':
+                  targetList = _tvSales;
+                  break;
                 case 'bills':
+                  // legacy fallback
                   if (sale['type'] == 'tv') {
                     targetList = _tvSales;
                   } else {
@@ -1407,8 +1466,9 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           formatNumber: _formatNumber,
           formatDate: _formatDate,
           convertToBool: _convertToBool,
+          // ⬇️ now creates a transaction from the 'tvSales' collection
           createTransaction: (sale) =>
-              _createTransactionFromGenericSale('bills', sale),
+              _createTransactionFromGenericSale('tvSales', sale),
         );
       case 5:
         return ApplianceVerificationTab(
@@ -1427,8 +1487,9 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           formatNumber: _formatNumber,
           formatDate: _formatDate,
           convertToBool: _convertToBool,
+          // ⬇️ now creates a transaction from the 'applianceSales' collection
           createTransaction: (sale) =>
-              _createTransactionFromGenericSale('bills', sale),
+              _createTransactionFromGenericSale('applianceSales', sale),
         );
       case 6:
         return OverdueVerificationTab(
@@ -1448,6 +1509,20 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           formatDate: _formatDate,
           parseDate: _parseDate,
           createTransaction: (sale) {
+            // Appliance first — has 'saleType' or 'brand'+'productModel'
+            if (sale['saleType'] == 'appliance' ||
+                (sale.containsKey('productModel') &&
+                    sale.containsKey('brand') &&
+                    !sale.containsKey('billType'))) {
+              return _createTransactionFromGenericSale('applianceSales', sale);
+            }
+            // TV — has 'modelBrand' and 'modelName' (or was loaded into _tvSales)
+            if (sale.containsKey('modelBrand') &&
+                sale.containsKey('modelName') &&
+                !sale.containsKey('billType')) {
+              return _createTransactionFromGenericSale('tvSales', sale);
+            }
+            // Legacy bill-based fallback
             if (sale.containsKey('purchaseMode') &&
                 !sale.containsKey('billType')) {
               return _createTransactionFromPhoneSale(sale);
@@ -1473,11 +1548,11 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 sale,
               );
             } else if (sale['type'] == 'tv') {
-              return _createTransactionFromGenericSale('bills', sale);
+              return _createTransactionFromGenericSale('tvSales', sale);
             } else if (sale['billType'] == 'Appliances' ||
                 sale['billType'] == 'appliances' ||
                 sale['billType'] == 'Appliance') {
-              return _createTransactionFromGenericSale('bills', sale);
+              return _createTransactionFromGenericSale('applianceSales', sale);
             }
             return _createTransactionFromPhoneSale(sale);
           },
