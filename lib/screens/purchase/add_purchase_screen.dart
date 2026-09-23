@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../../models/purchase.dart';
 import 'add_product_screen.dart';
+import 'add_supplier_screen.dart';
 
 class AddPurchaseScreen extends StatefulWidget {
   final Function(int)? onNavigateToHistory;
@@ -39,7 +41,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   final TextEditingController _supplierController = TextEditingController();
   final TextEditingController _productController = TextEditingController();
 
-  // Rounding amount - auto calculated with manual override option
+  // Rounding amount
   double _roundingAmount = 0;
   bool _isRoundingManual = false;
   final TextEditingController _roundingController = TextEditingController();
@@ -56,9 +58,20 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Focus nodes for suggestions
+  // Focus nodes
   final FocusNode _supplierFocusNode = FocusNode();
   final FocusNode _productFocusNode = FocusNode();
+
+  // ====== Keyboard navigation state ======
+  final FocusNode _supplierKeyFocus = FocusNode();
+  final FocusNode _productKeyFocus = FocusNode();
+  int _supplierHighlightIndex = -1;
+  int _productHighlightIndex = -1;
+
+  // Scroll controllers for auto-scrolling to highlighted item
+  final ScrollController _supplierScrollController = ScrollController();
+  final ScrollController _productScrollController = ScrollController();
+
   bool _showSupplierSuggestions = false;
   bool _showProductSuggestions = false;
 
@@ -68,27 +81,27 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     _loadSuppliers();
     _loadProducts();
 
-    // Add listeners for search
     _supplierController.addListener(_filterSuppliers);
     _productController.addListener(_filterProducts);
-
-    // Add listener for discount
     _discountController.addListener(_onDiscountChanged);
 
-    // Focus listeners
     _supplierFocusNode.addListener(() {
       if (_supplierFocusNode.hasFocus && _selectedSupplierId == null) {
         setState(() {
-          _showSupplierSuggestions =
-              _supplierController.text.isNotEmpty &&
-              _filteredSuppliers.isNotEmpty;
+          if (_supplierController.text.isEmpty) {
+            _filteredSuppliers = _suppliers.take(4).toList();
+          } else {
+            _filterSuppliers();
+          }
+          _showSupplierSuggestions = true;
+          _supplierHighlightIndex = -1;
         });
       } else if (!_supplierFocusNode.hasFocus) {
-        // Increased delay to 500ms to allow tap to complete
-        Future.delayed(const Duration(milliseconds: 500), () {
+        Future.delayed(const Duration(milliseconds: 300), () {
           if (mounted && !_supplierFocusNode.hasFocus) {
             setState(() {
               _showSupplierSuggestions = false;
+              _supplierHighlightIndex = -1;
             });
           }
         });
@@ -98,40 +111,205 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     _productFocusNode.addListener(() {
       if (_productFocusNode.hasFocus && _selectedProductId == null) {
         setState(() {
-          // Show suggestions if there's text in the search field
           if (_productController.text.isNotEmpty) {
             _showProductSuggestions = true;
             _filterProducts();
+            _productHighlightIndex = -1;
           }
         });
       } else if (!_productFocusNode.hasFocus) {
-        // Increased delay to 500ms to allow tap to complete
-        Future.delayed(const Duration(milliseconds: 500), () {
+        Future.delayed(const Duration(milliseconds: 300), () {
           if (mounted && !_productFocusNode.hasFocus) {
             setState(() {
               _showProductSuggestions = false;
+              _productHighlightIndex = -1;
             });
           }
         });
       }
     });
 
-    // Add listener to rounding controller for manual input
     _roundingController.addListener(_onRoundingChanged);
+  }
+
+  // ============================================================
+  // KEYBOARD HANDLERS
+  // ============================================================
+
+  /// Handles arrow / enter / escape keys for supplier dropdown
+  KeyEventResult _handleSupplierKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+
+    if (!_showSupplierSuggestions) return KeyEventResult.ignored;
+
+    // Total items = suppliers + 1 (Add New Supplier row)
+    final int totalItems = _filteredSuppliers.length + 1;
+
+    switch (event.logicalKey) {
+      case LogicalKeyboardKey.arrowDown:
+        setState(() {
+          if (_supplierHighlightIndex < totalItems - 1) {
+            _supplierHighlightIndex++;
+          } else {
+            _supplierHighlightIndex = 0;
+          }
+        });
+        _autoScrollSupplier();
+        return KeyEventResult.handled;
+
+      case LogicalKeyboardKey.arrowUp:
+        setState(() {
+          if (_supplierHighlightIndex > 0) {
+            _supplierHighlightIndex--;
+          } else {
+            _supplierHighlightIndex = totalItems - 1;
+          }
+        });
+        _autoScrollSupplier();
+        return KeyEventResult.handled;
+
+      case LogicalKeyboardKey.enter:
+      case LogicalKeyboardKey.numpadEnter:
+      case LogicalKeyboardKey.tab:
+        if (_supplierHighlightIndex < 0) {
+          // No highlight — pick the first one
+          if (_filteredSuppliers.isNotEmpty) {
+            _selectSupplier(_filteredSuppliers.first);
+            return KeyEventResult.handled;
+          }
+        } else if (_supplierHighlightIndex < _filteredSuppliers.length) {
+          // Select highlighted supplier
+          _selectSupplier(_filteredSuppliers[_supplierHighlightIndex]);
+          return KeyEventResult.handled;
+        } else {
+          // "Add New Supplier" was highlighted
+          _showAddSupplierDialog();
+          return KeyEventResult.handled;
+        }
+        break;
+
+      case LogicalKeyboardKey.escape:
+        setState(() {
+          _showSupplierSuggestions = false;
+          _supplierHighlightIndex = -1;
+        });
+        _supplierFocusNode.unfocus();
+        return KeyEventResult.handled;
+    }
+
+    return KeyEventResult.ignored;
+  }
+
+  /// Handles arrow / enter / escape keys for product dropdown
+  KeyEventResult _handleProductKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+
+    if (!_showProductSuggestions) return KeyEventResult.ignored;
+
+    // Total items = products + 1 (Add New Product row)
+    final int totalItems = _filteredProducts.length + 1;
+
+    switch (event.logicalKey) {
+      case LogicalKeyboardKey.arrowDown:
+        setState(() {
+          if (_productHighlightIndex < totalItems - 1) {
+            _productHighlightIndex++;
+          } else {
+            _productHighlightIndex = 0;
+          }
+        });
+        _autoScrollProduct();
+        return KeyEventResult.handled;
+
+      case LogicalKeyboardKey.arrowUp:
+        setState(() {
+          if (_productHighlightIndex > 0) {
+            _productHighlightIndex--;
+          } else {
+            _productHighlightIndex = totalItems - 1;
+          }
+        });
+        _autoScrollProduct();
+        return KeyEventResult.handled;
+
+      case LogicalKeyboardKey.enter:
+      case LogicalKeyboardKey.numpadEnter:
+      case LogicalKeyboardKey.tab:
+        if (_productHighlightIndex < 0) {
+          if (_filteredProducts.isNotEmpty) {
+            _selectProduct(_filteredProducts.first);
+            return KeyEventResult.handled;
+          }
+        } else if (_productHighlightIndex < _filteredProducts.length) {
+          _selectProduct(_filteredProducts[_productHighlightIndex]);
+          return KeyEventResult.handled;
+        } else {
+          // "Add New Product" was highlighted
+          _showAddProductDialog();
+          return KeyEventResult.handled;
+        }
+        break;
+
+      case LogicalKeyboardKey.escape:
+        setState(() {
+          _showProductSuggestions = false;
+          _productHighlightIndex = -1;
+        });
+        _productFocusNode.unfocus();
+        return KeyEventResult.handled;
+    }
+
+    return KeyEventResult.ignored;
+  }
+
+  /// Auto-scroll supplier list to keep highlighted item visible
+  void _autoScrollSupplier() {
+    if (!_supplierScrollController.hasClients) return;
+    if (_supplierHighlightIndex < 0) return;
+
+    const double itemHeight = 60.0;
+    final double targetOffset = _supplierHighlightIndex * itemHeight - 100;
+
+    _supplierScrollController.animateTo(
+      targetOffset.clamp(
+        0.0,
+        _supplierScrollController.position.maxScrollExtent,
+      ),
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOut,
+    );
+  }
+
+  /// Auto-scroll product list to keep highlighted item visible
+  void _autoScrollProduct() {
+    if (!_productScrollController.hasClients) return;
+    if (_productHighlightIndex < 0) return;
+
+    const double itemHeight = 60.0;
+    final double targetOffset = _productHighlightIndex * itemHeight - 100;
+
+    _productScrollController.animateTo(
+      targetOffset.clamp(
+        0.0,
+        _productScrollController.position.maxScrollExtent,
+      ),
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOut,
+    );
   }
 
   void _onDiscountChanged() {
     if (_discountController.text.isNotEmpty) {
       double? value = double.tryParse(_discountController.text);
       if (value != null && value >= 0) {
-        setState(() {
-          _discountValue = value;
-        });
+        setState(() => _discountValue = value);
       }
     } else {
-      setState(() {
-        _discountValue = 0;
-      });
+      setState(() => _discountValue = 0);
     }
   }
 
@@ -139,9 +317,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     if (_isRoundingManual && _roundingController.text.isNotEmpty) {
       double? value = double.tryParse(_roundingController.text);
       if (value != null) {
-        setState(() {
-          _roundingAmount = value;
-        });
+        setState(() => _roundingAmount = value);
       }
     }
   }
@@ -184,20 +360,114 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
-  // Show Add Product Dialog with proper handling
-  Future<void> _showAddProductDialog() async {
-    // Hide product suggestions first
+  // ==================== ADD SUPPLIER ====================
+  Future<void> _showAddSupplierDialog() async {
     if (mounted) {
       setState(() {
-        _showProductSuggestions = false;
+        _showSupplierSuggestions = false;
+        _supplierHighlightIndex = -1;
       });
     }
 
-    // Remove keyboard/focus without waiting for a delayed overlay update
-    _productFocusNode.unfocus();
-
+    _supplierFocusNode.unfocus();
     await Future.delayed(const Duration(milliseconds: 50));
+    if (!mounted) return;
 
+    final result = await showDialog<bool>(
+      context: context,
+      useRootNavigator: true,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding: const EdgeInsets.all(16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: SizedBox(
+            width: 500,
+            height: MediaQuery.of(dialogContext).size.height * 0.85,
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      topRight: Radius.circular(16),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.add_business, color: Colors.green[700]),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Add New Supplier',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green[700],
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.of(dialogContext).pop(false),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: AddSupplierScreen(
+                    onNavigateToSupplierList: (index) {
+                      Navigator.of(dialogContext).pop(true);
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (!mounted) return;
+    await _loadSuppliers();
+    if (result == true) await _selectSupplierAfterAdd();
+  }
+
+  Future<void> _selectSupplierAfterAdd() async {
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (!mounted) return;
+
+    try {
+      QuerySnapshot snapshot = await _firestore
+          .collection('suppliers')
+          .orderBy('createdAt', descending: true)
+          .limit(1)
+          .get();
+
+      if (snapshot.docs.isNotEmpty && mounted) {
+        _selectSupplier(snapshot.docs.first);
+        _showDialog('Success', 'Supplier added and selected automatically!');
+      }
+    } catch (_) {}
+  }
+
+  // ==================== ADD PRODUCT ====================
+  Future<void> _showAddProductDialog() async {
+    if (mounted) {
+      setState(() {
+        _showProductSuggestions = false;
+        _productHighlightIndex = -1;
+      });
+    }
+
+    _productFocusNode.unfocus();
+    await Future.delayed(const Duration(milliseconds: 50));
     if (!mounted) return;
 
     final result = await showDialog<bool>(
@@ -242,9 +512,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                       const Spacer(),
                       IconButton(
                         icon: const Icon(Icons.close),
-                        onPressed: () {
-                          Navigator.of(dialogContext).pop(false);
-                        },
+                        onPressed: () => Navigator.of(dialogContext).pop(false),
                       ),
                     ],
                   ),
@@ -252,7 +520,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                 Expanded(
                   child: AddProductScreen(
                     onNavigateToProductList: (index) {
-                      // Product saved successfully
                       Navigator.of(dialogContext).pop(true);
                     },
                   ),
@@ -264,20 +531,13 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       },
     );
 
-    // Refresh products after dialog closes
     if (!mounted) return;
-
     await _loadProducts();
-
-    if (result == true) {
-      await _selectProductAfterAdd();
-    }
+    if (result == true) await _selectProductAfterAdd();
   }
 
   Future<void> _selectProductAfterAdd() async {
-    // Small delay to ensure the dialog is completely closed
     await Future.delayed(const Duration(milliseconds: 300));
-
     if (!mounted) return;
 
     try {
@@ -289,18 +549,11 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
       if (snapshot.docs.isNotEmpty && mounted) {
         _selectProduct(snapshot.docs.first);
-        _showDialog(
-          'Success',
-          'Product added and selected automatically!',
-          isError: false,
-        );
+        _showDialog('Success', 'Product added and selected automatically!');
       }
-    } catch (e) {
-      // Ignore error
-    }
+    } catch (_) {}
   }
 
-  // Method to show existing invoice details in a dialog
   void _showExistingInvoiceDialog({
     required String invoiceNo,
     required String supplierName,
@@ -340,7 +593,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Invoice #$invoiceNo already exists in the system.',
+                'Invoice #$invoiceNo already exists.',
                 style: TextStyle(fontSize: 14, color: Colors.grey[700]),
               ),
               const SizedBox(height: 16),
@@ -354,25 +607,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.receipt_long,
-                          color: Colors.green[700],
-                          size: 18,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Invoice Details',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                            color: Colors.green[700],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
                     _buildDetailRow('Invoice Number:', invoiceNo),
                     _buildDetailRow('Supplier:', supplierName),
                     _buildDetailRow(
@@ -390,33 +624,11 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Icon(Icons.info_outline, color: Colors.blue[700], size: 16),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Please use a different invoice number to continue.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.blue[700],
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
             ],
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                // Focus on invoice field to change number
-                FocusScope.of(context).requestFocus(FocusNode());
-              },
-              style: TextButton.styleFrom(foregroundColor: Colors.grey[700]),
+              onPressed: () => Navigator.of(context).pop(),
               child: const Text('Change Invoice Number'),
             ),
             ElevatedButton(
@@ -427,9 +639,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green[700],
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
               ),
               child: const Text('View Existing'),
             ),
@@ -460,7 +669,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   void _navigateToExistingPurchase(String purchaseId) {
-    // Navigate to view existing purchase details
     Navigator.pop(context, {
       'navigateTo': 'purchaseDetails',
       'purchaseId': purchaseId,
@@ -492,16 +700,14 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   void _filterSuppliers() {
-    // Don't filter if a supplier is already selected
-    if (_selectedSupplierId != null) {
-      return;
-    }
+    if (_selectedSupplierId != null) return;
 
     String query = _supplierController.text.toLowerCase().trim();
     setState(() {
       if (query.isEmpty) {
-        _filteredSuppliers = _suppliers;
-        _showSupplierSuggestions = false;
+        _filteredSuppliers = _suppliers.take(4).toList();
+        _showSupplierSuggestions =
+            _supplierFocusNode.hasFocus && _suppliers.isNotEmpty;
       } else {
         _filteredSuppliers = _suppliers.where((supplier) {
           Map<String, dynamic> data = supplier.data() as Map<String, dynamic>;
@@ -512,17 +718,15 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               phone.contains(query) ||
               email.contains(query);
         }).toList();
-        _showSupplierSuggestions =
-            _filteredSuppliers.isNotEmpty && _supplierFocusNode.hasFocus;
+        _showSupplierSuggestions = _supplierFocusNode.hasFocus;
       }
+      // Reset highlight when search changes
+      _supplierHighlightIndex = -1;
     });
   }
 
   void _filterProducts() {
-    // Don't filter if a product is already selected
-    if (_selectedProductId != null) {
-      return;
-    }
+    if (_selectedProductId != null) return;
 
     String query = _productController.text.toLowerCase().trim();
     setState(() {
@@ -539,9 +743,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               category.contains(query) ||
               brand.contains(query);
         }).toList();
-        // Show suggestions whenever there's a search query
         _showProductSuggestions = true;
       }
+      // Reset highlight when search changes
+      _productHighlightIndex = -1;
     });
   }
 
@@ -552,6 +757,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       _selectedSupplierName = (data['supplierName'] ?? 'Unknown').toString();
       _supplierController.text = _selectedSupplierName!;
       _showSupplierSuggestions = false;
+      _supplierHighlightIndex = -1;
       _filteredSuppliers = _suppliers;
     });
     _supplierFocusNode.unfocus();
@@ -579,6 +785,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       _discountController.clear();
       _discountValue = 0;
       _showProductSuggestions = false;
+      _productHighlightIndex = -1;
       _filteredProducts = _products;
     });
     _productFocusNode.unfocus();
@@ -598,6 +805,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       _selectedSupplierName = null;
       _supplierController.clear();
       _showSupplierSuggestions = false;
+      _supplierHighlightIndex = -1;
       _filteredSuppliers = _suppliers;
     });
     _supplierFocusNode.requestFocus();
@@ -613,6 +821,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       _discountController.clear();
       _discountValue = 0;
       _showProductSuggestions = false;
+      _productHighlightIndex = -1;
       _filterProducts();
     });
     _productFocusNode.requestFocus();
@@ -623,32 +832,26 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       _showDialog('Error', 'Please select a product', isError: true);
       return;
     }
-
     if (_quantityController.text.trim().isEmpty) {
       _showDialog('Error', 'Please enter quantity', isError: true);
       return;
     }
-
     int quantity = int.tryParse(_quantityController.text.trim()) ?? 0;
     if (quantity <= 0) {
       _showDialog('Error', 'Please enter valid quantity', isError: true);
       return;
     }
-
     double rate = double.tryParse(_purchaseRateController.text.trim()) ?? 0;
     if (rate <= 0) {
       _showDialog('Error', 'Please enter valid purchase rate', isError: true);
       return;
     }
 
-    // Apply discount
     double discountAmount = 0;
     if (_discountValue > 0) {
-      if (_usePercentageDiscount) {
-        discountAmount = rate * (_discountValue / 100);
-      } else {
-        discountAmount = _discountValue;
-      }
+      discountAmount = _usePercentageDiscount
+          ? rate * (_discountValue / 100)
+          : _discountValue;
     }
 
     double finalRate = rate - discountAmount;
@@ -661,15 +864,11 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       return;
     }
 
-    String productName = _selectedProductName!;
-
-    // Check if item already exists in cart
     int existingIndex = _cartItems.indexWhere(
       (item) => item.productId == _selectedProductId,
     );
 
     if (existingIndex != -1) {
-      // Update existing item
       setState(() {
         _cartItems[existingIndex].quantity += quantity;
         _cartItems[existingIndex].rate = finalRate;
@@ -681,22 +880,12 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             finalRate * _cartItems[existingIndex].quantity;
         _cartItems[existingIndex].originalRate = rate;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Updated: $productName (Qty: ${_cartItems[existingIndex].quantity})',
-          ),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 2),
-        ),
-      );
     } else {
-      // Add new item
       setState(() {
         _cartItems.add(
           CartItem(
             productId: _selectedProductId!,
-            productName: productName,
+            productName: _selectedProductName!,
             rate: finalRate,
             quantity: quantity,
             total: finalRate * quantity,
@@ -707,16 +896,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           ),
         );
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Added: $productName (Qty: $quantity)'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 2),
-        ),
-      );
     }
 
-    // Clear fields
     setState(() {
       _selectedProductId = null;
       _selectedProductName = null;
@@ -737,13 +918,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
   void _removeFromCart(int index) {
     setState(() => _cartItems.removeAt(index));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Removed product from cart'),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 1),
-      ),
-    );
     _resetRounding();
   }
 
@@ -752,7 +926,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       _removeFromCart(index);
       return;
     }
-
     setState(() {
       _cartItems[index].quantity = newQuantity;
       _cartItems[index].total = _cartItems[index].rate * newQuantity;
@@ -767,38 +940,21 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     (sum, item) => sum + (item.total * item.gstPercentage / 100),
   );
 
-  // UPDATED: Improved rounding logic
   void _calculateRounding() {
     if (_isRoundingManual) return;
-
     double grandTotal = _getGrandTotalBeforeRounding();
-
-    // Get nearest integer based on your rule
-    int targetTotal;
-
     double decimalPart = grandTotal % 1;
-
-    if (decimalPart <= 0.50) {
-      targetTotal = grandTotal.floor();
-    } else {
-      targetTotal = grandTotal.ceil();
-    }
-
+    int targetTotal = decimalPart <= 0.50
+        ? grandTotal.floor()
+        : grandTotal.ceil();
     _roundingAmount = targetTotal - grandTotal;
-
-    // Avoid floating point issues
-    if (_roundingAmount.abs() < 0.001) {
-      _roundingAmount = 0;
-    }
-
+    if (_roundingAmount.abs() < 0.001) _roundingAmount = 0;
     _roundingController.text = _roundingAmount.toStringAsFixed(2);
   }
 
   double _getGrandTotalBeforeRounding() => _getSubtotal() + _getTotalGST();
 
-  double _getGrandTotal() {
-    return _getGrandTotalBeforeRounding() + _roundingAmount;
-  }
+  double _getGrandTotal() => _getGrandTotalBeforeRounding() + _roundingAmount;
 
   void _resetRounding() {
     setState(() {
@@ -806,7 +962,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       _roundingAmount = 0;
       _roundingController.clear();
     });
-    // Recalculate after state update
     _calculateRounding();
   }
 
@@ -817,7 +972,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         _roundingController.clear();
         _calculateRounding();
       } else {
-        // Set initial manual rounding to current auto value
         _roundingController.text = _roundingAmount.toStringAsFixed(2);
       }
     });
@@ -830,15 +984,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         _roundingAmount = value;
         _isRoundingManual = true;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Rounding set to: ${value.toStringAsFixed(2)}'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 1),
-        ),
-      );
-    } else {
-      _showDialog('Error', 'Please enter a valid number', isError: true);
     }
   }
 
@@ -851,7 +996,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       );
       return;
     }
-
     if (_selectedSupplierId == null || _selectedSupplierId!.isEmpty) {
       _showDialog(
         'Validation Error',
@@ -860,7 +1004,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       );
       return;
     }
-
     if (_cartItems.isEmpty) {
       _showDialog(
         'Validation Error',
@@ -870,7 +1013,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       return;
     }
 
-    // Check for duplicate invoice number
     try {
       QuerySnapshot existingInvoice = await _firestore
           .collection('purchases')
@@ -878,7 +1020,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           .get();
 
       if (existingInvoice.docs.isNotEmpty) {
-        // Get the existing purchase data
         var existingDoc = existingInvoice.docs.first;
         var existingData = existingDoc.data() as Map<String, dynamic>;
         var existingDate = existingData['date'] != null
@@ -888,7 +1029,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         var grandTotal = (existingData['grandTotal'] ?? 0.0).toDouble();
         var supplierName = existingData['supplierName'] ?? 'Unknown';
 
-        // Show dialog with existing invoice details
         _showExistingInvoiceDialog(
           invoiceNo: _invoiceController.text.trim(),
           supplierName: supplierName,
@@ -900,7 +1040,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         return;
       }
     } catch (e) {
-      // Continue with save if check fails
       print('Error checking duplicate invoice: $e');
     }
 
@@ -946,7 +1085,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         ),
       );
 
-      // Reset all fields
       setState(() {
         _selectedSupplierId = null;
         _selectedSupplierName = null;
@@ -971,13 +1109,13 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         _filteredProducts = _products;
         _showSupplierSuggestions = false;
         _showProductSuggestions = false;
+        _supplierHighlightIndex = -1;
+        _productHighlightIndex = -1;
       });
 
-      // Navigate to PurchaseHistoryScreen using the callback
       if (widget.onNavigateToHistory != null) {
-        widget.onNavigateToHistory!(4); // Index 4 is PurchaseHistoryScreen
+        widget.onNavigateToHistory!(4);
       } else {
-        // Fallback: Pop the screen
         Navigator.pop(context, true);
       }
     } catch (e) {
@@ -996,7 +1134,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         bool isMobile = constraints.maxWidth < 800;
-
         return Scaffold(
           backgroundColor: Colors.grey[50],
           body: Container(
@@ -1135,23 +1272,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           initialDate: _selectedDate,
           firstDate: DateTime(2020),
           lastDate: DateTime.now(),
-          builder: (context, child) {
-            return Theme(
-              data: Theme.of(context).copyWith(
-                colorScheme: ColorScheme.light(
-                  primary: Colors.green[700]!,
-                  onPrimary: Colors.white,
-                  onSurface: Colors.black,
-                ),
-              ),
-              child: child!,
-            );
-          },
         );
         if (picked != null && picked != _selectedDate) {
-          setState(() {
-            _selectedDate = picked;
-          });
+          setState(() => _selectedDate = picked);
         }
       },
       borderRadius: BorderRadius.circular(8),
@@ -1170,25 +1293,13 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               DateFormat('dd/MM/yyyy').format(_selectedDate),
               style: const TextStyle(fontSize: 13),
             ),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.green[50],
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                'Today',
-                style: TextStyle(fontSize: 10, color: Colors.green[700]),
-              ),
-            ),
           ],
         ),
       ),
     );
   }
 
-  // UPDATED: Supplier datalist with GestureDetector for single-click on web
+  // ==================== SUPPLIER DATALIST WITH KEYBOARD NAV ====================
   Widget _buildSupplierDatalist() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1218,60 +1329,75 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: TextField(
-                  controller: _supplierController,
-                  focusNode: _supplierFocusNode,
-                  style: const TextStyle(fontSize: 13),
-                  readOnly: _selectedSupplierId != null,
-                  decoration: InputDecoration(
-                    hintText: _selectedSupplierId != null
-                        ? 'Supplier selected ✓'
-                        : 'Type to search supplier...',
-                    hintStyle: TextStyle(
-                      fontSize: 12,
-                      color: _selectedSupplierId != null
-                          ? Colors.green
-                          : Colors.grey[400],
+                child: Focus(
+                  onKeyEvent: _handleSupplierKey,
+                  child: TextField(
+                    controller: _supplierController,
+                    focusNode: _supplierFocusNode,
+                    style: const TextStyle(fontSize: 13),
+                    readOnly: _selectedSupplierId != null,
+                    decoration: InputDecoration(
+                      hintText: _selectedSupplierId != null
+                          ? 'Supplier selected ✓'
+                          : 'Tap or type (↑↓ to navigate, Enter to select)',
+                      hintStyle: TextStyle(
+                        fontSize: 12,
+                        color: _selectedSupplierId != null
+                            ? Colors.green
+                            : Colors.grey[400],
+                      ),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                      suffixIcon: _selectedSupplierId != null
+                          ? IconButton(
+                              icon: const Icon(
+                                Icons.close,
+                                size: 16,
+                                color: Colors.red,
+                              ),
+                              onPressed: _clearSupplierSelection,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            )
+                          : (_supplierController.text.isNotEmpty
+                                ? IconButton(
+                                    icon: const Icon(Icons.clear, size: 16),
+                                    onPressed: _clearSupplierSelection,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  )
+                                : Icon(
+                                    Icons.arrow_drop_down,
+                                    size: 20,
+                                    color: Colors.grey[600],
+                                  )),
                     ),
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                    suffixIcon: _selectedSupplierId != null
-                        ? IconButton(
-                            icon: const Icon(
-                              Icons.close,
-                              size: 16,
-                              color: Colors.red,
-                            ),
-                            onPressed: _clearSupplierSelection,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                          )
-                        : (_supplierController.text.isNotEmpty
-                              ? IconButton(
-                                  icon: const Icon(Icons.clear, size: 16),
-                                  onPressed: _clearSupplierSelection,
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                )
-                              : null),
+                    onChanged: (value) {
+                      if (value.isEmpty && _selectedSupplierId != null) {
+                        _clearSupplierSelection();
+                      }
+                      if (_selectedSupplierId == null) {
+                        _filterSuppliers();
+                      }
+                    },
+                    onTap: () {
+                      if (_selectedSupplierId == null) {
+                        setState(() {
+                          if (_supplierController.text.isEmpty) {
+                            _filteredSuppliers = _suppliers.take(4).toList();
+                          }
+                          _showSupplierSuggestions = _suppliers.isNotEmpty;
+                        });
+                      }
+                    },
                   ),
-                  onChanged: (value) {
-                    if (value.isEmpty && _selectedSupplierId != null) {
-                      _clearSupplierSelection();
-                    }
-                    if (_selectedSupplierId == null) {
-                      _filterSuppliers();
-                    }
-                  },
                 ),
               ),
             ],
           ),
         ),
-        if (_showSupplierSuggestions &&
-            _filteredSuppliers.isNotEmpty &&
-            _selectedSupplierId == null)
+        if (_showSupplierSuggestions && _selectedSupplierId == null)
           Container(
             margin: const EdgeInsets.only(top: 4),
             decoration: BoxDecoration(
@@ -1286,80 +1412,136 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                 ),
               ],
             ),
-            constraints: const BoxConstraints(maxHeight: 200),
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: _filteredSuppliers.length,
-              itemBuilder: (context, index) {
-                final supplier = _filteredSuppliers[index];
-                final data = supplier.data() as Map<String, dynamic>;
-                final name = (data['supplierName'] ?? 'Unknown').toString();
-                final phone = data['phoneNumber']?.toString() ?? '';
-                final email = data['email']?.toString() ?? '';
+            constraints: const BoxConstraints(maxHeight: 260),
+            child: _filteredSuppliers.isEmpty
+                ? _buildAddNewSupplierRow()
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: ListView.builder(
+                          controller: _supplierScrollController,
+                          shrinkWrap: true,
+                          itemCount: _filteredSuppliers.length,
+                          itemBuilder: (context, index) {
+                            final supplier = _filteredSuppliers[index];
+                            final data =
+                                supplier.data() as Map<String, dynamic>;
+                            final name = (data['supplierName'] ?? 'Unknown')
+                                .toString();
+                            final phone = data['phoneNumber']?.toString() ?? '';
+                            final email = data['email']?.toString() ?? '';
+                            final isHighlighted =
+                                index == _supplierHighlightIndex;
 
-                // Supplier items with GestureDetector for single-click
-                return GestureDetector(
-                  onTap: () => _selectSupplier(supplier),
-                  behavior: HitTestBehavior.opaque,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.business,
-                          size: 20,
-                          color: Colors.green[700],
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                name,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
+                            return GestureDetector(
+                              onTap: () => _selectSupplier(supplier),
+                              behavior: HitTestBehavior.opaque,
+                              child: Container(
+                                color: isHighlighted
+                                    ? Colors.green[50]
+                                    : Colors.transparent,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.business,
+                                      size: 20,
+                                      color: Colors.green[700],
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            name,
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                          if (phone.isNotEmpty ||
+                                              email.isNotEmpty)
+                                            Text(
+                                              [phone, email]
+                                                  .where((s) => s.isNotEmpty)
+                                                  .join(' • '),
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey[600],
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    if (isHighlighted)
+                                      Icon(
+                                        Icons.keyboard_return,
+                                        size: 16,
+                                        color: Colors.green[700],
+                                      ),
+                                  ],
                                 ),
                               ),
-                              if (phone.isNotEmpty || email.isNotEmpty)
-                                Text(
-                                  [
-                                    phone,
-                                    email,
-                                  ].where((s) => s.isNotEmpty).join(' • '),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                            ],
-                          ),
+                            );
+                          },
                         ),
-                      ],
-                    ),
+                      ),
+                      const Divider(height: 1),
+                      _buildAddNewSupplierRow(),
+                    ],
                   ),
-                );
-              },
-            ),
-          ),
-        if (_selectedSupplierId != null)
-          Container(
-            margin: const EdgeInsets.only(top: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.green[50],
-              borderRadius: BorderRadius.circular(4),
-            ),
           ),
       ],
     );
   }
 
-  // UPDATED: Product selector with GestureDetector for single-click on web
+  Widget _buildAddNewSupplierRow() {
+    final isHighlighted = _supplierHighlightIndex == _filteredSuppliers.length;
+    return GestureDetector(
+      onTap: () async {
+        setState(() {
+          _showSupplierSuggestions = false;
+          _supplierHighlightIndex = -1;
+        });
+        await Future.delayed(const Duration(milliseconds: 30));
+        if (!mounted) return;
+        await _showAddSupplierDialog();
+      },
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        color: isHighlighted ? Colors.green[50] : Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(Icons.add_circle_outline, size: 20, color: Colors.green[700]),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                _filteredSuppliers.isEmpty
+                    ? 'No supplier found. Add New Supplier'
+                    : 'Add New Supplier',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.green[700],
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            if (isHighlighted)
+              Icon(Icons.keyboard_return, size: 16, color: Colors.green[700]),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ==================== PRODUCT SELECTOR WITH KEYBOARD NAV ====================
   Widget _buildProductSelectorWithSearch() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1387,78 +1569,72 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: TextField(
-                  controller: _productController,
-                  focusNode: _productFocusNode,
-                  style: const TextStyle(fontSize: 13),
-                  readOnly: _selectedProductId != null,
-                  decoration: InputDecoration(
-                    hintText: _selectedProductId != null
-                        ? 'Product selected ✓'
-                        : 'Type to search product...',
-                    hintStyle: TextStyle(
-                      fontSize: 12,
-                      color: _selectedProductId != null
-                          ? Colors.green
-                          : Colors.grey[400],
+                child: Focus(
+                  onKeyEvent: _handleProductKey,
+                  child: TextField(
+                    controller: _productController,
+                    focusNode: _productFocusNode,
+                    style: const TextStyle(fontSize: 13),
+                    readOnly: _selectedProductId != null,
+                    decoration: InputDecoration(
+                      hintText: _selectedProductId != null
+                          ? 'Product selected ✓'
+                          : 'Search product (↑↓ nav, Enter select)',
+                      hintStyle: TextStyle(
+                        fontSize: 12,
+                        color: _selectedProductId != null
+                            ? Colors.green
+                            : Colors.grey[400],
+                      ),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                      suffixIcon: _selectedProductId != null
+                          ? IconButton(
+                              icon: const Icon(
+                                Icons.close,
+                                size: 16,
+                                color: Colors.red,
+                              ),
+                              onPressed: _clearProductSelection,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            )
+                          : (_productController.text.isNotEmpty
+                                ? IconButton(
+                                    icon: const Icon(Icons.clear, size: 16),
+                                    onPressed: _clearProductSelection,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  )
+                                : null),
                     ),
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                    suffixIcon: _selectedProductId != null
-                        ? IconButton(
-                            icon: const Icon(
-                              Icons.close,
-                              size: 16,
-                              color: Colors.red,
-                            ),
-                            onPressed: _clearProductSelection,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                          )
-                        : (_productController.text.isNotEmpty
-                              ? IconButton(
-                                  icon: const Icon(Icons.clear, size: 16),
-                                  onPressed: _clearProductSelection,
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                )
-                              : null),
-                  ),
-                  onChanged: (value) {
-                    if (value.isEmpty && _selectedProductId != null) {
-                      _clearProductSelection();
-                    }
-                    if (_selectedProductId == null) {
-                      _filterProducts();
-                      // Ensure suggestions are shown when there's text
-                      if (value.isNotEmpty) {
+                    onChanged: (value) {
+                      if (value.isEmpty && _selectedProductId != null) {
+                        _clearProductSelection();
+                      }
+                      if (_selectedProductId == null) {
+                        _filterProducts();
                         setState(() {
-                          _showProductSuggestions = true;
-                        });
-                      } else {
-                        setState(() {
-                          _showProductSuggestions = false;
+                          _showProductSuggestions = value.isNotEmpty;
                         });
                       }
-                    }
-                  },
-                  onTap: () {
-                    // Show suggestions when tapping the field
-                    if (_selectedProductId == null &&
-                        _productController.text.isNotEmpty) {
-                      setState(() {
-                        _showProductSuggestions = true;
-                        _filterProducts();
-                      });
-                    }
-                  },
+                    },
+                    onTap: () {
+                      if (_selectedProductId == null &&
+                          _productController.text.isNotEmpty) {
+                        setState(() {
+                          _showProductSuggestions = true;
+                          _filterProducts();
+                        });
+                      }
+                    },
+                  ),
                 ),
               ),
             ],
           ),
         ),
-        // Show suggestions when there's text in the search field AND product not selected
         if (_productController.text.isNotEmpty &&
             _selectedProductId == null &&
             _showProductSuggestions)
@@ -1476,156 +1652,91 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                 ),
               ],
             ),
-            constraints: const BoxConstraints(maxHeight: 200),
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: _filteredProducts.isEmpty
-                  ? 1
-                  : _filteredProducts.length + 1,
-              itemBuilder: (context, index) {
-                // If no products found, show "Add New Product" with GestureDetector
-                if (_filteredProducts.isEmpty) {
-                  return GestureDetector(
-                    onTap: () async {
-                      // Important: close the suggestion UI before opening dialog
-                      setState(() {
-                        _showProductSuggestions = false;
-                      });
+            constraints: const BoxConstraints(maxHeight: 220),
+            child: _filteredProducts.isEmpty
+                ? _buildAddNewProductRow()
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: ListView.builder(
+                          controller: _productScrollController,
+                          shrinkWrap: true,
+                          itemCount: _filteredProducts.length,
+                          itemBuilder: (context, index) {
+                            final product = _filteredProducts[index];
+                            final data = product.data() as Map<String, dynamic>;
+                            final name = (data['productName'] ?? 'Unknown')
+                                .toString();
+                            final category = data['category']?.toString() ?? '';
+                            final isHighlighted =
+                                index == _productHighlightIndex;
 
-                      await Future.delayed(const Duration(milliseconds: 30));
-
-                      if (!mounted) return;
-
-                      await _showAddProductDialog();
-                    },
-                    behavior: HitTestBehavior.opaque,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.add_circle_outline,
-                            size: 20,
-                            color: Colors.green[700],
-                          ),
-                          const SizedBox(width: 12),
-                          Text(
-                            'No products found. Add New Product',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.green[700],
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-
-                // Add New Product option at the end of results with GestureDetector
-                if (index == _filteredProducts.length) {
-                  return GestureDetector(
-                    onTap: () async {
-                      // Important: close the suggestion UI before opening dialog
-                      setState(() {
-                        _showProductSuggestions = false;
-                      });
-
-                      await Future.delayed(const Duration(milliseconds: 30));
-
-                      if (!mounted) return;
-
-                      await _showAddProductDialog();
-                    },
-                    behavior: HitTestBehavior.opaque,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.add_circle_outline,
-                            size: 20,
-                            color: Colors.green[700],
-                          ),
-                          const SizedBox(width: 12),
-                          Text(
-                            'Add New Product',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.green[700],
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-
-                final product = _filteredProducts[index];
-                final data = product.data() as Map<String, dynamic>;
-                final name = (data['productName'] ?? 'Unknown').toString();
-                final category = data['category']?.toString() ?? '';
-
-                // Product items with GestureDetector for single-click
-                return GestureDetector(
-                  onTap: () => _selectProduct(product),
-                  behavior: HitTestBehavior.opaque,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.shopping_bag,
-                          size: 20,
-                          color: Colors.green[700],
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                name,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
+                            return GestureDetector(
+                              onTap: () => _selectProduct(product),
+                              behavior: HitTestBehavior.opaque,
+                              child: Container(
+                                color: isHighlighted
+                                    ? Colors.green[50]
+                                    : Colors.transparent,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.shopping_bag,
+                                      size: 20,
+                                      color: Colors.green[700],
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            name,
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                          if (category.isNotEmpty)
+                                            Text(
+                                              category,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey[600],
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    if (isHighlighted)
+                                      Icon(
+                                        Icons.keyboard_return,
+                                        size: 16,
+                                        color: Colors.green[700],
+                                      ),
+                                  ],
                                 ),
                               ),
-                              if (category.isNotEmpty)
-                                Text(
-                                  category,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                            ],
-                          ),
+                            );
+                          },
                         ),
-                      ],
-                    ),
+                      ),
+                      const Divider(height: 1),
+                      _buildAddNewProductRow(),
+                    ],
                   ),
-                );
-              },
-            ),
           ),
         if (_selectedProductId != null)
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 8),
-              // Rate with header
               Row(
                 children: [
                   Expanded(
@@ -1711,7 +1822,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                 ],
               ),
               const SizedBox(height: 6),
-              // Discount section - reduced size
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
@@ -1735,7 +1845,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                           ),
                         ),
                         const Spacer(),
-                        // Toggle between Percentage and Amount
                         Container(
                           decoration: BoxDecoration(
                             color: Colors.white,
@@ -1773,25 +1882,14 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                               keyboardType: TextInputType.number,
                               decoration: InputDecoration(
                                 hintText: _usePercentageDiscount ? '0' : '0.00',
-                                hintStyle: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey[400],
-                                ),
                                 border: InputBorder.none,
                                 contentPadding: const EdgeInsets.symmetric(
                                   vertical: 4,
                                 ),
                                 isDense: true,
                                 suffixText: _usePercentageDiscount ? '%' : '',
-                                suffixStyle: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey[600],
-                                  fontWeight: FontWeight.w500,
-                                ),
                               ),
-                              onChanged: (value) {
-                                _onDiscountChanged();
-                              },
+                              onChanged: (_) => _onDiscountChanged(),
                             ),
                           ),
                         ),
@@ -1826,6 +1924,46 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
+  Widget _buildAddNewProductRow() {
+    final isHighlighted = _productHighlightIndex == _filteredProducts.length;
+    return GestureDetector(
+      onTap: () async {
+        setState(() {
+          _showProductSuggestions = false;
+          _productHighlightIndex = -1;
+        });
+        await Future.delayed(const Duration(milliseconds: 30));
+        if (!mounted) return;
+        await _showAddProductDialog();
+      },
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        color: isHighlighted ? Colors.green[50] : Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(Icons.add_circle_outline, size: 20, color: Colors.green[700]),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                _filteredProducts.isEmpty
+                    ? 'No product found. Add New Product'
+                    : 'Add New Product',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.green[700],
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            if (isHighlighted)
+              Icon(Icons.keyboard_return, size: 16, color: Colors.green[700]),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildDiscountToggleButton(String label, bool isPercentage) {
     bool isActive = isPercentage == _usePercentageDiscount;
     return GestureDetector(
@@ -1856,18 +1994,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
   Widget _buildDiscountPreview() {
     double purchaseRate = double.tryParse(_purchaseRateController.text) ?? 0;
-    double discountAmount = 0;
-    String displayText = '';
-
-    if (_usePercentageDiscount) {
-      discountAmount = purchaseRate * (_discountValue / 100);
-      displayText =
-          '${_discountValue}% discount = ₹${discountAmount.toStringAsFixed(2)} off';
-    } else {
-      discountAmount = _discountValue;
-      displayText = '₹${_discountValue.toStringAsFixed(2)} discount';
-    }
-
+    double discountAmount = _usePercentageDiscount
+        ? purchaseRate * (_discountValue / 100)
+        : _discountValue;
     double finalRate = purchaseRate - discountAmount;
 
     return Container(
@@ -1880,7 +2009,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
-            displayText,
+            _usePercentageDiscount
+                ? '${_discountValue}% = ₹${discountAmount.toStringAsFixed(2)} off'
+                : '₹${_discountValue.toStringAsFixed(2)} discount',
             style: TextStyle(
               fontSize: 10,
               color: Colors.green[700],
@@ -1901,9 +2032,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   Widget _buildCartSection() {
-    // Calculate rounding without setState
     _calculateRounding();
-
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -1936,13 +2065,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     onPressed: () {
                       setState(() => _cartItems.clear());
                       _resetRounding();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Cart cleared successfully!'),
-                          backgroundColor: Colors.red,
-                          duration: Duration(seconds: 1),
-                        ),
-                      );
                     },
                     style: TextButton.styleFrom(
                       foregroundColor: Colors.red,
@@ -1979,10 +2101,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                   child: ListView.builder(
                     shrinkWrap: true,
                     itemCount: _cartItems.length,
-                    itemBuilder: (context, index) {
-                      final item = _cartItems[index];
-                      return _buildCartItemCard(item, index);
-                    },
+                    itemBuilder: (context, index) =>
+                        _buildCartItemCard(_cartItems[index], index),
                   ),
                 ),
                 const Divider(height: 1),
@@ -2010,143 +2130,77 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   Widget _buildRoundingSection() {
-    // Calculate rounding without setState
     _calculateRounding();
-
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Column(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Text(
-                    'Rounding:',
+              const Text('Rounding:', style: TextStyle(fontSize: 12)),
+              if (_isRoundingManual)
+                Container(
+                  margin: const EdgeInsets.only(left: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[100],
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    'Manual',
                     style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: _isRoundingManual
-                          ? FontWeight.bold
-                          : FontWeight.normal,
+                      fontSize: 9,
+                      color: Colors.blue[700],
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  if (_isRoundingManual)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.blue[100],
+                ),
+            ],
+          ),
+          Row(
+            children: [
+              if (_isRoundingManual)
+                Container(
+                  width: 80,
+                  height: 32,
+                  margin: const EdgeInsets.only(right: 8),
+                  child: TextFormField(
+                    controller: _roundingController,
+                    style: const TextStyle(fontSize: 12),
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Text(
-                        'Manual',
-                        style: TextStyle(
-                          fontSize: 9,
-                          color: Colors.blue[700],
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                      isDense: true,
                     ),
-                ],
-              ),
-              Row(
-                children: [
-                  if (_isRoundingManual)
-                    Container(
-                      width: 80,
-                      height: 32,
-                      margin: const EdgeInsets.only(right: 8),
-                      child: TextFormField(
-                        controller: _roundingController,
-                        style: const TextStyle(fontSize: 12),
-                        keyboardType: TextInputType.number,
-                        textAlign: TextAlign.center,
-                        decoration: InputDecoration(
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(4),
-                            borderSide: BorderSide(color: Colors.grey[300]!),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 4,
-                          ),
-                          isDense: true,
-                        ),
-                        onFieldSubmitted: (_) => _applyManualRounding(),
-                      ),
-                    )
-                  else
-                    Text(
-                      _roundingAmount.toStringAsFixed(2),
-                      style: TextStyle(fontSize: 12, color: Colors.blue[700]),
-                    ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    onPressed: _toggleRoundingMode,
-                    icon: Icon(
-                      _isRoundingManual ? Icons.auto_awesome : Icons.edit,
-                      size: 16,
-                      color: _isRoundingManual
-                          ? Colors.blue[700]
-                          : Colors.grey[600],
-                    ),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    tooltip: _isRoundingManual
-                        ? 'Switch to Auto'
-                        : 'Switch to Manual',
                   ),
-                ],
+                )
+              else
+                Text(
+                  _roundingAmount.toStringAsFixed(2),
+                  style: TextStyle(fontSize: 12, color: Colors.blue[700]),
+                ),
+              IconButton(
+                onPressed: _toggleRoundingMode,
+                icon: Icon(
+                  _isRoundingManual ? Icons.auto_awesome : Icons.edit,
+                  size: 16,
+                  color: _isRoundingManual
+                      ? Colors.blue[700]
+                      : Colors.grey[600],
+                ),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
               ),
             ],
           ),
-          if (_isRoundingManual)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                OutlinedButton(
-                  onPressed: () {
-                    setState(() {
-                      _isRoundingManual = false;
-                      _roundingController.clear();
-                    });
-                    _calculateRounding();
-                  },
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    minimumSize: const Size(50, 25),
-                    side: BorderSide(color: Colors.grey[400]!),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  child: const Text('Auto', style: TextStyle(fontSize: 10)),
-                ),
-                const SizedBox(width: 4),
-                ElevatedButton(
-                  onPressed: _applyManualRounding,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue[700],
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    minimumSize: const Size(50, 25),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  child: const Text('Apply', style: TextStyle(fontSize: 10)),
-                ),
-              ],
-            ),
         ],
       ),
     );
@@ -2160,7 +2214,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         borderRadius: BorderRadius.circular(8),
         side: BorderSide(color: Colors.grey[200]!, width: 0.5),
       ),
-      child: Container(
+      child: Padding(
         padding: const EdgeInsets.all(10),
         child: Row(
           children: [
@@ -2191,15 +2245,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  if (item.discount > 0)
-                    Text(
-                      '₹${item.originalRate.toStringAsFixed(2)} → ₹${item.rate.toStringAsFixed(2)} (${item.discountType == 'percentage' ? '${((item.discount / item.originalRate) * 100).toStringAsFixed(1)}% off' : '₹${item.discount.toStringAsFixed(2)} off'})',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.green[700],
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
                   Text(
                     '₹${item.rate.toStringAsFixed(2)} x ${item.quantity}',
                     style: TextStyle(fontSize: 11, color: Colors.grey[600]),
@@ -2218,53 +2263,29 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     color: Colors.green,
                   ),
                 ),
-                const SizedBox(height: 4),
                 Row(
                   children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: Colors.grey[300]!,
-                          width: 0.5,
-                        ),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Row(
-                        children: [
-                          IconButton(
-                            onPressed: () => _updateCartItemQuantity(
-                              index,
-                              item.quantity - 1,
-                            ),
-                            icon: const Icon(Icons.remove, size: 14),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                            splashRadius: 16,
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6),
-                            child: Text(
-                              item.quantity.toString(),
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () => _updateCartItemQuantity(
-                              index,
-                              item.quantity + 1,
-                            ),
-                            icon: const Icon(Icons.add, size: 14),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                            splashRadius: 16,
-                          ),
-                        ],
+                    IconButton(
+                      onPressed: () =>
+                          _updateCartItemQuantity(index, item.quantity - 1),
+                      icon: const Icon(Icons.remove, size: 14),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                    Text(
+                      item.quantity.toString(),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
-                    const SizedBox(width: 4),
+                    IconButton(
+                      onPressed: () =>
+                          _updateCartItemQuantity(index, item.quantity + 1),
+                      icon: const Icon(Icons.add, size: 14),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
                     IconButton(
                       onPressed: () => _removeFromCart(index),
                       icon: const Icon(
@@ -2320,7 +2341,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     String label,
     double value, {
     bool isBold = false,
-    bool isRounding = false,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
@@ -2335,15 +2355,11 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             ),
           ),
           Text(
-            isRounding
-                ? value.toStringAsFixed(2)
-                : '₹${value.toStringAsFixed(2)}',
+            '₹${value.toStringAsFixed(2)}',
             style: TextStyle(
               fontSize: isBold ? 13 : 12,
               fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-              color: isRounding
-                  ? Colors.blue
-                  : (isBold ? Colors.green[700] : Colors.black),
+              color: isBold ? Colors.green[700] : Colors.black,
             ),
           ),
         ],
@@ -2362,11 +2378,14 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     _discountController.dispose();
     _supplierFocusNode.dispose();
     _productFocusNode.dispose();
+    _supplierKeyFocus.dispose();
+    _productKeyFocus.dispose();
+    _supplierScrollController.dispose();
+    _productScrollController.dispose();
     super.dispose();
   }
 }
 
-// Cart Item Model
 class CartItem {
   String productId;
   String productName;
