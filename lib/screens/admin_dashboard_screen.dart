@@ -62,6 +62,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   final CollectionReference shopsCollection = FirebaseFirestore.instance
       .collection('Mobile_house_Shops');
 
+  // ====== NEW: TV + Appliance sales collections ======
+  final CollectionReference tvSales = FirebaseFirestore.instance.collection(
+    'tvSales',
+  );
+  final CollectionReference applianceSales = FirebaseFirestore.instance
+      .collection('applianceSales');
+
   final Color primaryGreen = Color(0xFF0A4D2E);
   final Color secondaryGreen = Color(0xFF1A7D4A);
   final Color accentGreen = Color(0xFF28A745);
@@ -111,6 +118,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         _fetchBaseModelSales(),
         _fetchPhoneSales(),
         _fetchSecondsPhoneSales(),
+        _fetchTvSales(), // ====== NEW ======
+        _fetchApplianceSales(), // ====== NEW ======
         _fetchShops(),
       ]);
 
@@ -384,6 +393,124 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         );
       }
     } catch (e) {}
+  }
+
+  // ====== NEW: Fetch TV sales ======
+  Future<void> _fetchTvSales() async {
+    try {
+      final snapshot = await tvSales.get();
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+
+        DateTime saleDate;
+        if (data['saleDate'] is Timestamp) {
+          saleDate = (data['saleDate'] as Timestamp).toDate();
+        } else if (data['date'] is Timestamp) {
+          saleDate = (data['date'] as Timestamp).toDate();
+        } else if (data['createdAt'] is Timestamp) {
+          saleDate = (data['createdAt'] as Timestamp).toDate();
+        } else {
+          saleDate = DateTime.now();
+        }
+
+        final amount =
+            (data['amount'] ??
+                    data['sellingPrice'] ??
+                    data['totalAmount'] ??
+                    data['price'] ??
+                    0)
+                .toDouble();
+
+        allSales.add(
+          Sale(
+            id: doc.id,
+            type: 'tv_sale',
+            shopName: data['shopName'] ?? 'Unknown Shop',
+            shopId: data['shopId'] ?? '',
+            amount: amount,
+            date: saleDate,
+            customerName: data['customerName'] ?? 'Unknown Customer',
+            category: 'TV',
+            itemName:
+                data['productName'] ??
+                data['modelName'] ??
+                data['tvModel'] ??
+                'TV',
+            brand: data['brand'] ?? data['productBrand'] ?? '',
+            model: data['modelName'] ?? '',
+            cashAmount: (data['cash'] ?? 0).toDouble(),
+            cardAmount: (data['card'] ?? 0).toDouble(),
+            gpayAmount: (data['gpay'] ?? 0).toDouble(),
+            salesPersonName:
+                data['salesPersonName'] ?? data['userEmail'] ?? 'Unknown',
+            customerPhone: data['customerPhone'] ?? '',
+            imei: data['serialNumber'] ?? '',
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error fetching TV sales: $e');
+    }
+  }
+
+  // ====== NEW: Fetch Appliance sales ======
+  Future<void> _fetchApplianceSales() async {
+    try {
+      final snapshot = await applianceSales.get();
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+
+        DateTime saleDate;
+        if (data['saleDate'] is Timestamp) {
+          saleDate = (data['saleDate'] as Timestamp).toDate();
+        } else if (data['date'] is Timestamp) {
+          saleDate = (data['date'] as Timestamp).toDate();
+        } else if (data['createdAt'] is Timestamp) {
+          saleDate = (data['createdAt'] as Timestamp).toDate();
+        } else {
+          saleDate = DateTime.now();
+        }
+
+        final amount =
+            (data['amount'] ??
+                    data['sellingPrice'] ??
+                    data['totalAmount'] ??
+                    data['price'] ??
+                    0)
+                .toDouble();
+
+        allSales.add(
+          Sale(
+            id: doc.id,
+            type: 'appliance_sale',
+            shopName: data['shopName'] ?? 'Unknown Shop',
+            shopId: data['shopId'] ?? '',
+            amount: amount,
+            date: saleDate,
+            customerName: data['customerName'] ?? 'Unknown Customer',
+            category: 'Appliance',
+            itemName:
+                data['productName'] ??
+                data['modelName'] ??
+                data['applianceName'] ??
+                'Appliance',
+            brand: data['brand'] ?? data['productBrand'] ?? '',
+            model: data['modelName'] ?? '',
+            cashAmount: (data['cash'] ?? 0).toDouble(),
+            cardAmount: (data['card'] ?? 0).toDouble(),
+            gpayAmount: (data['gpay'] ?? 0).toDouble(),
+            salesPersonName:
+                data['salesPersonName'] ?? data['userEmail'] ?? 'Unknown',
+            customerPhone: data['customerPhone'] ?? '',
+            imei: data['serialNumber'] ?? '',
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error fetching Appliance sales: $e');
+    }
   }
 
   Future<void> _fetchShops() async {
@@ -1475,7 +1602,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
           Divider(height: 1),
 
-          // Add this after the "DETAILED REPORTS" section or create a new section:
           Padding(
             padding: EdgeInsets.only(left: 16, top: 12, bottom: 6),
             child: Text(
@@ -1768,6 +1894,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return Color(0xFF9C27B0);
       case 'Service':
         return Color(0xFFFF9800);
+      case 'TV': // ====== NEW ======
+        return Color(0xFF00BCD4);
+      case 'Appliance': // ====== NEW ======
+        return Color(0xFF795548);
       default:
         return Colors.grey;
     }
@@ -1783,6 +1913,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return Icons.phone_iphone_outlined;
       case 'Service':
         return Icons.build;
+      case 'TV': // ====== NEW ======
+        return Icons.tv;
+      case 'Appliance': // ====== NEW ======
+        return Icons.kitchen;
       default:
         return Icons.category;
     }
