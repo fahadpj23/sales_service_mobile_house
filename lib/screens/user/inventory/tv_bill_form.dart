@@ -108,11 +108,9 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
   }
 
   // ==================== BILL NUMBER AUTO-GENERATION ====================
-  // FIXED: Properly sorted by createdAt and using billNumber field
 
   Future<String> _generateBillNumber() async {
     try {
-      // Query the last bill to get the highest sequence number
       final billsQuery = await _firestore
           .collection('bills')
           .orderBy('createdAt', descending: true)
@@ -125,19 +123,16 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
         final lastBill = billsQuery.docs.first;
         final lastBillNumber = lastBill['billNumber'] as String? ?? '';
 
-        // Parse the last bill number (e.g., "MH-372")
         if (lastBillNumber.startsWith('MH-')) {
-          final lastSequenceStr = lastBillNumber.substring(3); // Remove "MH-"
+          final lastSequenceStr = lastBillNumber.substring(3);
           final lastSequence = int.tryParse(lastSequenceStr) ?? 0;
           nextSequenceNumber = lastSequence + 1;
         }
       }
 
-      // Format: MH-372 (simple sequential)
       return nextSequenceNumber.toString();
     } catch (e) {
       print('Error generating bill number: $e');
-      // Fallback to timestamp-based number
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       return timestamp.toString().substring(timestamp.toString().length - 6);
     }
@@ -209,10 +204,7 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'This MH with Serial Number:',
-                style: TextStyle(fontSize: 14),
-              ),
+              Text('This MH with S/N:', style: TextStyle(fontSize: 14)),
               SizedBox(height: 4),
               Container(
                 padding: EdgeInsets.all(8),
@@ -237,7 +229,7 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
               ),
               SizedBox(height: 8),
               Text(
-                'Please check the serial number or contact administrator.',
+                'Please check the S/N or contact administrator.',
                 style: TextStyle(fontSize: 13, color: Colors.grey[600]),
               ),
             ],
@@ -355,7 +347,7 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
       });
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Scanned Serial: $barcode')));
+      ).showSnackBar(SnackBar(content: Text('Scanned S/N: $barcode')));
     }
   }
 
@@ -393,7 +385,6 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
       return;
     }
 
-    // Check if serial is already sold
     final serial = serialNumberController.text.trim();
     if (serial.isNotEmpty) {
       setState(() => _isLoading = true);
@@ -509,10 +500,10 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
               .get();
 
           if (soldCheck.docs.isNotEmpty) {
-            throw Exception('Product with this serial number is already sold');
+            throw Exception('Product with this S/N is already sold');
           } else {
             throw Exception(
-              'Product with this serial number not found in available stock',
+              'Product with this S/N not found in available stock',
             );
           }
         }
@@ -534,8 +525,7 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
       'billNumber': billNumber,
       'type': 'tv',
       'billDate': Timestamp.fromDate(now),
-      'createdAt':
-          FieldValue.serverTimestamp(), // This will be used for sorting
+      'createdAt': FieldValue.serverTimestamp(),
       'customerName': customerNameController.text,
       'customerMobile': mobileNumberController.text,
       'customerAddress': addressController.text,
@@ -555,7 +545,6 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
       'financeType': _selectedFinanceType,
     };
 
-    // Save to bills collection
     await _firestore.collection('bills').add(billData);
   }
 
@@ -1007,7 +996,7 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
           children: [
             _buildTableCell('1'),
             _buildTableCell(
-              '${tvModelController.text.isNotEmpty ? tvModelController.text : ""}\nSerial: ${serialNumberController.text.isNotEmpty ? serialNumberController.text : ""}',
+              '${tvModelController.text.isNotEmpty ? tvModelController.text : ""}\nS/N: ${serialNumberController.text.isNotEmpty ? serialNumberController.text : ""}',
               textAlign: pw.TextAlign.left,
               fontSize: 11,
               maxLines: 3,
@@ -1353,7 +1342,7 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
         Column(
           children: [
             AppBar(
-              title: Text('Scan Serial Number'),
+              title: Text('Scan S/N'),
               leading: IconButton(
                 icon: Icon(Icons.arrow_back),
                 onPressed: _stopScanning,
@@ -1717,7 +1706,7 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
         Expanded(
           child: _buildTextField(
             serialNumberController,
-            'Serial Number *',
+            'S/N *',
             Icons.qr_code,
             readOnly: widget.tvData != null,
             validator: _validateSerial,
@@ -1733,7 +1722,7 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
             child: IconButton(
               onPressed: _startScanningSerial,
               icon: Icon(Icons.qr_code_scanner, color: Colors.white),
-              tooltip: 'Scan Serial',
+              tooltip: 'Scan S/N',
               padding: EdgeInsets.all(10),
             ),
           ),
@@ -1906,11 +1895,10 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
   }
 
   String? _validateSerial(String? value) {
-    if (value == null || value.isEmpty) return 'Serial number is required';
-    if (value.length < 8) return 'Serial must be at least 8 characters';
-    if (value.length > 20) return 'Serial must be at most 20 characters';
+    if (value == null || value.isEmpty) return 'S/N is required';
+    if (value.length < 8) return 'S/N must be at least 8 characters';
+    if (value.length > 20) return 'S/N must be at most 20 characters';
 
-    // Updated regex to allow forward slash
     if (!RegExp(r'^[A-Za-z0-9/]+$').hasMatch(value)) {
       return 'Use only letters, numbers, and forward slash (/)';
     }

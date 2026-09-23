@@ -498,6 +498,248 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     return imei;
   }
 
+  // ==================== EDIT PRODUCT NAME ====================
+  Future<void> _editProductName(Map<String, dynamic> item) async {
+    final TextEditingController nameController = TextEditingController(
+      text: item['productName'] ?? '',
+    );
+    final TextEditingController brandController = TextEditingController(
+      text: item['productBrand'] ?? '',
+    );
+    final TextEditingController priceController = TextEditingController(
+      text: (item['productPrice'] ?? 0).toString(),
+    );
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.edit, color: primaryGreen, size: 20),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'Edit Product Details',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Current info display
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey[300]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          size: 12,
+                          color: Colors.grey[600],
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Current Details:',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Product: ${item['productName']}',
+                      style: const TextStyle(fontSize: 11),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Brand: ${item['productBrand']}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'IMEI: ${_formatImeiForDisplay(item['imei'])}',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey[600],
+                        fontFamily: 'Monospace',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Product Name Field
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Product Name *',
+                  hintText: 'e.g., Samsung Galaxy F17 5G',
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  prefixIcon: Icon(Icons.phone_android, size: 18),
+                ),
+                textCapitalization: TextCapitalization.words,
+              ),
+              const SizedBox(height: 12),
+
+              // Brand Field
+              TextField(
+                controller: brandController,
+                decoration: const InputDecoration(
+                  labelText: 'Brand *',
+                  hintText: 'e.g., Samsung',
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  prefixIcon: Icon(Icons.branding_watermark, size: 18),
+                ),
+                textCapitalization: TextCapitalization.words,
+              ),
+              const SizedBox(height: 12),
+
+              // Price Field
+              TextField(
+                controller: priceController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Product Price *',
+                  hintText: 'e.g., 15000',
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  prefixIcon: Icon(Icons.currency_rupee, size: 18),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              if (nameController.text.trim().isEmpty) {
+                _showSnackbar('Product name cannot be empty', Colors.orange);
+                return;
+              }
+              if (brandController.text.trim().isEmpty) {
+                _showSnackbar('Brand cannot be empty', Colors.orange);
+                return;
+              }
+              final price = double.tryParse(priceController.text.trim());
+              if (price == null || price < 0) {
+                _showSnackbar('Please enter a valid price', Colors.orange);
+                return;
+              }
+              Navigator.pop(context, true);
+            },
+            icon: const Icon(Icons.save, size: 16),
+            label: const Text('Save Changes'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryGreen,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final newName = nameController.text.trim();
+    final newBrand = brandController.text.trim();
+    final newPrice = double.tryParse(priceController.text.trim()) ?? 0.0;
+
+    // Check if nothing changed
+    if (newName == item['productName'] &&
+        newBrand == item['productBrand'] &&
+        newPrice == item['productPrice']) {
+      _showSnackbar('No changes made', Colors.blue);
+      return;
+    }
+
+    _showLoadingDialog();
+
+    try {
+      // Determine which collection to update
+      String collection = 'phoneStock';
+      if (item['type'] == 'phone_return') {
+        collection = 'phoneReturns';
+      }
+
+      // Update the document
+      await _firestore.collection(collection).doc(item['id']).update({
+        'productName': newName,
+        'productBrand': newBrand,
+        'productPrice': newPrice,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedBy': _currentUserName,
+        'updatedById': _currentUserId,
+      });
+
+      // Also update any related transfer records if they exist
+      if (item['imei'] != null &&
+          item['imei'].toString().isNotEmpty &&
+          item['imei'].toString() != 'N/A') {
+        try {
+          final transferQuery = await _firestore
+              .collection('phoneTransfers')
+              .where('imei', isEqualTo: item['imei'])
+              .get();
+
+          for (var doc in transferQuery.docs) {
+            await doc.reference.update({
+              'productName': newName,
+              'productBrand': newBrand,
+              'productPrice': newPrice,
+            });
+          }
+        } catch (e) {
+          // Non-critical, just log
+          print('Could not update transfer records: $e');
+        }
+      }
+
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
+        _showSnackbar('Product details updated successfully', Colors.green);
+        await _refreshAllData();
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        _showSnackbar('Error updating product: $e', Colors.red);
+      }
+    }
+  }
+  // ==================== END EDIT PRODUCT NAME ====================
+
   // Shop Transfer Function
   Future<void> _transferToAnotherShop(Map<String, dynamic> item) async {
     // Check if item is available
@@ -815,7 +1057,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     );
   }
 
-  // Show item action menu (Transfer, Return, Delete)
+  // Show item action menu (Edit, Transfer, Return, Delete)
   void _showItemActionMenu(Map<String, dynamic> item) {
     showModalBottomSheet(
       context: context,
@@ -848,6 +1090,17 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
               ),
             ),
             const SizedBox(height: 12),
+
+            // ✅ EDIT PRODUCT NAME OPTION
+            _buildActionTile(
+              icon: Icons.edit,
+              label: 'Edit Product Name',
+              color: primaryGreen,
+              onTap: () {
+                Navigator.pop(context);
+                _editProductName(item);
+              },
+            ),
 
             // Action buttons with fixed alignment
             if (item['status'] == 'available' && item['type'] == 'phone_stock')
@@ -1333,41 +1586,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                   ),
                 ),
 
-                // Overall Statistics
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  child: Row(
-                    children: [
-                      _buildStatItem(
-                        'Available',
-                        _totalAvailable,
-                        _totalAvailableValue,
-                        const Color(0xFF4CAF50),
-                        Icons.check_circle,
-                      ),
-                      const SizedBox(width: 6),
-                      _buildStatItem(
-                        'Sold',
-                        _totalSold,
-                        _totalSoldValue,
-                        const Color(0xFF2196F3),
-                        Icons.shopping_cart,
-                      ),
-                      const SizedBox(width: 6),
-                      _buildStatItem(
-                        'Returned',
-                        _totalReturned,
-                        _totalReturnedValue,
-                        const Color(0xFFFF9800),
-                        Icons.assignment_return,
-                      ),
-                    ],
-                  ),
-                ),
-
                 // Shop selection indicator
                 if (_selectedShopId != null)
                   Container(
@@ -1592,6 +1810,18 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                             ),
                           ],
                         ),
+                      ),
+                      // ✅ Quick Edit Icon
+                      IconButton(
+                        icon: Icon(
+                          Icons.edit,
+                          size: 14,
+                          color: primaryGreen.withOpacity(0.7),
+                        ),
+                        onPressed: () => _editProductName(item),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 28),
+                        tooltip: 'Edit product name',
                       ),
                       // Action Menu Button
                       IconButton(
@@ -2092,6 +2322,25 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                 runSpacing: 8,
                 alignment: WrapAlignment.center,
                 children: [
+                  // ✅ EDIT BUTTON (always visible)
+                  SizedBox(
+                    width: 90,
+                    height: 36,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _editProductName(item);
+                      },
+                      icon: const Icon(Icons.edit, size: 16),
+                      label: const Text('Edit', style: TextStyle(fontSize: 11)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryGreen,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                    ),
+                  ),
+
                   // Transfer Button (only for available items)
                   if (status == 'available' && item['type'] == 'phone_stock')
                     SizedBox(

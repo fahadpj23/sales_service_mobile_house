@@ -1,4 +1,4 @@
-// lib/screens/admin/reports/bills_report_screen.dart (Updated with scrollable TabBar)
+// lib/screens/admin/reports/bills_report_screen.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -88,7 +88,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   final Color editPrimaryColor = const Color(0xFF2563EB);
   final Color editSecondaryColor = const Color(0xFF3B82F6);
 
-  // Print and Edit helper instances
   late BillRePrint _printHelper;
   late BillsReportEdit _editHelper;
 
@@ -97,7 +96,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
 
-    // Initialize controllers
     _editCustomerNameController = TextEditingController();
     _editMobileController = TextEditingController();
     _editAddressController = TextEditingController();
@@ -108,7 +106,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     _editImeiController = TextEditingController();
     _editSerialController = TextEditingController();
 
-    // Initialize helpers
     _printHelper = BillRePrint();
     _editHelper = BillsReportEdit(
       firestore: _firestore,
@@ -119,7 +116,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       warningColor: warningColor,
     );
 
-    // Initialize PDF helper - No logo/seal
     _pdfHelper = BillsReportPDF(formatNumber: widget.formatNumber);
 
     if (widget.initialShopId != null) {
@@ -144,7 +140,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     super.dispose();
   }
 
-  // ==================== IMEI COPY FUNCTION ====================
   void _copyImei(String imei) {
     if (imei.isNotEmpty) {
       Clipboard.setData(ClipboardData(text: imei));
@@ -184,7 +179,9 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
         _allBills.add(data);
 
-        if (billType == 'appliances' || billType == 'Appliance') {
+        // Case-insensitive appliance detection
+        final billTypeLower = billType?.toLowerCase() ?? '';
+        if (billTypeLower == 'appliances' || billTypeLower == 'appliance') {
           _applianceBills.add(data);
         } else if (billType == 'GST Accessories') {
           _accessoriesBills.add(data);
@@ -420,7 +417,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     });
   }
 
-  // ==================== GENERATE SALES REPORT PDF ====================
   Future<void> _generateSalesReport() async {
     final filteredPhoneBills = _getFilteredPhoneBills();
     final filteredAccessoriesBills = _getFilteredAccessoriesBills();
@@ -469,12 +465,13 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
   // ==================== EDIT BILL ====================
   void _startEditBill(Map<String, dynamic> bill) {
-    // Determine bill type
     final billType = bill['billType'] as String?;
     final type = bill['type'] as String?;
     String newEditBillType;
 
-    if (billType == 'Appliances' || billType == 'Appliance') {
+    final billTypeLower = billType?.toLowerCase() ?? '';
+
+    if (billTypeLower == 'appliances' || billTypeLower == 'appliance') {
       newEditBillType = 'appliance';
     } else if (billType == 'GST Accessories') {
       newEditBillType = 'accessories';
@@ -484,12 +481,55 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       newEditBillType = 'phone';
     }
 
-    // Get product details
     String productName = '';
     String imei = '';
     String serialNumber = '';
 
-    if (newEditBillType == 'phone') {
+    // ============ ACCESSORIES ============
+    if (newEditBillType == 'accessories') {
+      final productMap = bill['product'] as Map<String, dynamic>?;
+
+      productName =
+          productMap?['productName']?.toString() ??
+          bill['productName']?.toString() ??
+          bill['applianceProductName']?.toString() ??
+          '';
+
+      serialNumber =
+          bill['serialNumber']?.toString() ??
+          productMap?['serialNumber']?.toString() ??
+          '';
+
+      imei = '';
+    } else if (newEditBillType == 'appliance') {
+      // ============ APPLIANCE (reads nested product map first) ============
+      final productMap = bill['product'] as Map<String, dynamic>?;
+      final originalApplianceData = bill['originalApplianceData'];
+
+      productName =
+          productMap?['productName']?.toString() ??
+          bill['applianceProductName']?.toString() ??
+          bill['productName']?.toString() ??
+          '';
+
+      serialNumber =
+          bill['serialNumber']?.toString() ??
+          productMap?['serialNumber']?.toString() ??
+          '';
+
+      if (originalApplianceData is Map<String, dynamic>) {
+        if (productName.isEmpty) {
+          productName = originalApplianceData['productName']?.toString() ?? '';
+        }
+        if (serialNumber.isEmpty) {
+          serialNumber =
+              originalApplianceData['serialNumber']?.toString() ?? '';
+        }
+      }
+
+      imei = '';
+    } else if (newEditBillType == 'phone') {
+      // ============ PHONE ============
       final originalPhoneData = bill['originalPhoneData'];
       if (originalPhoneData != null &&
           originalPhoneData is Map<String, dynamic>) {
@@ -504,6 +544,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
         if (imei.isEmpty) imei = originalPhoneData['imei'] ?? '';
       }
     } else if (newEditBillType == 'tv') {
+      // ============ TV ============
       final originalTvData = bill['originalTvData'];
       if (originalTvData != null && originalTvData is Map<String, dynamic>) {
         productName =
@@ -516,28 +557,10 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       }
       serialNumber = bill['serialNumber'] ?? '';
       if (originalTvData != null && originalTvData is Map<String, dynamic>) {
-        if (serialNumber.isEmpty)
+        if (serialNumber.isEmpty) {
           serialNumber = originalTvData['serialNumber'] ?? '';
+        }
       }
-    } else if (newEditBillType == 'appliance') {
-      final originalApplianceData = bill['originalApplianceData'];
-      if (originalApplianceData != null &&
-          originalApplianceData is Map<String, dynamic>) {
-        productName =
-            originalApplianceData['productName'] ?? bill['productName'] ?? '';
-      } else {
-        productName = bill['productName'] ?? '';
-      }
-      serialNumber = bill['serialNumber'] ?? '';
-      if (originalApplianceData != null &&
-          originalApplianceData is Map<String, dynamic>) {
-        if (serialNumber.isEmpty)
-          serialNumber = originalApplianceData['serialNumber'] ?? '';
-      }
-    } else {
-      // Accessories
-      productName = bill['productName'] ?? '';
-      imei = bill['imei'] ?? '';
     }
 
     setState(() {
@@ -545,7 +568,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       _editBillType = newEditBillType;
       _isEditMode = true;
 
-      // Populate controllers
       _editCustomerNameController.text = bill['customerName'] ?? '';
       _editMobileController.text = bill['customerMobile'] ?? '';
       _editAddressController.text = bill['customerAddress'] ?? '';
@@ -574,31 +596,45 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   }
 
   Future<void> _updateBill() async {
-    await _editHelper.updateBill(
-      context: context,
-      formKey: _editFormKey,
-      billId: _editingBill?['id'],
-      editBillType: _editBillType,
-      customerNameController: _editCustomerNameController,
-      mobileController: _editMobileController,
-      addressController: _editAddressController,
-      totalAmountController: _editTotalAmountController,
-      taxableAmountController: _editTaxableAmountController,
-      gstAmountController: _editGstAmountController,
-      productNameController: _editProductNameController,
-      imeiController: _editImeiController,
-      serialController: _editSerialController,
-      selectedPurchaseMode: _editSelectedPurchaseMode,
-      selectedFinanceType: _editSelectedFinanceType,
-      sealChecked: _editSealChecked,
-      setState: setState,
-      onUpdateSuccess: _fetchAllBills,
-    );
+    setState(() {
+      _isUpdating = true;
+    });
+
+    try {
+      await _editHelper.updateBill(
+        context: context,
+        formKey: _editFormKey,
+        billId: _editingBill?['id'],
+        editBillType: _editBillType,
+        editingBill: _editingBill,
+        customerNameController: _editCustomerNameController,
+        mobileController: _editMobileController,
+        addressController: _editAddressController,
+        totalAmountController: _editTotalAmountController,
+        taxableAmountController: _editTaxableAmountController,
+        gstAmountController: _editGstAmountController,
+        productNameController: _editProductNameController,
+        imeiController: _editImeiController,
+        serialController: _editSerialController,
+        selectedPurchaseMode: _editSelectedPurchaseMode,
+        selectedFinanceType: _editSelectedFinanceType,
+        sealChecked: _editSealChecked,
+        setState: setState,
+        onUpdateSuccess: () {
+          _fetchAllBills();
+          _cancelEdit();
+        },
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdating = false;
+        });
+      }
+    }
   }
 
-  // ==================== CANCEL EDIT METHOD ====================
   void _cancelEdit() {
-    // Clear all controllers
     _editCustomerNameController.clear();
     _editMobileController.clear();
     _editAddressController.clear();
@@ -609,7 +645,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     _editImeiController.clear();
     _editSerialController.clear();
 
-    // Reset all state variables
     setState(() {
       _isEditMode = false;
       _editingBill = null;
@@ -621,7 +656,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     });
   }
 
-  // ==================== PRINT BILL ====================
   Future<void> _printAndShareBill(Map<String, dynamic> bill) async {
     await _printHelper.printAndShareBill(
       context: context,
@@ -630,7 +664,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     );
   }
 
-  // ==================== UI METHODS ====================
   Future<void> _showCustomDateRangePicker() async {
     DateTime startDate =
         _customStartDate ?? DateTime.now().subtract(Duration(days: 30));
@@ -742,7 +775,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     }
   }
 
-  // ==================== BUILD METHODS ====================
   @override
   Widget build(BuildContext context) {
     final filteredPhoneBills = _getFilteredPhoneBills();
@@ -783,7 +815,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                     color: primaryGreen,
                     child: TabBar(
                       controller: _tabController,
-                      isScrollable: true, // Enable scrolling
+                      isScrollable: true,
                       tabs: [
                         Tab(
                           child: Row(
@@ -1936,23 +1968,30 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final product = bill['product'];
     final billType = bill['billType'] as String?;
     final type = bill['type'] as String?;
+    final billTypeLower = billType?.toLowerCase() ?? '';
     final isTvBill = type == 'tv';
     final isAccessoriesBill = billType == 'GST Accessories';
-    final isApplianceBill = billType == 'Appliances' || billType == 'Appliance';
+    final isApplianceBill =
+        billTypeLower == 'appliances' || billTypeLower == 'appliance';
     final isPhoneBill = !isTvBill && !isAccessoriesBill && !isApplianceBill;
 
+    // ====== FIXED: read product name from nested map first ======
     if (product != null && product is Map<String, dynamic>) {
-      productName = product['productName'] ?? bill['productName'] ?? 'N/A';
-    } else {
+      productName = product['productName']?.toString() ?? '';
+    }
+    if (productName.isEmpty) {
       if (isTvBill) {
-        productName = bill['modelName'] ?? bill['productName'] ?? 'N/A';
-      } else {
-        productName = bill['productName'] ?? 'N/A';
+        productName = bill['modelName']?.toString() ?? '';
+      } else if (isApplianceBill) {
+        productName = bill['applianceProductName']?.toString() ?? '';
       }
+    }
+    if (productName.isEmpty) {
+      productName = bill['productName']?.toString() ?? 'N/A';
     }
 
     final originalTvData = bill['originalTvData'];
-    String serialNumber = bill['serialNumber'] ?? '';
+    String serialNumber = bill['serialNumber']?.toString() ?? '';
 
     if (originalTvData != null && originalTvData is Map<String, dynamic>) {
       if (serialNumber.isEmpty) {
@@ -1964,7 +2003,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     }
 
     final originalPhoneData = bill['originalPhoneData'];
-    String imei = bill['imei'] ?? '';
+    String imei = bill['imei']?.toString() ?? '';
 
     if (originalPhoneData != null &&
         originalPhoneData is Map<String, dynamic>) {
@@ -1974,7 +2013,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     }
 
     final originalApplianceData = bill['originalApplianceData'];
-    String applianceSerialNumber = bill['serialNumber'] ?? '';
+    String applianceSerialNumber = bill['serialNumber']?.toString() ?? '';
     if (originalApplianceData != null &&
         originalApplianceData is Map<String, dynamic>) {
       if (applianceSerialNumber.isEmpty) {
@@ -2308,28 +2347,39 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
     final billType = bill['billType'] as String?;
     final type = bill['type'] as String?;
+    final billTypeLower = billType?.toLowerCase() ?? '';
     final isTvBill = type == 'tv';
     final isAccessoriesBill = billType == 'GST Accessories';
-    final isApplianceBill = billType == 'Appliances' || billType == 'Appliance';
+    final isApplianceBill =
+        billTypeLower == 'appliances' || billTypeLower == 'appliance';
     final isPhoneBill = !isTvBill && !isAccessoriesBill && !isApplianceBill;
 
+    // ====== FIXED: read product details from nested map first ======
     if (product != null && product is Map<String, dynamic>) {
-      productName = product['productName'] ?? bill['productName'] ?? 'N/A';
+      productName = product['productName']?.toString() ?? '';
       quantity = (product['quantity'] as num?)?.toInt() ?? 1;
       productPrice = (product['price'] as num?)?.toDouble() ?? 0.0;
       productDiscount = (product['discount'] as num?)?.toDouble() ?? 0.0;
-    } else {
+    }
+    if (productName.isEmpty) {
       if (isTvBill) {
-        productName = bill['modelName'] ?? bill['productName'] ?? 'N/A';
-      } else {
-        productName = bill['productName'] ?? 'N/A';
+        productName = bill['modelName']?.toString() ?? '';
+      } else if (isApplianceBill) {
+        productName = bill['applianceProductName']?.toString() ?? '';
       }
+    }
+    if (productName.isEmpty) {
+      productName = bill['productName']?.toString() ?? 'N/A';
+    }
+    if (quantity == 1 && bill['quantity'] != null) {
       quantity = (bill['quantity'] as num?)?.toInt() ?? 1;
+    }
+    if (productPrice == 0.0 && bill['price'] != null) {
       productPrice = (bill['price'] as num?)?.toDouble() ?? 0.0;
     }
 
     final originalTvData = bill['originalTvData'];
-    String serialNumber = bill['serialNumber'] ?? '';
+    String serialNumber = bill['serialNumber']?.toString() ?? '';
 
     if (originalTvData != null && originalTvData is Map<String, dynamic>) {
       if (serialNumber.isEmpty) {
@@ -2341,7 +2391,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     }
 
     final originalPhoneData = bill['originalPhoneData'];
-    String imei = bill['imei'] ?? '';
+    String imei = bill['imei']?.toString() ?? '';
 
     if (originalPhoneData != null &&
         originalPhoneData is Map<String, dynamic>) {
@@ -2351,7 +2401,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     }
 
     final originalApplianceData = bill['originalApplianceData'];
-    String applianceSerialNumber = bill['serialNumber'] ?? '';
+    String applianceSerialNumber = bill['serialNumber']?.toString() ?? '';
     if (originalApplianceData != null &&
         originalApplianceData is Map<String, dynamic>) {
       if (applianceSerialNumber.isEmpty) {
@@ -2712,7 +2762,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     );
   }
 
-  // ==================== BUILD EDIT FORM ====================
   Widget _buildEditForm() {
     return BillsReportEdit.buildEditForm(
       editFormKey: _editFormKey,

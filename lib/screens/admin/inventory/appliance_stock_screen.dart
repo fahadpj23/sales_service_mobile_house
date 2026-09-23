@@ -36,6 +36,10 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
   final Color soldColor = Color(0xFF2196F3);
   final Color returnedColor = Color(0xFFFF9800);
 
+  // Current user info (you can get this from auth)
+  String _currentUserId = "admin@gmail.com";
+  String _currentUserName = "Admin";
+
   List<String> _brands = [];
   bool _isLoadingBrands = true;
 
@@ -80,6 +84,309 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
         });
       }
     }
+  }
+
+  // ==================== EDIT PRODUCT DETAILS ====================
+  Future<void> _editProductDetails(
+    String docId,
+    Map<String, dynamic> data,
+  ) async {
+    final TextEditingController nameController = TextEditingController(
+      text: data['productName'] ?? '',
+    );
+    final TextEditingController brandController = TextEditingController(
+      text: data['productBrand'] ?? '',
+    );
+    final TextEditingController priceController = TextEditingController(
+      text: (data['productPrice'] ?? 0).toString(),
+    );
+    final TextEditingController quantityController = TextEditingController(
+      text: (data['quantity'] ?? 0).toString(),
+    );
+
+    int currentQuantity = (data['quantity'] ?? 0).toInt();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.edit, color: primaryGreen, size: 20),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'Edit Appliance Details',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Current info display
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey[300]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          size: 12,
+                          color: Colors.grey[600],
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Current Details:',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Product: ${data['productName']}',
+                      style: const TextStyle(fontSize: 11),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Brand: ${data['productBrand']}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Price: ₹${widget.formatNumber((data['productPrice'] ?? 0).toDouble())}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Quantity: $currentQuantity units',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Shop: ${data['shopName'] ?? 'Unknown'}',
+                      style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Product Name Field
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Product Name *',
+                  hintText: 'e.g., Samsung Refrigerator 250L',
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  prefixIcon: Icon(Icons.kitchen, size: 18),
+                ),
+                textCapitalization: TextCapitalization.words,
+              ),
+              const SizedBox(height: 12),
+
+              // Brand Field
+              TextField(
+                controller: brandController,
+                decoration: const InputDecoration(
+                  labelText: 'Brand *',
+                  hintText: 'e.g., Samsung',
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  prefixIcon: Icon(Icons.branding_watermark, size: 18),
+                ),
+                textCapitalization: TextCapitalization.words,
+              ),
+              const SizedBox(height: 12),
+
+              // Price Field
+              TextField(
+                controller: priceController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Product Price *',
+                  hintText: 'e.g., 25000',
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  prefixIcon: Icon(Icons.currency_rupee, size: 18),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Quantity Field
+              TextField(
+                controller: quantityController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Quantity *',
+                  hintText: 'e.g., 10',
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  prefixIcon: Icon(Icons.numbers, size: 18),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              if (nameController.text.trim().isEmpty) {
+                _showSnackbar('Product name cannot be empty', Colors.orange);
+                return;
+              }
+              if (brandController.text.trim().isEmpty) {
+                _showSnackbar('Brand cannot be empty', Colors.orange);
+                return;
+              }
+              final price = double.tryParse(priceController.text.trim());
+              if (price == null || price < 0) {
+                _showSnackbar('Please enter a valid price', Colors.orange);
+                return;
+              }
+              final qty = int.tryParse(quantityController.text.trim());
+              if (qty == null || qty < 0) {
+                _showSnackbar('Please enter a valid quantity', Colors.orange);
+                return;
+              }
+              Navigator.pop(context, true);
+            },
+            icon: const Icon(Icons.save, size: 16),
+            label: const Text('Save', style: TextStyle(fontSize: 12)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryGreen,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final newName = nameController.text.trim();
+    final newBrand = brandController.text.trim();
+    final newPrice = double.tryParse(priceController.text.trim()) ?? 0.0;
+    final newQuantity = int.tryParse(quantityController.text.trim()) ?? 0;
+
+    // Check if nothing changed
+    if (newName == data['productName'] &&
+        newBrand == data['productBrand'] &&
+        newPrice == (data['productPrice'] ?? 0).toDouble() &&
+        newQuantity == currentQuantity) {
+      _showSnackbar('No changes made', Colors.blue);
+      return;
+    }
+
+    _showLoadingDialog();
+
+    try {
+      await _firestore.collection('applianceStock').doc(docId).update({
+        'productName': newName,
+        'productBrand': newBrand,
+        'productPrice': newPrice,
+        'quantity': newQuantity,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'lastUpdatedAt': FieldValue.serverTimestamp(),
+        'lastUpdatedBy': _currentUserName,
+      });
+
+      // Also update related transfer history records if name/brand changed
+      if (newName != data['productName'] || newBrand != data['productBrand']) {
+        try {
+          final transferQuery = await _firestore
+              .collection('applianceTransferHistory')
+              .where('applianceId', isEqualTo: docId)
+              .get();
+
+          for (var doc in transferQuery.docs) {
+            await doc.reference.update({
+              'productName': newName,
+              'productBrand': newBrand,
+            });
+          }
+        } catch (e) {
+          print('Could not update transfer history: $e');
+        }
+      }
+
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
+        _showSnackbar('Appliance details updated successfully', accentGreen);
+        _loadBrands(); // Refresh brands in case brand changed
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        _showSnackbar('Error updating appliance: $e', dangerColor);
+      }
+    }
+  }
+  // ==================== END EDIT PRODUCT DETAILS ====================
+
+  void _showSnackbar(String message, Color color) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontSize: 12)),
+        backgroundColor: color,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _showLoadingDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Center(
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: primaryGreen),
+                const SizedBox(height: 12),
+                const Text('Processing...', style: TextStyle(fontSize: 12)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   // Show quantity selection dialog
@@ -1098,6 +1405,25 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                 ),
               ),
               Divider(height: 1),
+
+              // ✅ EDIT PRODUCT DETAILS OPTION
+              ListTile(
+                dense: true,
+                leading: Icon(Icons.edit, color: primaryGreen, size: 20),
+                title: Text(
+                  'Edit Product Details',
+                  style: TextStyle(fontSize: 13),
+                ),
+                subtitle: Text(
+                  'Edit product name, brand, price & quantity',
+                  style: TextStyle(fontSize: 11),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  _editProductDetails(docId, data);
+                },
+              ),
+
               ListTile(
                 dense: true,
                 leading: Icon(Icons.swap_horiz, color: primaryGreen, size: 20),
@@ -1209,7 +1535,7 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
       ),
       body: Column(
         children: [
-          _buildSearchAndFilterArea(), // Updated: Now includes shop filter
+          _buildSearchAndFilterArea(),
           _buildStatusChips(),
           const Divider(height: 1, color: Colors.grey),
           Expanded(child: _buildStockList()),
@@ -1218,7 +1544,7 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
     );
   }
 
-  // NEW: Combined search and filter area with shop dropdown
+  // Combined search and filter area with shop dropdown
   Widget _buildSearchAndFilterArea() {
     return Container(
       padding: EdgeInsets.all(10),
@@ -1293,7 +1619,7 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
     );
   }
 
-  // NEW: Shop filter dropdown widget
+  // Shop filter dropdown widget
   Widget _buildShopFilterDropdown() {
     return Container(
       height: 34,
@@ -1785,6 +2111,18 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                       ),
                     ),
                     SizedBox(width: 4),
+                    // ✅ Quick Edit Icon
+                    IconButton(
+                      icon: Icon(
+                        Icons.edit,
+                        size: 15,
+                        color: primaryGreen.withOpacity(0.7),
+                      ),
+                      onPressed: () => _editProductDetails(docId, data),
+                      padding: EdgeInsets.zero,
+                      constraints: BoxConstraints(minWidth: 28),
+                      tooltip: 'Edit product details',
+                    ),
                     PopupMenuButton<String>(
                       icon: Icon(
                         Icons.more_vert,
@@ -1792,7 +2130,9 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                         color: primaryGreen,
                       ),
                       onSelected: (value) {
-                        if (value == 'transfer') {
+                        if (value == 'edit') {
+                          _editProductDetails(docId, data);
+                        } else if (value == 'transfer') {
                           _showTransferDialog(docId, data);
                         } else if (value == 'return') {
                           _showReturnDialog(docId, data);
@@ -1801,6 +2141,20 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                         }
                       },
                       itemBuilder: (context) => [
+                        // ✅ EDIT OPTION
+                        PopupMenuItem(
+                          value: 'edit',
+                          child: Row(
+                            children: [
+                              Icon(Icons.edit, size: 16, color: primaryGreen),
+                              SizedBox(width: 6),
+                              Text(
+                                'Edit Details',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
                         PopupMenuItem(
                           value: 'transfer',
                           child: Row(

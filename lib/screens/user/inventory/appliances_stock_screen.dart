@@ -1098,8 +1098,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
       setState(() => _isLoading = false);
     } catch (e, stackTrace) {
       // Outer catch - should rarely be hit
-      print('Outer error in _markAsSold: $e');
-      print('Outer stack trace: $stackTrace');
+
       if (mounted) {
         _showError('Failed to process sale: ${e.toString()}');
       }

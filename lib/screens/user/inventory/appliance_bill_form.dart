@@ -1,4 +1,3 @@
-// lib/screens/user/gst_accessories_sale_upload.dart
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -14,12 +13,12 @@ import '../../../providers/auth_provider.dart';
 
 class ApplianaceSaleUpload extends StatefulWidget {
   final Map<String, dynamic>? productData;
-  final bool isStockAlreadyUpdated; // Add this parameter
+  final bool isStockAlreadyUpdated;
 
   const ApplianaceSaleUpload({
     super.key,
     this.productData,
-    this.isStockAlreadyUpdated = false, // Default to false
+    this.isStockAlreadyUpdated = false,
   });
 
   @override
@@ -44,6 +43,8 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
 
   // Product controllers
   final TextEditingController _productNameController = TextEditingController();
+  final TextEditingController _serialNumberController =
+      TextEditingController(); // ====== NEW ======
   final TextEditingController _quantityController = TextEditingController(
     text: '1',
   );
@@ -105,6 +106,11 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
         _productNameController.text = product['productName'];
       }
 
+      // ====== NEW: prefill serial number if available ======
+      if (product['serialNumber'] != null) {
+        _serialNumberController.text = product['serialNumber'].toString();
+      }
+
       if (product['quantity'] != null) {
         _quantityController.text = product['quantity'].toString();
       }
@@ -135,12 +141,12 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
     }
   }
 
-  Future<void> _generateNextBillNumber() async {
-    try {
-      setState(() {
-        isLoading = true;
-      });
+  // ═══════════════════════════════════════════════════════
+  // BILL NUMBER GENERATION + REGENERATION
+  // ═══════════════════════════════════════════════════════
 
+  Future<String> _fetchNextBillNumber() async {
+    try {
       final QuerySnapshot snapshot = await _firestore
           .collection('bills')
           .orderBy('createdAt', descending: true)
@@ -164,6 +170,21 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
         }
       }
 
+      return nextBillNo;
+    } catch (e) {
+      print('Error generating bill number: $e');
+      return '001';
+    }
+  }
+
+  Future<void> _generateNextBillNumber() async {
+    try {
+      setState(() {
+        isLoading = true;
+      });
+
+      final nextBillNo = await _fetchNextBillNumber();
+
       if (mounted) {
         setState(() {
           _billNumberController.text = nextBillNo;
@@ -180,6 +201,27 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
       }
     }
   }
+
+  Future<void> _regenerateBillNumber() async {
+    if (_isGeneratingBill) return;
+
+    final newBillNumber = await _fetchNextBillNumber();
+
+    if (!mounted) return;
+
+    setState(() {
+      _billNumberController.text = newBillNumber;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Bill number regenerated: MH-$newBillNumber'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════
 
   void _onPriceOrQuantityChanged() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -267,6 +309,7 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
       final priceWithGst = double.parse(_priceController.text);
       final quantity = int.tryParse(_quantityController.text) ?? 1;
       final discount = double.tryParse(_discountController.text) ?? 0.0;
+      final serialNumber = _serialNumberController.text.trim();
 
       double totalWithGst = priceWithGst * quantity;
       if (discount > 0) {
@@ -276,8 +319,10 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
       final taxableAmount = totalWithGst / (1 + gstRate / 100);
       final gstAmount = totalWithGst - taxableAmount;
 
+      // ====== Product map now includes serialNumber ======
       final product = {
         'productName': _productNameController.text,
+        'serialNumber': serialNumber,
         'quantity': quantity,
         'price': priceWithGst,
         'discount': discount,
@@ -296,6 +341,10 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
         'customerMobile': _customerPhoneController.text,
         'customerAddress': _customerAddressController.text,
         'product': product,
+        // ====== Flat fields (used by edit + print) ======
+        'productName': _productNameController.text,
+        'serialNumber': serialNumber,
+        // ====== Amounts ======
         'totalAmount': totalWithGst,
         'taxableAmount': taxableAmount,
         'gstAmount': gstAmount,
@@ -318,7 +367,6 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
 
       final docRef = await _firestore.collection('bills').add(billData);
 
-      // Only update stock if it wasn't already updated
       if (!widget.isStockAlreadyUpdated && _stockModelId != null) {
         final stockRef = _firestore
             .collection('applianceStock')
@@ -349,6 +397,7 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
                 'soldById': user?.uid ?? '',
                 'sellingPrice': priceWithGst,
                 'soldQuantity': quantity,
+                'serialNumber': serialNumber,
                 'billGenerated': true,
                 'billGeneratedAt': FieldValue.serverTimestamp(),
                 'lastUpdatedAt': FieldValue.serverTimestamp(),
@@ -362,7 +411,6 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
               });
             }
 
-            // Create sold record
             final soldRecordRef = _firestore
                 .collection('applianceSoldRecords')
                 .doc();
@@ -371,6 +419,7 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
               'productBrand': widget.productData?['productBrand'] ?? 'Unknown',
               'productName': widget.productData?['productName'] ?? 'Unknown',
               'productPrice': widget.productData?['productPrice'] ?? 0,
+              'serialNumber': serialNumber,
               'quantity': quantity,
               'sellingPrice': priceWithGst,
               'totalAmount': quantity * priceWithGst,
@@ -389,7 +438,6 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
           print(
             'Firebase error updating stock: ${firebaseError.code} - ${firebaseError.message}',
           );
-          // Don't rethrow - bill is already created
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
@@ -401,7 +449,7 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
         } catch (stockError) {
           print('Stock update error: $stockError');
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
+            const SnackBar(
               content: Text(
                 'Bill created but stock update failed. Please check stock manually.',
               ),
@@ -901,10 +949,10 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
           children: [
             _buildTableCell('1', fontSize: 9),
             _buildTableCell(
-              product['productName'] ?? '',
+              _buildProductNameWithSerial(product),
               textAlign: pw.TextAlign.left,
               fontSize: 9,
-              maxLines: 2,
+              maxLines: 3,
             ),
             _buildTableCell('', fontSize: 9),
             _buildTableCell(
@@ -919,7 +967,6 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
               product['discount'] > 0 ? '${product['discount']}%' : '-',
               fontSize: 9,
             ),
-
             _buildTableCell('$gstRate', fontSize: 9),
             _buildTableCell(
               (product['gstAmount'] ?? 0.0).toStringAsFixed(0),
@@ -933,6 +980,17 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
         ),
       ],
     );
+  }
+
+  // ====== NEW: helper to combine name + serial for PDF ======
+  String _buildProductNameWithSerial(Map<String, dynamic> product) {
+    final name = (product['productName'] ?? '').toString().trim();
+    final serial = (product['serialNumber'] ?? '').toString().trim();
+
+    if (serial.isEmpty) {
+      return name;
+    }
+    return '$name\nS/N: $serial';
   }
 
   pw.Widget _buildTotalSection(
@@ -1130,17 +1188,51 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
     pw.TextAlign textAlign = pw.TextAlign.center,
     int maxLines = 1,
   }) {
+    final lines = text.split('\n');
+
+    if (maxLines <= 1 || lines.length <= 1) {
+      return pw.Container(
+        alignment: pw.Alignment.center,
+        padding: const pw.EdgeInsets.symmetric(horizontal: 1, vertical: 2),
+        child: pw.Text(
+          text,
+          style: pw.TextStyle(
+            fontSize: fontSize,
+            fontWeight: isHeader ? pw.FontWeight.bold : pw.FontWeight.normal,
+          ),
+          textAlign: textAlign,
+          maxLines: maxLines,
+        ),
+      );
+    }
+
+    // Multi-line support for product name + serial
     return pw.Container(
       alignment: pw.Alignment.center,
       padding: const pw.EdgeInsets.symmetric(horizontal: 1, vertical: 2),
-      child: pw.Text(
-        text,
-        style: pw.TextStyle(
-          fontSize: fontSize,
-          fontWeight: isHeader ? pw.FontWeight.bold : pw.FontWeight.normal,
-        ),
-        textAlign: textAlign,
-        maxLines: maxLines,
+      child: pw.Column(
+        mainAxisSize: pw.MainAxisSize.min,
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: [
+          pw.Text(
+            lines[0],
+            style: pw.TextStyle(
+              fontSize: fontSize,
+              fontWeight: pw.FontWeight.bold,
+            ),
+            textAlign: pw.TextAlign.center,
+          ),
+          pw.SizedBox(height: 2),
+          for (int i = 1; i < lines.length && i < maxLines; i++)
+            pw.Text(
+              lines[i],
+              style: pw.TextStyle(
+                fontSize: fontSize * 0.9,
+                fontWeight: pw.FontWeight.normal,
+              ),
+              textAlign: pw.TextAlign.center,
+            ),
+        ],
       ),
     );
   }
@@ -1150,6 +1242,7 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
     _customerPhoneController.clear();
     _customerAddressController.clear();
     _productNameController.clear();
+    _serialNumberController.clear();
     _quantityController.text = '1';
     _priceController.clear();
     _discountController.text = '0';
@@ -1187,6 +1280,11 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
           onPressed: () => Navigator.pop(context, false),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
+            onPressed: _isGeneratingBill ? null : _regenerateBillNumber,
+            tooltip: 'Regenerate Bill Number',
+          ),
           if (_savedPdfFile != null)
             IconButton(
               icon: const Icon(Icons.share, color: Colors.white, size: 20),
@@ -1335,6 +1433,14 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
               ],
             ),
           ),
+          IconButton(
+            icon: Icon(Icons.refresh, color: Colors.green[700], size: 20),
+            onPressed: _isGeneratingBill ? null : _regenerateBillNumber,
+            tooltip: 'Regenerate',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          ),
+          const SizedBox(width: 4),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
@@ -1447,12 +1553,18 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
             ],
           ),
           const SizedBox(height: 10),
-
           _buildTextField(
             _productNameController,
             'Product Name *',
             Icons.shopping_bag_outlined,
             validator: (value) => value?.isEmpty ?? true ? 'Required' : null,
+          ),
+          const SizedBox(height: 10),
+          // ====== NEW: Serial Number field ======
+          _buildTextField(
+            _serialNumberController,
+            'Serial Number (S/N)',
+            Icons.confirmation_number_outlined,
           ),
           const SizedBox(height: 10),
           _buildTextField(
@@ -1799,6 +1911,7 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
     _customerPhoneController.dispose();
     _customerAddressController.dispose();
     _productNameController.dispose();
+    _serialNumberController.dispose();
     _quantityController.dispose();
     _priceController.dispose();
     _discountController.dispose();

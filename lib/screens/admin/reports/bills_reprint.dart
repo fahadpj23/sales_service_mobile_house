@@ -116,6 +116,14 @@ class BillRePrint {
     }
   }
 
+  // Helper to safely get string from any value
+  String _safeString(dynamic value) {
+    if (value == null) return '';
+    final s = value.toString().trim();
+    if (s.isEmpty || s == 'null' || s == 'N/A') return '';
+    return s;
+  }
+
   Future<Uint8List> _generateBillPdf(Map<String, dynamic> bill) async {
     // Ensure images are loaded
     await initialize();
@@ -140,41 +148,118 @@ class BillRePrint {
     final bool hasAddress =
         customerAddress.isNotEmpty && customerAddress != 'N/A';
 
-    // Get product details based on type
-    String productName = bill['productName'] ?? '';
+    // ==================== FIXED: Product details with correct identifier label ====================
+    String productName = '';
     String identifier = '';
     String identifierLabel = '';
 
     final billType = bill['billType'] as String?;
     final type = bill['type'] as String?;
 
+    // Get product map (contains all product data for accessories)
+    final product = bill['product'];
+    final originalPhoneData = bill['originalPhoneData'];
+    final originalTvData = bill['originalTvData'];
+    final originalApplianceData = bill['originalApplianceData'];
+
     if (billType == 'GST Accessories') {
-      productName = bill['productName'] ?? '';
-      identifier = bill['imei'] ?? '';
-      identifierLabel = 'IMEI';
+      // ===== ACCESSORIES BILL: Serial Number (S/N) =====
+      // Extract product name from product map first
+      if (product is Map<String, dynamic>) {
+        productName = _safeString(product['productName']);
+        if (productName.isEmpty) productName = _safeString(product['name']);
+        if (productName.isEmpty)
+          productName = _safeString(product['modelName']);
+      }
+      if (productName.isEmpty) productName = _safeString(bill['productName']);
+      if (productName.isEmpty)
+        productName = _safeString(bill['applianceProductName']);
+
+      // Extract S/N from product map
+      if (product is Map<String, dynamic>) {
+        identifier = _safeString(product['serialNumber']);
+        if (identifier.isEmpty) identifier = _safeString(product['imei']);
+      }
+      if (identifier.isEmpty) identifier = _safeString(bill['serialNumber']);
+      identifierLabel = 'S/N';
     } else if (type == 'tv') {
-      productName = bill['modelName'] ?? bill['productName'] ?? '';
-      identifier = bill['serialNumber'] ?? '';
-      identifierLabel = 'Serial No';
-      final originalTvData = bill['originalTvData'];
-      if (originalTvData != null && originalTvData is Map<String, dynamic>) {
-        if (productName.isEmpty)
-          productName = originalTvData['modelName'] ?? '';
-        if (identifier.isEmpty)
-          identifier = originalTvData['serialNumber'] ?? '';
+      // ===== TV BILL: Serial Number (S/N) =====
+      productName = _safeString(bill['modelName']);
+      if (productName.isEmpty) productName = _safeString(bill['productName']);
+
+      identifier = _safeString(bill['serialNumber']);
+
+      if (originalTvData is Map<String, dynamic>) {
+        if (productName.isEmpty) {
+          productName = _safeString(originalTvData['modelName']);
+        }
+        if (identifier.isEmpty) {
+          identifier = _safeString(originalTvData['serialNumber']);
+        }
       }
+      if (product is Map<String, dynamic>) {
+        if (productName.isEmpty) {
+          productName = _safeString(product['productName']);
+        }
+        if (identifier.isEmpty) {
+          identifier = _safeString(product['serialNumber']);
+        }
+      }
+      identifierLabel = 'S/N';
+    } else if (billType == 'Appliances' || billType == 'Appliance') {
+      // ===== APPLIANCE BILL: Serial Number (S/N) =====
+      productName = _safeString(bill['productName']);
+      if (productName.isEmpty)
+        productName = _safeString(bill['applianceProductName']);
+
+      identifier = _safeString(bill['serialNumber']);
+
+      if (originalApplianceData is Map<String, dynamic>) {
+        if (productName.isEmpty) {
+          productName = _safeString(originalApplianceData['productName']);
+        }
+        if (identifier.isEmpty) {
+          identifier = _safeString(originalApplianceData['serialNumber']);
+        }
+      }
+      if (product is Map<String, dynamic>) {
+        if (productName.isEmpty) {
+          productName = _safeString(product['productName']);
+        }
+        if (identifier.isEmpty) {
+          identifier = _safeString(product['serialNumber']);
+        }
+      }
+      identifierLabel = 'S/N';
     } else {
-      productName = bill['productName'] ?? '';
-      identifier = bill['imei'] ?? '';
-      identifierLabel = 'IMEI';
-      final originalPhoneData = bill['originalPhoneData'];
-      if (originalPhoneData != null &&
-          originalPhoneData is Map<String, dynamic>) {
-        if (productName.isEmpty)
-          productName = originalPhoneData['productName'] ?? '';
-        if (identifier.isEmpty) identifier = originalPhoneData['imei'] ?? '';
+      // ===== PHONE BILL: IMEI =====
+      productName = _safeString(bill['productName']);
+      identifier = _safeString(bill['imei']);
+
+      if (originalPhoneData is Map<String, dynamic>) {
+        if (productName.isEmpty) {
+          productName = _safeString(originalPhoneData['productName']);
+        }
+        if (identifier.isEmpty) {
+          identifier = _safeString(originalPhoneData['imei']);
+        }
       }
+      if (product is Map<String, dynamic>) {
+        if (productName.isEmpty) {
+          productName = _safeString(product['productName']);
+        }
+        if (identifier.isEmpty) {
+          identifier = _safeString(product['imei']);
+        }
+      }
+      identifierLabel = 'IMEI';
     }
+
+    // Final fallbacks
+    if (productName.isEmpty) productName = 'N/A';
+    if (identifier.isEmpty) identifier = 'N/A';
+
+    // ==================== END FIXED ====================
 
     pdf.addPage(
       pw.Page(

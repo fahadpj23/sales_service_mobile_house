@@ -53,11 +53,88 @@ class BillsReportEdit {
     }
   }
 
+  /// Populates edit controllers from the selected bill.
+  /// Handles accessories AND appliance bills where product data is stored
+  /// in a nested `product` map instead of flat top-level fields.
+  void loadBillIntoControllers({
+    required Map<String, dynamic> bill,
+    required String? editBillType,
+    required TextEditingController customerNameController,
+    required TextEditingController mobileController,
+    required TextEditingController addressController,
+    required TextEditingController totalAmountController,
+    required TextEditingController taxableAmountController,
+    required TextEditingController gstAmountController,
+    required TextEditingController productNameController,
+    required TextEditingController imeiController,
+    required TextEditingController serialController,
+  }) {
+    customerNameController.text = bill['customerName']?.toString() ?? '';
+    mobileController.text = bill['customerMobile']?.toString() ?? '';
+    addressController.text = bill['customerAddress']?.toString() ?? '';
+
+    final total = bill['totalAmount'];
+    final taxable = bill['taxableAmount'];
+    final gst = bill['gstAmount'];
+
+    totalAmountController.text = total != null ? total.toString() : '';
+    taxableAmountController.text = taxable != null ? taxable.toString() : '';
+    gstAmountController.text = gst != null ? gst.toString() : '';
+
+    final productMap = bill['product'] as Map<String, dynamic>?;
+
+    if (editBillType == 'phone') {
+      productNameController.text = bill['productName']?.toString() ?? '';
+      imeiController.text = bill['imei']?.toString() ?? '';
+      serialController.text = '';
+    } else if (editBillType == 'tv') {
+      productNameController.text =
+          bill['productName']?.toString() ??
+          bill['modelName']?.toString() ??
+          productMap?['productName']?.toString() ??
+          '';
+      serialController.text =
+          bill['serialNumber']?.toString() ??
+          productMap?['serialNumber']?.toString() ??
+          '';
+      imeiController.text = '';
+    } else if (editBillType == 'appliance') {
+      // Appliance: read nested product map first, then applianceProductName
+      productNameController.text =
+          productMap?['productName']?.toString() ??
+          bill['applianceProductName']?.toString() ??
+          bill['productName']?.toString() ??
+          '';
+
+      serialController.text =
+          bill['serialNumber']?.toString() ??
+          productMap?['serialNumber']?.toString() ??
+          '';
+
+      imeiController.text = '';
+    } else {
+      // Accessories — check nested product map first
+      productNameController.text =
+          productMap?['productName']?.toString() ??
+          bill['productName']?.toString() ??
+          bill['applianceProductName']?.toString() ??
+          '';
+
+      serialController.text =
+          bill['serialNumber']?.toString() ??
+          productMap?['serialNumber']?.toString() ??
+          '';
+
+      imeiController.text = '';
+    }
+  }
+
   Future<void> updateBill({
     required BuildContext context,
     required GlobalKey<FormState> formKey,
     required String? billId,
     required String? editBillType,
+    required Map<String, dynamic>? editingBill,
     required TextEditingController customerNameController,
     required TextEditingController mobileController,
     required TextEditingController addressController,
@@ -83,15 +160,42 @@ class BillsReportEdit {
       return;
     }
 
-    setState(() {
-      // isUpdating will be set in the parent
-    });
+    setState(() {});
 
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final user = authProvider.user;
 
-      final updateData = {
+      // ============================================================
+      // SEPARATE PATH: GST Accessories + Appliances (nested product map)
+      // ============================================================
+      if (editBillType == 'accessories' || editBillType == 'appliance') {
+        await _updateNestedProductBill(
+          context: context,
+          billId: billId,
+          editBillType: editBillType,
+          editingBill: editingBill,
+          customerNameController: customerNameController,
+          mobileController: mobileController,
+          addressController: addressController,
+          totalAmountController: totalAmountController,
+          taxableAmountController: taxableAmountController,
+          gstAmountController: gstAmountController,
+          productNameController: productNameController,
+          serialController: serialController,
+          selectedPurchaseMode: selectedPurchaseMode,
+          selectedFinanceType: selectedFinanceType,
+          sealChecked: sealChecked,
+          userEmail: user?.email,
+          onUpdateSuccess: onUpdateSuccess,
+        );
+        return;
+      }
+
+      // ============================================================
+      // EXISTING PATH: Phone / TV (UNCHANGED)
+      // ============================================================
+      final updateData = <String, dynamic>{
         'customerName': customerNameController.text.trim(),
         'customerMobile': mobileController.text.trim(),
         'customerAddress': addressController.text.trim(),
@@ -105,24 +209,20 @@ class BillsReportEdit {
         'updatedBy': user?.email,
       };
 
-      // Add type-specific fields
+      final productName = productNameController.text.trim();
+
       if (editBillType == 'phone') {
-        updateData['productName'] = productNameController.text.trim();
+        updateData['productName'] = productName;
         updateData['imei'] = imeiController.text.trim();
       } else if (editBillType == 'tv') {
-        updateData['modelName'] = productNameController.text.trim();
+        updateData['modelName'] = productName;
+        updateData['productName'] = productName;
         updateData['serialNumber'] = serialController.text.trim();
-        updateData['productName'] = productNameController.text.trim();
-      } else {
-        updateData['productName'] = productNameController.text.trim();
-        if (imeiController.text.trim().isNotEmpty) {
-          updateData['imei'] = imeiController.text.trim();
-        }
       }
 
       await firestore.collection('bills').doc(billId).update(updateData);
 
-      // Update phone stock if phone bill
+      // Phone stock sync
       if (editBillType == 'phone') {
         final imei = imeiController.text.trim();
         if (imei.isNotEmpty) {
@@ -147,7 +247,7 @@ class BillsReportEdit {
         }
       }
 
-      // Update TV stock if TV bill
+      // TV stock sync
       if (editBillType == 'tv') {
         final serialNumber = serialController.text.trim();
         if (serialNumber.isNotEmpty) {
@@ -175,6 +275,121 @@ class BillsReportEdit {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Bill updated successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating bill: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // ============================================================
+  // SEPARATE UPDATE METHOD FOR NESTED PRODUCT BILLS
+  // (GST Accessories + Appliances — both use `product` map)
+  // ============================================================
+  Future<void> _updateNestedProductBill({
+    required BuildContext context,
+    required String? billId,
+    required String? editBillType,
+    required Map<String, dynamic>? editingBill,
+    required TextEditingController customerNameController,
+    required TextEditingController mobileController,
+    required TextEditingController addressController,
+    required TextEditingController totalAmountController,
+    required TextEditingController taxableAmountController,
+    required TextEditingController gstAmountController,
+    required TextEditingController productNameController,
+    required TextEditingController serialController,
+    required String? selectedPurchaseMode,
+    required String? selectedFinanceType,
+    required bool sealChecked,
+    required String? userEmail,
+    required VoidCallback onUpdateSuccess,
+  }) async {
+    try {
+      final productName = productNameController.text.trim();
+      final serial = serialController.text.trim();
+
+      final totalAmount = double.parse(totalAmountController.text);
+      final taxableAmount = double.parse(taxableAmountController.text);
+      final gstAmount = double.parse(gstAmountController.text);
+
+      final existingProduct = editingBill?['product'] as Map<String, dynamic>?;
+
+      // Preserve existing fields (quantity, price, discount, etc.)
+      final updatedProduct = <String, dynamic>{
+        ...?existingProduct,
+        'productName': productName,
+        'serialNumber': serial,
+        'quantity': existingProduct?['quantity'] ?? 1,
+        'price': existingProduct?['price'] ?? totalAmount,
+        'discount': existingProduct?['discount'] ?? 0.0,
+        'taxableAmount': taxableAmount,
+        'gstAmount': gstAmount,
+        'totalAmount': totalAmount,
+      };
+
+      final updateData = <String, dynamic>{
+        'customerName': customerNameController.text.trim(),
+        'customerMobile': mobileController.text.trim(),
+        'customerAddress': addressController.text.trim(),
+        'totalAmount': totalAmount,
+        'taxableAmount': taxableAmount,
+        'gstAmount': gstAmount,
+        'purchaseMode': selectedPurchaseMode,
+        'financeType': selectedFinanceType,
+        'sealApplied': sealChecked,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedBy': userEmail,
+
+        // Write BOTH flat fields AND nested product map
+        'productName': productName,
+        'serialNumber': serial,
+        'product': updatedProduct,
+      };
+
+      // For appliances, also update applianceProductName (used by create flow)
+      if (editBillType == 'appliance') {
+        updateData['applianceProductName'] = productName;
+      }
+
+      // 1. Update main bills collection
+      await firestore.collection('bills').doc(billId).update(updateData);
+
+      // 2. Sync gst_accessories_sales ONLY for accessories
+      if (editBillType == 'accessories') {
+        try {
+          final salesSnapshot = await firestore
+              .collection('gst_accessories_sales')
+              .where('billId', isEqualTo: billId)
+              .limit(1)
+              .get();
+
+          if (salesSnapshot.docs.isNotEmpty) {
+            await firestore
+                .collection('gst_accessories_sales')
+                .doc(salesSnapshot.docs.first.id)
+                .update(updateData);
+          }
+        } catch (e) {
+          debugPrint('Could not sync gst_accessories_sales: $e');
+        }
+      }
+
+      onUpdateSuccess();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            editBillType == 'appliance'
+                ? 'Appliance bill updated successfully!'
+                : 'Accessories bill updated successfully!',
+          ),
           backgroundColor: Colors.green,
         ),
       );
@@ -232,7 +447,6 @@ class BillsReportEdit {
       'Other',
     ];
 
-    // Get bill type icon
     IconData billIcon;
     String billTypeName;
     if (editBillType == 'tv') {
@@ -241,10 +455,44 @@ class BillsReportEdit {
     } else if (editBillType == 'accessories') {
       billIcon = Icons.shopping_bag;
       billTypeName = 'Accessories Bill';
+    } else if (editBillType == 'appliance') {
+      billIcon = Icons.kitchen;
+      billTypeName = 'Appliance Bill';
     } else {
       billIcon = Icons.phone_android;
       billTypeName = 'Phone Bill';
     }
+
+    final bool isPhoneBill = editBillType == 'phone';
+    final bool isTvBill = editBillType == 'tv';
+    final bool isApplianceBill = editBillType == 'appliance';
+    final bool isAccessoriesBill = editBillType == 'accessories';
+
+    final String identifierLabel = isPhoneBill
+        ? 'IMEI Number'
+        : 'Serial Number (S/N)';
+    final IconData identifierIcon = isPhoneBill
+        ? Icons.qr_code
+        : Icons.confirmation_number;
+    final TextEditingController identifierController = isPhoneBill
+        ? imeiController
+        : serialController;
+
+    final IconData productIcon = isTvBill
+        ? Icons.tv
+        : isApplianceBill
+        ? Icons.kitchen
+        : isAccessoriesBill
+        ? Icons.shopping_bag
+        : Icons.phone_android;
+
+    final String productHint = isTvBill
+        ? 'e.g., Samsung 43" Smart TV'
+        : isApplianceBill
+        ? 'e.g., Samsung Refrigerator'
+        : isAccessoriesBill
+        ? 'e.g., Boat Earphones'
+        : 'e.g., Samsung Galaxy F17';
 
     return SingleChildScrollView(
       padding: EdgeInsets.all(12),
@@ -253,7 +501,6 @@ class BillsReportEdit {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Bill info header
             Container(
               padding: EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -364,8 +611,10 @@ class BillsReportEdit {
                       decoration: InputDecoration(
                         labelText: 'Product Name *',
                         labelStyle: TextStyle(fontSize: 12),
+                        hintText: productHint,
+                        hintStyle: TextStyle(fontSize: 11),
                         prefixIcon: Icon(
-                          Icons.production_quantity_limits,
+                          productIcon,
                           size: 18,
                           color: editPrimaryColor,
                         ),
@@ -378,56 +627,41 @@ class BillsReportEdit {
                         ),
                       ),
                       style: TextStyle(fontSize: 13),
+                      textCapitalization: TextCapitalization.words,
                       validator: (value) =>
                           value?.trim().isEmpty == true ? 'Required' : null,
                     ),
-                    if (editBillType == 'phone' ||
-                        editBillType == 'accessories') ...[
-                      SizedBox(height: 10),
-                      TextFormField(
-                        controller: imeiController,
-                        decoration: InputDecoration(
-                          labelText: 'IMEI Number',
-                          labelStyle: TextStyle(fontSize: 12),
-                          prefixIcon: Icon(
-                            Icons.qr_code,
-                            size: 18,
-                            color: editPrimaryColor,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
+                    SizedBox(height: 10),
+                    TextFormField(
+                      controller: identifierController,
+                      decoration: InputDecoration(
+                        labelText: identifierLabel,
+                        labelStyle: TextStyle(fontSize: 12),
+                        hintText: isPhoneBill
+                            ? 'e.g., 356938035643809'
+                            : 'e.g., SN123456789',
+                        hintStyle: TextStyle(fontSize: 11),
+                        prefixIcon: Icon(
+                          identifierIcon,
+                          size: 18,
+                          color: editPrimaryColor,
                         ),
-                        style: TextStyle(fontSize: 13),
-                      ),
-                    ],
-                    if (editBillType == 'tv') ...[
-                      SizedBox(height: 10),
-                      TextFormField(
-                        controller: serialController,
-                        decoration: InputDecoration(
-                          labelText: 'Serial Number',
-                          labelStyle: TextStyle(fontSize: 12),
-                          prefixIcon: Icon(
-                            Icons.confirmation_number,
-                            size: 18,
-                            color: editPrimaryColor,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
                         ),
-                        style: TextStyle(fontSize: 13),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                       ),
-                    ],
+                      style: TextStyle(fontSize: 13),
+                      textCapitalization: isPhoneBill
+                          ? TextCapitalization.none
+                          : TextCapitalization.characters,
+                      keyboardType: isPhoneBill
+                          ? TextInputType.number
+                          : TextInputType.text,
+                    ),
                   ],
                 ),
               ),
@@ -764,7 +998,7 @@ class BillsReportEdit {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: onCancel, // This now calls _cancelEdit properly
+                    onPressed: onCancel,
                     icon: Icon(Icons.close, size: 18),
                     label: Text('Cancel', style: TextStyle(fontSize: 13)),
                     style: OutlinedButton.styleFrom(
