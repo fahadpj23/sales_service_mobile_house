@@ -1896,8 +1896,6 @@ class _BillFormTvScreenState extends State<BillFormTvScreen> {
 
   String? _validateSerial(String? value) {
     if (value == null || value.isEmpty) return 'S/N is required';
-    if (value.length < 8) return 'S/N must be at least 8 characters';
-    if (value.length > 20) return 'S/N must be at most 20 characters';
 
     if (!RegExp(r'^[A-Za-z0-9/]+$').hasMatch(value)) {
       return 'Use only letters, numbers, and forward slash (/)';
