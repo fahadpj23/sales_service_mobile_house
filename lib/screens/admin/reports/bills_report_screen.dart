@@ -471,7 +471,9 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
     final billTypeLower = billType?.toLowerCase() ?? '';
 
-    if (billTypeLower == 'appliances' || billTypeLower == 'appliance') {
+    if (billTypeLower == 'appliances' ||
+        billTypeLower == 'appliance' ||
+        billTypeLower == 'Appliances') {
       newEditBillType = 'appliance';
     } else if (billType == 'GST Accessories') {
       newEditBillType = 'accessories';
@@ -2351,7 +2353,9 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final isTvBill = type == 'tv';
     final isAccessoriesBill = billType == 'GST Accessories';
     final isApplianceBill =
-        billTypeLower == 'appliances' || billTypeLower == 'appliance';
+        billTypeLower == 'appliances' ||
+        billTypeLower == 'appliance' ||
+        billTypeLower == 'Appliances';
     final isPhoneBill = !isTvBill && !isAccessoriesBill && !isApplianceBill;
 
     // ====== FIXED: read product details from nested map first ======

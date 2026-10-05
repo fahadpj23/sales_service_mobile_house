@@ -366,6 +366,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   }
 
   // Load bill numbers
+  // Load bill numbers
   Future<void> _loadBillNumbers() async {
     try {
       setState(() => _loadingBills = true);
@@ -394,17 +395,32 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
       debugPrint('Found ${billsSnapshot.docs.length} bills');
 
-      final billNumbers = <String>[];
-      final billDataMap = <String, Map<String, dynamic>>{};
-
+      // Sort by createdAt descending (most recent first)
+      // Fallback to billDate if createdAt is not available
       final sortedDocs = List.from(billsSnapshot.docs);
       sortedDocs.sort((a, b) {
+        final aData = a.data();
+        final bData = b.data();
+
+        // Try createdAt first
+        final aCreatedAt = aData['createdAt'] as Timestamp?;
+        final bCreatedAt = bData['createdAt'] as Timestamp?;
+
+        if (aCreatedAt != null && bCreatedAt != null) {
+          return bCreatedAt.compareTo(aCreatedAt);
+        }
+
+        // Fallback to billDate
         final aDate =
-            (a.data()['billDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
+            (aData['billDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
         final bDate =
-            (b.data()['billDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
+            (bData['billDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
         return bDate.compareTo(aDate);
       });
+
+      // Use a Map to track the latest occurrence of each bill number
+      final Map<String, Map<String, dynamic>> billDataMap = {};
+      final Map<String, String> billNumberToDocId = {};
 
       for (var doc in sortedDocs) {
         final billData = doc.data();
@@ -421,8 +437,36 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         if (billShopId == _shopId &&
             billNumber != null &&
             billNumber.isNotEmpty) {
+          // Since sorted by createdAt descending, the first occurrence is the latest
+          // Only add if not already present (keeps the latest)
+          if (!billDataMap.containsKey(billNumber)) {
+            billDataMap[billNumber] = billData;
+            billNumberToDocId[billNumber] = doc.id;
+            debugPrint('Added bill: $billNumber (docId: ${doc.id})');
+          } else {
+            debugPrint(
+              'Skipping duplicate bill: $billNumber (keeping latest from docId: ${billNumberToDocId[billNumber]})',
+            );
+          }
+        }
+      }
+
+      // Build the final list preserving sorted order
+      final billNumbers = <String>[];
+      for (var doc in sortedDocs) {
+        final billData = doc.data();
+        final billNumber = billData['billNumber']?.toString();
+        final billShopId = billData['shopId']?.toString();
+        final billType = billData['billType']?.toString();
+
+        if (billType == 'GST Accessories') continue;
+
+        if (billShopId == _shopId &&
+            billNumber != null &&
+            billNumber.isNotEmpty &&
+            billDataMap.containsKey(billNumber) &&
+            !billNumbers.contains(billNumber)) {
           billNumbers.add(billNumber);
-          billDataMap[billNumber] = billData;
         }
       }
 
@@ -431,6 +475,10 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         _billDataMap = billDataMap;
         _loadingBills = false;
       });
+
+      debugPrint(
+        'Loaded ${billNumbers.length} unique bills (after deduplication)',
+      );
 
       if (billNumbers.isEmpty) {
         _showMessage('No bills found for your shop', isError: false);

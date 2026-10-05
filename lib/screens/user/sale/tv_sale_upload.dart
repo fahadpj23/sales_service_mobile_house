@@ -345,7 +345,11 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
     }
   }
 
-  // Load ONLY TV bills (type == "tv")
+  // ═══════════════════════════════════════════════════════
+  // Load ONLY TV bills (type == "tv") with deduplication.
+  // When duplicate bill numbers exist, keep the LATEST one
+  // (based on createdAt, falling back to billDate).
+  // ═══════════════════════════════════════════════════════
   Future<void> _loadBillNumbers() async {
     try {
       setState(() => _loadingBills = true);
@@ -374,38 +378,75 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
 
       debugPrint('Found ${billsSnapshot.docs.length} total bills');
 
-      final billNumbers = <String>[];
-      final billDataMap = <String, Map<String, dynamic>>{};
+      // ─────────────────────────────────────────────────────
+      // Sort all docs by createdAt descending (most recent first).
+      // Fallback to billDate if createdAt is missing.
+      // ─────────────────────────────────────────────────────
+      final sortedDocs = List.from(billsSnapshot.docs);
+      sortedDocs.sort((a, b) {
+        final aData = a.data();
+        final bData = b.data();
 
-      for (var doc in billsSnapshot.docs) {
+        final aCreatedAt = aData['createdAt'] as Timestamp?;
+        final bCreatedAt = bData['createdAt'] as Timestamp?;
+
+        if (aCreatedAt != null && bCreatedAt != null) {
+          return bCreatedAt.compareTo(aCreatedAt);
+        }
+
+        final aDate =
+            (aData['billDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
+        final bDate =
+            (bData['billDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
+        return bDate.compareTo(aDate);
+      });
+
+      // ─────────────────────────────────────────────────────
+      // Deduplicate: keep only the LATEST entry per billNumber.
+      // Only include bills with type == "tv".
+      // Because sortedDocs is already newest-first, the first
+      // occurrence we see for a billNumber is the latest one.
+      // ─────────────────────────────────────────────────────
+      final billDataMap = <String, Map<String, dynamic>>{};
+      final billNumbers = <String>[];
+      final Map<String, String> keptDocIds = {};
+      int duplicatesSkipped = 0;
+
+      for (var doc in sortedDocs) {
         final billData = doc.data();
         final type = billData['type']?.toString() ?? '';
 
-        if (type == 'tv') {
-          final billNumber = billData['billNumber']?.toString();
-          if (billNumber != null && billNumber.isNotEmpty) {
-            billNumbers.add(billNumber);
-            billDataMap[billNumber] = billData;
-            debugPrint('Found TV bill: $billNumber - Type: $type');
-          }
+        // Only process TV bills
+        if (type != 'tv') continue;
+
+        final billNumber = billData['billNumber']?.toString();
+        if (billNumber == null || billNumber.isEmpty) continue;
+
+        if (!billDataMap.containsKey(billNumber)) {
+          // First time we see this bill number → it's the latest
+          billDataMap[billNumber] = billData;
+          billNumbers.add(billNumber);
+          keptDocIds[billNumber] = doc.id;
+          debugPrint('✓ Kept TV bill: $billNumber (docId: ${doc.id})');
+        } else {
+          duplicatesSkipped++;
+          debugPrint(
+            '✗ Skipped duplicate TV bill: $billNumber '
+            '(kept latest docId: ${keptDocIds[billNumber]})',
+          );
         }
       }
-
-      billNumbers.sort((a, b) {
-        final aData = billDataMap[a];
-        final bData = billDataMap[b];
-        final aDate =
-            (aData?['billDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
-        final bDate =
-            (bData?['billDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
-        return bDate.compareTo(aDate);
-      });
 
       setState(() {
         _billNumbers = billNumbers;
         _billDataMap = billDataMap;
         _loadingBills = false;
       });
+
+      debugPrint(
+        'Loaded ${billNumbers.length} unique TV bills '
+        '($duplicatesSkipped duplicates skipped)',
+      );
 
       if (billNumbers.isEmpty) {
         _showMessage('No TV bills found for your shop', isError: false);
