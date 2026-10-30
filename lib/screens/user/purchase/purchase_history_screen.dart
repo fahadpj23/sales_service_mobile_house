@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
@@ -8,6 +9,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 import 'package:share_plus/share_plus.dart';
 import 'add_purchase_screen.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_file/open_file.dart';
+import '../../../providers/auth_provider.dart';
 
 class PurchaseHistoryScreen extends StatefulWidget {
   const PurchaseHistoryScreen({super.key});
@@ -19,7 +24,13 @@ class PurchaseHistoryScreen extends StatefulWidget {
 class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  String? _currentShopId;
+  String? _currentShopName;
+  bool _shopIdLoaded = false;
+
   String _searchQuery = '';
+  String _searchMode = 'All'; // 'All' | 'IMEI' | 'Product'
+
   String? _selectedFilter;
   DateTime? _startDate;
   DateTime? _endDate;
@@ -27,6 +38,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
   bool _isGeneratingPDF = false;
   List<Map<String, dynamic>> _purchases = [];
   List<Map<String, dynamic>> _filteredPurchases = [];
+
+  final TextEditingController _searchController = TextEditingController();
 
   final List<String> _filterOptions = [
     'All',
@@ -40,30 +53,73 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
   @override
   void initState() {
     super.initState();
-    _loadPurchases();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _initShop());
   }
 
-  // Helper method to check if a date is within a range (inclusive)
-  bool _isDateInRange(DateTime date, DateTime startDate, DateTime? endDate) {
-    if (endDate == null) {
-      return date.isAfter(startDate) || date.isAtSameMomentAs(startDate);
-    }
-    return (date.isAfter(startDate) || date.isAtSameMomentAs(startDate)) &&
-        (date.isBefore(endDate) || date.isAtSameMomentAs(endDate));
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
+
+  // ================= SHOP =================
+
+  void _initShop() {
+    final user = Provider.of<AuthProvider>(context, listen: false).user;
+    setState(() {
+      _currentShopId = user?.shopId;
+      _currentShopName = user?.shopName;
+      _shopIdLoaded = true;
+    });
+    if (_currentShopId != null && _currentShopId!.isNotEmpty) {
+      _loadPurchases();
+    } else {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  // ================= LOAD =================
 
   Future<void> _loadPurchases() async {
+    if (_currentShopId == null || _currentShopId!.isEmpty) {
+      setState(() {
+        _purchases = [];
+        _filteredPurchases = [];
+        _isLoading = false;
+      });
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
-      Query query = _firestore
+      // ✅ NO composite index needed — single-field where only, sort in memory.
+      final QuerySnapshot snapshot = await _firestore
           .collection('purchases')
-          .orderBy('date', descending: true);
-      QuerySnapshot snapshot = await query.get();
+          .where('stockShopId', isEqualTo: _currentShopId)
+          .get();
 
       _purchases = [];
       for (var doc in snapshot.docs) {
-        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        final data = doc.data() as Map<String, dynamic>;
+
+        final docShopId = (data['stockShopId'] ?? '').toString();
+        if (docShopId.isNotEmpty && docShopId != _currentShopId) continue;
+
+        final items = List<Map<String, dynamic>>.from(data['items'] ?? []);
+
+        final imeiList = <String>[];
+        final productNames = <String>[];
+        for (final it in items) {
+          final imeis = List<dynamic>.from(it['imeiOrSerialNumbers'] ?? []);
+          for (final i in imeis) {
+            final s = i.toString();
+            if (s.isNotEmpty) imeiList.add(s);
+          }
+          final pn = (it['productName'] ?? '').toString();
+          if (pn.isNotEmpty) productNames.add(pn);
+        }
+
         _purchases.add({
           'id': doc.id,
           'supplierName': data['supplierName'] ?? 'Unknown',
@@ -79,17 +135,29 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
           'gstAmount': (data['gstAmount'] ?? 0).toDouble(),
           'roundingAmount': (data['roundingAmount'] ?? 0).toDouble(),
           'grandTotal': (data['grandTotal'] ?? 0).toDouble(),
-          'items': List<Map<String, dynamic>>.from(data['items'] ?? []),
-          'itemCount': (data['items'] ?? []).length,
+          'items': items,
+          'itemCount': items.length,
           'taxableAmount': (data['totalAmount'] ?? 0).toDouble(),
-          'taxPercentage': 18, // Default GST percentage
+          'taxPercentage': 18,
           'purchaseBillUrl': data['purchaseBillUrl'] ?? '',
           'purchaseBillPath': data['purchaseBillPath'] ?? '',
+          'stockShopId': docShopId,
+          'stockShopName': data['stockShopName'] ?? '',
+          'imeiSearchStr': imeiList.join('|').toLowerCase(),
+          'productSearchStr': productNames.join('|').toLowerCase(),
         });
       }
 
+      // ✅ Sort newest-first in memory (no orderBy → no index)
+      _purchases.sort((a, b) {
+        final da = a['date'] as DateTime;
+        final db = b['date'] as DateTime;
+        return db.compareTo(da);
+      });
+
       _applyFilters();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -100,15 +168,25 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
         ),
       );
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  // ================= FILTERS =================
+
+  bool _isDateInRange(DateTime date, DateTime startDate, DateTime? endDate) {
+    if (endDate == null) {
+      return date.isAfter(startDate) || date.isAtSameMomentAs(startDate);
+    }
+    return (date.isAfter(startDate) || date.isAtSameMomentAs(startDate)) &&
+        (date.isBefore(endDate) || date.isAtSameMomentAs(endDate));
   }
 
   void _applyFilters() {
     List<Map<String, dynamic>> filtered = List.from(_purchases);
 
     if (_selectedFilter != null && _selectedFilter != 'All') {
-      DateTime now = DateTime.now();
+      final now = DateTime.now();
       DateTime startDate;
       DateTime? endDate;
 
@@ -140,7 +218,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
           break;
         case 'Custom Range':
           if (_startDate != null && _endDate != null) {
-            DateTime endOfDay = DateTime(
+            final endOfDay = DateTime(
               _endDate!.year,
               _endDate!.month,
               _endDate!.day,
@@ -156,27 +234,34 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       }
     }
 
-    if (_searchQuery.isNotEmpty) {
-      filtered = filtered
-          .where(
-            (p) =>
-                p['supplierName'].toLowerCase().contains(
-                  _searchQuery.toLowerCase(),
-                ) ||
-                p['invoiceNo'].toLowerCase().contains(
-                  _searchQuery.toLowerCase(),
-                ),
-          )
-          .toList();
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      filtered = filtered.where((p) {
+        final supplier = (p['supplierName'] ?? '').toString().toLowerCase();
+        final invoice = (p['invoiceNo'] ?? '').toString().toLowerCase();
+        final imeis = (p['imeiSearchStr'] ?? '').toString();
+        final products = (p['productSearchStr'] ?? '').toString();
+
+        switch (_searchMode) {
+          case 'IMEI':
+            return imeis.contains(q) || invoice.contains(q);
+          case 'Product':
+            return products.contains(q) || supplier.contains(q);
+          case 'All':
+          default:
+            return supplier.contains(q) ||
+                invoice.contains(q) ||
+                imeis.contains(q) ||
+                products.contains(q);
+        }
+      }).toList();
     }
 
-    setState(() {
-      _filteredPurchases = filtered;
-    });
+    setState(() => _filteredPurchases = filtered);
   }
 
   Future<void> _selectDateRange() async {
-    DateTimeRange? picked = await showDateRangePicker(
+    final picked = await showDateRangePicker(
       context: context,
       firstDate: DateTime(2020),
       lastDate: DateTime.now(),
@@ -196,7 +281,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     }
   }
 
-  // PDF Generation Method with Share functionality
+  // ================= PDF =================
+
   Future<void> _generateAndSharePDF() async {
     if (_filteredPurchases.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -211,23 +297,19 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     setState(() => _isGeneratingPDF = true);
 
     try {
-      // Sort purchases by date
-      List<Map<String, dynamic>> sortedPurchases = List.from(
-        _filteredPurchases,
-      );
-      sortedPurchases.sort((a, b) => a['date'].compareTo(b['date']));
+      final sorted = List<Map<String, dynamic>>.from(_filteredPurchases);
+      sorted.sort((a, b) => (a['date'] as DateTime).compareTo(b['date']));
 
-      // Calculate totals
       double totalTaxable = 0;
       double totalTax = 0;
       double totalRounding = 0;
       double totalBillAmount = 0;
 
-      for (var purchase in sortedPurchases) {
-        totalTaxable += purchase['taxableAmount'] ?? 0;
-        totalTax += purchase['gstAmount'] ?? 0;
-        totalRounding += purchase['roundingAmount'] ?? 0;
-        totalBillAmount += purchase['grandTotal'] ?? 0;
+      for (var p in sorted) {
+        totalTaxable += (p['taxableAmount'] ?? 0) as double;
+        totalTax += (p['gstAmount'] ?? 0) as double;
+        totalRounding += (p['roundingAmount'] ?? 0) as double;
+        totalBillAmount += (p['grandTotal'] ?? 0) as double;
       }
 
       final pdf = pw.Document();
@@ -238,7 +320,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
           margin: pw.EdgeInsets.all(20),
           build: (pw.Context context) {
             return [
-              // Header
               pw.Center(
                 child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.center,
@@ -258,6 +339,13 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                         fontWeight: pw.FontWeight.bold,
                       ),
                     ),
+                    if ((_currentShopName ?? '').isNotEmpty) ...[
+                      pw.SizedBox(height: 4),
+                      pw.Text(
+                        'Shop: $_currentShopName',
+                        style: const pw.TextStyle(fontSize: 12),
+                      ),
+                    ],
                     pw.SizedBox(height: 4),
                     pw.Text(
                       'Period: ${_getFilterDisplayText()}',
@@ -269,320 +357,118 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                   ],
                 ),
               ),
-              // Table Header - Updated to include both dates
               pw.Table(
                 border: pw.TableBorder.all(),
                 columnWidths: {
-                  0: pw.FlexColumnWidth(0.10), // Added Date
-                  1: pw.FlexColumnWidth(0.10), // Invoice Date
-                  2: pw.FlexColumnWidth(0.13), // Bill No
-                  3: pw.FlexColumnWidth(0.17), // Seller Name
-                  4: pw.FlexColumnWidth(0.12), // Taxable
-                  5: pw.FlexColumnWidth(0.10), // Tax
-                  6: pw.FlexColumnWidth(0.08), // Cess
-                  7: pw.FlexColumnWidth(0.10), // Rounding
-                  8: pw.FlexColumnWidth(0.10), // Bill Amt
+                  0: pw.FlexColumnWidth(0.10),
+                  1: pw.FlexColumnWidth(0.10),
+                  2: pw.FlexColumnWidth(0.13),
+                  3: pw.FlexColumnWidth(0.17),
+                  4: pw.FlexColumnWidth(0.12),
+                  5: pw.FlexColumnWidth(0.10),
+                  6: pw.FlexColumnWidth(0.08),
+                  7: pw.FlexColumnWidth(0.10),
+                  8: pw.FlexColumnWidth(0.10),
                 },
                 children: [
                   pw.TableRow(
                     decoration: pw.BoxDecoration(color: PdfColors.grey300),
                     children: [
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Added Date',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.center,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Inv Date',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.center,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Bill No',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.center,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Seller Name',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.center,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Taxable',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Tax',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Cess',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Rounding',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Bill Amt',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
+                      _pdfHeaderCell('Added Date'),
+                      _pdfHeaderCell('Inv Date'),
+                      _pdfHeaderCell('Bill No'),
+                      _pdfHeaderCell('Seller Name'),
+                      _pdfHeaderCell('Taxable', align: pw.TextAlign.right),
+                      _pdfHeaderCell('Tax', align: pw.TextAlign.right),
+                      _pdfHeaderCell('Cess', align: pw.TextAlign.right),
+                      _pdfHeaderCell('Rounding', align: pw.TextAlign.right),
+                      _pdfHeaderCell('Bill Amt', align: pw.TextAlign.right),
                     ],
                   ),
-                  // Table Rows
-                  ...sortedPurchases.map((purchase) {
+                  ...sorted.map((purchase) {
                     return pw.TableRow(
                       children: [
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
-                            DateFormat(
-                              'dd/MM/yy HH:mm',
-                            ).format(purchase['createdAt']),
-                            style: const pw.TextStyle(fontSize: 7),
-                            textAlign: pw.TextAlign.center,
-                          ),
+                        _pdfDataCell(
+                          DateFormat(
+                            'dd/MM/yy HH:mm',
+                          ).format(purchase['createdAt'] as DateTime),
+                          align: pw.TextAlign.center,
                         ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
-                            DateFormat('dd/MM/yy').format(purchase['date']),
-                            style: const pw.TextStyle(fontSize: 7),
-                            textAlign: pw.TextAlign.center,
-                          ),
+                        _pdfDataCell(
+                          DateFormat(
+                            'dd/MM/yy',
+                          ).format(purchase['date'] as DateTime),
+                          align: pw.TextAlign.center,
                         ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
-                            purchase['invoiceNo'] ?? 'N/A',
-                            style: const pw.TextStyle(fontSize: 7),
-                            textAlign: pw.TextAlign.center,
-                          ),
+                        _pdfDataCell(
+                          purchase['invoiceNo'] ?? 'N/A',
+                          align: pw.TextAlign.center,
                         ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
-                            purchase['supplierName'] ?? 'Unknown',
-                            style: const pw.TextStyle(fontSize: 7),
-                            textAlign: pw.TextAlign.left,
-                          ),
+                        _pdfDataCell(
+                          purchase['supplierName'] ?? 'Unknown',
+                          align: pw.TextAlign.left,
                         ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
-                            (purchase['taxableAmount'] ?? 0).toStringAsFixed(2),
-                            style: const pw.TextStyle(fontSize: 7),
-                            textAlign: pw.TextAlign.right,
-                          ),
+                        _pdfDataCell(
+                          ((purchase['taxableAmount'] ?? 0) as double)
+                              .toStringAsFixed(2),
+                          align: pw.TextAlign.right,
                         ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
-                            (purchase['gstAmount'] ?? 0).toStringAsFixed(2),
-                            style: const pw.TextStyle(fontSize: 7),
-                            textAlign: pw.TextAlign.right,
-                          ),
+                        _pdfDataCell(
+                          ((purchase['gstAmount'] ?? 0) as double)
+                              .toStringAsFixed(2),
+                          align: pw.TextAlign.right,
                         ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
-                            '0.00',
-                            style: const pw.TextStyle(fontSize: 7),
-                            textAlign: pw.TextAlign.right,
-                          ),
+                        _pdfDataCell('0.00', align: pw.TextAlign.right),
+                        _pdfDataCell(
+                          ((purchase['roundingAmount'] ?? 0) as double)
+                              .toStringAsFixed(2),
+                          align: pw.TextAlign.right,
                         ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
-                            (purchase['roundingAmount'] ?? 0).toStringAsFixed(
-                              2,
-                            ),
-                            style: pw.TextStyle(
-                              fontSize: 7,
-                              color: (purchase['roundingAmount'] ?? 0) != 0
-                                  ? ((purchase['roundingAmount'] ?? 0) > 0
-                                        ? PdfColors.orange
-                                        : PdfColors.blue)
-                                  : PdfColors.black,
-                            ),
-                            textAlign: pw.TextAlign.right,
-                          ),
-                        ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
-                            (purchase['grandTotal'] ?? 0).toStringAsFixed(2),
-                            style: const pw.TextStyle(
-                              fontSize: 7,
-                              fontWeight: pw.FontWeight.bold,
-                            ),
-                            textAlign: pw.TextAlign.right,
-                          ),
+                        _pdfDataCell(
+                          ((purchase['grandTotal'] ?? 0) as double)
+                              .toStringAsFixed(2),
+                          align: pw.TextAlign.right,
+                          bold: true,
                         ),
                       ],
                     );
                   }).toList(),
-                  // Total Row
                   pw.TableRow(
                     decoration: pw.BoxDecoration(color: PdfColors.grey200),
                     children: [
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'TOTAL',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.center,
-                        ),
+                      _pdfHeaderCell('TOTAL', fontSize: 8),
+                      _pdfDataCell('', align: pw.TextAlign.center),
+                      _pdfDataCell('', align: pw.TextAlign.center),
+                      _pdfDataCell('', align: pw.TextAlign.center),
+                      _pdfDataCell(
+                        totalTaxable.toStringAsFixed(2),
+                        align: pw.TextAlign.right,
+                        bold: true,
+                        color: PdfColors.blue,
                       ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          '',
-                          style: const pw.TextStyle(fontSize: 7),
-                          textAlign: pw.TextAlign.center,
-                        ),
+                      _pdfDataCell(
+                        totalTax.toStringAsFixed(2),
+                        align: pw.TextAlign.right,
+                        bold: true,
+                        color: PdfColors.blue,
                       ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          '',
-                          style: const pw.TextStyle(fontSize: 7),
-                          textAlign: pw.TextAlign.center,
-                        ),
+                      _pdfDataCell(
+                        '0.00',
+                        align: pw.TextAlign.right,
+                        bold: true,
+                        color: PdfColors.blue,
                       ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          '',
-                          style: const pw.TextStyle(fontSize: 7),
-                          textAlign: pw.TextAlign.center,
-                        ),
+                      _pdfDataCell(
+                        totalRounding.toStringAsFixed(2),
+                        align: pw.TextAlign.right,
+                        bold: true,
+                        color: PdfColors.blue,
                       ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          totalTaxable.toStringAsFixed(2),
-                          style: pw.TextStyle(
-                            fontSize: 8,
-                            fontWeight: pw.FontWeight.bold,
-                            color: PdfColors.blue,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          totalTax.toStringAsFixed(2),
-                          style: pw.TextStyle(
-                            fontSize: 8,
-                            fontWeight: pw.FontWeight.bold,
-                            color: PdfColors.blue,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          '0.00',
-                          style: pw.TextStyle(
-                            fontSize: 8,
-                            fontWeight: pw.FontWeight.bold,
-                            color: PdfColors.blue,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          totalRounding.toStringAsFixed(2),
-                          style: pw.TextStyle(
-                            fontSize: 8,
-                            fontWeight: pw.FontWeight.bold,
-                            color: totalRounding != 0
-                                ? (totalRounding > 0
-                                      ? PdfColors.orange
-                                      : PdfColors.blue)
-                                : PdfColors.blue,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          totalBillAmount.toStringAsFixed(2),
-                          style: pw.TextStyle(
-                            fontSize: 8,
-                            fontWeight: pw.FontWeight.bold,
-                            color: PdfColors.green,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
+                      _pdfDataCell(
+                        totalBillAmount.toStringAsFixed(2),
+                        align: pw.TextAlign.right,
+                        bold: true,
+                        color: PdfColors.green,
                       ),
                     ],
                   ),
@@ -594,7 +480,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
         ),
       );
 
-      // Save PDF to temporary file
       final bytes = await pdf.save();
       final dir = await getTemporaryDirectory();
       final fileName =
@@ -602,11 +487,11 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       final file = File('${dir.path}/$fileName');
       await file.writeAsBytes(bytes);
 
-      // Share the PDF
       await Share.shareXFiles(
         [XFile(file.path)],
         text:
             'Purchase Report - MOBILE HOUSE\n'
+            '${(_currentShopName ?? '').isNotEmpty ? "Shop: $_currentShopName\n" : ""}'
             'Period: ${_getFilterDisplayText()}\n'
             'Total Purchases: ${_filteredPurchases.length}\n'
             'Total Taxable: ₹${totalTaxable.toStringAsFixed(2)}\n'
@@ -615,6 +500,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
             'Grand Total: ₹${totalBillAmount.toStringAsFixed(2)}',
       );
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('PDF generated and shared successfully!'),
@@ -622,6 +508,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
         ),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error generating PDF: $e'),
@@ -629,148 +516,166 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
         ),
       );
     } finally {
-      setState(() => _isGeneratingPDF = false);
+      if (mounted) setState(() => _isGeneratingPDF = false);
     }
   }
 
-  // Helper method to get filter display text
+  pw.Widget _pdfHeaderCell(
+    String text, {
+    pw.TextAlign align = pw.TextAlign.center,
+    double fontSize = 8,
+  }) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.all(4),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: fontSize),
+        textAlign: align,
+      ),
+    );
+  }
+
+  pw.Widget _pdfDataCell(
+    String text, {
+    pw.TextAlign align = pw.TextAlign.center,
+    bool bold = false,
+    PdfColor? color,
+  }) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.all(4),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(
+          fontSize: 7,
+          fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+          color: color,
+        ),
+        textAlign: align,
+      ),
+    );
+  }
+
   String _getFilterDisplayText() {
     if (_selectedFilter == 'Custom Range' &&
         _startDate != null &&
         _endDate != null) {
       return '${DateFormat('dd/MM/yyyy').format(_startDate!)} - ${DateFormat('dd/MM/yyyy').format(_endDate!)}';
-    } else if (_selectedFilter == 'This Year') {
-      return 'January ${DateTime.now().year} - December ${DateTime.now().year}';
-    } else if (_selectedFilter == 'Last Year') {
-      return 'January ${DateTime.now().year - 1} - December ${DateTime.now().year - 1}';
     } else if (_selectedFilter == 'This Month') {
-      return '${DateFormat('MMMM yyyy').format(DateTime.now())}';
+      return DateFormat('MMMM yyyy').format(DateTime.now());
     } else if (_selectedFilter == 'Last Month') {
-      DateTime lastMonth = DateTime(
-        DateTime.now().year,
-        DateTime.now().month - 1,
-      );
-      return '${DateFormat('MMMM yyyy').format(lastMonth)}';
+      final lastMonth = DateTime(DateTime.now().year, DateTime.now().month - 1);
+      return DateFormat('MMMM yyyy').format(lastMonth);
     } else if (_selectedFilter == 'Last 7 Days') {
       return 'Last 7 Days';
     } else if (_selectedFilter == 'Last 30 Days') {
       return 'Last 30 Days';
-    } else {
-      return 'All Time';
     }
+    return 'All Time';
   }
 
+  // ================= DELETE =================
+
   Future<void> _deletePurchase(Map<String, dynamic> purchase) async {
-    bool? confirmDelete = await showDialog<bool>(
+    final confirmDelete = await showDialog<bool>(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          title: Row(
-            children: [
-              Icon(
-                Icons.warning_amber_rounded,
-                color: Colors.red[700],
-                size: 22,
-              ),
-              const SizedBox(width: 10),
-              const Text(
-                'Delete Purchase',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Are you sure you want to delete this purchase?',
-                style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-              ),
-              const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.grey[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey[200]!),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Invoice: ${purchase['invoiceNo']}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
-                    ),
-                    Text(
-                      'Supplier: ${purchase['supplierName']}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                    Text(
-                      'Amount: ₹${purchase['grandTotal'].toStringAsFixed(2)}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                    Text(
-                      'Invoice Date: ${DateFormat('dd/MM/yyyy').format(purchase['date'])}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                    Text(
-                      'Added Date: ${DateFormat('dd/MM/yyyy HH:mm').format(purchase['createdAt'])}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'This action cannot be undone!',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: Colors.red[700],
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              style: TextButton.styleFrom(foregroundColor: Colors.grey[700]),
-              child: const Text('Cancel', style: TextStyle(fontSize: 12)),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red[700],
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(6),
-                ),
-              ),
-              child: const Text('Delete', style: TextStyle(fontSize: 12)),
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.red[700], size: 22),
+            const SizedBox(width: 10),
+            const Text(
+              'Delete Purchase',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
             ),
           ],
-        );
-      },
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Are you sure you want to delete this purchase?',
+              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.grey[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey[200]!),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Invoice: ${purchase['invoiceNo']}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                  Text(
+                    'Supplier: ${purchase['supplierName']}',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                  Text(
+                    'Amount: ₹${((purchase['grandTotal'] ?? 0) as double).toStringAsFixed(2)}',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                  Text(
+                    'Invoice Date: ${DateFormat('dd/MM/yyyy').format(purchase['date'] as DateTime)}',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                  Text(
+                    'Added Date: ${DateFormat('dd/MM/yyyy HH:mm').format(purchase['createdAt'] as DateTime)}',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'This action cannot be undone!',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.red[700],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            style: TextButton.styleFrom(foregroundColor: Colors.grey[700]),
+            child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red[700],
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+            child: const Text('Delete', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
     );
 
     if (confirmDelete == true) {
       setState(() => _isLoading = true);
-
       try {
         await _firestore.collection('purchases').doc(purchase['id']).delete();
-
         setState(() {
           _purchases.removeWhere((p) => p['id'] == purchase['id']);
           _filteredPurchases.removeWhere((p) => p['id'] == purchase['id']);
         });
-
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -781,20 +686,23 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
           ),
         );
       } catch (e) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               'Error deleting purchase: $e',
-              style: TextStyle(fontSize: 12),
+              style: const TextStyle(fontSize: 12),
             ),
             backgroundColor: Colors.red,
           ),
         );
       } finally {
-        setState(() => _isLoading = false);
+        if (mounted) setState(() => _isLoading = false);
       }
     }
   }
+
+  // ================= DETAILS SHEET =================
 
   void _showPurchaseDetails(Map<String, dynamic> purchase) {
     showModalBottomSheet(
@@ -900,52 +808,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                       _buildItemsSection(purchase),
                       const SizedBox(height: 10),
                       _buildSummarySection(purchase),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () => _downloadPurchaseBill(purchase),
-                              icon: const Icon(Icons.download, size: 16),
-                              label: const Text(
-                                'Download',
-                                style: TextStyle(fontSize: 11),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.green[700],
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 8,
-                                ),
-                                side: BorderSide(color: Colors.green[700]!),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () => Navigator.pop(context),
-                              icon: const Icon(Icons.close, size: 16),
-                              label: const Text(
-                                'Close',
-                                style: TextStyle(fontSize: 11),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green[700],
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 8,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                      const SizedBox(height: 16),
                     ],
                   ),
                 ),
@@ -981,12 +844,16 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
             _buildDetailRow('Supplier', purchase['supplierName']),
             _buildDetailRow(
               'Invoice Date',
-              DateFormat('dd/MM/yyyy').format(purchase['date']),
+              DateFormat('dd/MM/yyyy').format(purchase['date'] as DateTime),
             ),
             _buildDetailRow(
               'Added Date & Time',
-              DateFormat('dd/MM/yyyy hh:mm a').format(purchase['createdAt']),
+              DateFormat(
+                'dd/MM/yyyy hh:mm a',
+              ).format(purchase['createdAt'] as DateTime),
             ),
+            if ((purchase['stockShopName'] ?? '').toString().isNotEmpty)
+              _buildDetailRow('Shop', purchase['stockShopName']),
           ],
         ),
       ),
@@ -1106,7 +973,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: () => _downloadPurchaseBill(purchase),
+                    onPressed: () => _downloadPurchaseBill(imageUrl),
                     icon: const Icon(Icons.download, size: 16),
                     label: const Text(
                       'Download',
@@ -1164,9 +1031,18 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
             Positioned(
               top: 4,
               right: 4,
-              child: IconButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                icon: const Icon(Icons.close, color: Colors.white),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => _downloadPurchaseBill(imageUrl),
+                    icon: const Icon(Icons.download, color: Colors.white),
+                    tooltip: 'Download',
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    icon: const Icon(Icons.close, color: Colors.white),
+                  ),
+                ],
               ),
             ),
           ],
@@ -1175,8 +1051,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     );
   }
 
-  Future<void> _downloadPurchaseBill(Map<String, dynamic> purchase) async {
-    final imageUrl = (purchase['purchaseBillUrl'] ?? '').toString().trim();
+  Future<void> _downloadPurchaseBill(String imageUrl) async {
     if (imageUrl.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No bill image available to download')),
@@ -1195,52 +1070,48 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       final request = await client.getUrl(uri);
       final response = await request.close();
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw HttpException('Image download failed (${response.statusCode})');
+        throw HttpException('Download failed (${response.statusCode})');
       }
       final bytes = await response.fold<List<int>>(
         <int>[],
         (buffer, chunk) => buffer..addAll(chunk),
       );
 
-      Directory? directory;
-      try {
-        directory = await getDownloadsDirectory();
-      } catch (_) {
-        directory = null;
+      Directory dir;
+      if (Platform.isAndroid) {
+        final dl = Directory('/storage/emulated/0/Download');
+        dir = await dl.exists() ? dl : await getApplicationDocumentsDirectory();
+      } else {
+        dir = await getApplicationDocumentsDirectory();
       }
-      directory ??= await getApplicationDocumentsDirectory();
-      if (!await directory.exists()) {
-        await directory.create(recursive: true);
-      }
+      if (!await dir.exists()) await dir.create(recursive: true);
 
       var extension = uri.path.toLowerCase().split('.').last;
       if (!['jpg', 'jpeg', 'png', 'webp'].contains(extension)) {
         extension = 'jpg';
       }
-      final invoice = (purchase['invoiceNo'] ?? 'purchase')
-          .toString()
-          .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
       final file = File(
-        '${directory.path}${Platform.pathSeparator}Purchase_Bill_${invoice}_${DateTime.now().millisecondsSinceEpoch}.$extension',
+        '${dir.path}${Platform.pathSeparator}'
+        'Purchase_Bill_${DateTime.now().millisecondsSinceEpoch}.$extension',
       );
       await file.writeAsBytes(bytes, flush: true);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Image saved: ${file.path}'),
+          content: Text('Saved: ${file.path}'),
           action: SnackBarAction(
             label: 'Open',
             onPressed: () => OpenFile.open(file.path),
           ),
-          duration: const Duration(seconds: 5),
+          duration: const Duration(seconds: 6),
         ),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Unable to download bill image: $e'),
+          content: Text('Download failed: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -1250,6 +1121,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
   }
 
   Widget _buildItemsSection(Map<String, dynamic> purchase) {
+    final items = List<Map<String, dynamic>>.from(purchase['items'] ?? []);
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.grey[50],
@@ -1260,53 +1133,189 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Items (${purchase['itemCount']})',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: Colors.green[800],
-              ),
-            ),
-            const SizedBox(height: 6),
-            ...purchase['items'].map<Widget>((item) {
-              return Container(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                decoration: BoxDecoration(
-                  border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
+            // Header
+            Row(
+              children: [
+                Icon(
+                  Icons.inventory_2_outlined,
+                  size: 14,
+                  color: Colors.green[800],
                 ),
-                child: Row(
+                const SizedBox(width: 6),
+                Text(
+                  'Items (${purchase['itemCount']})',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green[800],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+
+            // Item rows
+            ...items.map<Widget>((item) {
+              final imeis =
+                  List<dynamic>.from(item['imeiOrSerialNumbers'] ?? [])
+                      .map((e) => e.toString().trim())
+                      .where((e) => e.isNotEmpty)
+                      .toList();
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.grey[200]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      flex: 3,
-                      child: Text(
-                        item['productName'] ?? 'Unknown',
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        'Qty: ${item['quantity']}',
-                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        '₹${(item['total'] ?? 0).toStringAsFixed(2)}',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.green,
+                    // Product name + total
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item['productName']?.toString() ?? 'Unknown',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
-                        textAlign: TextAlign.right,
-                      ),
+                        Text(
+                          '₹${((item['total'] ?? 0) as num).toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ],
                     ),
+
+                    const SizedBox(height: 4),
+
+                    // Brand / Qty / Rate
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 2,
+                      children: [
+                        if ((item['brand'] ?? '').toString().isNotEmpty)
+                          _itemMeta('Brand', item['brand'].toString()),
+                        _itemMeta('Qty', (item['quantity'] ?? 1).toString()),
+                        if (item['rate'] != null)
+                          _itemMeta(
+                            'Rate',
+                            '₹${(item['rate'] as num).toStringAsFixed(2)}',
+                          ),
+                        if (item['gstPercentage'] != null)
+                          _itemMeta('GST', '${item['gstPercentage']}%'),
+                      ],
+                    ),
+
+                    // IMEI / Serial block
+                    if (imeis.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.blue[100]!),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.qr_code_2,
+                                  size: 12,
+                                  color: Colors.blue[800],
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  item['identifierType']?.toString() ??
+                                      'IMEI / Serial',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blue[800],
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '(${imeis.length})',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: Colors.blue[700],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 3),
+                            ...imeis.map(
+                              (imei) => Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 4,
+                                      height: 4,
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue[700],
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: SelectableText(
+                                        imei,
+                                        style: const TextStyle(
+                                          fontSize: 10.5,
+                                          fontFamily: 'monospace',
+                                          letterSpacing: 0.4,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               );
             }).toList(),
           ],
         ),
+      ),
+    );
+  }
+
+  // Small helper for compact meta chips
+  Widget _itemMeta(String label, String value) {
+    return RichText(
+      text: TextSpan(
+        style: const TextStyle(fontSize: 10, color: Colors.black87),
+        children: [
+          TextSpan(
+            text: '$label: ',
+            style: TextStyle(color: Colors.grey[600]),
+          ),
+          TextSpan(
+            text: value,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ],
       ),
     );
   }

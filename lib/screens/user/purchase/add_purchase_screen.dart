@@ -3494,6 +3494,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                   ),
           ),
         ),
+        SizedBox(height: MediaQuery.of(context).padding.bottom + 24),
       ],
     );
   }

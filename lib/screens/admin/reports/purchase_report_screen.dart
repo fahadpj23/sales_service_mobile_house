@@ -19,9 +19,16 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   String _searchQuery = '';
+  String _searchMode = 'All'; // 'All' | 'IMEI' | 'Product'
+
   String? _selectedFilter;
   DateTime? _startDate;
   DateTime? _endDate;
+
+  // ✅ Shop-wise filter
+  String? _selectedShopId; // null = all shops
+  final Map<String, String> _shopIdToName = {}; // stockShopId -> stockShopName
+
   bool _isLoading = true;
   bool _isGeneratingPDF = false;
   List<Map<String, dynamic>> _purchases = [];
@@ -43,15 +50,15 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
     'Custom Range',
   ];
 
+  final List<String> _searchModes = ['All', 'IMEI', 'Product'];
+
   @override
   void initState() {
     super.initState();
-    // Set default filter to "This Month"
     _selectedFilter = 'This Month';
     _loadPurchases();
   }
 
-  // Helper method to check if a date is within a range (inclusive)
   bool _isDateInRange(DateTime date, DateTime startDate, DateTime? endDate) {
     if (endDate == null) {
       return date.isAfter(startDate) || date.isAtSameMomentAs(startDate);
@@ -70,8 +77,36 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
       QuerySnapshot snapshot = await query.get();
 
       _purchases = [];
+      _shopIdToName.clear();
+
       for (var doc in snapshot.docs) {
         Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
+        final items = List<Map<String, dynamic>>.from(data['items'] ?? []);
+
+        // Pre-compute searchable strings per item
+        final imeiList = <String>[];
+        final productNames = <String>[];
+        for (final it in items) {
+          final imeis = List<dynamic>.from(it['imeiOrSerialNumbers'] ?? []);
+          for (final i in imeis) {
+            final s = i.toString();
+            if (s.isNotEmpty) imeiList.add(s);
+          }
+          final pn = (it['productName'] ?? '').toString();
+          if (pn.isNotEmpty) productNames.add(pn);
+        }
+
+        final shopId = (data['stockShopId'] ?? '').toString();
+        final shopName = (data['stockShopName'] ?? '').toString();
+
+        if (shopId.isNotEmpty) {
+          _shopIdToName.putIfAbsent(
+            shopId,
+            () => shopName.isEmpty ? shopId : shopName,
+          );
+        }
+
         _purchases.add({
           'id': doc.id,
           'supplierName': data['supplierName'] ?? 'Unknown',
@@ -87,15 +122,21 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
           'gstAmount': (data['gstAmount'] ?? 0).toDouble(),
           'roundingAmount': (data['roundingAmount'] ?? 0).toDouble(),
           'grandTotal': (data['grandTotal'] ?? 0).toDouble(),
-          'items': List<Map<String, dynamic>>.from(data['items'] ?? []),
-          'itemCount': (data['items'] ?? []).length,
+          'items': items,
+          'itemCount': items.length,
           'taxableAmount': (data['totalAmount'] ?? 0).toDouble(),
-          'taxPercentage': 18, // Default GST percentage
+          'taxPercentage': 18,
+          'purchaseBillUrl': data['purchaseBillUrl'] ?? '',
+          'stockShopId': shopId,
+          'stockShopName': shopName,
+          'imeiSearchStr': imeiList.join('|').toLowerCase(),
+          'productSearchStr': productNames.join('|').toLowerCase(),
         });
       }
 
       _applyFilters();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -106,13 +147,14 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
         ),
       );
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   void _applyFilters() {
     List<Map<String, dynamic>> filtered = List.from(_purchases);
 
+    // Date filter
     if (_selectedFilter != null && _selectedFilter != 'All') {
       DateTime now = DateTime.now();
       DateTime startDate;
@@ -159,7 +201,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
           break;
         case 'Custom Range':
           if (_startDate != null && _endDate != null) {
-            DateTime endOfDay = DateTime(
+            final endOfDay = DateTime(
               _endDate!.year,
               _endDate!.month,
               _endDate!.day,
@@ -175,26 +217,40 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
       }
     }
 
-    if (_searchQuery.isNotEmpty) {
+    // ✅ Shop filter
+    if (_selectedShopId != null && _selectedShopId!.isNotEmpty) {
       filtered = filtered
-          .where(
-            (p) =>
-                p['supplierName'].toLowerCase().contains(
-                  _searchQuery.toLowerCase(),
-                ) ||
-                p['invoiceNo'].toLowerCase().contains(
-                  _searchQuery.toLowerCase(),
-                ),
-          )
+          .where((p) => p['stockShopId'] == _selectedShopId)
           .toList();
     }
 
-    // Calculate summary statistics
+    // ✅ Text search — All / IMEI / Product
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      filtered = filtered.where((p) {
+        final supplier = (p['supplierName'] ?? '').toString().toLowerCase();
+        final invoice = (p['invoiceNo'] ?? '').toString().toLowerCase();
+        final imeis = (p['imeiSearchStr'] ?? '').toString();
+        final products = (p['productSearchStr'] ?? '').toString();
+
+        switch (_searchMode) {
+          case 'IMEI':
+            return imeis.contains(q) || invoice.contains(q);
+          case 'Product':
+            return products.contains(q) || supplier.contains(q);
+          case 'All':
+          default:
+            return supplier.contains(q) ||
+                invoice.contains(q) ||
+                imeis.contains(q) ||
+                products.contains(q);
+        }
+      }).toList();
+    }
+
     _calculateSummary(filtered);
 
-    setState(() {
-      _filteredPurchases = filtered;
-    });
+    setState(() => _filteredPurchases = filtered);
   }
 
   void _calculateSummary(List<Map<String, dynamic>> purchases) {
@@ -229,7 +285,6 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
     }
   }
 
-  // PDF Generation Method with Share functionality
   Future<void> _generateAndSharePDF() async {
     if (_filteredPurchases.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -244,36 +299,33 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
     setState(() => _isGeneratingPDF = true);
 
     try {
-      // Sort purchases by date (invoice date)
       List<Map<String, dynamic>> sortedPurchases = List.from(
         _filteredPurchases,
       );
       sortedPurchases.sort((a, b) => a['date'].compareTo(b['date']));
 
-      // Calculate totals
       double totalTaxable = 0;
       double totalTax = 0;
       double totalRounding = 0;
       double totalBillAmount = 0;
-      int totalItems = 0;
 
       for (var purchase in sortedPurchases) {
         totalTaxable += purchase['taxableAmount'] ?? 0;
         totalTax += purchase['gstAmount'] ?? 0;
         totalRounding += purchase['roundingAmount'] ?? 0;
         totalBillAmount += purchase['grandTotal'] ?? 0;
-        totalItems += (purchase['itemCount'] ?? 0) as int;
       }
 
-      // Verify calculation: Taxable + Tax + Rounding = Grand Total
-      double calculatedTotal = totalTaxable + totalTax + totalRounding;
-      // If there's a small rounding difference, adjust the rounding total
+      final calculatedTotal = totalTaxable + totalTax + totalRounding;
       if ((calculatedTotal - totalBillAmount).abs() > 0.01) {
-        // Adjust rounding to match grand total
         totalRounding = totalBillAmount - totalTaxable - totalTax;
       }
 
       final pdf = pw.Document();
+
+      final shopLabel = _selectedShopId != null
+          ? 'Shop: ${_shopIdToName[_selectedShopId] ?? _selectedShopId}'
+          : 'All Shops';
 
       pdf.addPage(
         pw.MultiPage(
@@ -281,7 +333,6 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
           margin: pw.EdgeInsets.all(20),
           build: (pw.Context context) {
             return [
-              // Header
               pw.Center(
                 child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.center,
@@ -302,6 +353,8 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                       ),
                     ),
                     pw.SizedBox(height: 4),
+                    pw.Text(shopLabel, style: const pw.TextStyle(fontSize: 12)),
+                    pw.SizedBox(height: 4),
                     pw.Text(
                       'Period: ${_getFilterDisplayText()}',
                       style: const pw.TextStyle(fontSize: 12),
@@ -312,290 +365,103 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                   ],
                 ),
               ),
-              // Table Header - Removed "Added Date" column
               pw.Table(
                 border: pw.TableBorder.all(),
                 columnWidths: {
-                  0: pw.FlexColumnWidth(0.13), // Invoice Date
-                  1: pw.FlexColumnWidth(0.15), // Bill No
-                  2: pw.FlexColumnWidth(0.20), // Seller Name
-                  3: pw.FlexColumnWidth(0.13), // Taxable
-                  4: pw.FlexColumnWidth(0.11), // Tax
-                  5: pw.FlexColumnWidth(0.09), // Cess
-                  6: pw.FlexColumnWidth(0.09), // Rounding
-                  7: pw.FlexColumnWidth(0.10), // Bill Amt
+                  0: pw.FlexColumnWidth(0.13),
+                  1: pw.FlexColumnWidth(0.15),
+                  2: pw.FlexColumnWidth(0.20),
+                  3: pw.FlexColumnWidth(0.13),
+                  4: pw.FlexColumnWidth(0.11),
+                  5: pw.FlexColumnWidth(0.09),
+                  6: pw.FlexColumnWidth(0.09),
+                  7: pw.FlexColumnWidth(0.10),
                 },
                 children: [
                   pw.TableRow(
                     decoration: pw.BoxDecoration(color: PdfColors.grey300),
                     children: [
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Inv Date',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.center,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Bill No',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.center,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Seller Name',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.center,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Taxable',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Tax',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Cess',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Rounding',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Bill Amt',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
+                      _pdfHeaderCell('Inv Date'),
+                      _pdfHeaderCell('Bill No'),
+                      _pdfHeaderCell('Seller Name'),
+                      _pdfHeaderCell('Taxable', align: pw.TextAlign.right),
+                      _pdfHeaderCell('Tax', align: pw.TextAlign.right),
+                      _pdfHeaderCell('Cess', align: pw.TextAlign.right),
+                      _pdfHeaderCell('Rounding', align: pw.TextAlign.right),
+                      _pdfHeaderCell('Bill Amt', align: pw.TextAlign.right),
                     ],
                   ),
-                  // Table Rows
                   ...sortedPurchases.map((purchase) {
                     return pw.TableRow(
                       children: [
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
-                            DateFormat('dd/MM/yy').format(purchase['date']),
-                            style: const pw.TextStyle(fontSize: 7),
-                            textAlign: pw.TextAlign.center,
-                          ),
+                        _pdfDataCell(
+                          DateFormat('dd/MM/yy').format(purchase['date']),
+                          align: pw.TextAlign.center,
                         ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
-                            purchase['invoiceNo'] ?? 'N/A',
-                            style: const pw.TextStyle(fontSize: 7),
-                            textAlign: pw.TextAlign.center,
-                          ),
+                        _pdfDataCell(
+                          purchase['invoiceNo'] ?? 'N/A',
+                          align: pw.TextAlign.center,
                         ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
-                            purchase['supplierName'] ?? 'Unknown',
-                            style: const pw.TextStyle(fontSize: 7),
-                            textAlign: pw.TextAlign.left,
-                          ),
+                        _pdfDataCell(
+                          purchase['supplierName'] ?? 'Unknown',
+                          align: pw.TextAlign.left,
                         ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
-                            (purchase['taxableAmount'] ?? 0).toStringAsFixed(2),
-                            style: const pw.TextStyle(fontSize: 7),
-                            textAlign: pw.TextAlign.right,
-                          ),
+                        _pdfDataCell(
+                          (purchase['taxableAmount'] ?? 0).toStringAsFixed(2),
+                          align: pw.TextAlign.right,
                         ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
-                            (purchase['gstAmount'] ?? 0).toStringAsFixed(2),
-                            style: const pw.TextStyle(fontSize: 7),
-                            textAlign: pw.TextAlign.right,
-                          ),
+                        _pdfDataCell(
+                          (purchase['gstAmount'] ?? 0).toStringAsFixed(2),
+                          align: pw.TextAlign.right,
                         ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
-                            '0.00',
-                            style: const pw.TextStyle(fontSize: 7),
-                            textAlign: pw.TextAlign.right,
-                          ),
+                        _pdfDataCell('0.00', align: pw.TextAlign.right),
+                        _pdfDataCell(
+                          (purchase['roundingAmount'] ?? 0).toStringAsFixed(2),
+                          align: pw.TextAlign.right,
                         ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
-                            (purchase['roundingAmount'] ?? 0).toStringAsFixed(
-                              2,
-                            ),
-                            style: pw.TextStyle(
-                              fontSize: 7,
-                              color: (purchase['roundingAmount'] ?? 0) != 0
-                                  ? ((purchase['roundingAmount'] ?? 0) > 0
-                                        ? PdfColors.orange
-                                        : PdfColors.blue)
-                                  : PdfColors.black,
-                            ),
-                            textAlign: pw.TextAlign.right,
-                          ),
-                        ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
-                            (purchase['grandTotal'] ?? 0).toStringAsFixed(2),
-                            style: const pw.TextStyle(
-                              fontSize: 7,
-                              fontWeight: pw.FontWeight.bold,
-                            ),
-                            textAlign: pw.TextAlign.right,
-                          ),
+                        _pdfDataCell(
+                          (purchase['grandTotal'] ?? 0).toStringAsFixed(2),
+                          align: pw.TextAlign.right,
+                          bold: true,
                         ),
                       ],
                     );
                   }).toList(),
-                  // Total Row at the end of table
                   pw.TableRow(
                     decoration: pw.BoxDecoration(color: PdfColors.grey200),
                     children: [
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'TOTAL',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.center,
-                        ),
+                      _pdfHeaderCell('TOTAL'),
+                      _pdfDataCell('', align: pw.TextAlign.center),
+                      _pdfDataCell('', align: pw.TextAlign.center),
+                      _pdfDataCell(
+                        totalTaxable.toStringAsFixed(2),
+                        align: pw.TextAlign.right,
+                        bold: true,
+                        color: PdfColors.blue,
                       ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          '',
-                          style: const pw.TextStyle(fontSize: 7),
-                          textAlign: pw.TextAlign.center,
-                        ),
+                      _pdfDataCell(
+                        totalTax.toStringAsFixed(2),
+                        align: pw.TextAlign.right,
+                        bold: true,
+                        color: PdfColors.blue,
                       ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          '',
-                          style: const pw.TextStyle(fontSize: 7),
-                          textAlign: pw.TextAlign.center,
-                        ),
+                      _pdfDataCell(
+                        '0.00',
+                        align: pw.TextAlign.right,
+                        bold: true,
+                        color: PdfColors.blue,
                       ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          totalTaxable.toStringAsFixed(2),
-                          style: pw.TextStyle(
-                            fontSize: 8,
-                            fontWeight: pw.FontWeight.bold,
-                            color: PdfColors.blue,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
+                      _pdfDataCell(
+                        totalRounding.toStringAsFixed(2),
+                        align: pw.TextAlign.right,
+                        bold: true,
+                        color: PdfColors.blue,
                       ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          totalTax.toStringAsFixed(2),
-                          style: pw.TextStyle(
-                            fontSize: 8,
-                            fontWeight: pw.FontWeight.bold,
-                            color: PdfColors.blue,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          '0.00',
-                          style: pw.TextStyle(
-                            fontSize: 8,
-                            fontWeight: pw.FontWeight.bold,
-                            color: PdfColors.blue,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          totalRounding.toStringAsFixed(2),
-                          style: pw.TextStyle(
-                            fontSize: 8,
-                            fontWeight: pw.FontWeight.bold,
-                            color: totalRounding != 0
-                                ? (totalRounding > 0
-                                      ? PdfColors.orange
-                                      : PdfColors.blue)
-                                : PdfColors.blue,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          totalBillAmount.toStringAsFixed(2),
-                          style: pw.TextStyle(
-                            fontSize: 8,
-                            fontWeight: pw.FontWeight.bold,
-                            color: PdfColors.green,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
+                      _pdfDataCell(
+                        totalBillAmount.toStringAsFixed(2),
+                        align: pw.TextAlign.right,
+                        bold: true,
+                        color: PdfColors.green,
                       ),
                     ],
                   ),
@@ -606,7 +472,6 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
         ),
       );
 
-      // Save PDF to temporary file
       final bytes = await pdf.save();
       final dir = await getTemporaryDirectory();
       final fileName =
@@ -614,20 +479,21 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
       final file = File('${dir.path}/$fileName');
       await file.writeAsBytes(bytes);
 
-      // Share the PDF
       await Share.shareXFiles(
         [XFile(file.path)],
         text:
             'Purchase Report - MOBILE HOUSE\n'
+            '$shopLabel\n'
             'Period: ${_getFilterDisplayText()}\n'
             'Total Bills: ${_filteredPurchases.length}\n'
-            'Total Products: ${_totalProducts}\n'
+            'Total Products: $_totalProducts\n'
             'Total Taxable: ${totalTaxable.toStringAsFixed(2)}\n'
             'Total Tax: ${totalTax.toStringAsFixed(2)}\n'
             'Total Rounding: ${totalRounding.toStringAsFixed(2)}\n'
             'Grand Total: ${totalBillAmount.toStringAsFixed(2)}',
       );
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('PDF generated and shared successfully!'),
@@ -635,6 +501,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
         ),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error generating PDF: $e'),
@@ -642,11 +509,313 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
         ),
       );
     } finally {
-      setState(() => _isGeneratingPDF = false);
+      if (mounted) setState(() => _isGeneratingPDF = false);
     }
   }
 
-  // Helper method to get filter display text
+  // ================= PURCHASE BILL =================
+
+  Widget _buildPurchaseBillSection(Map<String, dynamic> purchase) {
+    final imageUrl = (purchase['purchaseBillUrl'] ?? '').toString().trim();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.receipt, size: 14, color: Colors.green[800]),
+              const SizedBox(width: 6),
+              Text(
+                'Uploaded Purchase Bill',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green[800],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (imageUrl.isEmpty)
+            Container(
+              height: 90,
+              width: double.infinity,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.image_not_supported_outlined,
+                    color: Colors.grey[500],
+                    size: 28,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'No bill image uploaded',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            )
+          else
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                imageUrl,
+                width: double.infinity,
+                height: 180,
+                fit: BoxFit.contain,
+                loadingBuilder: (context, child, progress) {
+                  if (progress == null) return child;
+                  return SizedBox(
+                    height: 180,
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        value: progress.expectedTotalBytes == null
+                            ? null
+                            : progress.cumulativeBytesLoaded /
+                                  progress.expectedTotalBytes!,
+                      ),
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) => Container(
+                  height: 180,
+                  width: double.infinity,
+                  color: Colors.grey[100],
+                  alignment: Alignment.center,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.broken_image_outlined,
+                        color: Colors.grey[500],
+                        size: 30,
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        'Unable to load bill image',
+                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          if (imageUrl.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _viewPurchaseBill(imageUrl),
+                    icon: const Icon(Icons.visibility_outlined, size: 16),
+                    label: const Text(
+                      'View Image',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.green[700],
+                      side: BorderSide(color: Colors.green[700]!),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _downloadPurchaseBill(imageUrl),
+                    icon: const Icon(Icons.download, size: 16),
+                    label: const Text(
+                      'Download',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green[700],
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _viewPurchaseBill(String imageUrl) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(12),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 5,
+                child: Center(
+                  child: Image.network(
+                    imageUrl,
+                    fit: BoxFit.contain,
+                    loadingBuilder: (context, child, progress) =>
+                        progress == null
+                        ? child
+                        : const Center(
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                            ),
+                          ),
+                    errorBuilder: (context, error, stackTrace) => const Center(
+                      child: Text(
+                        'Unable to load image',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => _downloadPurchaseBill(imageUrl),
+                    icon: const Icon(Icons.download, color: Colors.white),
+                    tooltip: 'Download',
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    icon: const Icon(Icons.close, color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _downloadPurchaseBill(String imageUrl) async {
+    if (imageUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No bill image available to download')),
+      );
+      return;
+    }
+
+    HttpClient? client;
+    try {
+      final uri = Uri.parse(imageUrl);
+      if (uri.scheme != 'https' && uri.scheme != 'http') {
+        throw const FormatException('Invalid image URL');
+      }
+
+      client = HttpClient();
+      final request = await client.getUrl(uri);
+      final response = await request.close();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HttpException('Download failed (${response.statusCode})');
+      }
+      final bytes = await response.fold<List<int>>(
+        <int>[],
+        (buffer, chunk) => buffer..addAll(chunk),
+      );
+
+      Directory dir;
+      if (Platform.isAndroid) {
+        final dl = Directory('/storage/emulated/0/Download');
+        dir = await dl.exists() ? dl : await getApplicationDocumentsDirectory();
+      } else {
+        dir = await getApplicationDocumentsDirectory();
+      }
+      if (!await dir.exists()) await dir.create(recursive: true);
+
+      var extension = uri.path.toLowerCase().split('.').last;
+      if (!['jpg', 'jpeg', 'png', 'webp'].contains(extension)) {
+        extension = 'jpg';
+      }
+      final invoice = 'report';
+      final file = File(
+        '${dir.path}${Platform.pathSeparator}'
+        'Purchase_Bill_${invoice}_${DateTime.now().millisecondsSinceEpoch}.$extension',
+      );
+      await file.writeAsBytes(bytes, flush: true);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Saved: ${file.path}'),
+          action: SnackBarAction(
+            label: 'Open',
+            onPressed: () => OpenFile.open(file.path),
+          ),
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Download failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      client?.close(force: true);
+    }
+  }
+
+  pw.Widget _pdfHeaderCell(
+    String text, {
+    pw.TextAlign align = pw.TextAlign.center,
+  }) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.all(4),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8),
+        textAlign: align,
+      ),
+    );
+  }
+
+  pw.Widget _pdfDataCell(
+    String text, {
+    pw.TextAlign align = pw.TextAlign.center,
+    bool bold = false,
+    PdfColor? color,
+  }) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.all(4),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(
+          fontSize: 7,
+          fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+          color: color,
+        ),
+        textAlign: align,
+      ),
+    );
+  }
+
   String _getFilterDisplayText() {
     if (_selectedFilter == 'Custom Range' &&
         _startDate != null &&
@@ -657,136 +826,123 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
     } else if (_selectedFilter == 'Last Year') {
       return 'January ${DateTime.now().year - 1} - December ${DateTime.now().year - 1}';
     } else if (_selectedFilter == 'This Month') {
-      return '${DateFormat('MMMM yyyy').format(DateTime.now())}';
+      return DateFormat('MMMM yyyy').format(DateTime.now());
     } else if (_selectedFilter == 'Last Month') {
       DateTime lastMonth = DateTime(
         DateTime.now().year,
         DateTime.now().month - 1,
       );
-      return '${DateFormat('MMMM yyyy').format(lastMonth)}';
+      return DateFormat('MMMM yyyy').format(lastMonth);
     } else if (_selectedFilter == 'Last 7 Days') {
       return 'Last 7 Days';
     } else if (_selectedFilter == 'Last 30 Days') {
       return 'Last 30 Days';
-    } else {
-      return 'All Time';
     }
+    return 'All Time';
   }
 
   Future<void> _deletePurchase(Map<String, dynamic> purchase) async {
-    bool? confirmDelete = await showDialog<bool>(
+    final confirmDelete = await showDialog<bool>(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          title: Row(
-            children: [
-              Icon(
-                Icons.warning_amber_rounded,
-                color: Colors.red[700],
-                size: 22,
-              ),
-              const SizedBox(width: 10),
-              const Text(
-                'Delete Purchase',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Are you sure you want to delete this purchase?',
-                style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-              ),
-              const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.grey[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey[200]!),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Invoice: ${purchase['invoiceNo']}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
-                    ),
-                    Text(
-                      'Supplier: ${purchase['supplierName']}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                    Text(
-                      'Amount: ${purchase['grandTotal'].toStringAsFixed(2)}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                    Text(
-                      'Added: ${DateFormat('dd/MM/yyyy HH:mm').format(purchase['createdAt'])}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                    Text(
-                      'Invoice Date: ${DateFormat('dd/MM/yyyy').format(purchase['date'])}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'This action cannot be undone!',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: Colors.red[700],
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              style: TextButton.styleFrom(foregroundColor: Colors.grey[700]),
-              child: const Text('Cancel', style: TextStyle(fontSize: 12)),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red[700],
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(6),
-                ),
-              ),
-              child: const Text('Delete', style: TextStyle(fontSize: 12)),
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.red[700], size: 22),
+            const SizedBox(width: 10),
+            const Text(
+              'Delete Purchase',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
             ),
           ],
-        );
-      },
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Are you sure you want to delete this purchase?',
+              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.grey[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey[200]!),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Invoice: ${purchase['invoiceNo']}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                  Text(
+                    'Supplier: ${purchase['supplierName']}',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                  Text(
+                    'Amount: ${purchase['grandTotal'].toStringAsFixed(2)}',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                  Text(
+                    'Added: ${DateFormat('dd/MM/yyyy HH:mm').format(purchase['createdAt'])}',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                  Text(
+                    'Invoice Date: ${DateFormat('dd/MM/yyyy').format(purchase['date'])}',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'This action cannot be undone!',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.red[700],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            style: TextButton.styleFrom(foregroundColor: Colors.grey[700]),
+            child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red[700],
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+            child: const Text('Delete', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
     );
 
     if (confirmDelete == true) {
       setState(() => _isLoading = true);
-
       try {
         await _firestore.collection('purchases').doc(purchase['id']).delete();
-
         setState(() {
           _purchases.removeWhere((p) => p['id'] == purchase['id']);
           _filteredPurchases.removeWhere((p) => p['id'] == purchase['id']);
         });
-
-        // Recalculate summary after deletion
         _calculateSummary(_filteredPurchases);
-
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -797,17 +953,18 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
           ),
         );
       } catch (e) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               'Error deleting purchase: $e',
-              style: TextStyle(fontSize: 12),
+              style: const TextStyle(fontSize: 12),
             ),
             backgroundColor: Colors.red,
           ),
         );
       } finally {
-        setState(() => _isLoading = false);
+        if (mounted) setState(() => _isLoading = false);
       }
     }
   }
@@ -820,7 +977,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.8,
+        initialChildSize: 0.85,
         maxChildSize: 0.95,
         minChildSize: 0.5,
         expand: false,
@@ -909,57 +1066,18 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                   child: ListView(
                     controller: scrollController,
                     children: [
+                      _buildShopInfoSection(purchase),
+                      const SizedBox(height: 10),
                       _buildSupplierInfoSection(purchase),
+                      const SizedBox(height: 10),
+                      _buildPurchaseBillSection(
+                        purchase,
+                      ), // ✅ bill image view/download
                       const SizedBox(height: 10),
                       _buildItemsSection(purchase),
                       const SizedBox(height: 10),
                       _buildSummarySection(purchase),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () {},
-                              icon: const Icon(Icons.download, size: 16),
-                              label: const Text(
-                                'Download',
-                                style: TextStyle(fontSize: 11),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.green[700],
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 8,
-                                ),
-                                side: BorderSide(color: Colors.green[700]!),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () => Navigator.pop(context),
-                              icon: const Icon(Icons.close, size: 16),
-                              label: const Text(
-                                'Close',
-                                style: TextStyle(fontSize: 11),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green[700],
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 8,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                      const SizedBox(height: 16),
                     ],
                   ),
                 ),
@@ -967,6 +1085,47 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  // ✅ NEW: Shop info in details view
+  Widget _buildShopInfoSection(Map<String, dynamic> purchase) {
+    final shopId = (purchase['stockShopId'] ?? '').toString();
+    final shopName = (purchase['stockShopName'] ?? '').toString();
+
+    if (shopId.isEmpty && shopName.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.blue[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.blue[100]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.storefront, size: 14, color: Colors.blue[800]),
+              const SizedBox(width: 6),
+              Text(
+                'Shop Information',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue[800],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          if (shopName.isNotEmpty) _buildDetailRow('Shop Name', shopName),
+          if (shopId.isNotEmpty) _buildDetailRow('Shop ID', shopId),
+        ],
       ),
     );
   }
@@ -1008,6 +1167,8 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
   }
 
   Widget _buildItemsSection(Map<String, dynamic> purchase) {
+    final items = List<Map<String, dynamic>>.from(purchase['items'] ?? []);
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.grey[50],
@@ -1027,38 +1188,147 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
               ),
             ),
             const SizedBox(height: 6),
-            ...purchase['items'].map<Widget>((item) {
+            ...items.map<Widget>((item) {
+              final imeis =
+                  List<dynamic>.from(item['imeiOrSerialNumbers'] ?? [])
+                      .map((e) => e.toString().trim())
+                      .where((e) => e.isNotEmpty)
+                      .toList();
+
               return Container(
-                padding: const EdgeInsets.symmetric(vertical: 4),
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.grey[200]!),
                 ),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      flex: 3,
-                      child: Text(
-                        item['productName'] ?? 'Unknown',
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        'Qty: ${item['quantity']}',
-                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        '${(item['total'] ?? 0).toStringAsFixed(2)}',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.green,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item['productName'] ?? 'Unknown',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
-                        textAlign: TextAlign.right,
-                      ),
+                        Text(
+                          '${(item['total'] ?? 0).toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ],
                     ),
+                    const SizedBox(height: 3),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        if ((item['brand'] ?? '').toString().isNotEmpty)
+                          Text(
+                            'Brand: ${item['brand']}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                        Text(
+                          'Qty: ${item['quantity'] ?? 1}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                        if (item['rate'] != null)
+                          Text(
+                            'Rate: ${(item['rate'] as num).toStringAsFixed(2)}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                      ],
+                    ),
+                    if (imeis.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.blue[100]!),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.qr_code_2,
+                                  size: 12,
+                                  color: Colors.blue[800],
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  item['identifierType']?.toString() ??
+                                      'IMEI / Serial',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blue[800],
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '(${imeis.length})',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: Colors.blue[700],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 3),
+                            ...imeis.map(
+                              (imei) => Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 4,
+                                      height: 4,
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue[700],
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: SelectableText(
+                                        imei,
+                                        style: const TextStyle(
+                                          fontSize: 10.5,
+                                          fontFamily: 'monospace',
+                                          letterSpacing: 0.4,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               );
