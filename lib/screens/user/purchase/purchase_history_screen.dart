@@ -83,6 +83,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
           'itemCount': (data['items'] ?? []).length,
           'taxableAmount': (data['totalAmount'] ?? 0).toDouble(),
           'taxPercentage': 18, // Default GST percentage
+          'purchaseBillUrl': data['purchaseBillUrl'] ?? '',
+          'purchaseBillPath': data['purchaseBillPath'] ?? '',
         });
       }
 
@@ -893,6 +895,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                     children: [
                       _buildSupplierInfoSection(purchase),
                       const SizedBox(height: 10),
+                      _buildPurchaseBillSection(purchase),
+                      const SizedBox(height: 10),
                       _buildItemsSection(purchase),
                       const SizedBox(height: 10),
                       _buildSummarySection(purchase),
@@ -901,7 +905,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                         children: [
                           Expanded(
                             child: OutlinedButton.icon(
-                              onPressed: () {},
+                              onPressed: () => _downloadPurchaseBill(purchase),
                               icon: const Icon(Icons.download, size: 16),
                               label: const Text(
                                 'Download',
@@ -987,6 +991,262 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildPurchaseBillSection(Map<String, dynamic> purchase) {
+    final imageUrl = (purchase['purchaseBillUrl'] ?? '').toString().trim();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Uploaded Purchase Bill',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: Colors.green[800],
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (imageUrl.isEmpty)
+            Container(
+              height: 90,
+              width: double.infinity,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.image_not_supported_outlined,
+                    color: Colors.grey[500],
+                    size: 28,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'No bill image uploaded',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            )
+          else
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                imageUrl,
+                width: double.infinity,
+                height: 180,
+                fit: BoxFit.contain,
+                loadingBuilder: (context, child, progress) {
+                  if (progress == null) return child;
+                  return SizedBox(
+                    height: 180,
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        value: progress.expectedTotalBytes == null
+                            ? null
+                            : progress.cumulativeBytesLoaded /
+                                  progress.expectedTotalBytes!,
+                      ),
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) => Container(
+                  height: 180,
+                  width: double.infinity,
+                  color: Colors.grey[100],
+                  alignment: Alignment.center,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.broken_image_outlined,
+                        color: Colors.grey[500],
+                        size: 30,
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        'Unable to load bill image',
+                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          if (imageUrl.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _viewPurchaseBill(imageUrl),
+                    icon: const Icon(Icons.visibility_outlined, size: 16),
+                    label: const Text(
+                      'View Image',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.green[700],
+                      side: BorderSide(color: Colors.green[700]!),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _downloadPurchaseBill(purchase),
+                    icon: const Icon(Icons.download, size: 16),
+                    label: const Text(
+                      'Download',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green[700],
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _viewPurchaseBill(String imageUrl) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(12),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 5,
+                child: Center(
+                  child: Image.network(
+                    imageUrl,
+                    fit: BoxFit.contain,
+                    loadingBuilder: (context, child, progress) =>
+                        progress == null
+                        ? child
+                        : const Center(
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                            ),
+                          ),
+                    errorBuilder: (context, error, stackTrace) => const Center(
+                      child: Text(
+                        'Unable to load image',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: IconButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                icon: const Icon(Icons.close, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _downloadPurchaseBill(Map<String, dynamic> purchase) async {
+    final imageUrl = (purchase['purchaseBillUrl'] ?? '').toString().trim();
+    if (imageUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No bill image available to download')),
+      );
+      return;
+    }
+
+    HttpClient? client;
+    try {
+      final uri = Uri.parse(imageUrl);
+      if (uri.scheme != 'https' && uri.scheme != 'http') {
+        throw const FormatException('Invalid image URL');
+      }
+
+      client = HttpClient();
+      final request = await client.getUrl(uri);
+      final response = await request.close();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HttpException('Image download failed (${response.statusCode})');
+      }
+      final bytes = await response.fold<List<int>>(
+        <int>[],
+        (buffer, chunk) => buffer..addAll(chunk),
+      );
+
+      Directory? directory;
+      try {
+        directory = await getDownloadsDirectory();
+      } catch (_) {
+        directory = null;
+      }
+      directory ??= await getApplicationDocumentsDirectory();
+      if (!await directory.exists()) {
+        await directory.create(recursive: true);
+      }
+
+      var extension = uri.path.toLowerCase().split('.').last;
+      if (!['jpg', 'jpeg', 'png', 'webp'].contains(extension)) {
+        extension = 'jpg';
+      }
+      final invoice = (purchase['invoiceNo'] ?? 'purchase')
+          .toString()
+          .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+      final file = File(
+        '${directory.path}${Platform.pathSeparator}Purchase_Bill_${invoice}_${DateTime.now().millisecondsSinceEpoch}.$extension',
+      );
+      await file.writeAsBytes(bytes, flush: true);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Image saved: ${file.path}'),
+          action: SnackBarAction(
+            label: 'Open',
+            onPressed: () => OpenFile.open(file.path),
+          ),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to download bill image: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      client?.close(force: true);
+    }
   }
 
   Widget _buildItemsSection(Map<String, dynamic> purchase) {
@@ -1166,6 +1426,13 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       ),
       child: Row(
         children: [
+          IconButton(
+            onPressed: () => Navigator.of(context).maybePop(),
+            icon: const Icon(Icons.arrow_back, color: Colors.white, size: 22),
+            tooltip: 'Back',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+          ),
           Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(

@@ -63,10 +63,20 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   List<String> _currentIdentifiers = [];
 
   // Stock update options
-  bool _addToStock = true;
-  String? _stockShopId;
-  String? _stockShopName;
-  List<Map<String, String>> _shops = [];
+
+  // Stock always goes to the shop of the logged-in user (no shop picker)
+  String? get _stockShopId {
+    final id = Provider.of<AuthProvider>(context, listen: false).user?.shopId;
+    return (id != null && id.isNotEmpty) ? id : null;
+  }
+
+  String get _stockShopName {
+    final name = Provider.of<AuthProvider>(
+      context,
+      listen: false,
+    ).user?.shopName;
+    return (name != null && name.isNotEmpty) ? name : 'Unknown Shop';
+  }
 
   // Purchase bill image
   final ImagePicker _imagePicker = ImagePicker();
@@ -145,7 +155,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     super.initState();
     _loadSuppliers();
     _loadProducts();
-    _loadShops();
 
     _supplierController.addListener(_filterSuppliers);
     _productController.addListener(_filterProducts);
@@ -767,50 +776,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     }
   }
 
-  // ============================================================
-  // SHOPS (for the stock update)
-  // ============================================================
-
-  Future<void> _loadShops() async {
-    try {
-      final snapshot = await _firestore.collection('Mobile_house_Shops').get();
-      final shops = snapshot.docs.map((doc) {
-        final data = doc.data();
-        return <String, String>{
-          'id': doc.id,
-          'name': (data['shopName'] ?? 'Unknown Shop').toString(),
-        };
-      }).toList();
-      if (!mounted) return;
-      setState(() => _shops = shops);
-    } catch (e) {
-      print('Error loading shops: $e');
-    } finally {
-      _applyDefaultStockShop();
-    }
-  }
-
-  String? _shopNameFor(String? shopId) {
-    if (shopId == null) return null;
-    for (final shop in _shops) {
-      if (shop['id'] == shopId) return shop['name'];
-    }
-    return null;
-  }
-
-  /// Pre-selects the logged-in user's shop as the stock shop.
-  void _applyDefaultStockShop() {
-    if (!mounted || _stockShopId != null) return;
-    final user = Provider.of<AuthProvider>(context, listen: false).user;
-    final shopId = user?.shopId;
-    if (shopId != null && shopId.isNotEmpty) {
-      setState(() {
-        _stockShopId = shopId;
-        _stockShopName = _shopNameFor(shopId) ?? user?.shopName ?? shopId;
-      });
-    }
-  }
-
   void _filterSuppliers() {
     if (_selectedSupplierId != null) return;
 
@@ -1262,11 +1227,11 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     }
 
     // Phones can only go into stock with an IMEI for every unit
-    if (_addToStock && _isPhoneProduct && identifiers.length != quantity) {
+    if (_isPhoneProduct && identifiers.length != quantity) {
       _showDialog(
         'IMEI required',
-        'Enter an IMEI for each of the $quantity phone(s) to add them to stock, '
-            'or turn off "Add purchased items to stock".',
+        'Enter an IMEI for each of the $quantity phone(s). '
+            'Phones are added to stock automatically.',
         isError: true,
       );
       return;
@@ -1452,8 +1417,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   /// Returns an error message, or null when all is fine.
   Future<String?> _validateStockBeforeSave() async {
     if (_stockShopId == null || _stockShopId!.isEmpty) {
-      return 'Please select the shop to add the stock to, '
-          'or turn off "Add purchased items to stock".';
+      return 'Your account is not linked to a shop, so stock cannot be added. '
+          'Please log in with a shop account.';
     }
 
     final phoneImeis = <String>[];
@@ -1522,7 +1487,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       'purchaseRate': item.rate,
       'quantity': quantity,
       'shopId': _stockShopId,
-      'shopName': _stockShopName ?? 'Unknown Shop',
+      'shopName': _stockShopName,
       'uploadedBy': uploadedBy,
       'uploadedById': uploadedById,
       'uploadedAt': FieldValue.serverTimestamp(),
@@ -1723,12 +1688,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     try {
       // Validate the stock update first, so nothing is uploaded or written
       // if something is wrong.
-      if (_addToStock) {
-        final stockError = await _validateStockBeforeSave();
-        if (stockError != null) {
-          _showDialog('Stock Error', stockError, isError: true);
-          return;
-        }
+      final stockError = await _validateStockBeforeSave();
+      if (stockError != null) {
+        _showDialog('Stock Error', stockError, isError: true);
+        return;
       }
 
       _calculateRounding();
@@ -1739,14 +1702,12 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       // Collect the stock writes (appliance lookups happen here)
       final ops = <void Function(WriteBatch)>[];
       final stockSummary = <StockKind, int>{};
-      if (_addToStock) {
-        await _collectStockOps(
-          purchaseId: purchaseRef.id,
-          invoiceNo: invoiceNo,
-          ops: ops,
-          summary: stockSummary,
-        );
-      }
+      await _collectStockOps(
+        purchaseId: purchaseRef.id,
+        invoiceNo: invoiceNo,
+        ops: ops,
+        summary: stockSummary,
+      );
 
       // Upload the bill image first (if one was chosen)
       String? billUrl;
@@ -1794,9 +1755,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         'grandTotal': _getGrandTotal(),
         'purchaseBillUrl': billUrl,
         'purchaseBillPath': uploadedBillPath,
-        'addedToStock': _addToStock,
-        'stockShopId': _addToStock ? _stockShopId : null,
-        'stockShopName': _addToStock ? _stockShopName : null,
+        'addedToStock': true,
+        'stockShopId': _stockShopId,
+        'stockShopName': _stockShopName,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -1884,6 +1845,47 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     }
   }
 
+  /// Goes back to the previous screen (asks first if there is unsaved work).
+  Future<void> _goBack() async {
+    final hasChanges =
+        _cartItems.isNotEmpty || _invoiceController.text.trim().isNotEmpty;
+    if (hasChanges) {
+      final leave = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text(
+            'Leave this screen?',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          content: const Text(
+            'This purchase has not been saved. Your entries will be lost.',
+            style: TextStyle(fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Stay'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Leave'),
+            ),
+          ],
+        ),
+      );
+      if (leave != true) return;
+    }
+    if (!mounted) return;
+    Navigator.of(context).maybePop();
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -1891,6 +1893,22 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         bool isMobile = constraints.maxWidth < 800;
         return Scaffold(
           backgroundColor: Colors.grey[50],
+          // Back button is shown when this screen was opened from another screen
+          appBar: Navigator.of(context).canPop()
+              ? AppBar(
+                  title: const Text(
+                    'Add Purchase',
+                    style: TextStyle(fontSize: 16),
+                  ),
+                  backgroundColor: Colors.green[700],
+                  foregroundColor: Colors.white,
+                  leading: IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    tooltip: 'Back',
+                    onPressed: _goBack,
+                  ),
+                )
+              : null,
           body: Container(
             padding: EdgeInsets.all(isMobile ? 12 : 20),
             child: SingleChildScrollView(
@@ -1950,16 +1968,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       parts.add('Not stocked: ${counts[StockKind.none]}');
     }
 
-    // Make sure the selected shop is always present in the dropdown
-    final shopItems = List<Map<String, String>>.from(_shops);
-    if (_stockShopId != null &&
-        !shopItems.any((s) => s['id'] == _stockShopId)) {
-      shopItems.add({
-        'id': _stockShopId!,
-        'name': _stockShopName ?? _stockShopId!,
-      });
-    }
-
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -1977,7 +1985,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Add purchased items to stock',
+                        'Purchased items are added to stock automatically',
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
@@ -1992,49 +2000,46 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     ],
                   ),
                 ),
-                Switch(
-                  value: _addToStock,
-                  activeColor: Colors.green[700],
-                  onChanged: (value) => setState(() => _addToStock = value),
-                ),
               ],
             ),
-            if (_addToStock) ...[
+            ...[
               const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                value: _stockShopId,
-                isExpanded: true,
-                decoration: InputDecoration(
-                  labelText: 'Stock shop *',
-                  labelStyle: const TextStyle(fontSize: 12),
-                  isDense: true,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _stockShopId != null
+                      ? Colors.green[50]
+                      : Colors.red[50],
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                style: const TextStyle(fontSize: 13, color: Colors.black),
-                dropdownColor: Colors.white,
-                items: shopItems
-                    .map(
-                      (shop) => DropdownMenuItem<String>(
-                        value: shop['id'],
-                        child: Text(
-                          shop['name'] ?? '',
-                          overflow: TextOverflow.ellipsis,
+                child: Row(
+                  children: [
+                    Icon(
+                      _stockShopId != null
+                          ? Icons.store
+                          : Icons.warning_amber_rounded,
+                      size: 16,
+                      color: _stockShopId != null
+                          ? Colors.green[700]
+                          : Colors.red[700],
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _stockShopId != null
+                            ? 'Stock will be added to your shop: $_stockShopName'
+                            : 'Your account is not linked to a shop, so stock cannot be added.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: _stockShopId != null
+                              ? Colors.green[800]
+                              : Colors.red[700],
                         ),
                       ),
-                    )
-                    .toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _stockShopId = value;
-                    _stockShopName = _shopNameFor(value);
-                  });
-                },
+                    ),
+                  ],
+                ),
               ),
             ],
           ],
@@ -2525,7 +2530,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     final qty = int.tryParse(_quantityController.text.trim()) ?? 0;
     final count = _currentIdentifiers.length;
     final bool countMatches = qty > 0 && count == qty;
-    final bool requiredForStock = _addToStock && _isPhoneProduct;
+    final bool requiredForStock = _isPhoneProduct;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 6),

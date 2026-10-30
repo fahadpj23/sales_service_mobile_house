@@ -22,6 +22,7 @@ import 'user/sale/sales_history.dart';
 
 import 'user/purchase/add_purchase_screen.dart';
 import 'user/purchase/purchase_history_screen.dart';
+import 'user/sale/bill_report_user_screen.dart';
 
 class UserDashboard extends StatefulWidget {
   const UserDashboard({super.key});
@@ -530,6 +531,39 @@ class _UserDashboardState extends State<UserDashboard> {
       'December',
     ];
     return months[month - 1];
+  }
+
+  String _formatBillNumber(double value) {
+    return NumberFormat('#,##0').format(value);
+  }
+
+  void _openUserBillsReport() {
+    final user = Provider.of<AuthProvider>(context, listen: false).user;
+    final shopId = user?.shopId;
+
+    _scaffoldKey.currentState?.closeDrawer();
+
+    if (shopId == null || shopId.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Shop ID not found. Please contact administrator.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    _navigateToScreen(
+      BillsReportUserScreen(
+        formatNumber: _formatBillNumber,
+        shops: [
+          {'id': shopId, 'name': user?.shopName ?? 'My Shop'},
+        ],
+        initialShopId: shopId,
+        initialShopName: user?.shopName ?? 'My Shop',
+        isUserView: true,
+      ),
+    );
   }
 
   void _navigateToScreen(Widget screen) {
@@ -1568,7 +1602,43 @@ class _UserDashboardState extends State<UserDashboard> {
                                 ),
                               ],
                             ),
-
+                            // PURCHASE SECTION (commented out as per original)
+                            _buildDrawerSection(
+                              title: 'PURCHASE',
+                              children: [
+                                _buildDrawerTile(
+                                  icon: Icons.add_shopping_cart,
+                                  title: 'Add Purchase',
+                                  color: Colors.blue.shade700,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(
+                                      AddPurchaseScreen(
+                                        onNavigateToHistory: (index) {
+                                          Navigator.pop(context);
+                                          _scaffoldKey.currentState
+                                              ?.closeDrawer();
+                                          _navigateToScreen(
+                                            const PurchaseHistoryScreen(),
+                                          );
+                                        },
+                                      ),
+                                    );
+                                  },
+                                ),
+                                _buildDrawerTile(
+                                  icon: Icons.history,
+                                  title: 'Purchase History',
+                                  color: Colors.orange.shade700,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(
+                                      const PurchaseHistoryScreen(),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
                             // Sales Upload Section
                             _buildDrawerSection(
                               title: 'SALES UPLOAD',
@@ -1649,43 +1719,7 @@ class _UserDashboardState extends State<UserDashboard> {
                               ],
                             ),
 
-                            // PURCHASE SECTION (commented out as per original)
-                            _buildDrawerSection(
-                              title: 'PURCHASE',
-                              children: [
-                                _buildDrawerTile(
-                                  icon: Icons.add_shopping_cart,
-                                  title: 'Add Purchase',
-                                  color: Colors.blue.shade700,
-                                  onTap: () {
-                                    _scaffoldKey.currentState?.closeDrawer();
-                                    _navigateToScreen(
-                                      AddPurchaseScreen(
-                                        onNavigateToHistory: (index) {
-                                          Navigator.pop(context);
-                                          _scaffoldKey.currentState
-                                              ?.closeDrawer();
-                                          _navigateToScreen(
-                                            const PurchaseHistoryScreen(),
-                                          );
-                                        },
-                                      ),
-                                    );
-                                  },
-                                ),
-                                _buildDrawerTile(
-                                  icon: Icons.history,
-                                  title: 'Purchase History',
-                                  color: Colors.orange.shade700,
-                                  onTap: () {
-                                    _scaffoldKey.currentState?.closeDrawer();
-                                    _navigateToScreen(
-                                      const PurchaseHistoryScreen(),
-                                    );
-                                  },
-                                ),
-                              ],
-                            ), // History Section (Sales History only)
+                            // History Section (Sales History only)
                             _buildDrawerSection(
                               title: 'SALES Incentive',
                               children: [
@@ -1735,6 +1769,12 @@ class _UserDashboardState extends State<UserDashboard> {
                                       );
                                     }
                                   },
+                                ),
+                                _buildDrawerTile(
+                                  icon: Icons.receipt_long,
+                                  title: 'Bills Report',
+                                  color: Colors.green,
+                                  onTap: _openUserBillsReport,
                                 ),
                               ],
                             ),
