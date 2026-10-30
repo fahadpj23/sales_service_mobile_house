@@ -365,7 +365,47 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
   }
 
-  // Load bill numbers
+  // ═══════════════════════════════════════════════════════
+  // FINANCIAL YEAR HELPER METHODS
+  // Financial Year: April 1 to March 31
+  // Example: FY 2025-26 = April 1, 2025 to March 31, 2026
+  // ═══════════════════════════════════════════════════════
+
+  /// Returns the financial year start date (April 1) for a given date
+  DateTime _getFinancialYearStart(DateTime date) {
+    // If month is Jan(1), Feb(2), Mar(3) -> FY started previous year April 1
+    // If month is Apr(4) to Dec(12) -> FY started current year April 1
+    if (date.month < 4) {
+      return DateTime(date.year - 1, 4, 1);
+    }
+    return DateTime(date.year, 4, 1);
+  }
+
+  /// Returns the financial year end date (March 31 23:59:59) for a given date
+  DateTime _getFinancialYearEnd(DateTime date) {
+    final fyStart = _getFinancialYearStart(date);
+    return DateTime(fyStart.year + 1, 3, 31, 23, 59, 59, 999);
+  }
+
+  /// Returns financial year label like "2025-26"
+  String _getFinancialYearLabel(DateTime date) {
+    final fyStart = _getFinancialYearStart(date);
+    final endYear = fyStart.year + 1;
+    final endYearShort = (endYear % 100).toString().padLeft(2, '0');
+    return '${fyStart.year}-$endYearShort';
+  }
+
+  /// Checks if two dates fall within the same financial year
+  bool _isSameFinancialYear(DateTime date1, DateTime date2) {
+    final fy1Start = _getFinancialYearStart(date1);
+    final fy2Start = _getFinancialYearStart(date2);
+    return fy1Start.year == fy2Start.year;
+  }
+
+  /// Returns the current financial year label
+  String get _currentFinancialYearLabel =>
+      _getFinancialYearLabel(DateTime.now());
+
   // Load bill numbers
   Future<void> _loadBillNumbers() async {
     try {
@@ -396,13 +436,11 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       debugPrint('Found ${billsSnapshot.docs.length} bills');
 
       // Sort by createdAt descending (most recent first)
-      // Fallback to billDate if createdAt is not available
       final sortedDocs = List.from(billsSnapshot.docs);
       sortedDocs.sort((a, b) {
         final aData = a.data();
         final bData = b.data();
 
-        // Try createdAt first
         final aCreatedAt = aData['createdAt'] as Timestamp?;
         final bCreatedAt = bData['createdAt'] as Timestamp?;
 
@@ -410,7 +448,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
           return bCreatedAt.compareTo(aCreatedAt);
         }
 
-        // Fallback to billDate
         final aDate =
             (aData['billDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
         final bDate =
@@ -430,23 +467,15 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
         // Skip bills with billType "GST Accessories"
         if (billType == 'GST Accessories') {
-          debugPrint('Skipping bill $billNumber - Type: $billType');
           continue;
         }
 
         if (billShopId == _shopId &&
             billNumber != null &&
             billNumber.isNotEmpty) {
-          // Since sorted by createdAt descending, the first occurrence is the latest
-          // Only add if not already present (keeps the latest)
           if (!billDataMap.containsKey(billNumber)) {
             billDataMap[billNumber] = billData;
             billNumberToDocId[billNumber] = doc.id;
-            debugPrint('Added bill: $billNumber (docId: ${doc.id})');
-          } else {
-            debugPrint(
-              'Skipping duplicate bill: $billNumber (keeping latest from docId: ${billNumberToDocId[billNumber]})',
-            );
           }
         }
       }
@@ -476,14 +505,10 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         _loadingBills = false;
       });
 
-      debugPrint(
-        'Loaded ${billNumbers.length} unique bills (after deduplication)',
-      );
+      debugPrint('Loaded ${billNumbers.length} unique bills');
 
       if (billNumbers.isEmpty) {
         _showMessage('No bills found for your shop', isError: false);
-      } else {
-        debugPrint('Loaded ${billNumbers.length} bills successfully');
       }
     } catch (e) {
       debugPrint('Error loading bills: $e');
@@ -554,16 +579,12 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     }
 
     try {
-      debugPrint('=== BILL DATA STRUCTURE ===');
-      debugPrint('All keys in bill: ${billData.keys.join(', ')}');
-
       _clearFormData();
 
       final customerName = billData['customerName']?.toString() ?? '';
       final customerPhone = billData['customerMobile']?.toString() ?? '';
 
       String serialNumber = billData['serialNumber']?.toString() ?? '';
-
       if (serialNumber.isEmpty && billData.containsKey('imei')) {
         serialNumber = billData['imei']?.toString() ?? '';
       }
@@ -586,18 +607,15 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
       // === GET BRAND ===
       String? productBrand;
-
       if (billData.containsKey('modelBrand') &&
           billData['modelBrand'] != null) {
         productBrand = billData['modelBrand']?.toString();
       }
-
       if ((productBrand == null || productBrand.isEmpty) &&
           billData.containsKey('productBrand') &&
           billData['productBrand'] != null) {
         productBrand = billData['productBrand']?.toString();
       }
-
       if ((productBrand == null || productBrand.isEmpty) &&
           originalTvData != null) {
         productBrand =
@@ -605,7 +623,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
             originalTvData['brand']?.toString() ??
             originalTvData['productBrand']?.toString();
       }
-
       if ((productBrand == null || productBrand.isEmpty) &&
           originalPhoneData != null) {
         productBrand =
@@ -616,17 +633,14 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
       // === GET MODEL ===
       String? productModel;
-
       if (billData.containsKey('modelName') && billData['modelName'] != null) {
         productModel = billData['modelName']?.toString();
       }
-
       if ((productModel == null || productModel.isEmpty) &&
           billData.containsKey('productName') &&
           billData['productName'] != null) {
         productModel = billData['productName']?.toString();
       }
-
       if ((productModel == null || productModel.isEmpty) &&
           originalTvData != null) {
         productModel =
@@ -634,7 +648,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
             originalTvData['productName']?.toString() ??
             originalTvData['model']?.toString();
       }
-
       if ((productModel == null || productModel.isEmpty) &&
           originalPhoneData != null) {
         productModel =
@@ -645,20 +658,17 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
       // === GET PRICE ===
       double productPrice = 0.0;
-
       if (billData.containsKey('totalAmount') &&
           billData['totalAmount'] != null) {
         final priceValue = billData['totalAmount'];
         if (priceValue is num) productPrice = priceValue.toDouble();
       }
-
       if (productPrice == 0 &&
           billData.containsKey('modelPrice') &&
           billData['modelPrice'] != null) {
         final priceValue = billData['modelPrice'];
         if (priceValue is num) productPrice = priceValue.toDouble();
       }
-
       if (productPrice == 0 && originalTvData != null) {
         final priceValue =
             originalTvData['modelPrice'] ??
@@ -666,7 +676,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
             originalTvData['totalAmount'];
         if (priceValue is num) productPrice = priceValue.toDouble();
       }
-
       if (productPrice == 0 && originalPhoneData != null) {
         final priceValue =
             originalPhoneData['productPrice'] ??
@@ -692,7 +701,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         financeType = billData['financeType']?.toString();
       }
 
-      // Get IMEI/serial number from original data if not found
       if (serialNumber.isEmpty && originalPhoneData != null) {
         serialNumber = originalPhoneData['imei']?.toString() ?? '';
       }
@@ -706,7 +714,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         _imeiController.text = serialNumber;
 
         if (productBrand != null && productBrand.isNotEmpty) {
-          // Try to match with known phone brands (case-insensitive)
           final brandLower = productBrand.toLowerCase();
           String finalBrand = brandLower;
           try {
@@ -815,13 +822,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
             '\n⚠ Please enter manually: ${missingFields.join(', ')}';
       }
 
-      autofillMessage +=
-          '\n\nNote: You can edit Exchange, Credit, Discount, Gifts, and other payment fields.';
-
       _showMessage(autofillMessage, isError: missingFields.isNotEmpty);
     } catch (e) {
       debugPrint('Error autofilling data: $e');
-      debugPrint('Stack trace: ${StackTrace.current}');
       _showMessage('Error autofilling data: $e');
     }
   }
@@ -1196,35 +1199,114 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
   // ═══════════════════════════════════════════════════════
   // Check if bill number already exists in phoneSales
+  // ONLY BLOCKS WITHIN THE SAME FINANCIAL YEAR (April-March)
+  // The same bill number can be reused in a different financial year
   // ═══════════════════════════════════════════════════════
-  Future<bool> _checkBillNumberAlreadyUsed(String billNumber) async {
+  Future<Map<String, dynamic>> _checkBillNumberAlreadyUsed(
+    String billNumber,
+  ) async {
     try {
-      if (_shopId == null) return false;
+      if (_shopId == null) {
+        return {'isDuplicate': false, 'existingSale': null};
+      }
 
-      debugPrint(
-        'Checking duplicate bill number: $billNumber for shop: $_shopId',
-      );
+      final now = DateTime.now();
+      final currentFYLabel = _getFinancialYearLabel(now);
+
+      debugPrint('═══════════════════════════════════════════════');
+      debugPrint('Checking duplicate bill number: $billNumber');
+      debugPrint('Shop ID: $_shopId');
+      debugPrint('Current FY: $currentFYLabel');
+      debugPrint('═══════════════════════════════════════════════');
 
       final querySnapshot = await _firestore
           .collection('phoneSales')
           .where('shopId', isEqualTo: _shopId)
           .where('billNumber', isEqualTo: billNumber)
-          .limit(1)
           .get();
 
-      debugPrint('Duplicate check found ${querySnapshot.docs.length} matches');
+      debugPrint('Found ${querySnapshot.docs.length} total matches');
 
-      return querySnapshot.docs.isNotEmpty;
+      if (querySnapshot.docs.isEmpty) {
+        debugPrint('✓ No duplicate found - bill number is available');
+        return {'isDuplicate': false, 'existingSale': null};
+      }
+
+      // Check each match - only block if it's in the same financial year
+      for (var doc in querySnapshot.docs) {
+        final data = doc.data();
+        final createdAt = data['createdAt'] as Timestamp?;
+        final addedAt = data['addedAt'] as Timestamp?;
+        final saleDate = data['saleDate'] as Timestamp?;
+
+        // Try createdAt first, then addedAt, then saleDate
+        DateTime? existingDate;
+        if (createdAt != null) {
+          existingDate = createdAt.toDate();
+        } else if (addedAt != null) {
+          existingDate = addedAt.toDate();
+        } else if (saleDate != null) {
+          existingDate = saleDate.toDate();
+        }
+
+        if (existingDate != null) {
+          final existingFYLabel = _getFinancialYearLabel(existingDate);
+          final isSameFY = _isSameFinancialYear(existingDate, now);
+
+          debugPrint(
+            'Existing sale date: $existingDate (FY: $existingFYLabel)',
+          );
+          debugPrint('Is same FY as current: $isSameFY');
+
+          if (isSameFY) {
+            debugPrint('❌ DUPLICATE FOUND in FY $existingFYLabel - BLOCKING');
+            return {
+              'isDuplicate': true,
+              'existingSale': {
+                'docId': doc.id,
+                'date': existingDate,
+                'financialYear': existingFYLabel,
+                'data': data,
+              },
+            };
+          } else {
+            debugPrint('✓ Different FY ($existingFYLabel) - ALLOWED');
+          }
+        } else {
+          // If no date available, treat as duplicate (safer default)
+          debugPrint('⚠ No date found - treating as duplicate (safe default)');
+          return {
+            'isDuplicate': true,
+            'existingSale': {
+              'docId': doc.id,
+              'date': null,
+              'financialYear': currentFYLabel,
+              'data': data,
+            },
+          };
+        }
+      }
+
+      debugPrint('✓ No duplicate in current financial year - ALLOWED');
+      return {'isDuplicate': false, 'existingSale': null};
     } catch (e) {
       debugPrint('Error checking duplicate bill number: $e');
-      return false;
+      return {'isDuplicate': false, 'existingSale': null};
     }
   }
 
   // ═══════════════════════════════════════════════════════
   // Show blocked dialog when bill number already exists
+  // in the SAME financial year
   // ═══════════════════════════════════════════════════════
-  Future<void> _showDuplicateBillBlockedDialog(String billNumber) async {
+  Future<void> _showDuplicateBillBlockedDialog(
+    String billNumber, {
+    Map<String, dynamic>? existingSale,
+  }) async {
+    final currentFY = _currentFinancialYearLabel;
+    final existingFY = existingSale?['financialYear']?.toString() ?? currentFY;
+    final existingDate = existingSale?['date'] as DateTime?;
+
     return await showDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -1258,8 +1340,50 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Bill number "$billNumber" has already been used in a phone sale for this shop.',
+                  'Bill number "$billNumber" has already been used in a phone sale for this shop in financial year $existingFY.',
                   style: const TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: _warningColor.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _warningColor.withOpacity(0.3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.calendar_today,
+                            color: _warningColor,
+                            size: 14,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Financial Year: $existingFY',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: _warningColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (existingDate != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Previously used on: ${DateFormat('dd/MM/yyyy').format(existingDate)}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: _secondaryColor,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 10),
                 Container(
@@ -1276,7 +1400,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'This sale cannot be uploaded. Please select a different bill number.',
+                          'This sale cannot be uploaded. Please select a different bill number.\n\nNote: The same bill number can be reused in a different financial year.',
                           style: TextStyle(
                             fontSize: 12,
                             color: _secondaryColor,
@@ -1316,7 +1440,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
   Widget _buildBrandTextField() {
     final isEditable = _isFieldEditable('brand');
 
-    // Sync controller with selected brand
     _syncBrandController();
 
     return Column(
@@ -1356,7 +1479,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               : null,
           fieldViewBuilder:
               (context, fieldController, focusNode, onFieldSubmitted) {
-                // Keep field controller in sync with our brand controller
                 if (fieldController.text != _brandController.text) {
                   fieldController.text = _brandController.text;
                 }
@@ -1534,7 +1656,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       return;
     }
 
-    // Collect all missing required fields with detailed messages
     final List<String> missingFields = [];
 
     if (_selectedBrand == null || _selectedBrand!.trim().isEmpty) {
@@ -1681,20 +1802,22 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
     // ═══════════════════════════════════════════════════════
     // CHECK IF BILL NUMBER ALREADY EXISTS IN phoneSales
+    // ONLY BLOCKS WITHIN THE SAME FINANCIAL YEAR (April-March)
     // ═══════════════════════════════════════════════════════
     if (!_withoutBillNumber &&
         _selectedBillNumber != null &&
         _selectedBillNumber!.isNotEmpty) {
       setState(() => _isLoading = true);
 
-      final bool alreadyExists = await _checkBillNumberAlreadyUsed(
-        _selectedBillNumber!,
-      );
+      final result = await _checkBillNumberAlreadyUsed(_selectedBillNumber!);
 
       setState(() => _isLoading = false);
 
-      if (alreadyExists) {
-        await _showDuplicateBillBlockedDialog(_selectedBillNumber!);
+      if (result['isDuplicate'] == true) {
+        await _showDuplicateBillBlockedDialog(
+          _selectedBillNumber!,
+          existingSale: result['existingSale'] as Map<String, dynamic>?,
+        );
         return;
       }
     }
@@ -1729,6 +1852,10 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
       final supportValue = _isSamsungBrand
           ? (double.tryParse(_supportController.text) ?? 0.0)
           : 0.0;
+
+      // Financial year info for record-keeping
+      final now = DateTime.now();
+      final financialYearLabel = _getFinancialYearLabel(now);
 
       final salesData = {
         'userId': user.uid,
@@ -1774,6 +1901,10 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         'customerName': customerName,
         'customerPhone': customerPhone,
         'billNumber': _withoutBillNumber ? null : _selectedBillNumber,
+        // Financial year tracking fields
+        'financialYear': financialYearLabel,
+        'financialYearStart': _getFinancialYearStart(now),
+        'financialYearEnd': _getFinancialYearEnd(now),
         'addedAt': DateTime.now(),
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -2004,8 +2135,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
       final url = 'https://wa.me/$phone?text=${Uri.encodeComponent(message)}';
       final uri = Uri.parse(url);
-
-      debugPrint('Sharing to WhatsApp: $url');
 
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -2645,6 +2774,29 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
                 ),
               ),
             const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: _primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.calendar_today, size: 10, color: _primaryColor),
+                  const SizedBox(width: 4),
+                  Text(
+                    'FY: $_currentFinancialYearLabel',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: _primaryColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
             Tooltip(
               message: 'Refresh bill list',
               child: GestureDetector(
@@ -3229,11 +3381,9 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
 
         const SizedBox(height: 10),
 
-        // Always show brand field
         _buildBrandTextField(),
         const SizedBox(height: 10),
 
-        // Always show Product Model field (not gated on brand)
         _buildAdditionalField(
           label: 'Product Model *',
           controller: _productModelController,
@@ -3269,7 +3419,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
         ),
         const SizedBox(height: 10),
 
-        // Always show Price field
         _buildAdditionalField(
           label: 'Price *',
           controller: _priceController,
@@ -4786,7 +4935,6 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     required ValueChanged<String?>? onChanged,
     required String hint,
   }) {
-    // Guard against value not present in items
     String? safeValue = value;
     if (value != null) {
       final exists = items.any((item) => item.value == value);
@@ -5002,6 +5150,22 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
               ],
             ),
           ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: _primaryColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              'FY: $_currentFinancialYearLabel',
+              style: TextStyle(
+                fontSize: 9,
+                color: _primaryColor,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
           GestureDetector(
             onTap: _getUserShopId,
             child: Icon(Icons.refresh, size: 14, color: _primaryColor),

@@ -346,6 +346,47 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
   }
 
   // ═══════════════════════════════════════════════════════
+  // FINANCIAL YEAR HELPER METHODS
+  // Financial Year: April 1 to March 31
+  // Example: FY 2025-26 = April 1, 2025 to March 31, 2026
+  // ═══════════════════════════════════════════════════════
+
+  /// Returns the financial year start date (April 1) for a given date
+  DateTime _getFinancialYearStart(DateTime date) {
+    // If month is Jan(1), Feb(2), Mar(3) -> FY started previous year April 1
+    // If month is Apr(4) to Dec(12) -> FY started current year April 1
+    if (date.month < 4) {
+      return DateTime(date.year - 1, 4, 1);
+    }
+    return DateTime(date.year, 4, 1);
+  }
+
+  /// Returns the financial year end date (March 31 23:59:59) for a given date
+  DateTime _getFinancialYearEnd(DateTime date) {
+    final fyStart = _getFinancialYearStart(date);
+    return DateTime(fyStart.year + 1, 3, 31, 23, 59, 59, 999);
+  }
+
+  /// Returns financial year label like "2025-26"
+  String _getFinancialYearLabel(DateTime date) {
+    final fyStart = _getFinancialYearStart(date);
+    final endYear = fyStart.year + 1;
+    final endYearShort = (endYear % 100).toString().padLeft(2, '0');
+    return '${fyStart.year}-$endYearShort';
+  }
+
+  /// Checks if two dates fall within the same financial year
+  bool _isSameFinancialYear(DateTime date1, DateTime date2) {
+    final fy1Start = _getFinancialYearStart(date1);
+    final fy2Start = _getFinancialYearStart(date2);
+    return fy1Start.year == fy2Start.year;
+  }
+
+  /// Returns the current financial year label
+  String get _currentFinancialYearLabel =>
+      _getFinancialYearLabel(DateTime.now());
+
+  // ═══════════════════════════════════════════════════════
   // Load ONLY TV bills (type == "tv") with deduplication.
   // When duplicate bill numbers exist, keep the LATEST one
   // (based on createdAt, falling back to billDate).
@@ -404,8 +445,6 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
       // ─────────────────────────────────────────────────────
       // Deduplicate: keep only the LATEST entry per billNumber.
       // Only include bills with type == "tv".
-      // Because sortedDocs is already newest-first, the first
-      // occurrence we see for a billNumber is the latest one.
       // ─────────────────────────────────────────────────────
       final billDataMap = <String, Map<String, dynamic>>{};
       final billNumbers = <String>[];
@@ -1115,37 +1154,114 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
 
   // ═══════════════════════════════════════════════════════
   // Check if bill number already exists in tvSales collection
-  // for the current shop.
+  // ONLY BLOCKS WITHIN THE SAME FINANCIAL YEAR (April-March)
+  // The same bill number can be reused in a different financial year
   // ═══════════════════════════════════════════════════════
-  Future<bool> _checkBillNumberAlreadyUsed(String billNumber) async {
+  Future<Map<String, dynamic>> _checkBillNumberAlreadyUsed(
+    String billNumber,
+  ) async {
     try {
-      if (_shopId == null) return false;
+      if (_shopId == null) {
+        return {'isDuplicate': false, 'existingSale': null};
+      }
 
-      debugPrint(
-        'Checking duplicate bill number: $billNumber for shop: $_shopId',
-      );
+      final now = DateTime.now();
+      final currentFYLabel = _getFinancialYearLabel(now);
+
+      debugPrint('═══════════════════════════════════════════════');
+      debugPrint('Checking duplicate TV bill number: $billNumber');
+      debugPrint('Shop ID: $_shopId');
+      debugPrint('Current FY: $currentFYLabel');
+      debugPrint('═══════════════════════════════════════════════');
 
       final querySnapshot = await _firestore
           .collection('tvSales')
           .where('shopId', isEqualTo: _shopId)
           .where('billNumber', isEqualTo: billNumber)
-          .limit(1)
           .get();
 
-      debugPrint('Duplicate check found ${querySnapshot.docs.length} matches');
+      debugPrint('Found ${querySnapshot.docs.length} total matches');
 
-      return querySnapshot.docs.isNotEmpty;
+      if (querySnapshot.docs.isEmpty) {
+        debugPrint('✓ No duplicate found - bill number is available');
+        return {'isDuplicate': false, 'existingSale': null};
+      }
+
+      // Check each match - only block if it's in the same financial year
+      for (var doc in querySnapshot.docs) {
+        final data = doc.data();
+        final createdAt = data['createdAt'] as Timestamp?;
+        final addedAt = data['addedAt'] as Timestamp?;
+        final saleDate = data['saleDate'] as Timestamp?;
+
+        // Try createdAt first, then addedAt, then saleDate
+        DateTime? existingDate;
+        if (createdAt != null) {
+          existingDate = createdAt.toDate();
+        } else if (addedAt != null) {
+          existingDate = addedAt.toDate();
+        } else if (saleDate != null) {
+          existingDate = saleDate.toDate();
+        }
+
+        if (existingDate != null) {
+          final existingFYLabel = _getFinancialYearLabel(existingDate);
+          final isSameFY = _isSameFinancialYear(existingDate, now);
+
+          debugPrint(
+            'Existing sale date: $existingDate (FY: $existingFYLabel)',
+          );
+          debugPrint('Is same FY as current: $isSameFY');
+
+          if (isSameFY) {
+            debugPrint('❌ DUPLICATE FOUND in FY $existingFYLabel - BLOCKING');
+            return {
+              'isDuplicate': true,
+              'existingSale': {
+                'docId': doc.id,
+                'date': existingDate,
+                'financialYear': existingFYLabel,
+                'data': data,
+              },
+            };
+          } else {
+            debugPrint('✓ Different FY ($existingFYLabel) - ALLOWED');
+          }
+        } else {
+          // If no date available, treat as duplicate (safer default)
+          debugPrint('⚠ No date found - treating as duplicate (safe default)');
+          return {
+            'isDuplicate': true,
+            'existingSale': {
+              'docId': doc.id,
+              'date': null,
+              'financialYear': currentFYLabel,
+              'data': data,
+            },
+          };
+        }
+      }
+
+      debugPrint('✓ No duplicate in current financial year - ALLOWED');
+      return {'isDuplicate': false, 'existingSale': null};
     } catch (e) {
       debugPrint('Error checking duplicate bill number: $e');
-      return false;
+      return {'isDuplicate': false, 'existingSale': null};
     }
   }
 
   // ═══════════════════════════════════════════════════════
-  // Show an info dialog when the bill number already exists.
-  // Upload is BLOCKED - user can only close.
+  // Show an info dialog when the bill number already exists
+  // in the SAME financial year. Upload is BLOCKED.
   // ═══════════════════════════════════════════════════════
-  Future<void> _showDuplicateBillBlockedDialog(String billNumber) async {
+  Future<void> _showDuplicateBillBlockedDialog(
+    String billNumber, {
+    Map<String, dynamic>? existingSale,
+  }) async {
+    final currentFY = _currentFinancialYearLabel;
+    final existingFY = existingSale?['financialYear']?.toString() ?? currentFY;
+    final existingDate = existingSale?['date'] as DateTime?;
+
     return await showDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -1179,8 +1295,50 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Bill number "$billNumber" has already been used in a TV sale for this shop.',
+                  'Bill number "$billNumber" has already been used in a TV sale for this shop in financial year $existingFY.',
                   style: const TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: _warningColor.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _warningColor.withOpacity(0.3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.calendar_today,
+                            color: _warningColor,
+                            size: 14,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Financial Year: $existingFY',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: _warningColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (existingDate != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Previously used on: ${DateFormat('dd/MM/yyyy').format(existingDate)}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: _secondaryColor,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 10),
                 Container(
@@ -1197,7 +1355,7 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'This sale cannot be uploaded. Please select a different bill number.',
+                          'This sale cannot be uploaded. Please select a different bill number.\n\nNote: The same bill number can be reused in a different financial year.',
                           style: TextStyle(
                             fontSize: 12,
                             color: _secondaryColor,
@@ -1395,22 +1553,22 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
 
     // ═══════════════════════════════════════════════════════
     // CHECK IF BILL NUMBER ALREADY EXISTS IN tvSales
-    // Only check when a bill number is provided (not "Without Bill Number")
-    // If it exists, BLOCK the upload completely.
+    // ONLY BLOCKS WITHIN THE SAME FINANCIAL YEAR (April-March)
     // ═══════════════════════════════════════════════════════
     if (!_withoutBillNumber &&
         _selectedBillNumber != null &&
         _selectedBillNumber!.isNotEmpty) {
       setState(() => _isLoading = true);
 
-      final bool alreadyExists = await _checkBillNumberAlreadyUsed(
-        _selectedBillNumber!,
-      );
+      final result = await _checkBillNumberAlreadyUsed(_selectedBillNumber!);
 
       setState(() => _isLoading = false);
 
-      if (alreadyExists) {
-        await _showDuplicateBillBlockedDialog(_selectedBillNumber!);
+      if (result['isDuplicate'] == true) {
+        await _showDuplicateBillBlockedDialog(
+          _selectedBillNumber!,
+          existingSale: result['existingSale'] as Map<String, dynamic>?,
+        );
         return;
       }
     }
@@ -1434,6 +1592,10 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
       final customerPhone = _customerPhoneController.text;
 
       await _getShopDetails();
+
+      // Financial year info for record-keeping
+      final now = DateTime.now();
+      final financialYearLabel = _getFinancialYearLabel(now);
 
       final salesData = {
         'userId': user.uid,
@@ -1480,6 +1642,10 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
         'customerName': customerName,
         'customerPhone': customerPhone,
         'billNumber': _withoutBillNumber ? null : _selectedBillNumber,
+        // Financial year tracking fields
+        'financialYear': financialYearLabel,
+        'financialYearStart': _getFinancialYearStart(now),
+        'financialYearEnd': _getFinancialYearEnd(now),
         'addedAt': DateTime.now(),
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -2330,6 +2496,29 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
                 ),
               ),
             const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: _tvColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.calendar_today, size: 10, color: _tvColor),
+                  const SizedBox(width: 4),
+                  Text(
+                    'FY: $_currentFinancialYearLabel',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: _tvColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
             Tooltip(
               message: 'Refresh TV bill list',
               child: GestureDetector(
@@ -4491,6 +4680,22 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
               ],
             ),
           ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: _tvColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              'FY: $_currentFinancialYearLabel',
+              style: TextStyle(
+                fontSize: 9,
+                color: _tvColor,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
           GestureDetector(
             onTap: _getUserShopId,
             child: Icon(Icons.refresh, size: 14, color: _primaryColor),

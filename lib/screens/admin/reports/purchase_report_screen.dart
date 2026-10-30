@@ -312,35 +312,23 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                   ],
                 ),
               ),
-              // Table Header - Updated to include both dates
+              // Table Header - Removed "Added Date" column
               pw.Table(
                 border: pw.TableBorder.all(),
                 columnWidths: {
-                  0: pw.FlexColumnWidth(0.10), // Added Date
-                  1: pw.FlexColumnWidth(0.10), // Invoice Date
-                  2: pw.FlexColumnWidth(0.13), // Bill No
-                  3: pw.FlexColumnWidth(0.17), // Seller Name
-                  4: pw.FlexColumnWidth(0.12), // Taxable
-                  5: pw.FlexColumnWidth(0.10), // Tax
-                  6: pw.FlexColumnWidth(0.08), // Cess
-                  7: pw.FlexColumnWidth(0.10), // Rounding
-                  8: pw.FlexColumnWidth(0.10), // Bill Amt
+                  0: pw.FlexColumnWidth(0.13), // Invoice Date
+                  1: pw.FlexColumnWidth(0.15), // Bill No
+                  2: pw.FlexColumnWidth(0.20), // Seller Name
+                  3: pw.FlexColumnWidth(0.13), // Taxable
+                  4: pw.FlexColumnWidth(0.11), // Tax
+                  5: pw.FlexColumnWidth(0.09), // Cess
+                  6: pw.FlexColumnWidth(0.09), // Rounding
+                  7: pw.FlexColumnWidth(0.10), // Bill Amt
                 },
                 children: [
                   pw.TableRow(
                     decoration: pw.BoxDecoration(color: PdfColors.grey300),
                     children: [
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          'Added Date',
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 8,
-                          ),
-                          textAlign: pw.TextAlign.center,
-                        ),
-                      ),
                       pw.Padding(
                         padding: const pw.EdgeInsets.all(4),
                         child: pw.Text(
@@ -438,16 +426,6 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(4),
                           child: pw.Text(
-                            DateFormat(
-                              'dd/MM/yy HH:mm',
-                            ).format(purchase['createdAt']),
-                            style: const pw.TextStyle(fontSize: 7),
-                            textAlign: pw.TextAlign.center,
-                          ),
-                        ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(4),
-                          child: pw.Text(
                             DateFormat('dd/MM/yy').format(purchase['date']),
                             style: const pw.TextStyle(fontSize: 7),
                             textAlign: pw.TextAlign.center,
@@ -536,14 +514,6 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                             fontWeight: pw.FontWeight.bold,
                             fontSize: 8,
                           ),
-                          textAlign: pw.TextAlign.center,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(4),
-                        child: pw.Text(
-                          '',
-                          style: const pw.TextStyle(fontSize: 7),
                           textAlign: pw.TextAlign.center,
                         ),
                       ),

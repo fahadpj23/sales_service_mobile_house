@@ -20,6 +20,9 @@ import 'user/sale/second_phone_sale_upload.dart';
 import 'user/sale/base_model_sale_upload.dart';
 import 'user/sale/sales_history.dart';
 
+import 'user/purchase/add_purchase_screen.dart';
+import 'user/purchase/purchase_history_screen.dart';
+
 class UserDashboard extends StatefulWidget {
   const UserDashboard({super.key});
 
@@ -1647,80 +1650,44 @@ class _UserDashboardState extends State<UserDashboard> {
                             ),
 
                             // PURCHASE SECTION (commented out as per original)
-                            // _buildDrawerSection(
-                            //   title: 'PURCHASE',
-                            //   children: [
-                            //     // Phone Purchase Upload
-                            //     _buildDrawerTile(
-                            //       icon: Icons
-                            //           .phone_android, // Changed to phone icon
-                            //       title: 'Phone Purchase Upload',
-                            //       color:
-                            //           Colors.blue.shade700, // Changed to blue
-                            //       onTap: () {
-                            //         _scaffoldKey.currentState?.closeDrawer();
-                            //         Navigator.push(
-                            //           context,
-                            //           MaterialPageRoute(
-                            //             builder: (context) =>
-                            //                 const CreatePurchaseScreen(),
-                            //           ),
-                            //         );
-                            //       },
-                            //     ),
-
-                            //     // TV Purchase Upload
-                            //     _buildDrawerTile(
-                            //       icon: Icons.tv, // Changed to TV icon
-                            //       title: 'TV Purchase Upload',
-                            //       color: Colors
-                            //           .purple
-                            //           .shade700, // Changed to purple
-                            //       onTap: () {
-                            //         _scaffoldKey.currentState?.closeDrawer();
-                            //         Navigator.push(
-                            //           context,
-                            //           MaterialPageRoute(
-                            //             builder: (context) =>
-                            //                 const CreateTvPurchaseScreen(),
-                            //           ),
-                            //         );
-                            //       },
-                            //     ),
-
-                            //     // Add Supplier
-                            //     _buildDrawerTile(
-                            //       icon: Icons.person_add,
-                            //       title: 'Add Supplier',
-                            //       color:
-                            //           Colors.green.shade700, // Changed to green
-                            //       onTap: () {
-                            //         _scaffoldKey.currentState?.closeDrawer();
-                            //         _navigateToScreen(
-                            //           const SupplierFormScreen(),
-                            //         );
-                            //       },
-                            //     ),
-
-                            //     // Purchase History
-                            //     _buildDrawerTile(
-                            //       icon: Icons.history,
-                            //       title: 'Purchase History',
-                            //       color: Colors
-                            //           .orange
-                            //           .shade700, // Changed to orange
-                            //       onTap: () {
-                            //         _scaffoldKey.currentState?.closeDrawer();
-                            //         _navigateToScreen(
-                            //           const PurchaseHistoryScreen(),
-                            //         );
-                            //       },
-                            //     ),
-                            //   ],
-                            // ),
-                            // History Section (Sales History only)
                             _buildDrawerSection(
-                              title: 'SALES Incentiver',
+                              title: 'PURCHASE',
+                              children: [
+                                _buildDrawerTile(
+                                  icon: Icons.add_shopping_cart,
+                                  title: 'Add Purchase',
+                                  color: Colors.blue.shade700,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(
+                                      AddPurchaseScreen(
+                                        onNavigateToHistory: (index) {
+                                          Navigator.pop(context);
+                                          _scaffoldKey.currentState
+                                              ?.closeDrawer();
+                                          _navigateToScreen(
+                                            const PurchaseHistoryScreen(),
+                                          );
+                                        },
+                                      ),
+                                    );
+                                  },
+                                ),
+                                _buildDrawerTile(
+                                  icon: Icons.history,
+                                  title: 'Purchase History',
+                                  color: Colors.orange.shade700,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(
+                                      const PurchaseHistoryScreen(),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ), // History Section (Sales History only)
+                            _buildDrawerSection(
+                              title: 'SALES Incentive',
                               children: [
                                 _buildDrawerTile(
                                   icon: Icons.emoji_events,
