@@ -1065,6 +1065,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
         'billType': 'applianceSale',
         'stockAlreadyUpdated': true,
         'newStockQuantity': newQuantityAfterSale,
+        'serialNumber': (modelData['serialNumber'] ?? '').toString(),
       };
 
       try {

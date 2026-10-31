@@ -1653,43 +1653,24 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           summary[kind] = (summary[kind] ?? 0) + item.quantity;
           break;
 
-        // ---- APPLIANCES: same logic as AppliancesStockScreen._saveStock ----
-        // one 'available' document per shop + brand + product, quantity added up
+        // ---- APPLIANCES: one stock document per serial number (same as TVs) ----
         case StockKind.appliance:
-          final existing = await _firestore
-              .collection(_applianceStockCollection)
-              .where('shopId', isEqualTo: _stockShopId)
-              .where('category', isEqualTo: _applianceCategory)
-              .where('productBrand', isEqualTo: item.brand.trim())
-              .where('productName', isEqualTo: item.productName)
-              .where('status', isEqualTo: 'available')
-              .limit(1)
-              .get();
-
-          if (existing.docs.isNotEmpty) {
-            final docRef = existing.docs.first.reference;
-            final price = item.saleRate > 0 ? item.saleRate : item.rate;
-            ops.add(
-              (b) => b.update(docRef, {
-                'quantity': FieldValue.increment(item.quantity),
-                'lastUpdatedAt': FieldValue.serverTimestamp(),
-                'lastUpdatedBy': uploadedBy,
-                'lastUpdatedById': uploadedById,
-                'productPrice': price,
-                'lastPurchaseId': purchaseId,
-              }),
-            );
-          } else {
+          for (var i = 0; i < item.quantity; i++) {
             final ref = _firestore.collection(_applianceStockCollection).doc();
-            final data = _baseStockFields(
-              category: _applianceCategory,
-              item: item,
-              quantity: item.quantity,
-              purchaseId: purchaseId,
-              invoiceNo: invoiceNo,
-              uploadedBy: uploadedBy,
-              uploadedById: uploadedById,
-            );
+            final data = {
+              ..._baseStockFields(
+                category: _applianceCategory,
+                item: item,
+                quantity: 1, // ← 1 per doc, like TVs
+                purchaseId: purchaseId,
+                invoiceNo: invoiceNo,
+                uploadedBy: uploadedBy,
+                uploadedById: uploadedById,
+              ),
+              'serialNumber': i < item.identifiers.length
+                  ? item.identifiers[i]
+                  : '',
+            };
             ops.add((b) => b.set(ref, data));
           }
           summary[kind] = (summary[kind] ?? 0) + item.quantity;

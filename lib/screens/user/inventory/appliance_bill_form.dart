@@ -97,36 +97,53 @@ class _ApplianaceSaleUploadState extends State<ApplianaceSaleUpload> {
   }
 
   void _prefillProductData() {
-    if (widget.productData != null) {
-      final product = widget.productData!;
-
-      _stockModelId = product['modelId'];
-
-      if (product['productName'] != null) {
-        _productNameController.text = product['productName'];
-      }
-
-      // ====== NEW: prefill serial number if available ======
-      if (product['serialNumber'] != null) {
-        _serialNumberController.text = product['serialNumber'].toString();
-      }
-
-      if (product['quantity'] != null) {
-        _quantityController.text = product['quantity'].toString();
-      }
-
-      if (product['sellingPrice'] != null) {
-        _priceController.text = product['sellingPrice'].toString();
-      } else if (product['productPrice'] != null) {
-        double basePrice = product['productPrice'];
-        double priceWithGst = basePrice * (1 + gstRate / 100);
-        _priceController.text = priceWithGst.toStringAsFixed(0);
-      }
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _calculateGST();
-      });
+    if (widget.productData == null) {
+      print('[ApplianaceSaleUpload] no productData passed');
+      return;
     }
+
+    final product = widget.productData!;
+    print('[ApplianaceSaleUpload] prefill keys: ${product.keys.toList()}');
+    print(
+      '[ApplianaceSaleUpload] serialNumber raw = "${product['serialNumber']}"',
+    );
+
+    _stockModelId = product['modelId'];
+
+    if (product['productName'] != null) {
+      _productNameController.text = product['productName'];
+    }
+
+    // Serial number — support multiple possible key names
+    final serialCandidates = [
+      product['serialNumber'],
+      product['serial'],
+      product['serialNumbers'], // in case it's a list
+      product['imei'],
+    ];
+    final serial = serialCandidates
+        .map((e) => e?.toString().trim() ?? '')
+        .firstWhere((s) => s.isNotEmpty, orElse: () => '');
+
+    if (serial.isNotEmpty) {
+      _serialNumberController.text = serial;
+    }
+
+    if (product['quantity'] != null) {
+      _quantityController.text = product['quantity'].toString();
+    }
+
+    if (product['sellingPrice'] != null) {
+      _priceController.text = product['sellingPrice'].toString();
+    } else if (product['productPrice'] != null) {
+      double basePrice = product['productPrice'];
+      double priceWithGst = basePrice * (1 + gstRate / 100);
+      _priceController.text = priceWithGst.toStringAsFixed(0);
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _calculateGST();
+    });
   }
 
   Future<void> _loadImages() async {
