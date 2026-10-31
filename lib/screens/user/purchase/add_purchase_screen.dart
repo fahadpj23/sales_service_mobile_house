@@ -70,14 +70,14 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   // false = only save the purchase (and bill), stock is NOT updated
   bool _addPurchaseToStock = true;
 
-  // Lets the open product-details modal rebuild when screen state changes
+  // Lets the open product-details popup rebuild when screen state changes
   StateSetter? _modalSetState;
 
   @override
   void setState(VoidCallback fn) {
     super.setState(fn);
     try {
-      _modalSetState?.call(() {}); // also rebuild the open modal
+      _modalSetState?.call(() {}); // also rebuild the open popup
     } catch (_) {}
   }
 
@@ -864,7 +864,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
-  /// Selects a product and opens the product-details modal.
+  /// Selects a product and opens the product-details popup.
   void _selectProduct(QueryDocumentSnapshot product) {
     Map<String, dynamic> data = product.data() as Map<String, dynamic>;
     setState(() {
@@ -925,11 +925,11 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   // ============================================================
-  // PRODUCT DETAILS MODAL
+  // PRODUCT DETAILS POPUP (dialog window)
   // ============================================================
 
   Future<void> _openProductDetailsModal() async {
-    // focus the quantity box once the sheet is open
+    // focus the quantity box once the popup is open
     Future.delayed(const Duration(milliseconds: 350), () {
       if (!mounted || _selectedProductId == null) return;
       _quantityFocusNode.requestFocus();
@@ -939,68 +939,82 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       );
     });
 
-    final added = await showModalBottomSheet<bool>(
+    final added = await showDialog<bool>(
       context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      constraints: const BoxConstraints(maxWidth: 600),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (modalContext) {
+      barrierDismissible:
+          false, // use the X button so entries aren't lost by accident
+      builder: (dialogContext) {
         return StatefulBuilder(
           builder: (ctx, setModalState) {
             _modalSetState = setModalState;
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+            final screenHeight = MediaQuery.of(ctx).size.height;
+
+            return Dialog(
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 24,
               ),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          'Product Details',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 460,
+                  maxHeight: screenHeight * 0.85,
+                ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.inventory_2,
+                            size: 18,
                             color: Colors.green[700],
                           ),
-                        ),
-                        const Spacer(),
-                        IconButton(
-                          icon: const Icon(Icons.close),
-                          onPressed: () =>
-                              Navigator.of(modalContext).pop(false),
-                        ),
-                      ],
-                    ),
-                    _buildSelectedProductHeader(modalContext),
-                    const SizedBox(height: 10),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(child: _buildRateField()),
-                        const SizedBox(width: 10),
-                        Expanded(child: _buildQuantityField()),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    if (_stockKindFor(_selectedProductType ?? '') !=
-                        StockKind.none) ...[
-                      _buildIdentifierSection(),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Product Details',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green[700],
+                            ),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () =>
+                                Navigator.of(dialogContext).pop(false),
+                          ),
+                        ],
+                      ),
+                      _buildSelectedProductHeader(dialogContext),
                       const SizedBox(height: 10),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: _buildRateField()),
+                          const SizedBox(width: 10),
+                          Expanded(child: _buildQuantityField()),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      if (_stockKindFor(_selectedProductType ?? '') !=
+                          StockKind.none) ...[
+                        _buildIdentifierSection(),
+                        const SizedBox(height: 10),
+                      ],
+                      _buildDiscountSection(),
+                      const SizedBox(height: 10),
+                      _buildLineSummary(),
+                      const SizedBox(height: 10),
+                      _buildAddToCartButton(dialogContext),
                     ],
-                    _buildDiscountSection(),
-                    const SizedBox(height: 10),
-                    _buildLineSummary(),
-                    const SizedBox(height: 10),
-                    _buildAddToCartButton(modalContext),
-                  ],
+                  ),
                 ),
               ),
             );
@@ -1361,7 +1375,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   // CART
   // ============================================================
 
-  /// Validates the modal form, adds the item to the cart and closes the modal.
+  /// Validates the popup form, adds the item to the cart and closes the popup.
   /// Returns true when the item was added.
   bool _addToCartWithDiscount({BuildContext? modalContext}) {
     if (_selectedProductId == null) {
@@ -1482,7 +1496,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
     final addedName = _selectedProductName ?? '';
 
-    // close the modal
+    // close the popup
     if (modalContext != null && modalContext.mounted) {
       Navigator.of(modalContext).pop(true);
     }
@@ -2626,7 +2640,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   // ============================================================
-  // PRODUCT DETAILS (used inside the modal)
+  // PRODUCT DETAILS (used inside the popup)
   // ============================================================
 
   int get _enteredQty => int.tryParse(_quantityController.text.trim()) ?? 0;
@@ -2674,7 +2688,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       child: Text(
         required ? '$text *' : text,
         style: TextStyle(
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: FontWeight.w600,
           color: Colors.grey[700],
         ),
@@ -2683,13 +2697,13 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   /// Compact card showing which product is being edited.
-  /// "Change" closes the modal (selection is cleared).
+  /// "Change" closes the popup (selection is cleared).
   Widget _buildSelectedProductHeader(BuildContext modalContext) {
     final type = _selectedProductType ?? '';
     final kind = _stockKindFor(type);
 
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: Colors.green[50],
         borderRadius: BorderRadius.circular(10),
@@ -2699,8 +2713,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
-            width: 36,
-            height: 36,
+            width: 30,
+            height: 30,
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(8),
@@ -2717,7 +2731,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           Expanded(
             child: Text(
               _selectedProductName ?? '',
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
@@ -2725,7 +2739,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           TextButton.icon(
             onPressed: () => Navigator.of(modalContext).pop(false),
             icon: const Icon(Icons.swap_horiz, size: 16),
-            label: const Text('Change', style: TextStyle(fontSize: 11)),
+            label: const Text('Change', style: TextStyle(fontSize: 10)),
             style: TextButton.styleFrom(
               foregroundColor: Colors.red[700],
               padding: const EdgeInsets.symmetric(horizontal: 6),
@@ -2744,7 +2758,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       children: [
         _fieldLabel('Purchase Rate', required: true),
         Container(
-          height: 44,
+          height: 38,
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
             border: Border.all(color: Colors.grey[300]!, width: 1),
@@ -2754,7 +2768,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           child: TextField(
             controller: _purchaseRateController,
             focusNode: _rateFocusNode,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             textInputAction: TextInputAction.next,
             inputFormatters: [
@@ -2764,10 +2778,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             onSubmitted: (_) => _quantityFocusNode.requestFocus(),
             decoration: const InputDecoration(
               hintText: '0.00',
-              hintStyle: TextStyle(fontSize: 12),
+              hintStyle: TextStyle(fontSize: 11),
               border: InputBorder.none,
               isDense: true,
-              contentPadding: EdgeInsets.symmetric(vertical: 12),
+              contentPadding: EdgeInsets.symmetric(vertical: 10),
               prefixText: '₹ ',
             ),
           ),
@@ -2781,8 +2795,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(6),
       child: SizedBox(
-        width: 34,
-        height: 44,
+        width: 30,
+        height: 38,
         child: Icon(icon, size: 18, color: Colors.green[700]),
       ),
     );
@@ -2792,7 +2806,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       children: [
         _fieldLabel('Quantity', required: true),
         Container(
-          height: 44,
+          height: 38,
           decoration: BoxDecoration(
             border: Border.all(color: Colors.grey[300]!, width: 1),
             borderRadius: BorderRadius.circular(8),
@@ -2807,7 +2821,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                   focusNode: _quantityFocusNode,
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    fontSize: 14,
+                    fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
                   keyboardType: TextInputType.number,
@@ -2828,10 +2842,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                   },
                   decoration: const InputDecoration(
                     hintText: '1',
-                    hintStyle: TextStyle(fontSize: 12),
+                    hintStyle: TextStyle(fontSize: 11),
                     border: InputBorder.none,
                     isDense: true,
-                    contentPadding: EdgeInsets.symmetric(vertical: 12),
+                    contentPadding: EdgeInsets.symmetric(vertical: 10),
                   ),
                 ),
               ),
@@ -2855,7 +2869,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         : (countMatches ? Colors.green.shade700 : Colors.orange.shade800);
 
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: Colors.grey[50],
         borderRadius: BorderRadius.circular(10),
@@ -2880,7 +2894,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                       ? '$_identifierLabel numbers (required)'
                       : '$_identifierLabel numbers (optional)',
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 11,
                     fontWeight: FontWeight.w600,
                     color: Colors.grey[800],
                   ),
@@ -2895,7 +2909,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                 child: Text(
                   '$count / $qty',
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: 10,
                     fontWeight: FontWeight.bold,
                     color: statusColor,
                   ),
@@ -2918,7 +2932,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             children: [
               Expanded(
                 child: Container(
-                  height: 44,
+                  height: 38,
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -2928,7 +2942,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                   child: TextField(
                     controller: _identifierController,
                     focusNode: _identifierFocusNode,
-                    style: const TextStyle(fontSize: 13),
+                    style: const TextStyle(fontSize: 12),
                     keyboardType: _isPhoneProduct
                         ? TextInputType.number
                         : TextInputType.text,
@@ -2948,10 +2962,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                       hintText: _isPhoneProduct
                           ? 'Type or paste 15-digit IMEI'
                           : 'Type or paste serial number',
-                      hintStyle: const TextStyle(fontSize: 12),
+                      hintStyle: const TextStyle(fontSize: 11),
                       border: InputBorder.none,
                       isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 10),
                     ),
                     onChanged: (value) {
                       // IMEI is exactly 15 digits: add it as soon as it is complete
@@ -2973,8 +2987,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               if (_scannerSupported) ...[
                 const SizedBox(width: 6),
                 SizedBox(
-                  height: 44,
-                  width: 44,
+                  height: 38,
+                  width: 38,
                   child: IconButton(
                     onPressed: _openIdentifierScanner,
                     tooltip: 'Scan $_identifierLabel',
@@ -2995,7 +3009,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               ],
               const SizedBox(width: 6),
               SizedBox(
-                height: 44,
+                height: 38,
                 child: ElevatedButton(
                   onPressed: _identifierController.text.trim().isEmpty
                       ? null
@@ -3011,7 +3025,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  child: const Text('Add', style: TextStyle(fontSize: 12)),
+                  child: const Text('Add', style: TextStyle(fontSize: 11)),
                 ),
               ),
             ],
@@ -3026,7 +3040,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               children: _currentIdentifiers
                   .map(
                     (id) => Chip(
-                      label: Text(id, style: const TextStyle(fontSize: 11)),
+                      label: Text(id, style: const TextStyle(fontSize: 10)),
                       onDeleted: () => _removeIdentifier(id),
                       deleteIconColor: Colors.red,
                       visualDensity: VisualDensity.compact,
@@ -3046,7 +3060,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                   minimumSize: const Size(40, 24),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-                child: const Text('Clear all', style: TextStyle(fontSize: 11)),
+                child: const Text('Clear all', style: TextStyle(fontSize: 10)),
               ),
             ),
           ],
@@ -3057,7 +3071,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
   Widget _buildDiscountSection() {
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: Colors.blue[50],
         borderRadius: BorderRadius.circular(10),
@@ -3070,7 +3084,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           Text(
             'Discount',
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 11,
               fontWeight: FontWeight.w600,
               color: Colors.blue[700],
             ),
@@ -3078,7 +3092,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           const SizedBox(width: 10),
           Expanded(
             child: Container(
-              height: 38,
+              height: 34,
               padding: const EdgeInsets.symmetric(horizontal: 8),
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -3087,7 +3101,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               ),
               child: TextField(
                 controller: _discountController,
-                style: const TextStyle(fontSize: 13),
+                style: const TextStyle(fontSize: 12),
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
@@ -3096,7 +3110,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                 ],
                 decoration: InputDecoration(
                   hintText: _usePercentageDiscount ? '0' : '0.00',
-                  hintStyle: const TextStyle(fontSize: 12),
+                  hintStyle: const TextStyle(fontSize: 11),
                   border: InputBorder.none,
                   contentPadding: const EdgeInsets.symmetric(vertical: 10),
                   isDense: true,
@@ -3148,7 +3162,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             Text(
               l,
               style: TextStyle(
-                fontSize: bold ? 12 : 11,
+                fontSize: bold ? 11 : 10,
                 fontWeight: bold ? FontWeight.bold : FontWeight.normal,
                 color: Colors.grey[800],
               ),
@@ -3156,7 +3170,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             Text(
               v,
               style: TextStyle(
-                fontSize: bold ? 13 : 11,
+                fontSize: bold ? 12 : 10,
                 fontWeight: bold ? FontWeight.bold : FontWeight.w500,
                 color: color ?? Colors.grey[900],
               ),
@@ -3167,7 +3181,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     }
 
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: Colors.green[50],
         borderRadius: BorderRadius.circular(10),
@@ -3209,14 +3223,14 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SizedBox(
-          height: 46,
+          height: 40,
           child: ElevatedButton.icon(
             // Always tappable: if something is missing, the validation dialog explains it
             onPressed: () => _addToCartWithDiscount(modalContext: modalContext),
             icon: const Icon(Icons.add_shopping_cart, size: 18),
             label: const Text(
               'Add to Cart',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
             ),
             style: ElevatedButton.styleFrom(
               backgroundColor: ready ? Colors.green[700] : Colors.grey[400],
@@ -3239,7 +3253,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                 Flexible(
                   child: Text(
                     blocker,
-                    style: TextStyle(fontSize: 11, color: Colors.orange[800]),
+                    style: TextStyle(fontSize: 10, color: Colors.orange[800]),
                   ),
                 ),
               ],
@@ -3250,7 +3264,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   // ==================== PRODUCT SELECTOR WITH KEYBOARD NAV ====================
-  /// Only the search box + dropdown. Details are entered in the modal.
+  /// Only the search box + dropdown. Details are entered in the popup.
   Widget _buildProductSelectorWithSearch() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
