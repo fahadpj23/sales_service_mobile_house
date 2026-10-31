@@ -65,6 +65,22 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   final FocusNode _identifierFocusNode = FocusNode();
   List<String> _currentIdentifiers = [];
 
+  // Purchase-level option (toggle shown above "Complete Purchase"):
+  // true  = add purchased phones / TVs / appliances to stock (default)
+  // false = only save the purchase (and bill), stock is NOT updated
+  bool _addPurchaseToStock = true;
+
+  // Lets the open product-details modal rebuild when screen state changes
+  StateSetter? _modalSetState;
+
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    try {
+      _modalSetState?.call(() {}); // also rebuild the open modal
+    } catch (_) {}
+  }
+
   // Stock always goes to the shop of the logged-in user (no shop picker)
   String? get _stockShopId {
     final id = Provider.of<AuthProvider>(context, listen: false).user?.shopId;
@@ -627,7 +643,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
       if (snapshot.docs.isNotEmpty && mounted) {
         _selectProduct(snapshot.docs.first);
-        _showDialog('Success', 'Product added and selected automatically!');
       }
     } catch (_) {}
   }
@@ -849,6 +864,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
+  /// Selects a product and opens the product-details modal.
   void _selectProduct(QueryDocumentSnapshot product) {
     Map<String, dynamic> data = product.data() as Map<String, dynamic>;
     setState(() {
@@ -873,23 +889,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     });
     _productFocusNode.unfocus();
 
-    // Jump straight to the quantity box so the user can start typing
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _quantityFocusNode.requestFocus();
-      _quantityController.selection = TextSelection(
-        baseOffset: 0,
-        extentOffset: _quantityController.text.length,
-      );
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Selected: ${_selectedProductName!}'),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 1),
-      ),
-    );
+    _openProductDetailsModal();
   }
 
   void _clearSupplierSelection() {
@@ -922,6 +922,97 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       _filterProducts();
     });
     _productFocusNode.requestFocus();
+  }
+
+  // ============================================================
+  // PRODUCT DETAILS MODAL
+  // ============================================================
+
+  Future<void> _openProductDetailsModal() async {
+    // focus the quantity box once the sheet is open
+    Future.delayed(const Duration(milliseconds: 350), () {
+      if (!mounted || _selectedProductId == null) return;
+      _quantityFocusNode.requestFocus();
+      _quantityController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _quantityController.text.length,
+      );
+    });
+
+    final added = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      constraints: const BoxConstraints(maxWidth: 600),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (modalContext) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            _modalSetState = setModalState;
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'Product Details',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green[700],
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () =>
+                              Navigator.of(modalContext).pop(false),
+                        ),
+                      ],
+                    ),
+                    _buildSelectedProductHeader(modalContext),
+                    const SizedBox(height: 10),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: _buildRateField()),
+                        const SizedBox(width: 10),
+                        Expanded(child: _buildQuantityField()),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    if (_stockKindFor(_selectedProductType ?? '') !=
+                        StockKind.none) ...[
+                      _buildIdentifierSection(),
+                      const SizedBox(height: 10),
+                    ],
+                    _buildDiscountSection(),
+                    const SizedBox(height: 10),
+                    _buildLineSummary(),
+                    const SizedBox(height: 10),
+                    _buildAddToCartButton(modalContext),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    _modalSetState = null;
+    if (!mounted) return;
+    // closed without adding -> forget the selection
+    if (added != true && _selectedProductId != null) _clearProductSelection();
   }
 
   // ============================================================
@@ -1270,28 +1361,30 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   // CART
   // ============================================================
 
-  void _addToCartWithDiscount() {
+  /// Validates the modal form, adds the item to the cart and closes the modal.
+  /// Returns true when the item was added.
+  bool _addToCartWithDiscount({BuildContext? modalContext}) {
     if (_selectedProductId == null) {
       _showDialog('Error', 'Please select a product', isError: true);
-      return;
+      return false;
     }
     if (_quantityController.text.trim().isEmpty) {
       _showDialog('Error', 'Please enter quantity', isError: true);
-      return;
+      return false;
     }
     int quantity = int.tryParse(_quantityController.text.trim()) ?? 0;
     if (quantity <= 0) {
       _showDialog('Error', 'Please enter valid quantity', isError: true);
-      return;
+      return false;
     }
     double rate = double.tryParse(_purchaseRateController.text.trim()) ?? 0;
     if (rate <= 0) {
       _showDialog('Error', 'Please enter valid purchase rate', isError: true);
-      return;
+      return false;
     }
 
     // If something is typed in the IMEI/serial box but not yet added, add it now.
-    if (!_addIdentifiersFromInput()) return;
+    if (!_addIdentifiersFromInput()) return false;
 
     final List<String> identifiers = List<String>.from(_currentIdentifiers);
     if (identifiers.isNotEmpty && identifiers.length != quantity) {
@@ -1302,18 +1395,20 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             'Enter exactly $quantity, or remove them all to skip.',
         isError: true,
       );
-      return;
+      return false;
     }
 
-    // Phones can only go into stock with an IMEI for every unit
-    if (_isPhoneProduct && identifiers.length != quantity) {
+    // Phones need an IMEI for every unit only when they go into stock
+    if (_isPhoneProduct &&
+        _addPurchaseToStock &&
+        identifiers.length != quantity) {
       _showDialog(
         'IMEI required',
-        'Enter an IMEI for each of the $quantity phone(s). '
-            'Phones are added to stock automatically.',
+        'Enter an IMEI for each of the $quantity phone(s), '
+            'or turn off "Add to stock" above the Complete Purchase button.',
         isError: true,
       );
-      return;
+      return false;
     }
 
     double discountAmount = 0;
@@ -1330,7 +1425,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         'Discount cannot exceed the purchase rate',
         isError: true,
       );
-      return;
+      return false;
     }
 
     int existingIndex = _cartItems.indexWhere(
@@ -1349,7 +1444,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     'Remove it from the cart first, or add these units without them.',
           isError: true,
         );
-        return;
+        return false;
       }
       setState(() {
         existing.quantity += quantity;
@@ -1387,6 +1482,11 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
     final addedName = _selectedProductName ?? '';
 
+    // close the modal
+    if (modalContext != null && modalContext.mounted) {
+      Navigator.of(modalContext).pop(true);
+    }
+
     setState(() {
       _selectedProductId = null;
       _selectedProductName = null;
@@ -1420,6 +1520,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _productFocusNode.requestFocus();
     });
+    return true;
   }
 
   void _removeFromCart(int index) {
@@ -1510,7 +1611,13 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   /// Checks everything the stock update needs BEFORE anything is written.
   /// Returns an error message, or null when all is fine.
   Future<String?> _validateStockBeforeSave() async {
-    if (_stockShopId == null || _stockShopId!.isEmpty) {
+    if (!_addPurchaseToStock) return null; // stock is not being updated
+
+    final needsStock = _cartItems.any(
+      (i) => _stockKindFor(i.productType) != StockKind.none,
+    );
+
+    if (needsStock && (_stockShopId == null || _stockShopId!.isEmpty)) {
       return 'Your account is not linked to a shop, so stock cannot be added. '
           'Please log in with a shop account.';
     }
@@ -1523,7 +1630,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         case StockKind.phone:
           if (item.identifiers.length != item.quantity) {
             return '${item.productName}: enter an IMEI for each of the '
-                '${item.quantity} unit(s) to add it to stock.';
+                '${item.quantity} unit(s), or turn off "Add to stock".';
           }
           phoneImeis.addAll(item.identifiers);
           stockOps += item.quantity;
@@ -1532,7 +1639,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           stockOps += item.quantity;
           break;
         case StockKind.appliance:
-          stockOps += 1;
+          stockOps += item.quantity; // one stock document per unit
           break;
         case StockKind.none:
           break;
@@ -1605,6 +1712,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     final String uploadedBy = user?.email ?? user?.name ?? 'Unknown User';
     final String uploadedById = user?.uid ?? '';
 
+    if (!_addPurchaseToStock) return; // purchase record only
+
     for (final item in _cartItems) {
       final kind = _stockKindFor(item.productType);
 
@@ -1661,7 +1770,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               ..._baseStockFields(
                 category: _applianceCategory,
                 item: item,
-                quantity: 1, // ← 1 per doc, like TVs
+                quantity: 1, // 1 per doc, like TVs
                 purchaseId: purchaseId,
                 invoiceNo: invoiceNo,
                 uploadedBy: uploadedBy,
@@ -1775,7 +1884,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       final invoiceNo = _invoiceController.text.trim();
       final purchaseRef = _firestore.collection('purchases').doc();
 
-      // Collect the stock writes (appliance lookups happen here)
+      // Collect the stock writes
       final ops = <void Function(WriteBatch)>[];
       final stockSummary = <StockKind, int>{};
       await _collectStockOps(
@@ -1815,8 +1924,15 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           'brand': item.brand,
           'identifierType': item.identifierType,
           'imeiOrSerialNumbers': item.identifiers,
+          'addedToStock':
+              _addPurchaseToStock &&
+              _stockKindFor(item.productType) != StockKind.none,
         };
       }).toList();
+
+      final bool anyAddedToStock =
+          _addPurchaseToStock &&
+          _cartItems.any((i) => _stockKindFor(i.productType) != StockKind.none);
 
       Map<String, dynamic> purchaseData = {
         'supplierId': _selectedSupplierId,
@@ -1831,7 +1947,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         'grandTotal': _getGrandTotal(),
         'purchaseBillUrl': billUrl,
         'purchaseBillPath': uploadedBillPath,
-        'addedToStock': true,
+        'addedToStock': anyAddedToStock,
+        // always saved, whether or not the purchase is added to stock
         'stockShopId': _stockShopId,
         'stockShopName': _stockShopName,
         'createdAt': FieldValue.serverTimestamp(),
@@ -1847,11 +1964,12 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       await batch.commit();
 
       if (!mounted) return;
+      final String stockMsg = _addPurchaseToStock
+          ? _stockSummaryMessage(stockSummary)
+          : ' Stock was not updated.';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Purchase added successfully!${_stockSummaryMessage(stockSummary)}',
-          ),
+          content: Text('Purchase added successfully!$stockMsg'),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 3),
         ),
@@ -1881,6 +1999,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         _discountValue = 0;
         _currentIdentifiers = [];
         _identifierController.clear();
+        _addPurchaseToStock = true;
         _billBytes = null;
         _billFileName = null;
         _uploadProgress = 0;
@@ -2027,7 +2146,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
-  // ==================== STOCK OPTIONS ====================
+  // ==================== FORM SECTION ====================
 
   Widget _buildFormSection() {
     return Card(
@@ -2507,7 +2626,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   // ============================================================
-  // PRODUCT DETAILS (improved UX)
+  // PRODUCT DETAILS (used inside the modal)
   // ============================================================
 
   int get _enteredQty => int.tryParse(_quantityController.text.trim()) ?? 0;
@@ -2523,14 +2642,14 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
   double get _enteredFinalRate => _enteredRate - _enteredDiscountAmount;
 
-  /// Why the "Add to Cart" button is disabled (null = ready to add).
+  /// Why the "Add to Cart" button is not ready (null = ready to add).
   String? get _addToCartBlocker {
     if (_selectedProductId == null) return 'Select a product';
     if (_enteredRate <= 0) return 'Enter the purchase rate';
     if (_enteredQty <= 0) return 'Enter the quantity';
     if (_enteredFinalRate < 0) return 'Discount is more than the rate';
     final count = _currentIdentifiers.length;
-    if (_isPhoneProduct && count != _enteredQty) {
+    if (_isPhoneProduct && _addPurchaseToStock && count != _enteredQty) {
       return 'Add $_enteredQty IMEI number(s) — $count added';
     }
     if (count > 0 && count != _enteredQty) {
@@ -2564,38 +2683,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   /// Compact card showing which product is being edited.
-  Widget _buildSelectedProductHeader() {
+  /// "Change" closes the modal (selection is cleared).
+  Widget _buildSelectedProductHeader(BuildContext modalContext) {
     final type = _selectedProductType ?? '';
-    final brand = _selectedProductBrand ?? '';
     final kind = _stockKindFor(type);
-
-    String stockText;
-    switch (kind) {
-      case StockKind.phone:
-        stockText = 'IMEI required • goes to phone stock';
-        break;
-      case StockKind.tv:
-        stockText = 'Serial optional • goes to TV stock';
-        break;
-      case StockKind.appliance:
-        stockText = 'Serial optional • goes to appliance stock';
-        break;
-      case StockKind.none:
-        stockText = 'Not added to stock';
-        break;
-    }
-
-    Widget chip(String text, Color bg, Color fg) => Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(fontSize: 10, color: fg, fontWeight: FontWeight.w600),
-      ),
-    );
 
     return Container(
       padding: const EdgeInsets.all(10),
@@ -2605,7 +2696,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         border: Border.all(color: Colors.green.shade200),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center, // ← was .start
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
             width: 36,
@@ -2632,7 +2723,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             ),
           ),
           TextButton.icon(
-            onPressed: _clearProductSelection,
+            onPressed: () => Navigator.of(modalContext).pop(false),
             icon: const Icon(Icons.swap_horiz, size: 16),
             label: const Text('Change', style: TextStyle(fontSize: 11)),
             style: TextButton.styleFrom(
@@ -2728,9 +2819,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                   // Rebuild so the counter / totals update live
                   onChanged: (_) => setState(() {}),
                   onSubmitted: (_) {
-                    if (_isPhoneProduct ||
-                        _stockKindFor(_selectedProductType ?? '') !=
-                            StockKind.none) {
+                    if (_stockKindFor(_selectedProductType ?? '') !=
+                        StockKind.none) {
                       _identifierFocusNode.requestFocus();
                     } else {
                       _rateFocusNode.requestFocus();
@@ -2758,7 +2848,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     final count = _currentIdentifiers.length;
     final bool countMatches = qty > 0 && count == qty;
     final bool tooMany = qty > 0 && count > qty;
-    final bool requiredForStock = _isPhoneProduct;
+    final bool requiredForStock = _isPhoneProduct && _addPurchaseToStock;
     final double progress = qty > 0 ? (count / qty).clamp(0.0, 1.0) : 0.0;
     final Color statusColor = tooMany
         ? Colors.red.shade700
@@ -3112,7 +3202,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
-  Widget _buildAddToCartButton() {
+  Widget _buildAddToCartButton(BuildContext modalContext) {
     final blocker = _addToCartBlocker;
     final ready = blocker == null;
     return Column(
@@ -3122,7 +3212,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           height: 46,
           child: ElevatedButton.icon(
             // Always tappable: if something is missing, the validation dialog explains it
-            onPressed: _addToCartWithDiscount,
+            onPressed: () => _addToCartWithDiscount(modalContext: modalContext),
             icon: const Icon(Icons.add_shopping_cart, size: 18),
             label: const Text(
               'Add to Cart',
@@ -3160,69 +3250,67 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   // ==================== PRODUCT SELECTOR WITH KEYBOARD NAV ====================
+  /// Only the search box + dropdown. Details are entered in the modal.
   Widget _buildProductSelectorWithSearch() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Search box is only needed while no product is selected;
-        // after selecting, a summary card replaces it.
-        if (_selectedProductId == null)
-          Container(
-            height: 40,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey[300]!, width: 1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.search, color: Colors.grey[600], size: 18),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Focus(
-                    onKeyEvent: _handleProductKey,
-                    child: TextField(
-                      controller: _productController,
-                      focusNode: _productFocusNode,
-                      style: const TextStyle(fontSize: 13),
-                      decoration: InputDecoration(
-                        hintText: 'Search product (↑↓ nav, Enter select)',
-                        hintStyle: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[400],
-                        ),
-                        border: InputBorder.none,
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                        suffixIcon: _productController.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear, size: 16),
-                                onPressed: _clearProductSelection,
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(),
-                              )
-                            : null,
+        Container(
+          height: 40,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey[300]!, width: 1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.search, color: Colors.grey[600], size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Focus(
+                  onKeyEvent: _handleProductKey,
+                  child: TextField(
+                    controller: _productController,
+                    focusNode: _productFocusNode,
+                    style: const TextStyle(fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'Search product (↑↓ nav, Enter select)',
+                      hintStyle: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[400],
                       ),
-                      onChanged: (value) {
-                        _filterProducts();
-                        setState(() {
-                          _showProductSuggestions = value.isNotEmpty;
-                        });
-                      },
-                      onTap: () {
-                        if (_productController.text.isNotEmpty) {
-                          setState(() {
-                            _showProductSuggestions = true;
-                            _filterProducts();
-                          });
-                        }
-                      },
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                      suffixIcon: _productController.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 16),
+                              onPressed: _clearProductSelection,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            )
+                          : null,
                     ),
+                    onChanged: (value) {
+                      _filterProducts();
+                      setState(() {
+                        _showProductSuggestions = value.isNotEmpty;
+                      });
+                    },
+                    onTap: () {
+                      if (_productController.text.isNotEmpty) {
+                        setState(() {
+                          _showProductSuggestions = true;
+                          _filterProducts();
+                        });
+                      }
+                    },
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
+        ),
         if (_productController.text.isNotEmpty &&
             _selectedProductId == null &&
             _showProductSuggestions)
@@ -3279,18 +3367,12 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                                     ),
                                     const SizedBox(width: 12),
                                     Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            name,
-                                            style: const TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                        ],
+                                      child: Text(
+                                        name,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                        ),
                                       ),
                                     ),
                                     if (isHighlighted)
@@ -3310,33 +3392,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                       _buildAddNewProductRow(),
                     ],
                   ),
-          ),
-        if (_selectedProductId != null)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildSelectedProductHeader(),
-              const SizedBox(height: 10),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: _buildRateField()),
-                  const SizedBox(width: 10),
-                  Expanded(child: _buildQuantityField()),
-                ],
-              ),
-              const SizedBox(height: 10),
-              if (_stockKindFor(_selectedProductType ?? '') !=
-                  StockKind.none) ...[
-                _buildIdentifierSection(),
-                const SizedBox(height: 10),
-              ],
-              _buildDiscountSection(),
-              const SizedBox(height: 10),
-              _buildLineSummary(),
-              const SizedBox(height: 10),
-              _buildAddToCartButton(),
-            ],
           ),
       ],
     );
@@ -3703,9 +3758,50 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
+  /// Purchase-level switch shown right above "Complete Purchase".
+  /// ON  (default): phones / TVs / appliances are added to stock.
+  /// OFF: only the purchase and bill are saved, stock is NOT updated.
+  Widget _buildStockOptionToggle() {
+    return Container(
+      decoration: BoxDecoration(
+        color: _addPurchaseToStock ? Colors.green[50] : Colors.orange[50],
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: _addPurchaseToStock
+              ? Colors.green.shade200
+              : Colors.orange.shade200,
+        ),
+      ),
+      child: SwitchListTile(
+        dense: true,
+        value: _addPurchaseToStock,
+        activeColor: Colors.green[700],
+        onChanged: _isLoading
+            ? null
+            : (v) => setState(() => _addPurchaseToStock = v),
+        secondary: Icon(
+          _addPurchaseToStock ? Icons.inventory_2 : Icons.receipt_long,
+          color: _addPurchaseToStock ? Colors.green[700] : Colors.orange[800],
+        ),
+        title: const Text(
+          'Add to stock',
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(
+          _addPurchaseToStock
+              ? 'Phones, TVs and appliances in this purchase will be added to stock'
+              : 'Only the purchase and bill are saved — stock will NOT be updated',
+          style: const TextStyle(fontSize: 11),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSubmitButton() {
     return Column(
       children: [
+        _buildStockOptionToggle(),
+        const SizedBox(height: 10),
         if (_isUploading) ...[
           LinearProgressIndicator(
             value: _uploadProgress > 0 ? _uploadProgress : null,
@@ -3784,6 +3880,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
   @override
   void dispose() {
+    _modalSetState = null;
     _invoiceController.dispose();
     _purchaseRateController.dispose();
     _quantityController.dispose();
