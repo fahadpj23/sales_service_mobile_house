@@ -52,6 +52,14 @@ Uint8List? _compressBillImage(Uint8List input) {
   return best;
 }
 
+/// Result returned by the selection popup (supplier / product).
+class _PickerResult {
+  final QueryDocumentSnapshot? doc;
+  final bool addNew;
+  const _PickerResult.pick(this.doc) : addNew = false;
+  const _PickerResult.addNew() : doc = null, addNew = true;
+}
+
 class AddPurchaseScreen extends StatefulWidget {
   final Function(int)? onNavigateToHistory;
 
@@ -147,10 +155,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   final TextEditingController _discountController = TextEditingController();
   double _discountValue = 0;
 
-  // Search controllers for datalist
-  final TextEditingController _supplierController = TextEditingController();
-  final TextEditingController _productController = TextEditingController();
-
   // Rounding amount
   double _roundingAmount = 0;
   bool _isRoundingManual = false;
@@ -163,27 +167,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
   List<QueryDocumentSnapshot> _suppliers = [];
   List<QueryDocumentSnapshot> _products = [];
-  List<QueryDocumentSnapshot> _filteredSuppliers = [];
-  List<QueryDocumentSnapshot> _filteredProducts = [];
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-
-  // Focus nodes
-  final FocusNode _supplierFocusNode = FocusNode();
-  final FocusNode _productFocusNode = FocusNode();
-
-  // ====== Keyboard navigation state ======
-  final FocusNode _supplierKeyFocus = FocusNode();
-  final FocusNode _productKeyFocus = FocusNode();
-  int _supplierHighlightIndex = -1;
-  int _productHighlightIndex = -1;
-
-  // Scroll controllers for auto-scrolling to highlighted item
-  final ScrollController _supplierScrollController = ScrollController();
-  final ScrollController _productScrollController = ScrollController();
-
-  bool _showSupplierSuggestions = false;
-  bool _showProductSuggestions = false;
 
   // ============================================================
   // PRODUCT TYPE HELPERS
@@ -211,225 +196,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     _loadSuppliers();
     _loadProducts();
 
-    _supplierController.addListener(_filterSuppliers);
-    _productController.addListener(_filterProducts);
     _discountController.addListener(_onDiscountChanged);
-
-    _supplierFocusNode.addListener(() {
-      if (_supplierFocusNode.hasFocus && _selectedSupplierId == null) {
-        setState(() {
-          if (_supplierController.text.isEmpty) {
-            _filteredSuppliers = _suppliers.take(4).toList();
-          } else {
-            _filterSuppliers();
-          }
-          _showSupplierSuggestions = true;
-          _supplierHighlightIndex = -1;
-        });
-      } else if (!_supplierFocusNode.hasFocus) {
-        Future.delayed(const Duration(milliseconds: 300), () {
-          if (mounted && !_supplierFocusNode.hasFocus) {
-            setState(() {
-              _showSupplierSuggestions = false;
-              _supplierHighlightIndex = -1;
-            });
-          }
-        });
-      }
-    });
-
-    _productFocusNode.addListener(() {
-      if (_productFocusNode.hasFocus && _selectedProductId == null) {
-        setState(() {
-          if (_productController.text.isNotEmpty) {
-            _showProductSuggestions = true;
-            _filterProducts();
-            _productHighlightIndex = -1;
-          }
-        });
-      } else if (!_productFocusNode.hasFocus) {
-        Future.delayed(const Duration(milliseconds: 300), () {
-          if (mounted && !_productFocusNode.hasFocus) {
-            setState(() {
-              _showProductSuggestions = false;
-              _productHighlightIndex = -1;
-            });
-          }
-        });
-      }
-    });
-
     _roundingController.addListener(_onRoundingChanged);
-  }
-
-  // ============================================================
-  // KEYBOARD HANDLERS
-  // ============================================================
-
-  /// Handles arrow / enter / escape keys for supplier dropdown
-  KeyEventResult _handleSupplierKey(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
-      return KeyEventResult.ignored;
-    }
-
-    if (!_showSupplierSuggestions) return KeyEventResult.ignored;
-
-    // Total items = suppliers + 1 (Add New Supplier row)
-    final int totalItems = _filteredSuppliers.length + 1;
-
-    switch (event.logicalKey) {
-      case LogicalKeyboardKey.arrowDown:
-        setState(() {
-          if (_supplierHighlightIndex < totalItems - 1) {
-            _supplierHighlightIndex++;
-          } else {
-            _supplierHighlightIndex = 0;
-          }
-        });
-        _autoScrollSupplier();
-        return KeyEventResult.handled;
-
-      case LogicalKeyboardKey.arrowUp:
-        setState(() {
-          if (_supplierHighlightIndex > 0) {
-            _supplierHighlightIndex--;
-          } else {
-            _supplierHighlightIndex = totalItems - 1;
-          }
-        });
-        _autoScrollSupplier();
-        return KeyEventResult.handled;
-
-      case LogicalKeyboardKey.enter:
-      case LogicalKeyboardKey.numpadEnter:
-      case LogicalKeyboardKey.tab:
-        if (_supplierHighlightIndex < 0) {
-          // No highlight — pick the first one
-          if (_filteredSuppliers.isNotEmpty) {
-            _selectSupplier(_filteredSuppliers.first);
-            return KeyEventResult.handled;
-          }
-        } else if (_supplierHighlightIndex < _filteredSuppliers.length) {
-          // Select highlighted supplier
-          _selectSupplier(_filteredSuppliers[_supplierHighlightIndex]);
-          return KeyEventResult.handled;
-        } else {
-          // "Add New Supplier" was highlighted
-          _showAddSupplierDialog();
-          return KeyEventResult.handled;
-        }
-        break;
-
-      case LogicalKeyboardKey.escape:
-        setState(() {
-          _showSupplierSuggestions = false;
-          _supplierHighlightIndex = -1;
-        });
-        _supplierFocusNode.unfocus();
-        return KeyEventResult.handled;
-    }
-
-    return KeyEventResult.ignored;
-  }
-
-  /// Handles arrow / enter / escape keys for product dropdown
-  KeyEventResult _handleProductKey(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
-      return KeyEventResult.ignored;
-    }
-
-    if (!_showProductSuggestions) return KeyEventResult.ignored;
-
-    // Total items = products + 1 (Add New Product row)
-    final int totalItems = _filteredProducts.length + 1;
-
-    switch (event.logicalKey) {
-      case LogicalKeyboardKey.arrowDown:
-        setState(() {
-          if (_productHighlightIndex < totalItems - 1) {
-            _productHighlightIndex++;
-          } else {
-            _productHighlightIndex = 0;
-          }
-        });
-        _autoScrollProduct();
-        return KeyEventResult.handled;
-
-      case LogicalKeyboardKey.arrowUp:
-        setState(() {
-          if (_productHighlightIndex > 0) {
-            _productHighlightIndex--;
-          } else {
-            _productHighlightIndex = totalItems - 1;
-          }
-        });
-        _autoScrollProduct();
-        return KeyEventResult.handled;
-
-      case LogicalKeyboardKey.enter:
-      case LogicalKeyboardKey.numpadEnter:
-      case LogicalKeyboardKey.tab:
-        if (_productHighlightIndex < 0) {
-          if (_filteredProducts.isNotEmpty) {
-            _selectProduct(_filteredProducts.first);
-            return KeyEventResult.handled;
-          }
-        } else if (_productHighlightIndex < _filteredProducts.length) {
-          _selectProduct(_filteredProducts[_productHighlightIndex]);
-          return KeyEventResult.handled;
-        } else {
-          // "Add New Product" was highlighted
-          _showAddProductDialog();
-          return KeyEventResult.handled;
-        }
-        break;
-
-      case LogicalKeyboardKey.escape:
-        setState(() {
-          _showProductSuggestions = false;
-          _productHighlightIndex = -1;
-        });
-        _productFocusNode.unfocus();
-        return KeyEventResult.handled;
-    }
-
-    return KeyEventResult.ignored;
-  }
-
-  /// Auto-scroll supplier list to keep highlighted item visible
-  void _autoScrollSupplier() {
-    if (!_supplierScrollController.hasClients) return;
-    if (_supplierHighlightIndex < 0) return;
-
-    const double itemHeight = 60.0;
-    final double targetOffset = _supplierHighlightIndex * itemHeight - 100;
-
-    _supplierScrollController.animateTo(
-      targetOffset.clamp(
-        0.0,
-        _supplierScrollController.position.maxScrollExtent,
-      ),
-      duration: const Duration(milliseconds: 150),
-      curve: Curves.easeOut,
-    );
-  }
-
-  /// Auto-scroll product list to keep highlighted item visible
-  void _autoScrollProduct() {
-    if (!_productScrollController.hasClients) return;
-    if (_productHighlightIndex < 0) return;
-
-    const double itemHeight = 60.0;
-    final double targetOffset = _productHighlightIndex * itemHeight - 100;
-
-    _productScrollController.animateTo(
-      targetOffset.clamp(
-        0.0,
-        _productScrollController.position.maxScrollExtent,
-      ),
-      duration: const Duration(milliseconds: 150),
-      curve: Curves.easeOut,
-    );
   }
 
   void _onDiscountChanged() {
@@ -492,17 +260,348 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
+  // ============================================================
+  // SELECTION POPUPS (supplier / product)
+  // ============================================================
+
+  Future<void> _openSupplierPicker() async {
+    FocusScope.of(context).unfocus();
+    final res = await _showPickerDialog(
+      title: 'Select Supplier',
+      icon: Icons.business,
+      items: _suppliers,
+      titleOf: (d) => (d['supplierName'] ?? 'Unknown').toString(),
+      subtitleOf: (d) => [
+        d['phoneNumber'],
+        d['email'],
+      ].where((e) => e != null && e.toString().isNotEmpty).join(' • '),
+      searchFields: (d) => [
+        (d['supplierName'] ?? '').toString(),
+        (d['phoneNumber'] ?? '').toString(),
+        (d['email'] ?? '').toString(),
+      ],
+      addLabel: 'Add New Supplier',
+    );
+    if (!mounted || res == null) return;
+    if (res.addNew) {
+      await _showAddSupplierDialog();
+    } else if (res.doc != null) {
+      _selectSupplier(res.doc!);
+    }
+  }
+
+  Future<void> _openProductPicker() async {
+    FocusScope.of(context).unfocus();
+    final res = await _showPickerDialog(
+      title: 'Select Product',
+      icon: Icons.shopping_bag,
+      items: _products,
+      titleOf: (d) => (d['productName'] ?? 'Unknown').toString(),
+      subtitleOf: (d) => [
+        d['brand'],
+        d['category'],
+      ].where((e) => e != null && e.toString().isNotEmpty).join(' • '),
+      searchFields: (d) => [
+        (d['productName'] ?? '').toString(),
+        (d['category'] ?? '').toString(),
+        (d['brand'] ?? '').toString(),
+      ],
+      addLabel: 'Add New Product',
+    );
+    if (!mounted || res == null) return;
+    if (res.addNew) {
+      await _showAddProductDialog();
+    } else if (res.doc != null) {
+      _selectProduct(res.doc!); // opens the product details popup
+    }
+  }
+
+  /// Generic searchable selection popup. Supports typing to search,
+  /// ↑ ↓ to move, Enter to select, Esc to close.
+  Future<_PickerResult?> _showPickerDialog({
+    required String title,
+    required IconData icon,
+    required List<QueryDocumentSnapshot> items,
+    required String Function(Map<String, dynamic>) titleOf,
+    required String Function(Map<String, dynamic>) subtitleOf,
+    required List<String> Function(Map<String, dynamic>) searchFields,
+    required String addLabel,
+  }) {
+    // kept OUTSIDE the builder so the state survives keyboard rebuilds
+    String query = '';
+    int highlight = -1;
+    final scrollController = ScrollController();
+    const double itemHeight = 56;
+
+    return showDialog<_PickerResult>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (ctx, setS) {
+            final q = query.toLowerCase().trim();
+            final filtered = q.isEmpty
+                ? items
+                : items.where((d) {
+                    final m = d.data() as Map<String, dynamic>;
+                    return searchFields(
+                      m,
+                    ).any((f) => f.toLowerCase().contains(q));
+                  }).toList();
+
+            void pick(int i) {
+              Navigator.of(dialogContext).pop(_PickerResult.pick(filtered[i]));
+            }
+
+            void move(int delta) {
+              if (filtered.isEmpty) return;
+              setS(() {
+                highlight = (highlight + delta) % filtered.length;
+                if (highlight < 0) highlight = filtered.length - 1;
+              });
+              if (scrollController.hasClients) {
+                final target = (highlight * itemHeight - itemHeight * 2).clamp(
+                  0.0,
+                  scrollController.position.maxScrollExtent,
+                );
+                scrollController.animateTo(
+                  target,
+                  duration: const Duration(milliseconds: 120),
+                  curve: Curves.easeOut,
+                );
+              }
+            }
+
+            return Dialog(
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 24,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 460,
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.8,
+                ),
+                child: Focus(
+                  onKeyEvent: (node, event) {
+                    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+                      return KeyEventResult.ignored;
+                    }
+                    if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                      move(1);
+                      return KeyEventResult.handled;
+                    }
+                    if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+                      move(-1);
+                      return KeyEventResult.handled;
+                    }
+                    return KeyEventResult.ignored;
+                  },
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Header
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 4, 0),
+                        child: Row(
+                          children: [
+                            Icon(icon, size: 18, color: Colors.green[700]),
+                            const SizedBox(width: 6),
+                            Text(
+                              title,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green[700],
+                              ),
+                            ),
+                            const Spacer(),
+                            IconButton(
+                              icon: const Icon(Icons.close),
+                              onPressed: () =>
+                                  Navigator.of(dialogContext).pop(),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Search box
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                        child: Container(
+                          height: 40,
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey[300]!),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.search,
+                                size: 18,
+                                color: Colors.grey[600],
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  autofocus: true,
+                                  style: const TextStyle(fontSize: 13),
+                                  textInputAction: TextInputAction.search,
+                                  decoration: const InputDecoration(
+                                    hintText: 'Search…',
+                                    hintStyle: TextStyle(fontSize: 12),
+                                    border: InputBorder.none,
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.symmetric(
+                                      vertical: 8,
+                                    ),
+                                  ),
+                                  onChanged: (v) => setS(() {
+                                    query = v;
+                                    highlight = -1;
+                                  }),
+                                  onSubmitted: (_) {
+                                    if (filtered.isEmpty) return;
+                                    pick(highlight >= 0 ? highlight : 0);
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      // List
+                      Flexible(
+                        child: filtered.isEmpty
+                            ? Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Text(
+                                  'Nothing found',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              )
+                            : ListView.builder(
+                                controller: scrollController,
+                                shrinkWrap: true,
+                                itemExtent: itemHeight,
+                                itemCount: filtered.length,
+                                itemBuilder: (_, index) {
+                                  final m =
+                                      filtered[index].data()
+                                          as Map<String, dynamic>;
+                                  final sub = subtitleOf(m);
+                                  final isHi = index == highlight;
+                                  return InkWell(
+                                    onTap: () => pick(index),
+                                    child: Container(
+                                      color: isHi
+                                          ? Colors.green[50]
+                                          : Colors.transparent,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            icon,
+                                            size: 20,
+                                            color: Colors.green[700],
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  titleOf(m),
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                                if (sub.isNotEmpty)
+                                                  Text(
+                                                    sub,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      color: Colors.grey[600],
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                          if (isHi)
+                                            Icon(
+                                              Icons.keyboard_return,
+                                              size: 16,
+                                              color: Colors.green[700],
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                      const Divider(height: 1),
+                      // Add new
+                      InkWell(
+                        onTap: () => Navigator.of(
+                          dialogContext,
+                        ).pop(const _PickerResult.addNew()),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.add_circle_outline,
+                                size: 20,
+                                color: Colors.green[700],
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                addLabel,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.green[700],
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    ).whenComplete(scrollController.dispose);
+  }
+
   // ==================== ADD SUPPLIER ====================
   Future<void> _showAddSupplierDialog() async {
-    if (mounted) {
-      setState(() {
-        _showSupplierSuggestions = false;
-        _supplierHighlightIndex = -1;
-      });
-    }
-
-    _supplierFocusNode.unfocus();
-    await Future.delayed(const Duration(milliseconds: 50));
     if (!mounted) return;
 
     final result = await showDialog<bool>(
@@ -591,15 +690,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
   // ==================== ADD PRODUCT ====================
   Future<void> _showAddProductDialog() async {
-    if (mounted) {
-      setState(() {
-        _showProductSuggestions = false;
-        _productHighlightIndex = -1;
-      });
-    }
-
-    _productFocusNode.unfocus();
-    await Future.delayed(const Duration(milliseconds: 50));
     if (!mounted) return;
 
     final result = await showDialog<bool>(
@@ -809,10 +899,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   Future<void> _loadSuppliers() async {
     try {
       QuerySnapshot snapshot = await _firestore.collection('suppliers').get();
-      setState(() {
-        _suppliers = snapshot.docs;
-        _filteredSuppliers = snapshot.docs;
-      });
+      if (!mounted) return;
+      setState(() => _suppliers = snapshot.docs);
     } catch (e) {
       _showDialog('Error', 'Error loading suppliers: $e', isError: true);
     }
@@ -821,64 +909,11 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   Future<void> _loadProducts() async {
     try {
       QuerySnapshot snapshot = await _firestore.collection('products').get();
-      setState(() {
-        _products = snapshot.docs;
-        _filteredProducts = snapshot.docs;
-      });
+      if (!mounted) return;
+      setState(() => _products = snapshot.docs);
     } catch (e) {
       _showDialog('Error', 'Error loading products: $e', isError: true);
     }
-  }
-
-  void _filterSuppliers() {
-    if (_selectedSupplierId != null) return;
-
-    String query = _supplierController.text.toLowerCase().trim();
-    setState(() {
-      if (query.isEmpty) {
-        _filteredSuppliers = _suppliers.take(4).toList();
-        _showSupplierSuggestions =
-            _supplierFocusNode.hasFocus && _suppliers.isNotEmpty;
-      } else {
-        _filteredSuppliers = _suppliers.where((supplier) {
-          Map<String, dynamic> data = supplier.data() as Map<String, dynamic>;
-          String name = (data['supplierName'] ?? '').toString().toLowerCase();
-          String phone = (data['phoneNumber'] ?? '').toString().toLowerCase();
-          String email = (data['email'] ?? '').toString().toLowerCase();
-          return name.contains(query) ||
-              phone.contains(query) ||
-              email.contains(query);
-        }).toList();
-        _showSupplierSuggestions = _supplierFocusNode.hasFocus;
-      }
-      // Reset highlight when search changes
-      _supplierHighlightIndex = -1;
-    });
-  }
-
-  void _filterProducts() {
-    if (_selectedProductId != null) return;
-
-    String query = _productController.text.toLowerCase().trim();
-    setState(() {
-      if (query.isEmpty) {
-        _filteredProducts = _products;
-        _showProductSuggestions = false;
-      } else {
-        _filteredProducts = _products.where((product) {
-          Map<String, dynamic> data = product.data() as Map<String, dynamic>;
-          String name = (data['productName'] ?? '').toString().toLowerCase();
-          String category = (data['category'] ?? '').toString().toLowerCase();
-          String brand = (data['brand'] ?? '').toString().toLowerCase();
-          return name.contains(query) ||
-              category.contains(query) ||
-              brand.contains(query);
-        }).toList();
-        _showProductSuggestions = true;
-      }
-      // Reset highlight when search changes
-      _productHighlightIndex = -1;
-    });
   }
 
   void _selectSupplier(QueryDocumentSnapshot supplier) {
@@ -886,12 +921,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     setState(() {
       _selectedSupplierId = supplier.id;
       _selectedSupplierName = (data['supplierName'] ?? 'Unknown').toString();
-      _supplierController.text = _selectedSupplierName!;
-      _showSupplierSuggestions = false;
-      _supplierHighlightIndex = -1;
-      _filteredSuppliers = _suppliers;
     });
-    _supplierFocusNode.unfocus();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -911,7 +941,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       _selectedProductType = (data['productType'] ?? data['category'] ?? '')
           .toString();
       _selectedProductBrand = (data['brand'] ?? '').toString();
-      _productController.text = _selectedProductName!;
       _productRate = (data['purchaseRate'] ?? 0).toDouble();
       _productSaleRate = (data['saleRate'] ?? 0).toDouble();
       _productGst = (data['gstPercentage'] ?? 18).toInt();
@@ -921,11 +950,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       _discountValue = 0;
       _currentIdentifiers = [];
       _identifierController.clear();
-      _showProductSuggestions = false;
-      _productHighlightIndex = -1;
-      _filteredProducts = _products;
     });
-    _productFocusNode.unfocus();
 
     _openProductDetailsModal();
   }
@@ -934,12 +959,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     setState(() {
       _selectedSupplierId = null;
       _selectedSupplierName = null;
-      _supplierController.clear();
-      _showSupplierSuggestions = false;
-      _supplierHighlightIndex = -1;
-      _filteredSuppliers = _suppliers;
     });
-    _supplierFocusNode.requestFocus();
   }
 
   void _clearProductSelection() {
@@ -948,18 +968,13 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       _selectedProductName = null;
       _selectedProductType = null;
       _selectedProductBrand = null;
-      _productController.clear();
       _purchaseRateController.clear();
       _quantityController.clear();
       _discountController.clear();
       _discountValue = 0;
       _currentIdentifiers = [];
       _identifierController.clear();
-      _showProductSuggestions = false;
-      _productHighlightIndex = -1;
-      _filterProducts();
     });
-    _productFocusNode.requestFocus();
   }
 
   // ============================================================
@@ -1672,9 +1687,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       _productGst = 18;
       _currentIdentifiers = [];
       _identifierController.clear();
-      _productController.clear();
-      _showProductSuggestions = false;
-      _filteredProducts = _products;
     });
 
     _resetRounding();
@@ -1687,10 +1699,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       ),
     );
 
-    // Ready for the next product
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _productFocusNode.requestFocus();
-    });
     return true;
   }
 
@@ -1755,29 +1763,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     });
   }
 
-  void _applyManualRounding() {
-    double? value = double.tryParse(_roundingController.text);
-    if (value != null) {
-      setState(() {
-        _roundingAmount = value;
-        _isRoundingManual = true;
-      });
-    }
-  }
-
   // ============================================================
   // STOCK UPDATE
   // ============================================================
-
-  /// Units in the cart grouped by stock kind (for the summary line).
-  Map<StockKind, int> _cartStockUnitCounts() {
-    final counts = <StockKind, int>{};
-    for (final item in _cartItems) {
-      final kind = _stockKindFor(item.productType);
-      counts[kind] = (counts[kind] ?? 0) + item.quantity;
-    }
-    return counts;
-  }
 
   /// Checks everything the stock update needs BEFORE anything is written.
   /// Returns an error message, or null when all is fine.
@@ -2034,7 +2022,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         return;
       }
     } catch (e) {
-      print('Error checking duplicate invoice: $e');
+      debugPrint('Error checking duplicate invoice: $e');
     }
 
     setState(() => _isLoading = true);
@@ -2164,8 +2152,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         _isRoundingManual = false;
         _roundingController.clear();
         _invoiceController.clear();
-        _supplierController.clear();
-        _productController.clear();
         _discountController.clear();
         _discountValue = 0;
         _currentIdentifiers = [];
@@ -2174,12 +2160,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         _billBytes = null;
         _billFileName = null;
         _uploadProgress = 0;
-        _filteredSuppliers = _suppliers;
-        _filteredProducts = _products;
-        _showSupplierSuggestions = false;
-        _showProductSuggestions = false;
-        _supplierHighlightIndex = -1;
-        _productHighlightIndex = -1;
       });
 
       if (widget.onNavigateToHistory != null) {
@@ -2359,7 +2339,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               ),
             ),
             const SizedBox(height: 4),
-            _buildSupplierDatalist(),
+            _buildSupplierSelector(),
             const SizedBox(height: 12),
             Text(
               'Purchase Bill (optional)',
@@ -2381,7 +2361,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               ),
             ),
             const SizedBox(height: 4),
-            _buildProductSelectorWithSearch(),
+            _buildProductSelector(),
           ],
         ),
       ),
@@ -2581,242 +2561,53 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
-  // ==================== SUPPLIER DATALIST WITH KEYBOARD NAV ====================
-  Widget _buildSupplierDatalist() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          height: 40,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: _selectedSupplierId != null
-                  ? Colors.green
-                  : Colors.grey[300]!,
-              width: _selectedSupplierId != null ? 2 : 1,
-            ),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                _selectedSupplierId != null
-                    ? Icons.check_circle
-                    : Icons.business,
-                color: _selectedSupplierId != null
-                    ? Colors.green
-                    : Colors.grey[600],
-                size: 18,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Focus(
-                  onKeyEvent: _handleSupplierKey,
-                  child: TextField(
-                    controller: _supplierController,
-                    focusNode: _supplierFocusNode,
-                    style: const TextStyle(fontSize: 13),
-                    readOnly: _selectedSupplierId != null,
-                    decoration: InputDecoration(
-                      hintText: _selectedSupplierId != null
-                          ? 'Supplier selected ✓'
-                          : 'Tap or type (↑↓ to navigate, Enter to select)',
-                      hintStyle: TextStyle(
-                        fontSize: 12,
-                        color: _selectedSupplierId != null
-                            ? Colors.green
-                            : Colors.grey[400],
-                      ),
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                      suffixIcon: _selectedSupplierId != null
-                          ? IconButton(
-                              icon: const Icon(
-                                Icons.close,
-                                size: 16,
-                                color: Colors.red,
-                              ),
-                              onPressed: _clearSupplierSelection,
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                            )
-                          : (_supplierController.text.isNotEmpty
-                                ? IconButton(
-                                    icon: const Icon(Icons.clear, size: 16),
-                                    onPressed: _clearSupplierSelection,
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                  )
-                                : Icon(
-                                    Icons.arrow_drop_down,
-                                    size: 20,
-                                    color: Colors.grey[600],
-                                  )),
-                    ),
-                    onChanged: (value) {
-                      if (value.isEmpty && _selectedSupplierId != null) {
-                        _clearSupplierSelection();
-                      }
-                      if (_selectedSupplierId == null) {
-                        _filterSuppliers();
-                      }
-                    },
-                    onTap: () {
-                      if (_selectedSupplierId == null) {
-                        setState(() {
-                          if (_supplierController.text.isEmpty) {
-                            _filteredSuppliers = _suppliers.take(4).toList();
-                          }
-                          _showSupplierSuggestions = _suppliers.isNotEmpty;
-                        });
-                      }
-                    },
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (_showSupplierSuggestions && _selectedSupplierId == null)
-          Container(
-            margin: const EdgeInsets.only(top: 4),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey[300]!),
-              borderRadius: BorderRadius.circular(8),
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            constraints: const BoxConstraints(maxHeight: 260),
-            child: _filteredSuppliers.isEmpty
-                ? _buildAddNewSupplierRow()
-                : Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Flexible(
-                        child: ListView.builder(
-                          controller: _supplierScrollController,
-                          shrinkWrap: true,
-                          itemCount: _filteredSuppliers.length,
-                          itemBuilder: (context, index) {
-                            final supplier = _filteredSuppliers[index];
-                            final data =
-                                supplier.data() as Map<String, dynamic>;
-                            final name = (data['supplierName'] ?? 'Unknown')
-                                .toString();
-                            final phone = data['phoneNumber']?.toString() ?? '';
-                            final email = data['email']?.toString() ?? '';
-                            final isHighlighted =
-                                index == _supplierHighlightIndex;
-
-                            return GestureDetector(
-                              onTap: () => _selectSupplier(supplier),
-                              behavior: HitTestBehavior.opaque,
-                              child: Container(
-                                color: isHighlighted
-                                    ? Colors.green[50]
-                                    : Colors.transparent,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 12,
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.business,
-                                      size: 20,
-                                      color: Colors.green[700],
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            name,
-                                            style: const TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                          if (phone.isNotEmpty ||
-                                              email.isNotEmpty)
-                                            Text(
-                                              [phone, email]
-                                                  .where((s) => s.isNotEmpty)
-                                                  .join(' • '),
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey[600],
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                    if (isHighlighted)
-                                      Icon(
-                                        Icons.keyboard_return,
-                                        size: 16,
-                                        color: Colors.green[700],
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      const Divider(height: 1),
-                      _buildAddNewSupplierRow(),
-                    ],
-                  ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildAddNewSupplierRow() {
-    final isHighlighted = _supplierHighlightIndex == _filteredSuppliers.length;
-    return GestureDetector(
-      onTap: () async {
-        setState(() {
-          _showSupplierSuggestions = false;
-          _supplierHighlightIndex = -1;
-        });
-        await Future.delayed(const Duration(milliseconds: 30));
-        if (!mounted) return;
-        await _showAddSupplierDialog();
-      },
-      behavior: HitTestBehavior.opaque,
+  // ==================== SUPPLIER SELECTOR (opens popup) ====================
+  Widget _buildSupplierSelector() {
+    final selected = _selectedSupplierId != null;
+    return InkWell(
+      onTap: _openSupplierPicker,
+      borderRadius: BorderRadius.circular(8),
       child: Container(
-        color: isHighlighted ? Colors.green[50] : Colors.transparent,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: selected ? Colors.green : Colors.grey[300]!,
+            width: selected ? 2 : 1,
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
         child: Row(
           children: [
-            Icon(Icons.add_circle_outline, size: 20, color: Colors.green[700]),
-            const SizedBox(width: 12),
+            Icon(
+              selected ? Icons.check_circle : Icons.business,
+              color: selected ? Colors.green : Colors.grey[600],
+              size: 18,
+            ),
+            const SizedBox(width: 8),
             Expanded(
               child: Text(
-                _filteredSuppliers.isEmpty
-                    ? 'No supplier found. Add New Supplier'
-                    : 'Add New Supplier',
+                selected
+                    ? (_selectedSupplierName ?? '')
+                    : 'Tap to select supplier',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.green[700],
-                  fontWeight: FontWeight.w600,
+                  fontSize: selected ? 13 : 12,
+                  color: selected ? Colors.black : Colors.grey[500],
                 ),
               ),
             ),
-            if (isHighlighted)
-              Icon(Icons.keyboard_return, size: 16, color: Colors.green[700]),
+            if (selected)
+              InkWell(
+                onTap: _clearSupplierSelection,
+                child: const Padding(
+                  padding: EdgeInsets.all(4),
+                  child: Icon(Icons.close, size: 16, color: Colors.red),
+                ),
+              )
+            else
+              Icon(Icons.arrow_drop_down, size: 20, color: Colors.grey[600]),
           ],
         ),
       ),
@@ -3447,188 +3238,29 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
-  // ==================== PRODUCT SELECTOR WITH KEYBOARD NAV ====================
-  /// Only the search box + dropdown. Details are entered in the popup.
-  Widget _buildProductSelectorWithSearch() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          height: 40,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey[300]!, width: 1),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.search, color: Colors.grey[600], size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Focus(
-                  onKeyEvent: _handleProductKey,
-                  child: TextField(
-                    controller: _productController,
-                    focusNode: _productFocusNode,
-                    style: const TextStyle(fontSize: 13),
-                    decoration: InputDecoration(
-                      hintText: 'Search product (↑↓ nav, Enter select)',
-                      hintStyle: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[400],
-                      ),
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                      suffixIcon: _productController.text.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear, size: 16),
-                              onPressed: _clearProductSelection,
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                            )
-                          : null,
-                    ),
-                    onChanged: (value) {
-                      _filterProducts();
-                      setState(() {
-                        _showProductSuggestions = value.isNotEmpty;
-                      });
-                    },
-                    onTap: () {
-                      if (_productController.text.isNotEmpty) {
-                        setState(() {
-                          _showProductSuggestions = true;
-                          _filterProducts();
-                        });
-                      }
-                    },
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (_productController.text.isNotEmpty &&
-            _selectedProductId == null &&
-            _showProductSuggestions)
-          Container(
-            margin: const EdgeInsets.only(top: 4),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey[300]!),
-              borderRadius: BorderRadius.circular(8),
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            constraints: const BoxConstraints(maxHeight: 220),
-            child: _filteredProducts.isEmpty
-                ? _buildAddNewProductRow()
-                : Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Flexible(
-                        child: ListView.builder(
-                          controller: _productScrollController,
-                          shrinkWrap: true,
-                          itemCount: _filteredProducts.length,
-                          itemBuilder: (context, index) {
-                            final product = _filteredProducts[index];
-                            final data = product.data() as Map<String, dynamic>;
-                            final name = (data['productName'] ?? 'Unknown')
-                                .toString();
-                            final isHighlighted =
-                                index == _productHighlightIndex;
-
-                            return GestureDetector(
-                              onTap: () => _selectProduct(product),
-                              behavior: HitTestBehavior.opaque,
-                              child: Container(
-                                color: isHighlighted
-                                    ? Colors.green[50]
-                                    : Colors.transparent,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 12,
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.shopping_bag,
-                                      size: 20,
-                                      color: Colors.green[700],
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Text(
-                                        name,
-                                        style: const TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ),
-                                    if (isHighlighted)
-                                      Icon(
-                                        Icons.keyboard_return,
-                                        size: 16,
-                                        color: Colors.green[700],
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      const Divider(height: 1),
-                      _buildAddNewProductRow(),
-                    ],
-                  ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildAddNewProductRow() {
-    final isHighlighted = _productHighlightIndex == _filteredProducts.length;
-    return GestureDetector(
-      onTap: () async {
-        setState(() {
-          _showProductSuggestions = false;
-          _productHighlightIndex = -1;
-        });
-        await Future.delayed(const Duration(milliseconds: 30));
-        if (!mounted) return;
-        await _showAddProductDialog();
-      },
-      behavior: HitTestBehavior.opaque,
+  // ==================== PRODUCT SELECTOR (opens popup) ====================
+  Widget _buildProductSelector() {
+    return InkWell(
+      onTap: _openProductPicker,
+      borderRadius: BorderRadius.circular(8),
       child: Container(
-        color: isHighlighted ? Colors.green[50] : Colors.transparent,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey[300]!, width: 1),
+          borderRadius: BorderRadius.circular(8),
+        ),
         child: Row(
           children: [
-            Icon(Icons.add_circle_outline, size: 20, color: Colors.green[700]),
-            const SizedBox(width: 12),
+            Icon(Icons.search, color: Colors.grey[600], size: 18),
+            const SizedBox(width: 8),
             Expanded(
               child: Text(
-                _filteredProducts.isEmpty
-                    ? 'No product found. Add New Product'
-                    : 'Add New Product',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.green[700],
-                  fontWeight: FontWeight.w600,
-                ),
+                'Tap to select product',
+                style: TextStyle(fontSize: 12, color: Colors.grey[500]),
               ),
             ),
-            if (isHighlighted)
-              Icon(Icons.keyboard_return, size: 16, color: Colors.green[700]),
+            Icon(Icons.arrow_drop_down, size: 20, color: Colors.grey[600]),
           ],
         ),
       ),
@@ -4086,16 +3718,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     _quantityFocusNode.dispose();
     _identifierController.dispose();
     _identifierFocusNode.dispose();
-    _supplierController.dispose();
-    _productController.dispose();
     _roundingController.dispose();
     _discountController.dispose();
-    _supplierFocusNode.dispose();
-    _productFocusNode.dispose();
-    _supplierKeyFocus.dispose();
-    _productKeyFocus.dispose();
-    _supplierScrollController.dispose();
-    _productScrollController.dispose();
     super.dispose();
   }
 }
