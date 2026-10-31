@@ -8,6 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:sales_stock/providers/auth_provider.dart';
@@ -56,13 +57,13 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   String? _selectedProductBrand;
   final TextEditingController _purchaseRateController = TextEditingController();
   final TextEditingController _quantityController = TextEditingController();
+  final FocusNode _rateFocusNode = FocusNode();
+  final FocusNode _quantityFocusNode = FocusNode();
 
   // IMEI / Serial number entry for the selected product
   final TextEditingController _identifierController = TextEditingController();
   final FocusNode _identifierFocusNode = FocusNode();
   List<String> _currentIdentifiers = [];
-
-  // Stock update options
 
   // Stock always goes to the shop of the logged-in user (no shop picker)
   String? get _stockShopId {
@@ -872,6 +873,16 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     });
     _productFocusNode.unfocus();
 
+    // Jump straight to the quantity box so the user can start typing
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _quantityFocusNode.requestFocus();
+      _quantityController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _quantityController.text.length,
+      );
+    });
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Selected: ${_selectedProductName!}'),
@@ -982,6 +993,74 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
   void _removeIdentifier(String value) {
     setState(() => _currentIdentifiers.remove(value));
+  }
+
+  // ---------------- barcode / QR scanner ----------------
+
+  /// Camera scanning works on Android and iOS.
+  bool get _scannerSupported =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
+  /// Validates and adds ONE scanned value with the same rules as typing.
+  /// Returns an error message, or null when the value was added.
+  String? _addScannedIdentifier(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty) return 'Empty code';
+
+    final qty = int.tryParse(_quantityController.text.trim()) ?? 0;
+    if (qty > 0 && _currentIdentifiers.length >= qty) {
+      return 'Quantity is $qty — all $_identifierLabel numbers are already added';
+    }
+    if (_isPhoneProduct && !RegExp(r'^\d{15}$').hasMatch(value)) {
+      return '"$value" is not a valid 15-digit IMEI';
+    }
+    if (_allUsedIdentifiers().contains(value.toLowerCase())) {
+      return '"$value" is already added';
+    }
+
+    setState(() => _currentIdentifiers.add(value));
+    return null;
+  }
+
+  /// Opens the camera scanner; every scanned code is added to the list.
+  Future<void> _openIdentifierScanner() async {
+    final qty = int.tryParse(_quantityController.text.trim()) ?? 0;
+    if (qty <= 0) {
+      _showDialog(
+        'Quantity needed',
+        'Enter the quantity first, then scan the $_identifierLabel numbers.',
+        isError: true,
+      );
+      return;
+    }
+    if (_currentIdentifiers.length >= qty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'All $qty $_identifierLabel number(s) are already added',
+          ),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    _identifierFocusNode.unfocus();
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _IdentifierScannerPage(
+          label: _identifierLabel,
+          target: qty,
+          currentCount: () => _currentIdentifiers.length,
+          onScanned: _addScannedIdentifier,
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
   }
 
   // ============================================================
@@ -1306,6 +1385,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       });
     }
 
+    final addedName = _selectedProductName ?? '';
+
     setState(() {
       _selectedProductId = null;
       _selectedProductName = null;
@@ -1326,6 +1407,19 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     });
 
     _resetRounding();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Added to cart: $addedName'),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 1),
+      ),
+    );
+
+    // Ready for the next product
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _productFocusNode.requestFocus();
+    });
   }
 
   void _removeFromCart(int index) {
@@ -1912,14 +2006,14 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           body: Container(
             padding: EdgeInsets.all(isMobile ? 12 : 20),
             child: SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 16),
                   if (isMobile) _buildMobileLayout() else _buildDesktopLayout(),
                   const SizedBox(height: 16),
-                  _buildStockOptionsSection(),
-                  const SizedBox(height: 16),
+
                   _buildSubmitButton(),
                 ],
               ),
@@ -1952,101 +2046,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   // ==================== STOCK OPTIONS ====================
-  Widget _buildStockOptionsSection() {
-    final counts = _cartStockUnitCounts();
-    final parts = <String>[];
-    if ((counts[StockKind.phone] ?? 0) > 0) {
-      parts.add('Phones: ${counts[StockKind.phone]}');
-    }
-    if ((counts[StockKind.tv] ?? 0) > 0) {
-      parts.add('TVs: ${counts[StockKind.tv]}');
-    }
-    if ((counts[StockKind.appliance] ?? 0) > 0) {
-      parts.add('Appliances: ${counts[StockKind.appliance]}');
-    }
-    if ((counts[StockKind.none] ?? 0) > 0) {
-      parts.add('Not stocked: ${counts[StockKind.none]}');
-    }
-
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.inventory_2, size: 18, color: Colors.green[700]),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Purchased items are added to stock automatically',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      Text(
-                        parts.isEmpty
-                            ? 'Phones, TVs and appliances are added to their stock'
-                            : parts.join('  •  '),
-                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            ...[
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: _stockShopId != null
-                      ? Colors.green[50]
-                      : Colors.red[50],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      _stockShopId != null
-                          ? Icons.store
-                          : Icons.warning_amber_rounded,
-                      size: 16,
-                      color: _stockShopId != null
-                          ? Colors.green[700]
-                          : Colors.red[700],
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        _stockShopId != null
-                            ? 'Stock will be added to your shop: $_stockShopName'
-                            : 'Your account is not linked to a shop, so stock cannot be added.',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: _stockShopId != null
-                              ? Colors.green[800]
-                              : Colors.red[700],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _buildFormSection() {
     return Card(
@@ -2525,20 +2524,272 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
-  // ==================== IMEI / SERIAL SECTION ====================
-  Widget _buildIdentifierSection() {
-    final qty = int.tryParse(_quantityController.text.trim()) ?? 0;
+  // ============================================================
+  // PRODUCT DETAILS (improved UX)
+  // ============================================================
+
+  int get _enteredQty => int.tryParse(_quantityController.text.trim()) ?? 0;
+  double get _enteredRate =>
+      double.tryParse(_purchaseRateController.text.trim()) ?? 0;
+
+  double get _enteredDiscountAmount {
+    if (_discountValue <= 0) return 0;
+    return _usePercentageDiscount
+        ? _enteredRate * (_discountValue / 100)
+        : _discountValue;
+  }
+
+  double get _enteredFinalRate => _enteredRate - _enteredDiscountAmount;
+
+  /// Why the "Add to Cart" button is disabled (null = ready to add).
+  String? get _addToCartBlocker {
+    if (_selectedProductId == null) return 'Select a product';
+    if (_enteredRate <= 0) return 'Enter the purchase rate';
+    if (_enteredQty <= 0) return 'Enter the quantity';
+    if (_enteredFinalRate < 0) return 'Discount is more than the rate';
     final count = _currentIdentifiers.length;
-    final bool countMatches = qty > 0 && count == qty;
-    final bool requiredForStock = _isPhoneProduct;
+    if (_isPhoneProduct && count != _enteredQty) {
+      return 'Add $_enteredQty IMEI number(s) — $count added';
+    }
+    if (count > 0 && count != _enteredQty) {
+      return 'Add $_enteredQty $_identifierLabel(s), or remove all — $count added';
+    }
+    return null;
+  }
+
+  void _changeQuantityBy(int delta) {
+    final next = (_enteredQty + delta).clamp(1, 9999);
+    setState(() {
+      _quantityController.text = next.toString();
+      _quantityController.selection = TextSelection.collapsed(
+        offset: _quantityController.text.length,
+      );
+    });
+  }
+
+  Widget _fieldLabel(String text, {bool required = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Text(
+        required ? '$text *' : text,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: Colors.grey[700],
+        ),
+      ),
+    );
+  }
+
+  /// Compact card showing which product is being edited.
+  Widget _buildSelectedProductHeader() {
+    final type = _selectedProductType ?? '';
+    final brand = _selectedProductBrand ?? '';
+    final kind = _stockKindFor(type);
+
+    String stockText;
+    switch (kind) {
+      case StockKind.phone:
+        stockText = 'IMEI required • goes to phone stock';
+        break;
+      case StockKind.tv:
+        stockText = 'Serial optional • goes to TV stock';
+        break;
+      case StockKind.appliance:
+        stockText = 'Serial optional • goes to appliance stock';
+        break;
+      case StockKind.none:
+        stockText = 'Not added to stock';
+        break;
+    }
+
+    Widget chip(String text, Color bg, Color fg) => Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 10, color: fg, fontWeight: FontWeight.w600),
+      ),
+    );
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.green[50],
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.green.shade200),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center, // ← was .start
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              kind == StockKind.phone
+                  ? Icons.smartphone
+                  : (kind == StockKind.tv ? Icons.tv : Icons.shopping_bag),
+              size: 20,
+              color: Colors.green[700],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _selectedProductName ?? '',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          TextButton.icon(
+            onPressed: _clearProductSelection,
+            icon: const Icon(Icons.swap_horiz, size: 16),
+            label: const Text('Change', style: TextStyle(fontSize: 11)),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.red[700],
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              minimumSize: const Size(40, 30),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRateField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _fieldLabel('Purchase Rate', required: true),
+        Container(
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey[300]!, width: 1),
+            borderRadius: BorderRadius.circular(8),
+            color: Colors.white,
+          ),
+          child: TextField(
+            controller: _purchaseRateController,
+            focusNode: _rateFocusNode,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            textInputAction: TextInputAction.next,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+            ],
+            onChanged: (_) => setState(() {}),
+            onSubmitted: (_) => _quantityFocusNode.requestFocus(),
+            decoration: const InputDecoration(
+              hintText: '0.00',
+              hintStyle: TextStyle(fontSize: 12),
+              border: InputBorder.none,
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(vertical: 12),
+              prefixText: '₹ ',
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuantityField() {
+    Widget stepBtn(IconData icon, VoidCallback onTap) => InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: SizedBox(
+        width: 34,
+        height: 44,
+        child: Icon(icon, size: 18, color: Colors.green[700]),
+      ),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _fieldLabel('Quantity', required: true),
+        Container(
+          height: 44,
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey[300]!, width: 1),
+            borderRadius: BorderRadius.circular(8),
+            color: Colors.white,
+          ),
+          child: Row(
+            children: [
+              stepBtn(Icons.remove, () => _changeQuantityBy(-1)),
+              Expanded(
+                child: TextField(
+                  controller: _quantityController,
+                  focusNode: _quantityFocusNode,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(4),
+                  ],
+                  // Rebuild so the counter / totals update live
+                  onChanged: (_) => setState(() {}),
+                  onSubmitted: (_) {
+                    if (_isPhoneProduct ||
+                        _stockKindFor(_selectedProductType ?? '') !=
+                            StockKind.none) {
+                      _identifierFocusNode.requestFocus();
+                    } else {
+                      _rateFocusNode.requestFocus();
+                    }
+                  },
+                  decoration: const InputDecoration(
+                    hintText: '1',
+                    hintStyle: TextStyle(fontSize: 12),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              stepBtn(Icons.add, () => _changeQuantityBy(1)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildIdentifierSection() {
+    final qty = _enteredQty;
+    final count = _currentIdentifiers.length;
+    final bool countMatches = qty > 0 && count == qty;
+    final bool tooMany = qty > 0 && count > qty;
+    final bool requiredForStock = _isPhoneProduct;
+    final double progress = qty > 0 ? (count / qty).clamp(0.0, 1.0) : 0.0;
+    final Color statusColor = tooMany
+        ? Colors.red.shade700
+        : (countMatches ? Colors.green.shade700 : Colors.orange.shade800);
+
+    return Container(
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey[300]!),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: countMatches ? Colors.green.shade300 : Colors.grey.shade300,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2547,55 +2798,69 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             children: [
               Icon(
                 _isPhoneProduct ? Icons.smartphone : Icons.qr_code_2,
-                size: 14,
+                size: 16,
                 color: Colors.grey[700],
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   requiredForStock
-                      ? '$_identifierLabel (required to add to stock)'
-                      : '$_identifierLabel (optional)',
+                      ? '$_identifierLabel numbers (required)'
+                      : '$_identifierLabel numbers (optional)',
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: Colors.grey[700],
+                    color: Colors.grey[800],
                   ),
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: countMatches ? Colors.green[100] : Colors.grey[200],
+                  color: countMatches ? Colors.green[100] : Colors.orange[50],
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
                   '$count / $qty',
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 11,
                     fontWeight: FontWeight.bold,
-                    color: countMatches ? Colors.green[800] : Colors.grey[700],
+                    color: statusColor,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 4,
+              backgroundColor: Colors.grey[200],
+              color: tooMany ? Colors.red : Colors.green[600],
+            ),
+          ),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
                 child: Container(
-                  height: 34,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  height: 44,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     border: Border.all(color: Colors.grey[300]!, width: 1),
-                    borderRadius: BorderRadius.circular(4),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: TextField(
                     controller: _identifierController,
                     focusNode: _identifierFocusNode,
-                    style: const TextStyle(fontSize: 12),
+                    style: const TextStyle(fontSize: 13),
+                    keyboardType: _isPhoneProduct
+                        ? TextInputType.number
+                        : TextInputType.text,
+                    textInputAction: TextInputAction.done,
                     inputFormatters: [
                       // Turn pasted new lines into spaces so lists paste correctly
                       TextInputFormatter.withFunction(
@@ -2609,13 +2874,23 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     ],
                     decoration: InputDecoration(
                       hintText: _isPhoneProduct
-                          ? 'Enter 15-digit IMEI (separate several with comma/space)'
-                          : 'Enter serial number (separate several with comma/space)',
-                      hintStyle: const TextStyle(fontSize: 11),
+                          ? 'Type or paste 15-digit IMEI'
+                          : 'Type or paste serial number',
+                      hintStyle: const TextStyle(fontSize: 12),
                       border: InputBorder.none,
                       isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 6),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
                     ),
+                    onChanged: (value) {
+                      // IMEI is exactly 15 digits: add it as soon as it is complete
+                      final v = value.trim();
+                      if (_isPhoneProduct && RegExp(r'^\d{15}$').hasMatch(v)) {
+                        _addIdentifiersFromInput();
+                        _identifierFocusNode.requestFocus();
+                      } else {
+                        setState(() {});
+                      }
+                    },
                     onSubmitted: (_) {
                       _addIdentifiersFromInput();
                       _identifierFocusNode.requestFocus();
@@ -2623,25 +2898,54 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                   ),
                 ),
               ),
-              const SizedBox(width: 6),
-              ElevatedButton(
-                onPressed: () {
-                  _addIdentifiersFromInput();
-                  _identifierFocusNode.requestFocus();
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.grey[700],
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  minimumSize: const Size(40, 34),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(4),
+              if (_scannerSupported) ...[
+                const SizedBox(width: 6),
+                SizedBox(
+                  height: 44,
+                  width: 44,
+                  child: IconButton(
+                    onPressed: _openIdentifierScanner,
+                    tooltip: 'Scan $_identifierLabel',
+                    padding: EdgeInsets.zero,
+                    icon: Icon(
+                      Icons.qr_code_scanner,
+                      size: 22,
+                      color: Colors.blue[700],
+                    ),
+                    style: IconButton.styleFrom(
+                      side: BorderSide(color: Colors.blue[300]!),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
                   ),
                 ),
-                child: const Text('Add', style: TextStyle(fontSize: 12)),
+              ],
+              const SizedBox(width: 6),
+              SizedBox(
+                height: 44,
+                child: ElevatedButton(
+                  onPressed: _identifierController.text.trim().isEmpty
+                      ? null
+                      : () {
+                          _addIdentifiersFromInput();
+                          _identifierFocusNode.requestFocus();
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey[700],
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text('Add', style: TextStyle(fontSize: 12)),
+                ),
               ),
             ],
           ),
+          const SizedBox(height: 4),
+
           if (_currentIdentifiers.isNotEmpty) ...[
             const SizedBox(height: 6),
             Wrap(
@@ -2660,9 +2964,216 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                   )
                   .toList(),
             ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () => setState(() => _currentIdentifiers.clear()),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.red,
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(40, 24),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text('Clear all', style: TextStyle(fontSize: 11)),
+              ),
+            ),
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildDiscountSection() {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.blue[50],
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.blue[200]!),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.discount, size: 16, color: Colors.blue[700]),
+          const SizedBox(width: 6),
+          Text(
+            'Discount',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Colors.blue[700],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Container(
+              height: 38,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: Colors.grey[300]!, width: 1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: TextField(
+                controller: _discountController,
+                style: const TextStyle(fontSize: 13),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+                ],
+                decoration: InputDecoration(
+                  hintText: _usePercentageDiscount ? '0' : '0.00',
+                  hintStyle: const TextStyle(fontSize: 12),
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  isDense: true,
+                  suffixText: _usePercentageDiscount ? '%' : null,
+                  prefixText: _usePercentageDiscount ? null : '₹ ',
+                ),
+                onChanged: (_) => _onDiscountChanged(),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.grey[300]!),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildDiscountToggleButton('%', true),
+                _buildDiscountToggleButton('₹', false),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Live "what you are about to add" summary.
+  Widget _buildLineSummary() {
+    final rate = _enteredRate;
+    final qty = _enteredQty;
+    if (rate <= 0 || qty <= 0) return const SizedBox.shrink();
+
+    final discount = _enteredDiscountAmount;
+    final finalRate = _enteredFinalRate;
+    final taxable = finalRate < 0 ? 0.0 : finalRate * qty;
+    final gst = taxable * _productGst / 100;
+    final total = taxable + gst;
+
+    Widget row(String l, String v, {bool bold = false, Color? color}) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 1),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              l,
+              style: TextStyle(
+                fontSize: bold ? 12 : 11,
+                fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+                color: Colors.grey[800],
+              ),
+            ),
+            Text(
+              v,
+              style: TextStyle(
+                fontSize: bold ? 13 : 11,
+                fontWeight: bold ? FontWeight.bold : FontWeight.w500,
+                color: color ?? Colors.grey[900],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.green[50],
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.green.shade200),
+      ),
+      child: Column(
+        children: [
+          if (discount > 0) ...[
+            row(
+              _usePercentageDiscount
+                  ? 'Discount ($_discountValue%)'
+                  : 'Discount',
+              '- ₹${discount.toStringAsFixed(2)} / unit',
+              color: Colors.red[700],
+            ),
+          ],
+          row(
+            'Rate after discount',
+            '₹${(finalRate < 0 ? 0 : finalRate).toStringAsFixed(2)} × $qty',
+          ),
+          row('Amount', '₹${taxable.toStringAsFixed(2)}'),
+          row('GST ($_productGst%)', '₹${gst.toStringAsFixed(2)}'),
+          const Divider(height: 10),
+          row(
+            'Line total',
+            '₹${total.toStringAsFixed(2)}',
+            bold: true,
+            color: Colors.green[800],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAddToCartButton() {
+    final blocker = _addToCartBlocker;
+    final ready = blocker == null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 46,
+          child: ElevatedButton.icon(
+            // Always tappable: if something is missing, the validation dialog explains it
+            onPressed: _addToCartWithDiscount,
+            icon: const Icon(Icons.add_shopping_cart, size: 18),
+            label: const Text(
+              'Add to Cart',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: ready ? Colors.green[700] : Colors.grey[400],
+              foregroundColor: Colors.white,
+              elevation: ready ? 2 : 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ),
+        if (!ready)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.info_outline, size: 12, color: Colors.orange[800]),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    blocker,
+                    style: TextStyle(fontSize: 11, color: Colors.orange[800]),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 
@@ -2671,95 +3182,65 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          height: 40,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: _selectedProductId != null
-                  ? Colors.green
-                  : Colors.grey[300]!,
-              width: _selectedProductId != null ? 2 : 1,
+        // Search box is only needed while no product is selected;
+        // after selecting, a summary card replaces it.
+        if (_selectedProductId == null)
+          Container(
+            height: 40,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey[300]!, width: 1),
+              borderRadius: BorderRadius.circular(8),
             ),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                _selectedProductId != null ? Icons.check_circle : Icons.search,
-                color: _selectedProductId != null
-                    ? Colors.green
-                    : Colors.grey[600],
-                size: 18,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Focus(
-                  onKeyEvent: _handleProductKey,
-                  child: TextField(
-                    controller: _productController,
-                    focusNode: _productFocusNode,
-                    style: const TextStyle(fontSize: 13),
-                    readOnly: _selectedProductId != null,
-                    decoration: InputDecoration(
-                      hintText: _selectedProductId != null
-                          ? 'Product selected ✓'
-                          : 'Search product (↑↓ nav, Enter select)',
-                      hintStyle: TextStyle(
-                        fontSize: 12,
-                        color: _selectedProductId != null
-                            ? Colors.green
-                            : Colors.grey[400],
+            child: Row(
+              children: [
+                Icon(Icons.search, color: Colors.grey[600], size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Focus(
+                    onKeyEvent: _handleProductKey,
+                    child: TextField(
+                      controller: _productController,
+                      focusNode: _productFocusNode,
+                      style: const TextStyle(fontSize: 13),
+                      decoration: InputDecoration(
+                        hintText: 'Search product (↑↓ nav, Enter select)',
+                        hintStyle: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[400],
+                        ),
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                        suffixIcon: _productController.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 16),
+                                onPressed: _clearProductSelection,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                              )
+                            : null,
                       ),
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                      suffixIcon: _selectedProductId != null
-                          ? IconButton(
-                              icon: const Icon(
-                                Icons.close,
-                                size: 16,
-                                color: Colors.red,
-                              ),
-                              onPressed: _clearProductSelection,
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                            )
-                          : (_productController.text.isNotEmpty
-                                ? IconButton(
-                                    icon: const Icon(Icons.clear, size: 16),
-                                    onPressed: _clearProductSelection,
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                  )
-                                : null),
-                    ),
-                    onChanged: (value) {
-                      if (value.isEmpty && _selectedProductId != null) {
-                        _clearProductSelection();
-                      }
-                      if (_selectedProductId == null) {
+                      onChanged: (value) {
                         _filterProducts();
                         setState(() {
                           _showProductSuggestions = value.isNotEmpty;
                         });
-                      }
-                    },
-                    onTap: () {
-                      if (_selectedProductId == null &&
-                          _productController.text.isNotEmpty) {
-                        setState(() {
-                          _showProductSuggestions = true;
-                          _filterProducts();
-                        });
-                      }
-                    },
+                      },
+                      onTap: () {
+                        if (_productController.text.isNotEmpty) {
+                          setState(() {
+                            _showProductSuggestions = true;
+                            _filterProducts();
+                          });
+                        }
+                      },
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
         if (_productController.text.isNotEmpty &&
             _selectedProductId == null &&
             _showProductSuggestions)
@@ -2793,7 +3274,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                             final data = product.data() as Map<String, dynamic>;
                             final name = (data['productName'] ?? 'Unknown')
                                 .toString();
-                            final category = data['category']?.toString() ?? '';
                             final isHighlighted =
                                 index == _productHighlightIndex;
 
@@ -2828,14 +3308,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                                               fontWeight: FontWeight.w500,
                                             ),
                                           ),
-                                          if (category.isNotEmpty)
-                                            Text(
-                                              category,
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey[600],
-                                              ),
-                                            ),
                                         ],
                                       ),
                                     ),
@@ -2861,191 +3333,27 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 8),
+              _buildSelectedProductHeader(),
+              const SizedBox(height: 10),
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Purchase Rate *',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey[700],
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Container(
-                          height: 36,
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: Colors.grey[300]!,
-                              width: 1,
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: TextFormField(
-                            controller: _purchaseRateController,
-                            style: const TextStyle(fontSize: 13),
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              hintText: '0.00',
-                              hintStyle: TextStyle(fontSize: 12),
-                              border: InputBorder.none,
-                              contentPadding: EdgeInsets.symmetric(vertical: 6),
-                              isDense: true,
-                              prefixText: '₹ ',
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Quantity *',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey[700],
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Container(
-                          height: 36,
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: Colors.grey[300]!,
-                              width: 1,
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: TextFormField(
-                            controller: _quantityController,
-                            style: const TextStyle(fontSize: 13),
-                            keyboardType: TextInputType.number,
-                            // Rebuild so the IMEI/serial counter (x / qty) updates
-                            onChanged: (_) => setState(() {}),
-                            decoration: const InputDecoration(
-                              hintText: '1',
-                              hintStyle: TextStyle(fontSize: 12),
-                              border: InputBorder.none,
-                              contentPadding: EdgeInsets.symmetric(vertical: 6),
-                              isDense: true,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  Expanded(child: _buildRateField()),
+                  const SizedBox(width: 10),
+                  Expanded(child: _buildQuantityField()),
                 ],
               ),
-              const SizedBox(height: 6),
-              _buildIdentifierSection(),
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.blue[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.blue[200]!),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.discount, size: 14, color: Colors.blue[700]),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Discount (0% default)',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.blue[700],
-                          ),
-                        ),
-                        const Spacer(),
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: Colors.grey[300]!),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _buildDiscountToggleButton('%', true),
-                              _buildDiscountToggleButton('₹', false),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            height: 32,
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              border: Border.all(
-                                color: Colors.grey[300]!,
-                                width: 1,
-                              ),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: TextFormField(
-                              controller: _discountController,
-                              style: const TextStyle(fontSize: 12),
-                              keyboardType: TextInputType.number,
-                              decoration: InputDecoration(
-                                hintText: _usePercentageDiscount ? '0' : '0.00',
-                                border: InputBorder.none,
-                                contentPadding: const EdgeInsets.symmetric(
-                                  vertical: 4,
-                                ),
-                                isDense: true,
-                                suffixText: _usePercentageDiscount ? '%' : '',
-                              ),
-                              onChanged: (_) => _onDiscountChanged(),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        ElevatedButton(
-                          onPressed: _addToCartWithDiscount,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green[700],
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 14),
-                            minimumSize: const Size(40, 32),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                          ),
-                          child: const Icon(Icons.add, size: 18),
-                        ),
-                      ],
-                    ),
-                    if (_discountValue > 0 &&
-                        _purchaseRateController.text.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: _buildDiscountPreview(),
-                      ),
-                  ],
-                ),
-              ),
+              const SizedBox(height: 10),
+              if (_stockKindFor(_selectedProductType ?? '') !=
+                  StockKind.none) ...[
+                _buildIdentifierSection(),
+                const SizedBox(height: 10),
+              ],
+              _buildDiscountSection(),
+              const SizedBox(height: 10),
+              _buildLineSummary(),
+              const SizedBox(height: 10),
+              _buildAddToCartButton(),
             ],
           ),
       ],
@@ -3103,58 +3411,21 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         });
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        width: 32,
+        height: 30,
+        alignment: Alignment.center,
         decoration: BoxDecoration(
           color: isActive ? Colors.blue[700] : Colors.transparent,
-          borderRadius: BorderRadius.circular(3),
+          borderRadius: BorderRadius.circular(5),
         ),
         child: Text(
           label,
           style: TextStyle(
-            fontSize: 10,
+            fontSize: 12,
             fontWeight: FontWeight.w600,
             color: isActive ? Colors.white : Colors.grey[600],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildDiscountPreview() {
-    double purchaseRate = double.tryParse(_purchaseRateController.text) ?? 0;
-    double discountAmount = _usePercentageDiscount
-        ? purchaseRate * (_discountValue / 100)
-        : _discountValue;
-    double finalRate = purchaseRate - discountAmount;
-
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: Colors.green[50],
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            _usePercentageDiscount
-                ? '${_discountValue}% = ₹${discountAmount.toStringAsFixed(2)} off'
-                : '₹${_discountValue.toStringAsFixed(2)} discount',
-            style: TextStyle(
-              fontSize: 10,
-              color: Colors.green[700],
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          Text(
-            'Final: ₹${finalRate.toStringAsFixed(2)}',
-            style: TextStyle(
-              fontSize: 10,
-              color: Colors.green[700],
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -3534,6 +3805,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     _invoiceController.dispose();
     _purchaseRateController.dispose();
     _quantityController.dispose();
+    _rateFocusNode.dispose();
+    _quantityFocusNode.dispose();
     _identifierController.dispose();
     _identifierFocusNode.dispose();
     _supplierController.dispose();
@@ -3547,6 +3820,170 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     _supplierScrollController.dispose();
     _productScrollController.dispose();
     super.dispose();
+  }
+}
+
+/// Full-screen camera scanner. Stays open and adds every valid code until the
+/// required number of IMEI / serial numbers has been scanned.
+class _IdentifierScannerPage extends StatefulWidget {
+  final String label;
+  final int target;
+  final int Function() currentCount;
+  final String? Function(String value) onScanned;
+
+  const _IdentifierScannerPage({
+    required this.label,
+    required this.target,
+    required this.currentCount,
+    required this.onScanned,
+  });
+
+  @override
+  State<_IdentifierScannerPage> createState() => _IdentifierScannerPageState();
+}
+
+class _IdentifierScannerPageState extends State<_IdentifierScannerPage> {
+  final MobileScannerController _controller = MobileScannerController();
+
+  String? _message;
+  bool _isError = false;
+  bool _torchOn = false;
+  String _lastValue = '';
+  DateTime _lastTime = DateTime.fromMillisecondsSinceEpoch(0);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onDetect(BarcodeCapture capture) {
+    for (final barcode in capture.barcodes) {
+      final value = barcode.rawValue;
+      if (value == null || value.isEmpty) continue;
+
+      // Ignore the same code being re-read for 2 seconds
+      final now = DateTime.now();
+      if (value == _lastValue &&
+          now.difference(_lastTime) < const Duration(seconds: 2)) {
+        continue;
+      }
+      _lastValue = value;
+      _lastTime = now;
+
+      final error = widget.onScanned(value);
+      HapticFeedback.mediumImpact();
+
+      if (!mounted) return;
+      setState(() {
+        _message = error ?? 'Added: $value';
+        _isError = error != null;
+      });
+
+      // Everything scanned -> close automatically
+      if (error == null && widget.currentCount() >= widget.target) {
+        Navigator.of(context).pop();
+        return;
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final count = widget.currentCount();
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text(
+          'Scan ${widget.label}',
+          style: const TextStyle(fontSize: 16),
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Flashlight',
+            icon: Icon(_torchOn ? Icons.flash_on : Icons.flash_off),
+            onPressed: () async {
+              await _controller.toggleTorch();
+              if (mounted) setState(() => _torchOn = !_torchOn);
+            },
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: MobileScanner(controller: _controller, onDetect: _onDetect),
+          ),
+          // Aiming frame
+          Center(
+            child: Container(
+              width: 280,
+              height: 160,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.greenAccent, width: 2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+          // Status panel
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                12,
+                16,
+                12 + MediaQuery.of(context).padding.bottom,
+              ),
+              color: Colors.black87,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Scanned $count / ${widget.target}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _message ??
+                        'Point the camera at the ${widget.label} barcode',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: _message == null
+                          ? Colors.white70
+                          : (_isError ? Colors.redAccent : Colors.greenAccent),
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green[700],
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text('Done'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
