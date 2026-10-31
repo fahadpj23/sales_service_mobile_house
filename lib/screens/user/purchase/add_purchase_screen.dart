@@ -9,12 +9,48 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:image/image.dart' as img;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:sales_stock/providers/auth_provider.dart';
 import '../../../models/purchase.dart';
 import 'add_product_screen.dart';
 import 'add_supplier_screen.dart';
+
+/// Bill images are compressed to stay below this size (1 MB limit, with margin).
+const int _kBillTargetBytes = 900 * 1024;
+
+/// Runs in a background isolate. Returns JPEG bytes below [_kBillTargetBytes],
+/// or null when the image cannot be decoded (e.g. HEIC).
+Uint8List? _compressBillImage(Uint8List input) {
+  img.Image? image = img.decodeImage(input);
+  if (image == null) return null;
+  image = img.bakeOrientation(image);
+
+  int maxSide = 1800;
+  int quality = 85;
+  Uint8List? best;
+
+  for (var attempt = 0; attempt < 12; attempt++) {
+    img.Image work = image;
+    final longest = image.width > image.height ? image.width : image.height;
+    if (longest > maxSide) {
+      work = image.width >= image.height
+          ? img.copyResize(image, width: maxSide)
+          : img.copyResize(image, height: maxSide);
+    }
+    best = Uint8List.fromList(img.encodeJpg(work, quality: quality));
+    if (best.length <= _kBillTargetBytes) return best;
+
+    if (quality > 50) {
+      quality -= 10; // first lower the quality
+    } else {
+      maxSide = (maxSide * 0.8).round(); // then shrink the picture
+      quality = 70;
+    }
+  }
+  return best;
+}
 
 class AddPurchaseScreen extends StatefulWidget {
   final Function(int)? onNavigateToHistory;
@@ -101,8 +137,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   Uint8List? _billBytes;
   String? _billFileName;
   bool _isUploading = false;
+  bool _isCompressing = false;
   double _uploadProgress = 0;
-  static const int _maxBillSizeBytes = 10 * 1024 * 1024; // 10 MB
+  static const int _maxBillSizeBytes =
+      25 * 1024 * 1024; // max picked file (25 MB)
 
   // Discount fields
   bool _usePercentageDiscount = true;
@@ -1178,45 +1216,77 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       defaultTargetPlatform == TargetPlatform.iOS;
 
   void _showBillSourceSheet() {
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 8),
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2),
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 24,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 380),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 4, 0),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.upload_file,
+                        size: 18,
+                        color: Colors.green[700],
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Purchase Bill',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green[700],
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(dialogContext),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              if (_cameraSupported)
+                if (_cameraSupported)
+                  ListTile(
+                    dense: true,
+                    leading: Icon(Icons.photo_camera, color: Colors.green[700]),
+                    title: const Text(
+                      'Take photo with camera',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                    onTap: () {
+                      Navigator.pop(dialogContext);
+                      _pickBillFromCamera();
+                    },
+                  ),
                 ListTile(
-                  leading: Icon(Icons.photo_camera, color: Colors.green[700]),
-                  title: const Text('Take photo with camera'),
+                  dense: true,
+                  leading: Icon(Icons.folder_open, color: Colors.green[700]),
+                  title: const Text(
+                    'Choose from files / gallery',
+                    style: TextStyle(fontSize: 13),
+                  ),
                   onTap: () {
-                    Navigator.pop(sheetContext);
-                    _pickBillFromCamera();
+                    Navigator.pop(dialogContext);
+                    _pickBillFromFiles();
                   },
                 ),
-              ListTile(
-                leading: Icon(Icons.folder_open, color: Colors.green[700]),
-                title: const Text('Choose from files / gallery'),
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  _pickBillFromFiles();
-                },
-              ),
-              const SizedBox(height: 8),
-            ],
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
         );
       },
@@ -1231,9 +1301,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         maxWidth: 2000,
       );
       if (photo == null) return;
-      final bytes = await photo.readAsBytes();
       _setBill(
-        bytes,
+        () => photo.readAsBytes(),
         photo.name.isNotEmpty
             ? photo.name
             : 'bill_${DateTime.now().millisecondsSinceEpoch}.jpg',
@@ -1256,25 +1325,113 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         _showDialog('Error', 'Could not read the selected file', isError: true);
         return;
       }
-      _setBill(bytes, file.name);
+      _setBill(() async => bytes, file.name);
     } catch (e) {
       _showDialog('Error', 'Could not pick file: $e', isError: true);
     }
   }
 
-  void _setBill(Uint8List bytes, String fileName) {
-    if (bytes.length > _maxBillSizeBytes) {
-      _showDialog(
-        'File too large',
-        'Bill image must be smaller than 10 MB.',
-        isError: true,
-      );
-      return;
+  /// Loads the picked image, compresses it to below 1 MB and stores it for
+  /// upload. A "Processing image…" popup stays on screen the whole time.
+  Future<void> _setBill(
+    Future<Uint8List> Function() load,
+    String fileName,
+  ) async {
+    setState(() => _isCompressing = true);
+
+    var dialogOpen = true;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          content: Row(
+            children: [
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: Colors.green[700],
+                ),
+              ),
+              const SizedBox(width: 16),
+              const Expanded(
+                child: Text(
+                  'Processing image…\nPlease wait',
+                  style: TextStyle(fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    void closeProcessing() {
+      if (dialogOpen && mounted) {
+        dialogOpen = false;
+        Navigator.of(context).pop();
+      }
     }
-    setState(() {
-      _billBytes = bytes;
-      _billFileName = fileName;
-    });
+
+    // let the popup paint before the heavy work starts
+    await Future.delayed(const Duration(milliseconds: 150));
+
+    Uint8List? finalBytes;
+    String finalName = fileName;
+    String? errorTitle;
+    String? errorMessage;
+
+    try {
+      final bytes = await load();
+
+      if (bytes.length > _maxBillSizeBytes) {
+        errorTitle = 'File too large';
+        errorMessage = 'Bill image must be smaller than 25 MB.';
+      } else {
+        Uint8List? compressed;
+        try {
+          compressed = await compute(_compressBillImage, bytes);
+        } catch (_) {
+          compressed = null;
+        }
+
+        if (compressed != null) {
+          finalBytes = compressed;
+          final dot = fileName.lastIndexOf('.');
+          final base = dot > 0 ? fileName.substring(0, dot) : fileName;
+          finalName = '$base.jpg'; // compressed output is always JPEG
+        } else if (bytes.length <= 1024 * 1024) {
+          finalBytes = bytes; // could not decode, but already small
+        } else {
+          errorTitle = 'Cannot compress image';
+          errorMessage =
+              'This image format could not be compressed below 1 MB. '
+              'Please choose a JPG or PNG image.';
+        }
+      }
+    } catch (e) {
+      errorTitle = 'Error';
+      errorMessage = 'Could not process the image: $e';
+    } finally {
+      closeProcessing();
+      if (mounted) setState(() => _isCompressing = false);
+    }
+
+    if (!mounted) return;
+    if (finalBytes != null) {
+      setState(() {
+        _billBytes = finalBytes;
+        _billFileName = finalName;
+      });
+    } else if (errorMessage != null) {
+      _showDialog(errorTitle ?? 'Error', errorMessage, isError: true);
+    }
   }
 
   void _removeBill() {
@@ -2298,6 +2455,33 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
   // ==================== PURCHASE BILL SECTION ====================
   Widget _buildBillSection() {
+    if (_isCompressing) {
+      return Container(
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey[300]!, width: 1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.green[700],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'Compressing image…',
+              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+            ),
+          ],
+        ),
+      );
+    }
     if (_billBytes == null) {
       return InkWell(
         onTap: _showBillSourceSheet,
