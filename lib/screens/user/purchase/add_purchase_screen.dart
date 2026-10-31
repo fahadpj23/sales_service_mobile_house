@@ -1577,6 +1577,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       'category': category,
       'productBrand': item.brand.trim(),
       'productName': item.productName,
+      'modelName': item.productName,
       'productPrice': price,
       'purchaseRate': item.rate,
       'quantity': quantity,
