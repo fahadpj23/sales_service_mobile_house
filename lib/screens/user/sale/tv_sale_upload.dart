@@ -118,6 +118,7 @@ class _TvSaleUploadState extends State<TvSaleUpload> {
     'Bajaj Finance',
     'TVS Credit',
     'HDB Financial',
+    'Home Credit',
     'Samsung Finance',
     'Oppo Finance',
     'Vivo Finance',

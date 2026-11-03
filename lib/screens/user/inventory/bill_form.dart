@@ -58,17 +58,18 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
   final List<String> _purchaseModes = ['Ready Cash', 'Credit Card', 'EMI'];
   final List<String> _financeCompaniesList = [
-    'Bajaj Finance',
-    'TVS Credit',
-    'HDB Financial',
-    'Samsung Finance',
-    'Oppo Finance',
-    'Vivo Finance',
-    'yoga kshema Finance',
-    'MI Finance',
-    'First credit private Finance',
-    'Chola Murugappa',
-    'Other',
+   'Bajaj Finance',
+      'TVS Credit',
+      'HDB Financial',
+      'Home Credit',
+      'Samsung Finance',
+      'Oppo Finance',
+      'Vivo Finance',
+      'yoga kshema Finance',
+      'MI Finance',
+      'First credit private Finance',
+      'Chola Murugappa',
+      'Other',
   ];
 
   // Static images - shared across all instances

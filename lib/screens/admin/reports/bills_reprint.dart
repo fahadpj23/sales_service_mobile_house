@@ -9,6 +9,8 @@ import 'package:share_plus/share_plus.dart';
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
 
+enum _BillKind { phone, accessories, tv, appliance }
+
 class BillRePrint {
   // Static variables to store images (shared across all instances)
   static Uint8List? _logoImage;
@@ -25,7 +27,6 @@ class BillRePrint {
     if (_imagesLoaded) return;
 
     try {
-      // Load logo
       final logoByteData = await rootBundle.load('assets/mobileHouseLogo.png');
       _logoImage = logoByteData.buffer.asUint8List();
       print('Logo loaded successfully, size: ${_logoImage?.length} bytes');
@@ -34,7 +35,6 @@ class BillRePrint {
     }
 
     try {
-      // Load seal
       final sealByteData = await rootBundle.load('assets/mobileHouseSeal.jpeg');
       _sealImage = sealByteData.buffer.asUint8List();
       print('Seal loaded successfully, size: ${_sealImage?.length} bytes');
@@ -55,7 +55,6 @@ class BillRePrint {
     required void Function(void Function()) setState,
   }) async {
     try {
-      // Ensure images are loaded
       await initialize();
 
       setState(() {
@@ -70,7 +69,6 @@ class BillRePrint {
         // Hide loading
       });
 
-      // Show action dialog
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -120,12 +118,42 @@ class BillRePrint {
   String _safeString(dynamic value) {
     if (value == null) return '';
     final s = value.toString().trim();
-    if (s.isEmpty || s == 'null' || s == 'N/A') return '';
+    if (s.isEmpty || s.toLowerCase() == 'null' || s == 'N/A') return '';
     return s;
   }
 
+  // Returns the first non-empty value from a list of candidates
+  String _firstNonEmpty(List<dynamic> candidates) {
+    for (final c in candidates) {
+      final s = _safeString(c);
+      if (s.isNotEmpty) return s;
+    }
+    return '';
+  }
+
+  // Safely read a key from a value that may or may not be a Map
+  dynamic _from(dynamic map, String key) {
+    if (map is Map) return map[key];
+    return null;
+  }
+
+  // Detect bill kind (case-insensitive)
+  _BillKind _detectKind(Map<String, dynamic> bill) {
+    final billTypeLower = _safeString(bill['billType']).toLowerCase();
+    final typeLower = _safeString(bill['type']).toLowerCase();
+
+    if (billTypeLower == 'gst accessories') return _BillKind.accessories;
+    if (typeLower == 'tv' || billTypeLower == 'tv') return _BillKind.tv;
+    if (billTypeLower == 'appliances' ||
+        billTypeLower == 'appliance' ||
+        typeLower == 'appliance' ||
+        typeLower == 'appliances') {
+      return _BillKind.appliance;
+    }
+    return _BillKind.phone;
+  }
+
   Future<Uint8List> _generateBillPdf(Map<String, dynamic> bill) async {
-    // Ensure images are loaded
     await initialize();
 
     final pdf = pw.Document();
@@ -144,122 +172,98 @@ class BillRePrint {
     final financeType = bill['financeType'];
     final sealApplied = bill['sealApplied'] == true;
 
-    // Check if address is null or empty
     final bool hasAddress =
-        customerAddress.isNotEmpty && customerAddress != 'N/A';
+        customerAddress.toString().isNotEmpty && customerAddress != 'N/A';
 
-    // ==================== FIXED: Product details with correct identifier label ====================
-    // Rule: only PHONE category uses "IMEI"; everything else uses "S/N".
-    String productName = '';
-    String identifier = '';
-    String identifierLabel = '';
+    // ==================== Product details ====================
+    // Rule: ONLY phone bills use "IMEI". Everything else uses "S/N".
+    final kind = _detectKind(bill);
 
-    final billType = bill['billType'] as String?;
-    final type = bill['type'] as String?;
-
-    // Get product map (contains all product data for accessories)
     final product = bill['product'];
     final originalPhoneData = bill['originalPhoneData'];
     final originalTvData = bill['originalTvData'];
     final originalApplianceData = bill['originalApplianceData'];
 
-    if (billType == 'GST Accessories') {
-      // ===== ACCESSORIES BILL: Serial Number (S/N) =====
-      // Extract product name from product map first
-      if (product is Map<String, dynamic>) {
-        productName = _safeString(product['productName']);
-        if (productName.isEmpty) productName = _safeString(product['name']);
-        if (productName.isEmpty)
-          productName = _safeString(product['modelName']);
-      }
-      if (productName.isEmpty) productName = _safeString(bill['productName']);
-      if (productName.isEmpty)
-        productName = _safeString(bill['applianceProductName']);
+    String productName = '';
+    String identifier = '';
+    String identifierLabel = 'S/N';
 
-      // Extract S/N from product map ONLY (no imei fallback for accessories)
-      if (product is Map<String, dynamic>) {
-        identifier = _safeString(product['serialNumber']);
-      }
-      if (identifier.isEmpty) identifier = _safeString(bill['serialNumber']);
-      identifierLabel = 'S/N';
-    } else if (type == 'tv') {
-      // ===== TV BILL: Serial Number (S/N) =====
-      productName = _safeString(bill['modelName']);
-      if (productName.isEmpty) productName = _safeString(bill['productName']);
+    switch (kind) {
+      case _BillKind.accessories:
+        productName = _firstNonEmpty([
+          _from(product, 'productName'),
+          _from(product, 'name'),
+          _from(product, 'modelName'),
+          bill['productName'],
+          bill['applianceProductName'],
+        ]);
+        identifier = _firstNonEmpty([
+          _from(product, 'serialNumber'),
+          bill['serialNumber'],
+          _from(product, 'serial'),
+          bill['serial'],
+        ]);
+        identifierLabel = 'S/N';
+        break;
 
-      identifier = _safeString(bill['serialNumber']);
+      case _BillKind.tv:
+        productName = _firstNonEmpty([
+          bill['modelName'],
+          bill['productName'],
+          _from(originalTvData, 'modelName'),
+          _from(product, 'productName'),
+          _from(product, 'modelName'),
+        ]);
+        identifier = _firstNonEmpty([
+          bill['serialNumber'],
+          _from(originalTvData, 'serialNumber'),
+          _from(product, 'serialNumber'),
+          bill['serial'],
+        ]);
+        identifierLabel = 'S/N';
+        break;
 
-      if (originalTvData is Map<String, dynamic>) {
-        if (productName.isEmpty) {
-          productName = _safeString(originalTvData['modelName']);
-        }
-        if (identifier.isEmpty) {
-          identifier = _safeString(originalTvData['serialNumber']);
-        }
-      }
-      if (product is Map<String, dynamic>) {
-        if (productName.isEmpty) {
-          productName = _safeString(product['productName']);
-        }
-        if (identifier.isEmpty) {
-          identifier = _safeString(product['serialNumber']);
-        }
-      }
-      identifierLabel = 'S/N';
-    } else if (billType == 'Appliances' || billType == 'Appliance') {
-      // ===== APPLIANCE BILL: Serial Number (S/N) =====
-      productName = _safeString(bill['productName']);
-      if (productName.isEmpty)
-        productName = _safeString(bill['applianceProductName']);
+      case _BillKind.appliance:
+        productName = _firstNonEmpty([
+          bill['applianceProductName'],
+          bill['productName'],
+          _from(product, 'productName'),
+          _from(product, 'name'),
+          _from(originalApplianceData, 'productName'),
+          _from(originalApplianceData, 'modelName'),
+          bill['modelName'],
+        ]);
+        identifier = _firstNonEmpty([
+          bill['serialNumber'],
+          bill['applianceSerialNumber'],
+          _from(product, 'serialNumber'),
+          _from(originalApplianceData, 'serialNumber'),
+          bill['serial'],
+          // last-resort: value saved under imei key (still shown as S/N)
+          bill['imei'],
+          _from(product, 'imei'),
+        ]);
+        identifierLabel = 'S/N';
+        break;
 
-      identifier = _safeString(bill['serialNumber']);
-
-      if (originalApplianceData is Map<String, dynamic>) {
-        if (productName.isEmpty) {
-          productName = _safeString(originalApplianceData['productName']);
-        }
-        if (identifier.isEmpty) {
-          identifier = _safeString(originalApplianceData['serialNumber']);
-        }
-      }
-      if (product is Map<String, dynamic>) {
-        if (productName.isEmpty) {
-          productName = _safeString(product['productName']);
-        }
-        if (identifier.isEmpty) {
-          identifier = _safeString(product['serialNumber']);
-        }
-      }
-      identifierLabel = 'S/N';
-    } else {
-      // ===== PHONE BILL: IMEI =====
-      productName = _safeString(bill['productName']);
-      identifier = _safeString(bill['imei']);
-
-      if (originalPhoneData is Map<String, dynamic>) {
-        if (productName.isEmpty) {
-          productName = _safeString(originalPhoneData['productName']);
-        }
-        if (identifier.isEmpty) {
-          identifier = _safeString(originalPhoneData['imei']);
-        }
-      }
-      if (product is Map<String, dynamic>) {
-        if (productName.isEmpty) {
-          productName = _safeString(product['productName']);
-        }
-        if (identifier.isEmpty) {
-          identifier = _safeString(product['imei']);
-        }
-      }
-      identifierLabel = 'IMEI';
+      case _BillKind.phone:
+        productName = _firstNonEmpty([
+          bill['productName'],
+          _from(originalPhoneData, 'productName'),
+          _from(product, 'productName'),
+        ]);
+        identifier = _firstNonEmpty([
+          bill['imei'],
+          _from(originalPhoneData, 'imei'),
+          _from(product, 'imei'),
+        ]);
+        identifierLabel = 'IMEI';
+        break;
     }
 
-    // Final fallbacks
     if (productName.isEmpty) productName = 'N/A';
     if (identifier.isEmpty) identifier = 'N/A';
-
-    // ==================== END FIXED ====================
+    // ==================== END product details ====================
 
     pdf.addPage(
       pw.Page(
@@ -290,7 +294,6 @@ class BillRePrint {
                   gstAmount,
                   totalAmount,
                 ),
-                // Conditional container height based on address presence
                 pw.Container(
                   height: hasAddress ? 250 : 280,
                   child: pw.Stack(
@@ -352,7 +355,6 @@ class BillRePrint {
                 mainAxisAlignment: pw.MainAxisAlignment.center,
                 crossAxisAlignment: pw.CrossAxisAlignment.center,
                 children: [
-                  // Logo display
                   if (_logoImage != null)
                     pw.SizedBox(
                       height: 50,
@@ -455,7 +457,6 @@ class BillRePrint {
     String purchaseMode,
     String? financeType,
   ) {
-    // Check if address is null or empty
     final bool hasAddress = address.isNotEmpty && address != 'N/A';
 
     return pw.Padding(
@@ -771,7 +772,7 @@ class BillRePrint {
             lines[0],
             style: pw.TextStyle(
               fontSize: fontSize,
-              fontWeight: isHeader ? pw.FontWeight.bold : pw.FontWeight.bold,
+              fontWeight: pw.FontWeight.bold,
             ),
             textAlign: pw.TextAlign.center,
           ),
