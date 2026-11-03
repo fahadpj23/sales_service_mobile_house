@@ -121,6 +121,7 @@ class _PhoneSaleUploadState extends State<PhoneSaleUpload> {
     'Bajaj Finance',
     'TVS Credit',
     'HDB Financial',
+    'Home Credit',
     'Samsung Finance',
     'Oppo Finance',
     'Vivo Finance',

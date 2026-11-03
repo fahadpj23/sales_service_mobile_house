@@ -149,6 +149,7 @@ class BillRePrint {
         customerAddress.isNotEmpty && customerAddress != 'N/A';
 
     // ==================== FIXED: Product details with correct identifier label ====================
+    // Rule: only PHONE category uses "IMEI"; everything else uses "S/N".
     String productName = '';
     String identifier = '';
     String identifierLabel = '';
@@ -175,10 +176,9 @@ class BillRePrint {
       if (productName.isEmpty)
         productName = _safeString(bill['applianceProductName']);
 
-      // Extract S/N from product map
+      // Extract S/N from product map ONLY (no imei fallback for accessories)
       if (product is Map<String, dynamic>) {
         identifier = _safeString(product['serialNumber']);
-        if (identifier.isEmpty) identifier = _safeString(product['imei']);
       }
       if (identifier.isEmpty) identifier = _safeString(bill['serialNumber']);
       identifierLabel = 'S/N';
