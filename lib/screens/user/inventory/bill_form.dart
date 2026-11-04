@@ -19,7 +19,22 @@ class BillFormScreen extends StatefulWidget {
   final String? imei;
   final String? phoneId;
 
-  const BillFormScreen({super.key, this.phoneData, this.imei, this.phoneId});
+  /// Collection that holds the phone being sold.
+  /// Default = regular phone stock. Ready Cash screen passes 'ReadyCashPhone'.
+  final String stockCollection;
+
+  /// Field in that collection that holds the status (available / sold).
+  /// Default = 'status'. Ready Cash screen passes 'ReadyCashStatus'.
+  final String statusField;
+
+  const BillFormScreen({
+    super.key,
+    this.phoneData,
+    this.imei,
+    this.phoneId,
+    this.stockCollection = 'phoneStock',
+    this.statusField = 'status',
+  });
 
   @override
   _BillFormScreenState createState() => _BillFormScreenState();
@@ -28,6 +43,9 @@ class BillFormScreen extends StatefulWidget {
 class _BillFormScreenState extends State<BillFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  // Firestore collection name for ready cash phones
+  static const String _readyCashCollection = 'ReadyCashPhone';
 
   // Controllers
   late TextEditingController billNoController;
@@ -39,6 +57,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
   late TextEditingController totalAmountController;
   late TextEditingController taxableAmountController;
   late TextEditingController gstAmountController;
+  late TextEditingController amountReturnedController;
 
   // State variables
   bool _isScanning = false;
@@ -46,6 +65,10 @@ class _BillFormScreenState extends State<BillFormScreen> {
   bool _isLoading = false;
   bool _isSoldSaved = false;
   String? _selectedShop = 'Peringottukara';
+
+  // Ready Cash Phone
+  bool _addToReadyCashPhone = false;
+  String? _readyCashDocId; // id of the ReadyCashPhone doc created for this bill
 
   // Purchase Mode and Finance Type
   String? _selectedPurchaseMode = 'Ready Cash';
@@ -58,18 +81,18 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
   final List<String> _purchaseModes = ['Ready Cash', 'Credit Card', 'EMI'];
   final List<String> _financeCompaniesList = [
-   'Bajaj Finance',
-      'TVS Credit',
-      'HDB Financial',
-      'Home Credit',
-      'Samsung Finance',
-      'Oppo Finance',
-      'Vivo Finance',
-      'yoga kshema Finance',
-      'MI Finance',
-      'First credit private Finance',
-      'Chola Murugappa',
-      'Other',
+    'Bajaj Finance',
+    'TVS Credit',
+    'HDB Financial',
+    'Home Credit',
+    'Samsung Finance',
+    'Oppo Finance',
+    'Vivo Finance',
+    'yoga kshema Finance',
+    'MI Finance',
+    'First credit private Finance',
+    'Chola Murugappa',
+    'Other',
   ];
 
   // Static images - shared across all instances
@@ -93,6 +116,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
     totalAmountController = TextEditingController();
     taxableAmountController = TextEditingController();
     gstAmountController = TextEditingController();
+    amountReturnedController = TextEditingController();
 
     // Initialize data
     _initData();
@@ -191,9 +215,9 @@ class _BillFormScreenState extends State<BillFormScreen> {
   Future<bool> _isImeiAlreadySold(String imei) async {
     try {
       final querySnapshot = await _firestore
-          .collection('phoneStock')
+          .collection(widget.stockCollection)
           .where('imei', isEqualTo: imei)
-          .where('status', isEqualTo: 'sold')
+          .where(widget.statusField, isEqualTo: 'sold')
           .limit(1)
           .get();
 
@@ -275,6 +299,93 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
   // ==================== END IMEI VALIDATION ====================
 
+  // ==================== READY CASH PHONE ====================
+
+  double get _amountReturnedValue =>
+      double.tryParse(amountReturnedController.text.trim()) ?? 0.0;
+
+  /// Creates a document in the "ReadyCashPhone" collection for this bill.
+  Future<void> _saveReadyCashPhone(String billId) async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final user = authProvider.user;
+
+    final billNumber = billNoController.text.startsWith('MH-')
+        ? billNoController.text
+        : 'MH-${billNoController.text}';
+
+    final data = {
+      'billId': billId,
+      'billNumber': billNumber,
+      'customerName': customerNameController.text,
+      'customerMobile': mobileNumberController.text,
+      'customerAddress': addressController.text,
+      'productName': phoneModelController.text,
+      'productBrand': widget.phoneData?['productBrand'],
+      'imei': imei1Controller.text,
+      'phoneStockId': widget.phoneId,
+      'totalAmount': double.tryParse(totalAmountController.text) ?? 0.0,
+      'amountReturnedToCustomer': _amountReturnedValue,
+      'ReadyCashStatus': "available",
+      'purchaseMode': _selectedPurchaseMode,
+      'financeType': _selectedFinanceType,
+      'shop': _selectedShop,
+      'shopId': user?.shopId,
+      'createdBy': user?.email,
+      'createdById': user?.uid,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    final docRef = await _firestore.collection(_readyCashCollection).add(data);
+    _readyCashDocId = docRef.id;
+  }
+
+  /// Keeps the ReadyCashPhone collection in sync when a saved bill is edited:
+  /// - checked + no record yet  -> create
+  /// - checked + record exists  -> update
+  /// - unchecked + record exists -> delete
+  Future<void> _syncReadyCashPhoneForEdit() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final user = authProvider.user;
+
+    final billNumber = billNoController.text.startsWith('MH-')
+        ? billNoController.text
+        : 'MH-${billNoController.text}';
+
+    if (_addToReadyCashPhone) {
+      if (_readyCashDocId == null) {
+        await _saveReadyCashPhone(_currentBillId ?? '');
+      } else {
+        await _firestore
+            .collection(_readyCashCollection)
+            .doc(_readyCashDocId)
+            .update({
+              'billNumber': billNumber,
+              'customerName': customerNameController.text,
+              'customerMobile': mobileNumberController.text,
+              'customerAddress': addressController.text,
+              'productName': phoneModelController.text,
+              'imei': imei1Controller.text,
+              'totalAmount': double.tryParse(totalAmountController.text) ?? 0.0,
+              'amountReturnedToCustomer': _amountReturnedValue,
+              'purchaseMode': _selectedPurchaseMode,
+              'financeType': _selectedFinanceType,
+              'shop': _selectedShop,
+              'updatedBy': user?.email,
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+      }
+    } else if (_readyCashDocId != null) {
+      await _firestore
+          .collection(_readyCashCollection)
+          .doc(_readyCashDocId)
+          .delete();
+      _readyCashDocId = null;
+    }
+  }
+
+  // ==================== END READY CASH PHONE ====================
+
   // ==================== EDIT CURRENT BILL FUNCTIONALITY ====================
 
   void _enableEditMode() {
@@ -326,6 +437,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
       await _updateBillRecord();
       await _updatePhoneStockForEdit();
+      await _syncReadyCashPhoneForEdit();
 
       final pdfBytes = await _generateBillPdf();
       final filePath = await _savePdfToStorage(pdfBytes);
@@ -389,15 +501,16 @@ class _BillFormScreenState extends State<BillFormScreen> {
       'updatedBy': user?.email,
       'purchaseMode': _selectedPurchaseMode,
       'financeType': _selectedFinanceType,
+      'addedToReadyCashPhone': _addToReadyCashPhone,
+      'amountReturnedToCustomer': _addToReadyCashPhone
+          ? _amountReturnedValue
+          : 0.0,
     };
 
     await _firestore.collection('bills').doc(_currentBillId).update(updateData);
   }
 
   Future<void> _updatePhoneStockForEdit() async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final user = authProvider.user;
-
     final billNumber = billNoController.text.startsWith('MH-')
         ? billNoController.text
         : 'MH-${billNoController.text}';
@@ -405,14 +518,14 @@ class _BillFormScreenState extends State<BillFormScreen> {
     final imei = imei1Controller.text.trim();
     if (imei.isNotEmpty) {
       final querySnapshot = await _firestore
-          .collection('phoneStock')
+          .collection(widget.stockCollection)
           .where('imei', isEqualTo: imei)
           .limit(1)
           .get();
 
       if (querySnapshot.docs.isNotEmpty) {
         await _firestore
-            .collection('phoneStock')
+            .collection(widget.stockCollection)
             .doc(querySnapshot.docs.first.id)
             .update({
               'soldTo': customerNameController.text,
@@ -584,6 +697,11 @@ class _BillFormScreenState extends State<BillFormScreen> {
       await _markPhoneAsSold();
       _currentBillId = await _saveBillRecord();
 
+      // Add to ReadyCashPhone collection when checkbox is checked
+      if (_addToReadyCashPhone) {
+        await _saveReadyCashPhone(_currentBillId!);
+      }
+
       final pdfBytes = await _generateBillPdf();
       final filePath = await _savePdfToStorage(pdfBytes);
 
@@ -629,8 +747,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
         ? billNoController.text
         : 'MH-${billNoController.text}';
 
-    final updateData = {
-      'status': 'sold',
+    final updateData = <String, dynamic>{
+      widget.statusField: 'sold',
       'soldAt': FieldValue.serverTimestamp(),
       'soldTo': customerNameController.text,
       'soldBillNo': billNumber,
@@ -644,38 +762,38 @@ class _BillFormScreenState extends State<BillFormScreen> {
 
     if (widget.phoneId != null) {
       final phoneDoc = await _firestore
-          .collection('phoneStock')
+          .collection(widget.stockCollection)
           .doc(widget.phoneId)
           .get();
 
-      if (phoneDoc.exists && phoneDoc.data()?['status'] == 'sold') {
+      if (phoneDoc.exists && phoneDoc.data()?[widget.statusField] == 'sold') {
         throw Exception('This product is already marked as sold');
       }
 
       await _firestore
-          .collection('phoneStock')
+          .collection(widget.stockCollection)
           .doc(widget.phoneId)
           .update(updateData);
     } else {
       final imei = imei1Controller.text.trim();
       if (imei.isNotEmpty) {
         final querySnapshot = await _firestore
-            .collection('phoneStock')
+            .collection(widget.stockCollection)
             .where('imei', isEqualTo: imei)
-            .where('status', isEqualTo: 'available')
+            .where(widget.statusField, isEqualTo: 'available')
             .limit(1)
             .get();
 
         if (querySnapshot.docs.isNotEmpty) {
           await _firestore
-              .collection('phoneStock')
+              .collection(widget.stockCollection)
               .doc(querySnapshot.docs.first.id)
               .update(updateData);
         } else {
           final soldCheck = await _firestore
-              .collection('phoneStock')
+              .collection(widget.stockCollection)
               .where('imei', isEqualTo: imei)
-              .where('status', isEqualTo: 'sold')
+              .where(widget.statusField, isEqualTo: 'sold')
               .limit(1)
               .get();
 
@@ -720,6 +838,10 @@ class _BillFormScreenState extends State<BillFormScreen> {
       'originalPhoneData': widget.phoneData,
       'purchaseMode': _selectedPurchaseMode,
       'financeType': _selectedFinanceType,
+      'addedToReadyCashPhone': _addToReadyCashPhone,
+      'amountReturnedToCustomer': _addToReadyCashPhone
+          ? _amountReturnedValue
+          : 0.0,
     };
 
     final docRef = await _firestore.collection('bills').add(billData);
@@ -1900,6 +2022,8 @@ class _BillFormScreenState extends State<BillFormScreen> {
             _buildGstInfoCard(),
             SizedBox(height: 12),
             _buildSealCheckbox(isReadOnly),
+            SizedBox(height: 12),
+            _buildReadyCashPhoneSection(isReadOnly),
           ],
         ),
       ),
@@ -2184,6 +2308,64 @@ class _BillFormScreenState extends State<BillFormScreen> {
     );
   }
 
+  /// "Add to Ready Cash Phone" checkbox (default unchecked).
+  /// When checked, shows the "Amount Returned to Customer" field.
+  Widget _buildReadyCashPhoneSection(bool isReadOnly) {
+    return Container(
+      padding: EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.blue[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.blue[100]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Checkbox(
+                value: _addToReadyCashPhone,
+                onChanged: isReadOnly
+                    ? null
+                    : (value) {
+                        setState(() {
+                          _addToReadyCashPhone = value ?? false;
+                          if (!_addToReadyCashPhone) {
+                            amountReturnedController.clear();
+                          }
+                        });
+                      },
+                activeColor: Colors.green,
+              ),
+              SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  'Add to Ready Cash Phone',
+                  style: TextStyle(fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          if (_addToReadyCashPhone) ...[
+            SizedBox(height: 8),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: _buildTextField(
+                amountReturnedController,
+                'Amount Returned to Customer *',
+                Icons.currency_rupee,
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                validator: _validateAmountReturned,
+                readOnly: isReadOnly,
+              ),
+            ),
+            SizedBox(height: 4),
+          ],
+        ],
+      ),
+    );
+  }
+
   // Validation methods
   String? _validateRequired(String? value) {
     if (value == null || value.isEmpty) return 'This field is required';
@@ -2208,6 +2390,17 @@ class _BillFormScreenState extends State<BillFormScreen> {
     return null;
   }
 
+  String? _validateAmountReturned(String? value) {
+    if (!_addToReadyCashPhone) return null;
+    if (value == null || value.trim().isEmpty) {
+      return 'Enter amount returned to customer';
+    }
+    final amount = double.tryParse(value.trim());
+    if (amount == null) return 'Enter valid amount';
+    if (amount <= 0) return 'Amount must be greater than 0';
+    return null;
+  }
+
   @override
   void dispose() {
     billNoController.dispose();
@@ -2219,6 +2412,7 @@ class _BillFormScreenState extends State<BillFormScreen> {
     totalAmountController.dispose();
     taxableAmountController.dispose();
     gstAmountController.dispose();
+    amountReturnedController.dispose();
     super.dispose();
   }
 }

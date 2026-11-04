@@ -16,6 +16,8 @@ import 'package:sales_stock/screens/admin/reports/sales_search_screen.dart';
 import 'package:sales_stock/screens/admin/reports/seconds_phone_report.dart';
 import 'package:sales_stock/screens/admin/reports/shop_incentive_screen.dart';
 import 'package:sales_stock/screens/login_screen.dart';
+// ====== NEW: Ready Cash Phone stock screen ======
+import 'package:sales_stock/screens/user/inventory/ready_cash_phone_stock_screen.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../services/auth_service.dart';
 import '../../../models/sale.dart';
@@ -1375,6 +1377,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     formatNumber: _formatNumber,
                     shops: shops,
                   ),
+                ),
+              );
+            },
+          ),
+          // ====== NEW: Ready Cash Phone Stock ======
+          _buildDrawerItem(
+            Icons.currency_rupee,
+            'Ready Cash Phone Stock',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      ReadyCashPhoneStockScreen(isAdmin: true, shops: shops),
                 ),
               );
             },
