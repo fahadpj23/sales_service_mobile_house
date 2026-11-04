@@ -16,6 +16,7 @@ import '../../../providers/auth_provider.dart';
 /// Bill form for Ready Cash phones.
 /// - Bill is saved to `readyCashPhoneBill` (not `bills`).
 /// - The phone in `ReadyCashPhone` is marked `sold` when the bill is saved.
+/// - Sale price is read from `totalAmount` on the stock doc.
 class ReadyCashBillFormScreen extends StatefulWidget {
   final Map<String, dynamic>? phoneData;
   final String? imei;
@@ -187,15 +188,29 @@ class _ReadyCashBillFormScreenState extends State<ReadyCashBillFormScreen> {
 
   // ───────────────────────── helpers ─────────────────────────
 
+  /// Reads the sale price. Uses `totalAmount` (that's the only field the
+  /// stock screen stores now).
+  double _readSalePrice(Map<String, dynamic>? d) {
+    if (d == null) return 0;
+    final v =
+        d['totalAmount'] ??
+        d['productPrice'] ??
+        d['soldAmount'] ??
+        d['amountReturnedToCustomer'];
+    if (v == null) return 0;
+    if (v is int) return v.toDouble();
+    if (v is double) return v;
+    return double.tryParse(v.toString()) ?? 0;
+  }
+
   void _autoFillData() {
     final d = widget.phoneData;
     if (d == null) return;
     setState(() {
       phoneModelController.text = d['productName'] ?? '';
-      final price = d['productPrice'];
-      if (price != null) {
-        totalAmountController.text =
-            price is double && price == price.roundToDouble()
+      final price = _readSalePrice(d);
+      if (price > 0) {
+        totalAmountController.text = price == price.roundToDouble()
             ? price.toStringAsFixed(0)
             : price.toString();
         _calculateGST();
@@ -413,6 +428,7 @@ class _ReadyCashBillFormScreenState extends State<ReadyCashBillFormScreen> {
       batch.set(billRef, billData);
       batch.update(phoneRef, {
         _statusField: 'sold',
+        'status': 'sold',
         'soldAt': FieldValue.serverTimestamp(),
         'soldTo': customerNameController.text.trim(),
         'customerName': customerNameController.text.trim(),
@@ -420,6 +436,7 @@ class _ReadyCashBillFormScreenState extends State<ReadyCashBillFormScreen> {
         'billNumber': _fullBillNumber,
         'billId': billRef.id,
         'soldAmount': totalAmount,
+        'totalAmount': totalAmount, // keep sale price consistent
         'soldShop': _selectedShop,
         'soldBy': user?.email,
         'purchaseMode': _selectedPurchaseMode,
@@ -513,6 +530,7 @@ class _ReadyCashBillFormScreenState extends State<ReadyCashBillFormScreen> {
             'soldTo': customerNameController.text.trim(),
             'customerName': customerNameController.text.trim(),
             'soldAmount': totalAmount,
+            'totalAmount': totalAmount,
             'purchaseMode': _selectedPurchaseMode,
             'financeType': _selectedFinanceType,
             'updatedAt': FieldValue.serverTimestamp(),

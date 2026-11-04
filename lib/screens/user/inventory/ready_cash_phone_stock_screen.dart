@@ -65,11 +65,10 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
 
   List<Map<String, dynamic>> _shops = [];
   Map<String, dynamic>? _selectedPhoneForAction;
-  String _selectedAction = 'transfer';
 
   // Admin only
-  String? _adminShopFilter; // null = all shops
-  Map<String, dynamic>? _adminTargetShop; // shop chosen for "Add stock"
+  String? _adminShopFilter;
+  Map<String, dynamic>? _adminTargetShop;
 
   late TextEditingController _productSearchController;
 
@@ -141,7 +140,6 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
 
   // ───────────────────────── helpers ─────────────────────────
 
-  /// Keeps only ready-cash docs (and the admin's selected shop, if any).
   List<QueryDocumentSnapshot> _readyCashOnly(
     List<QueryDocumentSnapshot> docs, {
     bool returned = false,
@@ -211,13 +209,12 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
     return result;
   }
 
-  /// Checks sold stock across ALL shops (no shop filter).
   Future<Map<String, dynamic>?> _checkImeiInSoldStock(String imei) async {
     try {
       final snapshot = await _firestore
           .collection('ReadyCashPhone')
           .where('imei', isEqualTo: imei)
-          .where('ReadyCashStatus', isEqualTo: 'sold')
+          .where('status', isEqualTo: 'sold')
           .limit(1)
           .get();
 
@@ -474,7 +471,7 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
       }
 
       String productName;
-      double productPrice;
+      double totalAmount;
       String? productId;
 
       if (_showAddProductForm) {
@@ -496,7 +493,7 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
         }
 
         productName = newProductName;
-        productPrice = newPrice;
+        totalAmount = newPrice;
         await _saveNewProduct();
         if (_selectedProduct == null) {
           _showModalError('Product not selected after creation');
@@ -530,15 +527,15 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
         double basePrice = productPriceTemp is int
             ? productPriceTemp.toDouble()
             : productPriceTemp as double;
-        productPrice = basePrice;
+        totalAmount = basePrice;
 
         if (_showPriceChangeOption && _priceChangeController.text.isNotEmpty) {
           final newPrice = double.tryParse(_priceChangeController.text);
           if (newPrice != null && newPrice > 0) {
-            productPrice = newPrice;
+            totalAmount = newPrice;
             if (productId != null && productId != 'temp') {
               await _firestore.collection('phones').doc(productId).update({
-                'price': productPrice,
+                'price': totalAmount,
                 'updatedAt': FieldValue.serverTimestamp(),
               });
             }
@@ -584,7 +581,6 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
         return;
       }
 
-      // Which shop does this stock belong to?
       String shopId;
       String shopName;
       if (widget.isAdmin) {
@@ -629,7 +625,7 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
         batch.set(docRef, {
           'productBrand': _selectedBrand!.trim(),
           'productName': productName,
-          'productPrice': productPrice,
+          'totalAmount': totalAmount,
           'imei': rawImei.trim(),
           'shopId': shopId,
           'shopName': shopName,
@@ -637,6 +633,7 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
           'uploadedById': uploadedById,
           'uploadedAt': FieldValue.serverTimestamp(),
           'ReadyCashStatus': 'available',
+          'status': 'available',
           'shop': shopName,
           'createdAt': FieldValue.serverTimestamp(),
         });
@@ -677,7 +674,6 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
     _formKey.currentState?.reset();
   }
 
-  /// Admin must pick a shop first; user adds to their own shop.
   Future<void> _onAddPressed() async {
     if (widget.isAdmin) {
       if (_shops.isEmpty) {
@@ -730,7 +726,7 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
     });
   }
 
-  // ───────────────────────── transfer / return ─────────────────────────
+  // ───────────────────────── transfer (users only) ─────────────────────────
 
   Future<void> _transferToShop(
     String phoneId,
@@ -759,45 +755,6 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
       _showSuccess('Phone transferred to $newShopName successfully!');
     } catch (e) {
       _showError('Failed to transfer phone: $e');
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _returnPhone(
-    String phoneId,
-    Map<String, dynamic> phoneData,
-  ) async {
-    try {
-      setState(() => _isLoading = true);
-
-      final user = Provider.of<AuthProvider>(context, listen: false).user;
-
-      await _firestore.collection('phoneReturns').add({
-        'phoneId': phoneId,
-        'productBrand': phoneData['productBrand'] ?? 'Unknown',
-        'productName': phoneData['productName'] ?? 'Unknown',
-        'productPrice': _phonePrice(phoneData),
-        'imei': phoneData['imei'] ?? 'N/A',
-        'originalShopId': phoneData['shopId'] ?? '',
-        'originalShopName':
-            (phoneData['shopName'] ?? phoneData['shop'] ?? 'Unknown Shop')
-                .toString(),
-        'returnedBy': user?.email ?? user?.name ?? 'Unknown',
-        'returnedById': user?.uid ?? '',
-        'returnedAt': FieldValue.serverTimestamp(),
-        'reason': 'returned_to_inventory',
-        'status': 'returned',
-        'stockType': _stockType,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      await _firestore.collection('ReadyCashPhone').doc(phoneId).delete();
-
-      setState(() => _selectedPhoneForAction = null);
-      _showSuccess('Phone returned successfully!');
-    } catch (e) {
-      _showError('Failed to return phone: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -961,21 +918,18 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
     return 0;
   }
 
-  /// Ready Cash docs created from the bill form have no `productPrice`,
-  /// so fall back to the amount paid to the customer, then the bill total.
-  double _phonePrice(Map<String, dynamic> d) {
-    for (final k in [
-      'productPrice',
-      'amountReturnedToCustomer',
-      'totalAmount',
-    ]) {
-      final v = _parsePrice(d[k]);
-      if (v > 0) return v;
-    }
-    return 0;
+  /// Sale price.
+  double _totalAmount(Map<String, dynamic> d) {
+    return _parsePrice(d['totalAmount']);
   }
 
-  /// Looks up the phone's CURRENT shop (name, address, phone) from `_shops`.
+  /// Amount returned to the customer — cost price for admin.
+  double _amountReturnedToCustomer(Map<String, dynamic> d) {
+    return _parsePrice(d['amountReturnedToCustomer']);
+  }
+
+  // ───────────────────────── shop info ─────────────────────────
+
   Map<String, String> _currentShopInfo(Map<String, dynamic>? phoneData) {
     final shopId = phoneData?['shopId']?.toString() ?? '';
     final match = _shops.firstWhere(
@@ -1002,7 +956,7 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
     final soldItem = _foundInSoldStock!;
     final productName = soldItem['productName'] as String? ?? 'Unknown';
     final productBrand = soldItem['productBrand'] as String? ?? 'Unknown';
-    final soldAt = soldItem['soldAt'];
+    final soldAt = soldItem['soldAt'] ?? soldItem['updatedAt'];
 
     return Container(
       margin: const EdgeInsets.only(top: 8),
@@ -1086,9 +1040,10 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
         final productName = soldItem['productName'] as String? ?? 'Unknown';
         final productBrand = soldItem['productBrand'] as String? ?? 'Unknown';
         final imei = soldItem['imei'] as String? ?? 'N/A';
-        final price = _phonePrice(soldItem);
-        final soldAt = soldItem['soldAt'];
-        final uploadedAt = soldItem['uploadedAt'];
+        final soldAmount = _totalAmount(soldItem);
+        final amountReturned = _amountReturnedToCustomer(soldItem);
+        final soldAt = soldItem['soldAt'] ?? soldItem['updatedAt'];
+        final uploadedAt = soldItem['uploadedAt'] ?? soldItem['createdAt'];
         final uploadedBy = soldItem['uploadedBy'] ?? 'Unknown';
         final shopName =
             soldItem['shopName'] ?? soldItem['shop'] ?? 'Unknown Shop';
@@ -1156,7 +1111,12 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
                 _buildDetailItem('Product Name', productName),
                 _buildDetailItem('Brand', productBrand),
                 _buildDetailItem('IMEI', _formatImeiForDisplay(imei)),
-                _buildDetailItem('Price', _formatPrice(price)),
+                if (widget.isAdmin)
+                  _buildDetailItem(
+                    'Amount Returned',
+                    _formatPrice(amountReturned),
+                  ),
+                _buildDetailItem('Total Amount', _formatPrice(soldAmount)),
                 _buildDetailItem('Shop', shopName.toString()),
                 if (uploadedAt != null)
                   _buildDetailItem('Added Date', _formatDate(uploadedAt)),
@@ -1191,7 +1151,7 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 100,
+            width: 110,
             child: Text(
               '$label:',
               style: const TextStyle(
@@ -1265,7 +1225,7 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
     );
   }
 
-  // ───────────────────────── transfer / return modal ─────────────────────────
+  // ───────────────────────── transfer modal (users only) ─────────────────────────
 
   Widget _buildActionModal() {
     if (_selectedPhoneForAction == null) return const SizedBox();
@@ -1274,7 +1234,7 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
     final productName = phone['productName'] as String? ?? 'Unknown';
     final productBrand = phone['productBrand'] as String? ?? 'Unknown';
     final imei = phone['imei'] as String? ?? 'N/A';
-    final price = _phonePrice(phone);
+    final price = _totalAmount(phone);
     final currentShopId = phone['shopId'] as String? ?? '';
     final currentShopName =
         (phone['shopName'] ?? phone['shop'] ?? 'Unknown Shop').toString();
@@ -1303,11 +1263,9 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    _selectedAction == 'transfer'
-                        ? 'Transfer Phone'
-                        : 'Return Phone',
-                    style: const TextStyle(
+                  const Text(
+                    'Transfer Phone',
+                    style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                       color: Colors.blue,
@@ -1372,160 +1330,95 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
                 ),
               ),
               const SizedBox(height: 16),
-              if (_selectedAction == 'transfer') ...[
-                const Text(
-                  'Select shop to transfer to:',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 10),
-                if (filteredShops.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12),
-                    child: Text(
-                      'No other shops available for transfer',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                      textAlign: TextAlign.center,
-                    ),
-                  )
-                else
-                  SizedBox(
-                    height: 150,
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: filteredShops.length,
-                      itemBuilder: (context, index) {
-                        final shop = filteredShops[index];
-                        final address = shop['address'] as String? ?? '';
-                        return ListTile(
-                          leading: const Icon(
-                            Icons.store,
-                            color: Colors.blue,
-                            size: 18,
-                          ),
-                          title: Text(
-                            shop['name'] as String? ?? 'Unknown Shop',
-                            style: const TextStyle(fontSize: 12),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: address.isNotEmpty
-                              ? Text(
-                                  address,
-                                  style: const TextStyle(fontSize: 10),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                )
-                              : null,
-                          onTap: _isLoading
-                              ? null
-                              : () {
-                                  if (phoneId.isNotEmpty) {
-                                    _transferToShop(
-                                      phoneId,
-                                      phone,
-                                      shop['id'] as String? ?? '',
-                                      shop['name'] as String? ?? 'Unknown Shop',
-                                    );
-                                  } else {
-                                    _showError(
-                                      'Phone ID not found. Please try again.',
-                                    );
-                                  }
-                                },
-                          dense: true,
-                          visualDensity: VisualDensity.compact,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 4,
-                          ),
-                        );
-                      },
-                    ),
+              const Text(
+                'Select shop to transfer to:',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              if (filteredShops.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    'No other shops available for transfer',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                    textAlign: TextAlign.center,
                   ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: _isLoading
-                            ? null
-                            : () => setState(
-                                () => _selectedPhoneForAction = null,
-                              ),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 10),
+                )
+              else
+                SizedBox(
+                  height: 150,
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: filteredShops.length,
+                    itemBuilder: (context, index) {
+                      final shop = filteredShops[index];
+                      final address = shop['address'] as String? ?? '';
+                      return ListTile(
+                        leading: const Icon(
+                          Icons.store,
+                          color: Colors.blue,
+                          size: 18,
                         ),
-                        child: const Text(
-                          'Cancel',
-                          style: TextStyle(fontSize: 12),
+                        title: Text(
+                          shop['name'] as String? ?? 'Unknown Shop',
+                          style: const TextStyle(fontSize: 12),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
-                    ),
-                  ],
-                ),
-              ] else ...[
-                const Text(
-                  'Are you sure you want to return this phone?',
-                  style: TextStyle(fontSize: 12, color: Colors.orange),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'This will remove the phone from available stock and create a return record.',
-                  style: TextStyle(fontSize: 10, color: Colors.grey),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () =>
-                            setState(() => _selectedPhoneForAction = null),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                        ),
-                        child: const Text(
-                          'Cancel',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: _isLoading
+                        subtitle: address.isNotEmpty
+                            ? Text(
+                                address,
+                                style: const TextStyle(fontSize: 10),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              )
+                            : null,
+                        onTap: _isLoading
                             ? null
                             : () {
                                 if (phoneId.isNotEmpty) {
-                                  _returnPhone(phoneId, phone);
+                                  _transferToShop(
+                                    phoneId,
+                                    phone,
+                                    shop['id'] as String? ?? '',
+                                    shop['name'] as String? ?? 'Unknown Shop',
+                                  );
                                 } else {
                                   _showError(
                                     'Phone ID not found. Please try again.',
                                   );
                                 }
                               },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
                         ),
-                        child: _isLoading
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Text(
-                                'Return',
-                                style: TextStyle(fontSize: 12),
-                              ),
+                      );
+                    },
+                  ),
+                ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _isLoading
+                          ? null
+                          : () =>
+                                setState(() => _selectedPhoneForAction = null),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(fontSize: 12),
                       ),
                     ),
-                  ],
-                ),
-              ],
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -1621,7 +1514,6 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
     );
   }
 
-  /// Admin-only: filter by shop.
   Widget _buildAdminShopFilter() {
     return Container(
       color: Colors.white,
@@ -1691,18 +1583,25 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
     );
   }
 
-  /// type: 'available' | 'sold' | 'returned'
-  /// No shop filter: every shop's Ready Cash phones are shown to everyone.
   Widget _buildStockList(String type) {
     final user = Provider.of<AuthProvider>(context).user;
     final currentShopId = user?.shopId;
     final isReturned = type == 'returned';
+    final isSoldTab = type == 'sold';
+    final isAvailableTab = type == 'available';
 
-    final Query query = isReturned
-        ? _firestore.collection('phoneReturns')
-        : _firestore
-              .collection('ReadyCashPhone')
-              .where('ReadyCashStatus', isEqualTo: type);
+    final Query query;
+    if (isReturned) {
+      query = _firestore.collection('phoneReturns');
+    } else if (isSoldTab) {
+      query = _firestore
+          .collection('ReadyCashPhone')
+          .where('status', isEqualTo: 'sold');
+    } else {
+      query = _firestore
+          .collection('ReadyCashPhone')
+          .where('ReadyCashStatus', isEqualTo: 'available');
+    }
 
     final Color themeColor = isReturned
         ? Colors.orange
@@ -1771,8 +1670,11 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
           return _centerMessage(Icons.shopping_cart_checkout, 'No sold phones');
         }
 
-        // newest first
-        final sortField = isReturned ? 'returnedAt' : 'uploadedAt';
+        final sortField = isReturned
+            ? 'returnedAt'
+            : isSoldTab
+            ? 'soldAt'
+            : 'uploadedAt';
         docs.sort((a, b) {
           final aMap = a.data() as Map<String, dynamic>;
           final aDate = aMap[sortField] ?? aMap['createdAt'];
@@ -1820,15 +1722,23 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
           );
         }
 
+        // Totals:
+        //   User  -> sum of totalAmount
+        //   Admin -> sum of totalAmount + sum of amountReturnedToCustomer
         double totalValue = 0;
+        double totalAmountReturned = 0;
         final Map<String, Map<String, dynamic>> brandStats = {};
+
         for (final data in filtered) {
-          final price = _phonePrice(data);
+          final sale = _totalAmount(data);
+          totalValue += sale;
+          if (widget.isAdmin) {
+            totalAmountReturned += _amountReturnedToCustomer(data);
+          }
           final brand = data['productBrand'] as String? ?? 'Unknown';
-          totalValue += price;
           brandStats.putIfAbsent(brand, () => {'count': 0, 'value': 0.0});
           brandStats[brand]!['count'] = brandStats[brand]!['count'] + 1;
-          brandStats[brand]!['value'] = brandStats[brand]!['value'] + price;
+          brandStats[brand]!['value'] = brandStats[brand]!['value'] + sale;
         }
 
         final statTitle = isReturned
@@ -1836,6 +1746,7 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
             : type == 'available'
             ? 'Available Value'
             : 'Sold Value';
+
         final statIcon = isReturned
             ? Icons.assignment_return
             : type == 'available'
@@ -1856,6 +1767,9 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
                         '${filtered.length} phones',
                         themeColor,
                         statIcon,
+                        extra: widget.isAdmin
+                            ? 'Amount returned: ${_formatPrice(totalAmountReturned)}'
+                            : null,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -1984,7 +1898,10 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
                       productName: stock['productName'] ?? 'Unknown',
                       productBrand: stock['productBrand'] ?? 'Unknown',
                       imei: stock['imei'] ?? 'N/A',
-                      price: stock['productPrice'],
+                      price: _totalAmount(stock),
+                      amountReturned: widget.isAdmin
+                          ? _amountReturnedToCustomer(stock)
+                          : null,
                       returnedAt: stock['returnedAt'],
                       returnedBy: stock['returnedBy'] ?? 'Unknown',
                       originalShopName:
@@ -1995,13 +1912,55 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
 
                 final imei = stock['imei'] as String? ?? 'N/A';
                 final phoneId = stock['id'] as String? ?? '';
-                final isAvailable = type == 'available';
+                final isAvailableCard = type == 'available';
 
-                // Shop users may only sell/transfer phones in their own shop.
                 final isOwnShop =
                     currentShopId != null &&
                     stock['shopId']?.toString() == currentShopId;
-                final canAct = widget.isAdmin || isOwnShop;
+
+                // Sell: user only, own shop, available. Billing uses totalAmount.
+                final VoidCallback? onSell =
+                    (isAvailableCard && !widget.isAdmin && isOwnShop)
+                    ? () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ReadyCashBillFormScreen(
+                              phoneData: {
+                                ...stock,
+                                'totalAmount': _totalAmount(stock),
+                              },
+                              imei: imei,
+                              phoneId: phoneId,
+                            ),
+                          ),
+                        ).then((success) {
+                          if (success == true && mounted) setState(() {});
+                        });
+                      }
+                    : null;
+
+                // Transfer: user only, own shop, available.
+                final VoidCallback? onTransfer =
+                    (isAvailableCard && !widget.isAdmin && isOwnShop)
+                    ? () {
+                        setState(() {
+                          _selectedPhoneForAction = {...stock, 'id': phoneId};
+                        });
+                      }
+                    : null;
+
+                // Pricing:
+                //   User  -> totalAmount (labelled Selling Price / Sold Amount)
+                //   Admin -> totalAmount (main) + amountReturnedToCustomer (secondary)
+                final bool userView = !widget.isAdmin;
+                final double shownPrice = _totalAmount(stock);
+                final String? shownPriceLabel = userView
+                    ? (isSoldTab ? 'Sold Amount' : 'Selling Price')
+                    : null;
+                final double? shownAmountReturned = widget.isAdmin
+                    ? _amountReturnedToCustomer(stock)
+                    : null;
 
                 return Padding(
                   padding: const EdgeInsets.symmetric(
@@ -2012,55 +1971,15 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
                     productName: stock['productName'] as String? ?? 'Unknown',
                     productBrand: stock['productBrand'] as String? ?? 'Unknown',
                     imei: imei,
-                    price: _phonePrice(stock),
+                    price: shownPrice,
+                    priceLabel: shownPriceLabel,
+                    amountReturned: shownAmountReturned,
                     uploadedAt: stock['uploadedAt'] ?? stock['createdAt'],
                     soldAt: stock['soldAt'],
                     status: type,
                     phoneData: stock,
-                    // Selling goes through the bill form, which uses the
-                    // logged-in user's shop, so it is user-only and only
-                    // for phones in the user's own shop.
-                    onSell: isAvailable && !widget.isAdmin && isOwnShop
-                        ? () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => ReadyCashBillFormScreen(
-                                  phoneData: {
-                                    ...stock,
-                                    'productPrice': _phonePrice(stock),
-                                  },
-                                  imei: imei,
-                                  phoneId: phoneId,
-                                ),
-                              ),
-                            ).then((success) {
-                              if (success == true && mounted) setState(() {});
-                            });
-                          }
-                        : null,
-                    onTransfer: isAvailable && canAct
-                        ? () {
-                            setState(() {
-                              _selectedPhoneForAction = {
-                                ...stock,
-                                'id': phoneId,
-                              };
-                              _selectedAction = 'transfer';
-                            });
-                          }
-                        : null,
-                    onReturn: isAvailable && widget.isAdmin
-                        ? () {
-                            setState(() {
-                              _selectedPhoneForAction = {
-                                ...stock,
-                                'id': phoneId,
-                              };
-                              _selectedAction = 'return';
-                            });
-                          }
-                        : null,
+                    onSell: onSell,
+                    onTransfer: onTransfer,
                   ),
                 );
               }, childCount: filtered.length),
@@ -2077,8 +1996,9 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
     String value,
     String subtitle,
     Color color,
-    IconData icon,
-  ) {
+    IconData icon, {
+    String? extra,
+  }) {
     return Container(
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
@@ -2117,6 +2037,13 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
             subtitle,
             style: TextStyle(fontSize: 9, color: color.withOpacity(0.7)),
           ),
+          if (extra != null)
+            Text(
+              extra,
+              style: TextStyle(fontSize: 9, color: color.withOpacity(0.7)),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
         ],
       ),
     );
@@ -2148,13 +2075,14 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
     required String productBrand,
     required String imei,
     required dynamic price,
+    String? priceLabel,
+    double? amountReturned,
     required dynamic uploadedAt,
     dynamic soldAt,
     required String status,
     Map<String, dynamic>? phoneData,
     VoidCallback? onSell,
     VoidCallback? onTransfer,
-    VoidCallback? onReturn,
   }) {
     final displayImei = _formatImeiForDisplay(imei);
     final isAvailable = status == 'available';
@@ -2174,7 +2102,6 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
       if (onSell != null) _actionButton('Sell', Colors.green, onSell),
       if (onTransfer != null)
         _actionButton('Transfer', Colors.blue, onTransfer),
-      if (onReturn != null) _actionButton('Return', Colors.orange, onReturn),
     ];
 
     return Container(
@@ -2229,7 +2156,9 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
               children: [
                 Expanded(
                   child: Text(
-                    _formatPrice(price),
+                    priceLabel != null
+                        ? '$priceLabel: ${_formatPrice(price)}'
+                        : _formatPrice(price),
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.bold,
@@ -2254,6 +2183,19 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
                 ),
               ],
             ),
+            if (amountReturned != null && amountReturned > 0) ...[
+              const SizedBox(height: 2),
+              Text(
+                'Amount returned: ${_formatPrice(amountReturned)}',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue.shade700,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
             const SizedBox(height: 3),
             Text(
               'IMEI: $displayImei',
@@ -2416,6 +2358,7 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
     required String productBrand,
     required String imei,
     required dynamic price,
+    double? amountReturned,
     required dynamic returnedAt,
     required String returnedBy,
     required String originalShopName,
@@ -2495,6 +2438,17 @@ class _ReadyCashPhoneStockScreenState extends State<ReadyCashPhoneStockScreen>
                 ),
               ],
             ),
+            if (amountReturned != null && amountReturned > 0) ...[
+              const SizedBox(height: 2),
+              Text(
+                'Amount returned: ${_formatPrice(amountReturned)}',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue.shade700,
+                ),
+              ),
+            ],
             const SizedBox(height: 2),
             Text(
               'IMEI: $displayImei',
