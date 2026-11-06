@@ -4,7 +4,7 @@ import 'package:sales_stock/screens/user/incentive/incentiveScreen.dart';
 import 'package:sales_stock/screens/user/inventory/base_model_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/ready_cash_phone_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/tv_stock_screen.dart';
-import 'package:sales_stock/screens/user/inventory/appliances_stock_screen.dart'; // Add this import
+import 'package:sales_stock/screens/user/inventory/appliances_stock_screen.dart';
 import 'package:sales_stock/screens/user/sale/appliance_sale_upload.dart';
 
 import 'package:sales_stock/screens/user/sale/gst_accessories_sale_upload.dart';
@@ -34,11 +34,16 @@ class UserDashboard extends StatefulWidget {
 
 class _UserDashboardState extends State<UserDashboard> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  // All collections that may contain sales for this shop.
+  // Add / remove collection names here to match your Firestore schema.
   final List<String> collectionNames = [
     'accessories_service_sales',
     'phoneSales',
     'base_model_sale',
     'seconds_phone_sale',
+    // 'tv_sales',        // uncomment if you have this collection
+    // 'appliance_sales', // uncomment if you have this collection
   ];
 
   List<Map<String, dynamic>> allSales = [];
@@ -71,6 +76,9 @@ class _UserDashboardState extends State<UserDashboard> {
   String currentMonthName = '';
   int currentYear = 0;
 
+  // The shopId we're currently viewing — resolved once from AuthProvider
+  String? _currentShopId;
+
   @override
   void initState() {
     super.initState();
@@ -82,16 +90,45 @@ class _UserDashboardState extends State<UserDashboard> {
     currentMonthName = _getMonthName(now.month);
     currentYear = now.year;
 
-    // Fetch sales data when dashboard loads
+    // Fetch sales data when dashboard loads.
+    // We fetch by shopId (NOT by email/uid).
     Future.delayed(Duration.zero, () {
       final userData = Provider.of<AuthProvider>(context, listen: false).user;
-      if (userData?.shopId != null && userData!.shopId!.isNotEmpty) {
-        fetchSalesData(userData.shopId!);
+      final shopId = userData?.shopId;
+      if (shopId != null && shopId.trim().isNotEmpty) {
+        _currentShopId = shopId.trim();
+        fetchSalesData(shopId.trim());
+      } else {
+        setState(() => isLoading = false);
+        // No shopId -> cannot fetch. Show a clear message in the UI.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Shop ID not found on your account. Please contact the administrator.',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        });
       }
     });
   }
 
+  /// Fetches all sales for the given [shopId].
+  ///
+  /// IMPORTANT: filtering is done by the `shopId` field in each Firestore
+  /// document — NOT by the logged-in user's email / uid.
   Future<void> fetchSalesData(String shopId) async {
+    final trimmedShopId = shopId.trim();
+    if (trimmedShopId.isEmpty) {
+      setState(() => isLoading = false);
+      return;
+    }
+
+    _currentShopId = trimmedShopId;
+
     setState(() {
       isLoading = true;
       allSales.clear();
@@ -110,7 +147,7 @@ class _UserDashboardState extends State<UserDashboard> {
     for (var collection in collectionNames) {
       try {
         final List<Map<String, dynamic>> monthSales =
-            await _fetchSalesForCollection(collection, shopId);
+            await _fetchSalesForCollection(collection, trimmedShopId);
 
         for (var sale in monthSales) {
           // Add collection info and formatted data
@@ -165,6 +202,7 @@ class _UserDashboardState extends State<UserDashboard> {
     setState(() => isLoading = false);
   }
 
+  /// Fetches sales for one collection, filtered by shopId (NOT email).
   Future<List<Map<String, dynamic>>> _fetchSalesForCollection(
     String collection,
     String shopId,
@@ -172,7 +210,8 @@ class _UserDashboardState extends State<UserDashboard> {
     final List<Map<String, dynamic>> sales = [];
 
     try {
-      // Get all sales for this shop (we'll filter by date in memory)
+      // Filter by shopId in Firestore — this is the only place where the
+      // shop scoping happens. Do NOT use the user's email / uid here.
       final snapshot = await FirebaseFirestore.instance
           .collection(collection)
           .where('shopId', isEqualTo: shopId)
@@ -182,9 +221,17 @@ class _UserDashboardState extends State<UserDashboard> {
         final data = doc.data();
         data['id'] = doc.id;
 
+        // Double-check the shopId on the document (some collections store
+        // a nested shopId, or a shopId that doesn't match exactly).
+        final docShopId = _normalizeShopId(data['shopId']);
+        if (docShopId != null && docShopId != shopId) {
+          // Skip anything that doesn't belong to this shop.
+          continue;
+        }
+
         // Check if sale is in current month
         final saleDate = _getSaleDate(data, collection);
-        if (_isDateInCurrentMonth(saleDate)) {
+        if (saleDate != null && _isDateInCurrentMonth(saleDate)) {
           sales.add(data);
         }
       }
@@ -195,10 +242,28 @@ class _UserDashboardState extends State<UserDashboard> {
     return sales;
   }
 
-  DateTime _getSaleDate(Map<String, dynamic> data, String collection) {
+  /// Normalizes a shopId field from Firestore into a plain string.
+  /// Handles String, DocumentReference, and null.
+  String? _normalizeShopId(dynamic value) {
+    if (value == null) return null;
+    if (value is String) {
+      final s = value.trim();
+      return s.isEmpty ? null : s;
+    }
+    if (value is DocumentReference) {
+      return value.id;
+    }
+    // Fallback: try toString()
+    final s = value.toString().trim();
+    return s.isEmpty || s == 'null' ? null : s;
+  }
+
+  /// Returns the sale date, or `null` if it can't be determined.
+  /// Returning null lets `_fetchSalesForCollection` skip the doc instead
+  /// of treating it as "today" and inflating the current-month stats.
+  DateTime? _getSaleDate(Map<String, dynamic> data, String collection) {
     try {
-      // Try different date fields based on collection and data structure
-      List<String> dateFields = [];
+      List<String> dateFields;
 
       switch (collection) {
         case 'accessories_service_sales':
@@ -231,27 +296,26 @@ class _UserDashboardState extends State<UserDashboard> {
             try {
               return DateTime.parse(data[field]);
             } catch (_) {
-              // Try custom parsing for date strings
-              return _parseDateString(data[field].toString());
+              final parsed = _parseDateString(data[field].toString());
+              if (parsed != null) return parsed;
             }
           }
         }
       }
 
-      // If no date field found, check for timestamp in milliseconds
+      // Last resort: timestamp in milliseconds
       if (data['timestamp'] != null && data['timestamp'] is int) {
         return DateTime.fromMillisecondsSinceEpoch(data['timestamp']);
       }
 
-      return DateTime.now();
+      return null;
     } catch (e) {
-      return DateTime.now();
+      return null;
     }
   }
 
-  DateTime _parseDateString(String dateString) {
+  DateTime? _parseDateString(String dateString) {
     try {
-      // Try to parse common date formats
       if (dateString.contains('/')) {
         final parts = dateString.split('/');
         if (parts.length >= 3) {
@@ -261,11 +325,9 @@ class _UserDashboardState extends State<UserDashboard> {
           return DateTime(year, month, day);
         }
       }
-
-      // Try ISO format
       return DateTime.parse(dateString);
     } catch (_) {
-      return DateTime.now();
+      return null;
     }
   }
 
@@ -308,10 +370,13 @@ class _UserDashboardState extends State<UserDashboard> {
       }
     }
 
-    // Sort by date (newest first)
+    // Sort by date (newest first). Sales without a date are pushed to the end.
     filteredSales.sort((a, b) {
       final dateA = _getSaleDate(a, a['collection'] as String);
       final dateB = _getSaleDate(b, b['collection'] as String);
+      if (dateA == null && dateB == null) return 0;
+      if (dateA == null) return 1;
+      if (dateB == null) return -1;
       return dateB.compareTo(dateA);
     });
 
@@ -339,6 +404,7 @@ class _UserDashboardState extends State<UserDashboard> {
   String _formatDate(Map<String, dynamic> data, String collection) {
     try {
       final date = _getSaleDate(data, collection);
+      if (date == null) return 'Date not available';
       return DateFormat('dd MMM yyyy, hh:mm a').format(date);
     } catch (e) {
       return 'Date not available';
@@ -349,11 +415,9 @@ class _UserDashboardState extends State<UserDashboard> {
     try {
       switch (collection) {
         case 'accessories_service_sales':
-          // Check if totalSaleAmount exists, otherwise calculate from accessories + service
           if (data['totalSaleAmount'] != null) {
             return (data['totalSaleAmount'] ?? 0).toDouble();
           } else {
-            // Calculate from accessories and service amounts
             final accessories = _getAccessoriesAmount(data);
             final service = _getServiceAmount(data);
             return accessories + service;
@@ -374,15 +438,12 @@ class _UserDashboardState extends State<UserDashboard> {
 
   double _getAccessoriesAmount(Map<String, dynamic> data) {
     try {
-      // Check for accessoriesAmount field
       if (data['accessoriesAmount'] != null) {
         return (data['accessoriesAmount'] ?? 0).toDouble();
       }
-      // Check for accessoriesAmount with different capitalization
       if (data['AccessoriesAmount'] != null) {
         return (data['AccessoriesAmount'] ?? 0).toDouble();
       }
-      // Check for accessories value in salesData
       if (data['salesData'] != null && data['salesData'] is List) {
         final List salesData = data['salesData'];
         double total = 0.0;
@@ -401,15 +462,12 @@ class _UserDashboardState extends State<UserDashboard> {
 
   double _getServiceAmount(Map<String, dynamic> data) {
     try {
-      // Check for serviceAmount field
       if (data['serviceAmount'] != null) {
         return (data['serviceAmount'] ?? 0).toDouble();
       }
-      // Check for serviceAmount with different capitalization
       if (data['ServiceAmount'] != null) {
         return (data['ServiceAmount'] ?? 0).toDouble();
       }
-      // Check for service value in salesData
       if (data['salesData'] != null && data['salesData'] is List) {
         final List salesData = data['salesData'];
         double total = 0.0;
@@ -441,7 +499,12 @@ class _UserDashboardState extends State<UserDashboard> {
     if (data['shopName'] != null && data['shopName'].toString().isNotEmpty) {
       return data['shopName'].toString();
     }
-    if (collection == 'phoneSales' && data['shopId'] != null) {
+    // Fallback to the currently logged-in user's shop name (no email involved).
+    final user = Provider.of<AuthProvider>(context, listen: false).user;
+    if (user?.shopName != null && user!.shopName!.isNotEmpty) {
+      return user.shopName!;
+    }
+    if (data['shopId'] != null) {
       return data['shopId'].toString();
     }
     return 'Shop not specified';
@@ -464,7 +527,6 @@ class _UserDashboardState extends State<UserDashboard> {
         paymentInfo['cash'] = (data['cashAmount'] ?? 0).toDouble();
         paymentInfo['card'] = (data['cardAmount'] ?? 0).toDouble();
         paymentInfo['gpay'] = (data['gpayAmount'] ?? 0).toDouble();
-        // For accessories sales, you might also have a credit field
         paymentInfo['credit'] = (data['customerCredit'] ?? 0).toDouble();
       } else if (collection == 'phoneSales') {
         final paymentBreakdown = data['paymentBreakdown'] ?? {};
@@ -589,12 +651,12 @@ class _UserDashboardState extends State<UserDashboard> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
-              if (user?.shopId != null && user!.shopId!.isNotEmpty) {
-                fetchSalesData(user.shopId!);
+              final shopId = user?.shopId;
+              if (shopId != null && shopId.trim().isNotEmpty) {
+                fetchSalesData(shopId.trim());
               }
             },
           ),
-          // Direct logout icon instead of three-dot menu
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () => _logoutUser(authService),
@@ -608,6 +670,9 @@ class _UserDashboardState extends State<UserDashboard> {
   }
 
   Widget _buildDashboardBody(dynamic user) {
+    // If we have no shopId, don't render the sales sections at all.
+    final hasShop = _currentShopId != null && _currentShopId!.isNotEmpty;
+
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
       child: Padding(
@@ -682,7 +747,7 @@ class _UserDashboardState extends State<UserDashboard> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        'Shop: ${user!.shopName!}',
+                        'Shop: ${user!.shopName ?? user.shopId}',
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w600,
@@ -704,7 +769,7 @@ class _UserDashboardState extends State<UserDashboard> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(
+                        const Icon(
                           Icons.calendar_today,
                           color: Colors.white,
                           size: 14,
@@ -725,128 +790,162 @@ class _UserDashboardState extends State<UserDashboard> {
               ),
             ),
 
-            // Total Sales Card
-            Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.green.shade50,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.green.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-                border: Border.all(color: Colors.green.shade100, width: 1),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Total Sales',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green,
-                        ),
+            // If we have no shopId, show a message and stop here.
+            if (!hasShop)
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.store_mall_directory,
+                      size: 48,
+                      color: Colors.orange.shade400,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Shop ID not found',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
                       ),
-                      IconButton(
-                        icon: Icon(
-                          Icons.refresh,
-                          size: 18,
-                          color: Colors.green.shade600,
-                        ),
-                        onPressed: () {
-                          final user = Provider.of<AuthProvider>(
-                            context,
-                            listen: false,
-                          ).user;
-                          if (user?.shopId != null &&
-                              user!.shopId!.isNotEmpty) {
-                            fetchSalesData(user.shopId!);
-                          }
-                        },
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Your account is not linked to a shop. Sales cannot be loaded. Please contact the administrator.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(children: [Expanded(child: _buildTotalSalesCard())]),
-                  const SizedBox(height: 14),
-                  _buildSalesBreakdown(),
-                ],
-              ),
-            ),
-
-            // Recent Sales Section
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-                border: Border.all(color: Colors.grey.shade200, width: 1),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Recent Sales',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey,
+                    ),
+                  ],
+                ),
+              )
+            else ...[
+              // Total Sales Card
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.green.withOpacity(0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                  border: Border.all(color: Colors.green.shade100, width: 1),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Total Sales',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green,
+                          ),
                         ),
-                      ),
-                      if (filteredSales.isNotEmpty)
-                        TextButton.icon(
-                          onPressed: _showFilterOptions,
+                        IconButton(
                           icon: Icon(
-                            Icons.filter_list,
-                            size: 14,
+                            Icons.refresh,
+                            size: 18,
                             color: Colors.green.shade600,
                           ),
-                          label: Text(
-                            selectedFilter,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.green.shade600,
-                            ),
-                          ),
-                          style: TextButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 3,
-                            ),
+                          onPressed: () {
+                            final shopId = _currentShopId;
+                            if (shopId != null && shopId.isNotEmpty) {
+                              fetchSalesData(shopId);
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(children: [Expanded(child: _buildTotalSalesCard())]),
+                    const SizedBox(height: 14),
+                    _buildSalesBreakdown(),
+                  ],
+                ),
+              ),
+
+              // Recent Sales Section
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withOpacity(0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                  border: Border.all(color: Colors.grey.shade200, width: 1),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Recent Sales',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey,
                           ),
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  _buildRecentSalesList(),
-                ],
+                        if (filteredSales.isNotEmpty)
+                          TextButton.icon(
+                            onPressed: _showFilterOptions,
+                            icon: Icon(
+                              Icons.filter_list,
+                              size: 14,
+                              color: Colors.green.shade600,
+                            ),
+                            label: Text(
+                              selectedFilter,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.green.shade600,
+                              ),
+                            ),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 3,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    _buildRecentSalesList(),
+                  ],
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),
     );
   }
 
-  // Helper method for quick action buttons
   Widget _buildQuickActionButton({
     required IconData icon,
     required String label,
@@ -1018,7 +1117,6 @@ class _UserDashboardState extends State<UserDashboard> {
             ),
           ],
         ),
-        // Accessories & Service breakdown if there are any
         if (accessoriesSalesValue > 0) ...[
           const SizedBox(height: 10),
           const Text(
@@ -1314,7 +1412,6 @@ class _UserDashboardState extends State<UserDashboard> {
                   ),
                 ),
                 const SizedBox(height: 3),
-                // For accessories & service sales, show accessories and service amounts
                 if (sale['collection'] == 'accessories_service_sales')
                   _buildAccessoriesServiceChips(sale)
                 else
@@ -1339,7 +1436,6 @@ class _UserDashboardState extends State<UserDashboard> {
     );
   }
 
-  // New method for showing accessories & service chips
   Widget _buildAccessoriesServiceChips(Map<String, dynamic> sale) {
     final accessoriesAmount = sale['accessoriesAmount'] as double? ?? 0.0;
     final serviceAmount = sale['serviceAmount'] as double? ?? 0.0;
@@ -1359,11 +1455,11 @@ class _UserDashboardState extends State<UserDashboard> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.shopping_basket, size: 9, color: Colors.blue),
+              const Icon(Icons.shopping_basket, size: 9, color: Colors.blue),
               const SizedBox(width: 2),
               Text(
                 '₹${accessoriesAmount.toStringAsFixed(0)}',
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 8,
                   color: Colors.blue,
                   fontWeight: FontWeight.w600,
@@ -1388,11 +1484,11 @@ class _UserDashboardState extends State<UserDashboard> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.build, size: 9, color: Colors.teal),
+              const Icon(Icons.build, size: 9, color: Colors.teal),
               const SizedBox(width: 2),
               Text(
                 '₹${serviceAmount.toStringAsFixed(0)}',
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 8,
                   color: Colors.teal,
                   fontWeight: FontWeight.w600,
@@ -1448,7 +1544,6 @@ class _UserDashboardState extends State<UserDashboard> {
         child: SafeArea(
           child: Column(
             children: [
-              // Drawer Header
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -1500,7 +1595,7 @@ class _UserDashboardState extends State<UserDashboard> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              'Shop: ${user!.shopName!}',
+                              'Shop: ${user!.shopName ?? user.shopId}',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 11,
@@ -1513,8 +1608,6 @@ class _UserDashboardState extends State<UserDashboard> {
                   ],
                 ),
               ),
-
-              // Main scrollable content area
               Expanded(
                 child: Container(
                   decoration: const BoxDecoration(
@@ -1526,12 +1619,10 @@ class _UserDashboardState extends State<UserDashboard> {
                   ),
                   child: Column(
                     children: [
-                      // Main scrollable content
                       Expanded(
                         child: ListView(
                           padding: const EdgeInsets.only(top: 6),
                           children: [
-                            // Dashboard Section
                             _buildDrawerSection(
                               title: 'DASHBOARD',
                               children: [
@@ -1546,8 +1637,6 @@ class _UserDashboardState extends State<UserDashboard> {
                                 ),
                               ],
                             ),
-
-                            // Inventory Section
                             _buildDrawerSection(
                               title: 'INVENTORY',
                               children: [
@@ -1570,8 +1659,7 @@ class _UserDashboardState extends State<UserDashboard> {
                                   },
                                 ),
                                 _buildDrawerTile(
-                                  icon:
-                                      Icons.kitchen, // Kitchen/Appliances icon
+                                  icon: Icons.kitchen,
                                   title: 'Appliances Stock',
                                   color: Colors.orange,
                                   onTap: () {
@@ -1614,7 +1702,6 @@ class _UserDashboardState extends State<UserDashboard> {
                                 ),
                               ],
                             ),
-                            // PURCHASE SECTION (commented out as per original)
                             _buildDrawerSection(
                               title: 'PURCHASE',
                               children: [
@@ -1651,7 +1738,6 @@ class _UserDashboardState extends State<UserDashboard> {
                                 ),
                               ],
                             ),
-                            // Sales Upload Section
                             _buildDrawerSection(
                               title: 'SALES UPLOAD',
                               children: [
@@ -1706,17 +1792,6 @@ class _UserDashboardState extends State<UserDashboard> {
                                     );
                                   },
                                 ),
-                                // _buildDrawerTile(
-                                //   icon: Icons.devices,
-                                //   title: 'Base Models',
-                                //   color: Colors.purple,
-                                //   onTap: () {
-                                //     _scaffoldKey.currentState?.closeDrawer();
-                                //     _navigateToScreen(
-                                //       const BaseModelSaleUpload(),
-                                //     );
-                                //   },
-                                // ),
                                 _buildDrawerTile(
                                   icon: Icons.receipt_long,
                                   title: 'GST Accessories',
@@ -1730,8 +1805,6 @@ class _UserDashboardState extends State<UserDashboard> {
                                 ),
                               ],
                             ),
-
-                            // History Section (Sales History only)
                             _buildDrawerSection(
                               title: 'SALES Incentive',
                               children: [
@@ -1771,7 +1844,7 @@ class _UserDashboardState extends State<UserDashboard> {
                                       ScaffoldMessenger.of(
                                         context,
                                       ).showSnackBar(
-                                        SnackBar(
+                                        const SnackBar(
                                           content: Text(
                                             'Shop ID not found. Please contact administrator.',
                                           ),
@@ -1790,14 +1863,10 @@ class _UserDashboardState extends State<UserDashboard> {
                                 ),
                               ],
                             ),
-
-                            // Add some bottom padding to prevent logout button from being too close
                             const SizedBox(height: 20),
                           ],
                         ),
                       ),
-
-                      // Logout button placed outside the scrollable area
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -1910,9 +1979,11 @@ class _UserDashboardState extends State<UserDashboard> {
             fontSize: 12,
           ),
         ),
-        trailing: isSelected
-            ? Icon(Icons.chevron_right, color: color, size: 18)
-            : Icon(Icons.chevron_right, color: Colors.grey.shade400, size: 18),
+        trailing: Icon(
+          Icons.chevron_right,
+          color: isSelected ? color : Colors.grey.shade400,
+          size: 18,
+        ),
         onTap: onTap,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
@@ -1920,7 +1991,6 @@ class _UserDashboardState extends State<UserDashboard> {
   }
 
   Future<void> _logoutUser(AuthService authService) async {
-    // Show confirmation dialog before logout
     bool? confirm = await showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -2058,10 +2128,8 @@ class _UserDashboardState extends State<UserDashboard> {
   }
 
   void _showSaleDetails(BuildContext context, Map<String, dynamic> sale) {
-    // Get the accessories and service amounts that we stored
     final accessoriesAmount = sale['accessoriesAmount'] as double? ?? 0.0;
     final serviceAmount = sale['serviceAmount'] as double? ?? 0.0;
-    // Get payment info
     final paymentInfo = sale['paymentInfo'] as Map<String, dynamic>;
 
     showModalBottomSheet(
@@ -2126,7 +2194,6 @@ class _UserDashboardState extends State<UserDashboard> {
                 _buildDetailRow('Shop', sale['shopName'].toString()),
                 _buildDetailRow('Date', sale['displayDate'] as String),
 
-                // Accessories and Service amounts for accessories sales
                 if (sale['collection'] == 'accessories_service_sales') ...[
                   if (accessoriesAmount > 0)
                     _buildDetailRow(
@@ -2140,7 +2207,6 @@ class _UserDashboardState extends State<UserDashboard> {
                       '₹${serviceAmount.toStringAsFixed(0)}',
                       amountColor: Colors.teal,
                     ),
-                  // Show breakdown
                   if (accessoriesAmount > 0 || serviceAmount > 0)
                     Container(
                       margin: const EdgeInsets.only(bottom: 10),
@@ -2173,7 +2239,6 @@ class _UserDashboardState extends State<UserDashboard> {
                     ),
                 ],
 
-                // For non-accessories sales, show total amount
                 if (sale['collection'] != 'accessories_service_sales')
                   _buildDetailRow(
                     'Total Amount',
@@ -2181,7 +2246,6 @@ class _UserDashboardState extends State<UserDashboard> {
                     isTotal: true,
                   ),
 
-                // Collection-specific details
                 if (sale['collection'] == 'phoneSales') ...[
                   if (sale['productModel'] != null)
                     _buildDetailRow('Product', sale['productModel'].toString()),
@@ -2191,7 +2255,6 @@ class _UserDashboardState extends State<UserDashboard> {
                     _buildDetailRow('IMEI', sale['imei'].toString()),
                 ],
 
-                // Other collection details
                 if (sale['productName'] != null)
                   _buildDetailRow('Product', sale['productName'].toString()),
 
@@ -2202,7 +2265,6 @@ class _UserDashboardState extends State<UserDashboard> {
                   _buildDetailRow('IMEI', sale['imei'].toString()),
 
                 const SizedBox(height: 16),
-                // Show accessories and service breakdown for accessories sales
                 if (sale['collection'] == 'accessories_service_sales') ...[
                   const Text(
                     'Amount Breakdown',
@@ -2220,7 +2282,6 @@ class _UserDashboardState extends State<UserDashboard> {
                   const SizedBox(height: 16),
                 ],
 
-                // Show payment breakdown for ALL sales (including accessories)
                 const Text(
                   'Payment Breakdown',
                   style: TextStyle(
@@ -2259,7 +2320,6 @@ class _UserDashboardState extends State<UserDashboard> {
     );
   }
 
-  // New method for showing accessories & service details
   List<Widget> _buildAccessoriesServiceDetails(
     double accessoriesAmount,
     double serviceAmount,
