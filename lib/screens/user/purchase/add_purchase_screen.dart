@@ -73,15 +73,18 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   // ============================================================
   // STOCK CONFIG
   // applianceStock matches AppliancesStockScreen exactly.
-  // phoneStock / tvStock are ASSUMED (their save code wasn't available) —
-  // change the names / fields in _collectStockOps if yours differ.
+  // phoneStock / tvStock / accessoriesStock are ASSUMED — change the
+  // names / fields in _collectStockOps if yours differ.
   // ============================================================
   static const String _applianceStockCollection = 'applianceStock';
   static const String _phoneStockCollection = 'phoneStock'; // ASSUMED
   static const String _tvStockCollection = 'tvStock'; // ASSUMED
+  static const String _accessoriesStockCollection =
+      'accessoriesStock'; // ASSUMED
   static const String _applianceCategory = 'Appliances';
   static const String _phoneCategory = 'Phone'; // ASSUMED
   static const String _tvCategory = 'TV'; // ASSUMED
+  static const String _accessoryCategory = 'Accessories'; // ASSUMED
   static const int _maxBatchOps = 480; // Firestore batch limit is 500
 
   DateTime _selectedDate = DateTime.now();
@@ -110,7 +113,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   List<String> _currentIdentifiers = [];
 
   // Purchase-level option (toggle shown above "Complete Purchase"):
-  // true  = add purchased phones / TVs / appliances to stock (default)
+  // true  = add purchased phones / TVs / appliances / accessories to stock (default)
   // false = only save the purchase (and bill), stock is NOT updated
   bool _addPurchaseToStock = true;
 
@@ -180,6 +183,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     if (t.contains('phone') || t.contains('mobile')) return StockKind.phone;
     if (RegExp(r'\btv\b|television').hasMatch(t)) return StockKind.tv;
     if (t.contains('appliance')) return StockKind.appliance;
+    if (t.contains('accessor')) return StockKind.accessory;
     return StockKind.none;
   }
 
@@ -1800,6 +1804,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         case StockKind.appliance:
           stockOps += item.quantity; // one stock document per unit
           break;
+        case StockKind.accessory:
+          stockOps += 1; // one aggregated stock document per cart line
+          break;
         case StockKind.none:
           break;
       }
@@ -1944,8 +1951,30 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           summary[kind] = (summary[kind] ?? 0) + item.quantity;
           break;
 
+        // ---- ACCESSORIES: one aggregated stock document per cart line ----
+        // Accessories are tracked by quantity, not per-unit serials.
+        // If your accessories stock screen expects one doc per unit
+        // (like appliances/TVs), replace this block with the appliance
+        // pattern above and point it at _accessoriesStockCollection.
+        case StockKind.accessory:
+          final ref = _firestore.collection(_accessoriesStockCollection).doc();
+          final data = {
+            ..._baseStockFields(
+              category: _accessoryCategory,
+              item: item,
+              quantity: item.quantity, // total units in one document
+              purchaseId: purchaseId,
+              invoiceNo: invoiceNo,
+              uploadedBy: uploadedBy,
+              uploadedById: uploadedById,
+            ),
+          };
+          ops.add((b) => b.set(ref, data));
+          summary[kind] = (summary[kind] ?? 0) + item.quantity;
+          break;
+
         case StockKind.none:
-          break; // accessories etc. are not stocked
+          break; // unknown product types are not stocked
       }
     }
   }
@@ -1960,6 +1989,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     }
     if ((summary[StockKind.appliance] ?? 0) > 0) {
       parts.add('${summary[StockKind.appliance]} appliance(s)');
+    }
+    if ((summary[StockKind.accessory] ?? 0) > 0) {
+      parts.add('${summary[StockKind.accessory]} accessory item(s)');
     }
     if (parts.isEmpty) return '';
     return ' Stock updated: ${parts.join(', ')}.';
@@ -2697,7 +2729,11 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             child: Icon(
               kind == StockKind.phone
                   ? Icons.smartphone
-                  : (kind == StockKind.tv ? Icons.tv : Icons.shopping_bag),
+                  : (kind == StockKind.tv
+                        ? Icons.tv
+                        : (kind == StockKind.accessory
+                              ? Icons.headphones
+                              : Icons.shopping_bag)),
               size: 20,
               color: Colors.green[700],
             ),
@@ -3589,7 +3625,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   /// Purchase-level switch shown right above "Complete Purchase".
-  /// ON  (default): phones / TVs / appliances are added to stock.
+  /// ON  (default): phones / TVs / appliances / accessories are added to stock.
   /// OFF: only the purchase and bill are saved, stock is NOT updated.
   Widget _buildStockOptionToggle() {
     return Container(
@@ -3619,7 +3655,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         ),
         subtitle: Text(
           _addPurchaseToStock
-              ? 'Phones, TVs and appliances in this purchase will be added to stock'
+              ? 'Phones, TVs, appliances and accessories in this purchase will be added to stock'
               : 'Only the purchase and bill are saved — stock will NOT be updated',
           style: const TextStyle(fontSize: 11),
         ),
@@ -3889,7 +3925,7 @@ class _IdentifierScannerPageState extends State<_IdentifierScannerPage> {
 }
 
 /// Which stock collection a purchased product goes into.
-enum StockKind { phone, tv, appliance, none }
+enum StockKind { phone, tv, appliance, accessory, none }
 
 class CartItem {
   String productId;

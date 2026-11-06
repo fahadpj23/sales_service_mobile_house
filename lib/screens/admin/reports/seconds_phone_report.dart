@@ -52,6 +52,8 @@ class _SecondPhoneSaleReportScreenState
   Widget build(BuildContext context) {
     List<Sale> filteredSales = _filterSales();
 
+    final bool hasData = filteredSales.isNotEmpty;
+
     Map<String, dynamic> stats = _calculateStats(filteredSales);
 
     Map<String, List<Sale>> shopWiseSales = {};
@@ -66,7 +68,7 @@ class _SecondPhoneSaleReportScreenState
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: Text(
+        title: const Text(
           'Second Phone Sales',
           style: TextStyle(
             fontWeight: FontWeight.bold,
@@ -97,34 +99,36 @@ class _SecondPhoneSaleReportScreenState
           child: Column(
             children: [
               _buildFilters(),
-              _buildSummaryCards(stats),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.calendar_today,
-                      size: 16,
-                      color: const Color(0xFF0A4D2E),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      _getTimePeriodLabel(),
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: const Color(0xFF0A4D2E),
-                        fontWeight: FontWeight.w600,
+              // Only show summary cards + period label + breakdown
+              // when there is actual data. Otherwise just the empty state.
+              if (hasData) ...[
+                _buildSummaryCards(stats),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.calendar_today,
+                        size: 16,
+                        color: Color(0xFF0A4D2E),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 8),
+                      Text(
+                        _getTimePeriodLabel(),
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF0A4D2E),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              if (filteredSales.isEmpty)
-                _buildEmptyState()
-              else
+                const SizedBox(height: 16),
                 _buildShopWiseBreakdown(shopWiseSales),
+              ] else
+                _buildEmptyState(),
               const SizedBox(height: 20),
             ],
           ),
@@ -226,10 +230,10 @@ class _SecondPhoneSaleReportScreenState
                                           : Colors.grey,
                                     ),
                                   ),
-                                  Icon(
+                                  const Icon(
                                     Icons.calendar_today,
                                     size: 18,
-                                    color: const Color(0xFF0A4D2E),
+                                    color: Color(0xFF0A4D2E),
                                   ),
                                 ],
                               ),
@@ -276,10 +280,10 @@ class _SecondPhoneSaleReportScreenState
                                           : Colors.grey,
                                     ),
                                   ),
-                                  Icon(
+                                  const Icon(
                                     Icons.calendar_today,
                                     size: 18,
-                                    color: const Color(0xFF0A4D2E),
+                                    color: Color(0xFF0A4D2E),
                                   ),
                                 ],
                               ),
@@ -485,15 +489,11 @@ class _SecondPhoneSaleReportScreenState
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
+                  const Row(
                     children: [
-                      const Icon(
-                        Icons.store,
-                        size: 20,
-                        color: Color(0xFF0A4D2E),
-                      ),
-                      const SizedBox(width: 8),
-                      const Text(
+                      Icon(Icons.store, size: 20, color: Color(0xFF0A4D2E)),
+                      SizedBox(width: 8),
+                      Text(
                         'Shop-wise Breakdown',
                         style: TextStyle(
                           fontSize: 16,
@@ -834,75 +834,42 @@ class _SecondPhoneSaleReportScreenState
 
   Widget _buildEmptyState() {
     return Container(
-      padding: const EdgeInsets.all(32),
+      padding: const EdgeInsets.symmetric(vertical: 80, horizontal: 24),
+      alignment: Alignment.center,
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.inbox, size: 64, color: Colors.grey[400]),
+          Icon(Icons.inbox_outlined, size: 72, color: Colors.grey[400]),
           const SizedBox(height: 16),
           Text(
-            'No second phone sales found',
-            style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-            textAlign: TextAlign.center,
+            'No Data Found',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[700],
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             'No second phone sales available for ${_getTimePeriodLabel().toLowerCase()}',
-            style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+            style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+            textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              ElevatedButton.icon(
-                onPressed: () {
-                  setState(() {
-                    _timePeriod = 'previous_month';
-                    _customStartDate = null;
-                    _customEndDate = null;
-                    _showCustomDatePicker = false;
-                  });
-                },
-                icon: const Icon(Icons.arrow_back),
-                label: const Text('Previous Month'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0A4D2E),
-                  foregroundColor: Colors.white,
-                ),
-              ),
-              ElevatedButton.icon(
-                onPressed: () {
-                  setState(() {
-                    _timePeriod = 'yearly';
-                    _customStartDate = null;
-                    _customEndDate = null;
-                    _showCustomDatePicker = false;
-                  });
-                },
-                icon: const Icon(Icons.calendar_today),
-                label: const Text('Yearly'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0A4D2E),
-                  foregroundColor: Colors.white,
-                ),
-              ),
-              ElevatedButton.icon(
-                onPressed: () {
-                  setState(() {
-                    _timePeriod = 'all_time';
-                    _customStartDate = null;
-                    _customEndDate = null;
-                    _showCustomDatePicker = false;
-                  });
-                },
-                icon: const Icon(Icons.all_inclusive),
-                label: const Text('All Time'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0A4D2E),
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ],
+          const SizedBox(height: 20),
+          TextButton.icon(
+            onPressed: () {
+              setState(() {
+                _timePeriod = 'all_time';
+                _customStartDate = null;
+                _customEndDate = null;
+                _showCustomDatePicker = false;
+              });
+            },
+            icon: const Icon(Icons.refresh),
+            label: const Text('Show All Time'),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF0A4D2E),
+            ),
           ),
         ],
       ),
