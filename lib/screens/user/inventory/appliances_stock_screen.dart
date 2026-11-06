@@ -929,7 +929,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
       bool stockUpdated = false;
       int newQuantityAfterSale = 0;
 
-      // ============ FIXED: Transaction with proper error handling ============
+      // ============ Transaction with proper error handling ============
       try {
         await _firestore.runTransaction((transaction) async {
           final stockSnapshot = await transaction.get(stockRef);
@@ -1002,7 +1002,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
           stockUpdated = true;
         });
       } on FirebaseException catch (firebaseError) {
-        // Handle Firebase-specific errors
         print('Firebase error code: ${firebaseError.code}');
         print('Firebase error message: ${firebaseError.message}');
 
@@ -1027,14 +1026,12 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
         setState(() => _selectedModelForAction = null);
         return;
       } on Exception catch (e) {
-        // Handle general exceptions
         print('Transaction exception: $e');
         _showError('Failed to process sale: ${e.toString()}');
         setState(() => _isLoading = false);
         setState(() => _selectedModelForAction = null);
         return;
       } catch (e, stackTrace) {
-        // Handle any other errors
         print('Unexpected error: $e');
         print('Stack trace: $stackTrace');
         _showError('An unexpected error occurred: ${e.toString()}');
@@ -1042,7 +1039,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
         setState(() => _selectedModelForAction = null);
         return;
       }
-      // ============ END OF FIXED TRANSACTION ============
 
       if (!stockUpdated) {
         _showError('Stock update failed. Please try again.');
@@ -1051,7 +1047,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
         return;
       }
 
-      // Proceed to bill generation
       final productDataForBill = {
         'productName': modelData['productName'],
         'productBrand': modelData['productBrand'],
@@ -1098,8 +1093,6 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
       setState(() => _selectedModelForAction = null);
       setState(() => _isLoading = false);
     } catch (e, stackTrace) {
-      // Outer catch - should rarely be hit
-
       if (mounted) {
         _showError('Failed to process sale: ${e.toString()}');
       }
@@ -1108,166 +1101,23 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
     }
   }
 
+  /// Transfers [transferQuantity] units of an appliance to another shop.
+  /// Writes shop-level attribution (`transferredFromShopName`) so the
+  /// receiving shop's card shows a shop name instead of an email.
   Future<void> _transferToShop(
     String modelId,
     Map<String, dynamic> modelData,
     String newShopId,
-    String newShopName,
-  ) async {
+    String newShopName, {
+    int transferQuantity = 1,
+  }) async {
     try {
       final currentQuantity = modelData['quantity'] as int? ?? 1;
-      int transferQuantity = 1;
 
-      final result = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) {
-          int tempQuantity = 1;
-
-          return StatefulBuilder(
-            builder: (context, setDialogState) {
-              return AlertDialog(
-                title: const Text('Transfer Appliance'),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Product: ${modelData['productName']}',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Brand: ${modelData['productBrand']}',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.green.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text(
-                                  'Available Quantity:',
-                                  style: TextStyle(fontSize: 12),
-                                ),
-                                Text(
-                                  '$currentQuantity units',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.green.shade700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: TextEditingController(text: '1')
-                        ..selection = TextSelection.collapsed(offset: 1),
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Quantity to Transfer *',
-                        border: OutlineInputBorder(),
-                        helperText: 'Enter quantity to transfer',
-                      ),
-                      onChanged: (value) {
-                        final qty = int.tryParse(value);
-                        if (qty != null && qty > 0 && qty <= currentQuantity) {
-                          setDialogState(() {
-                            tempQuantity = qty;
-                          });
-                        } else if (qty != null && qty > currentQuantity) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'Cannot transfer more than available stock ($currentQuantity units)',
-                              ),
-                              backgroundColor: Colors.red,
-                              duration: const Duration(seconds: 2),
-                            ),
-                          );
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.store, size: 16, color: Colors.blue),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Transfer to: $newShopName',
-                              style: const TextStyle(fontSize: 12),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pop(context, false);
-                    },
-                    child: const Text('Cancel'),
-                  ),
-                  ElevatedButton(
-                    onPressed: () {
-                      if (tempQuantity > 0 && tempQuantity <= currentQuantity) {
-                        transferQuantity = tempQuantity;
-                        Navigator.pop(context, true);
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Please enter valid quantity'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                    ),
-                    child: const Text('Transfer'),
-                  ),
-                ],
-              );
-            },
-          );
-        },
-      );
-
-      if (result != true) {
-        setState(() => _selectedModelForAction = null);
+      if (transferQuantity <= 0 || transferQuantity > currentQuantity) {
+        _showError(
+          'Invalid transfer quantity. Available: $currentQuantity unit(s).',
+        );
         return;
       }
 
@@ -1279,6 +1129,13 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
       final currentShopId = modelData['shopId'] as String? ?? '';
       final currentShopName =
           modelData['shopName'] as String? ?? 'Unknown Shop';
+
+      // Capture the shop name of the user performing the transfer so the
+      // receiving shop sees "Transferred By: <Shop Name>".
+      final transferringShopName =
+          (user?.shopName != null && user!.shopName!.trim().isNotEmpty)
+          ? user.shopName!.trim()
+          : currentShopName;
 
       final DocumentReference stockRef = _firestore
           .collection('applianceStock')
@@ -1311,17 +1168,21 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
             .get();
 
         if (transferQuantity == freshQuantity) {
+          // Move the whole stock record to the new shop
           transaction.update(stockRef, {
             'shopId': newShopId,
             'shopName': newShopName,
             'transferredBy': user?.email ?? user?.name ?? 'Unknown',
             'transferredById': user?.uid ?? '',
+            'transferredFromShopId': currentShopId,
+            'transferredFromShopName': transferringShopName,
             'transferredAt': FieldValue.serverTimestamp(),
             'previousShopId': currentShopId,
             'previousShopName': currentShopName,
             'quantity': transferQuantity,
           });
         } else {
+          // Split the quantity: reduce this shop, add to target
           transaction.update(stockRef, {
             'quantity': freshQuantity - transferQuantity,
             'lastUpdatedAt': FieldValue.serverTimestamp(),
@@ -1337,6 +1198,10 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
               'quantity': targetQuantity + transferQuantity,
               'lastUpdatedAt': FieldValue.serverTimestamp(),
               'lastUpdatedBy': user?.email ?? user?.name ?? 'Unknown',
+              // store attribution so the receiving shop sees the source
+              'transferredFromShopId': currentShopId,
+              'transferredFromShopName': transferringShopName,
+              'transferredAt': FieldValue.serverTimestamp(),
             });
           } else {
             final newStockRef = _firestore.collection('applianceStock').doc();
@@ -1353,8 +1218,8 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
               'uploadedAt': FieldValue.serverTimestamp(),
               'status': 'available',
               'createdAt': FieldValue.serverTimestamp(),
-              'transferredFrom': currentShopId,
-              'transferredFromName': currentShopName,
+              'transferredFromShopId': currentShopId,
+              'transferredFromShopName': transferringShopName,
               'transferredAt': FieldValue.serverTimestamp(),
             });
           }
@@ -1701,6 +1566,23 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
     } catch (e) {
       return '₹0';
     }
+  }
+
+  /// Resolves "who transferred" display for an appliance stock doc.
+  /// Order: transferredFromShopName → previousShopName → transferredBy (email).
+  String _resolveTransferredByDisplay(Map<String, dynamic>? modelData) {
+    if (modelData == null) return '';
+    final transferredFromShopName =
+        (modelData['transferredFromShopName'] as String?)?.trim();
+    if (transferredFromShopName != null && transferredFromShopName.isNotEmpty) {
+      return transferredFromShopName;
+    }
+    final previousShopName = (modelData['previousShopName'] as String?)?.trim();
+    if (previousShopName != null && previousShopName.isNotEmpty) {
+      return previousShopName;
+    }
+    final transferredBy = (modelData['transferredBy'] as String?)?.trim();
+    return transferredBy ?? '';
   }
 
   Widget _buildBrandDropdown() {
@@ -2136,7 +2018,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
     return Dialog(
       backgroundColor: Colors.transparent,
       child: Container(
-        constraints: BoxConstraints(maxWidth: 400),
+        constraints: const BoxConstraints(maxWidth: 400),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -3019,12 +2901,14 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                                         );
                                         return;
                                       }
+                                      // Pass the entered quantity through!
                                       await _transferToShop(
                                         modelId,
                                         model,
                                         shop['id'] as String? ?? '',
                                         shop['name'] as String? ??
                                             'Unknown Shop',
+                                        transferQuantity: qty,
                                       );
                                     },
                               dense: true,
@@ -3300,8 +3184,11 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
         bgColor = Colors.white;
     }
 
-    final transferredBy = modelData?['transferredBy'] as String?;
+    // "Transfer:" now shows the SHOP NAME, not the email.
+    final transferredByDisplay = _resolveTransferredByDisplay(modelData);
     final transferredAt = modelData?['transferredAt'];
+    final hasTransferInfo =
+        transferredByDisplay.isNotEmpty && transferredAt != null;
 
     return Container(
       decoration: BoxDecoration(
@@ -3407,7 +3294,8 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
               ),
             ),
             const SizedBox(height: 4),
-            if (transferredBy != null && transferredAt != null) ...[
+            // Transfer info: shows SHOP NAME instead of email
+            if (hasTransferInfo) ...[
               Row(
                 children: [
                   Icon(
@@ -3418,7 +3306,7 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      'Transfer: $transferredBy',
+                      'Transfer: $transferredByDisplay',
                       style: TextStyle(
                         fontSize: 10,
                         color: Colors.orange.shade700,
@@ -3766,7 +3654,11 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.assignment_return, size: 50, color: Colors.grey),
+                  const Icon(
+                    Icons.assignment_return,
+                    size: 50,
+                    color: Colors.grey,
+                  ),
                   const SizedBox(height: 12),
                   const Text(
                     'No returned appliances',

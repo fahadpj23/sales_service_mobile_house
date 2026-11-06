@@ -783,6 +783,9 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
     }
   }
 
+  /// Transfers the base model to another shop.
+  /// Writes shop-level attribution (transferredFromShopName) so the
+  /// receiving shop's card shows a SHOP NAME instead of an email.
   Future<void> _transferToShop(
     String modelId,
     Map<String, dynamic> modelData,
@@ -799,11 +802,21 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
       final currentShopName =
           modelData['shopName'] as String? ?? 'Unknown Shop';
 
+      // Capture the shop name of the *user performing the transfer* so the
+      // receiving shop sees "Transferred By: <Shop Name>".
+      final transferringShopName =
+          (user?.shopName != null && user!.shopName!.trim().isNotEmpty)
+          ? user.shopName!.trim()
+          : currentShopName;
+
       await _firestore.collection('baseModelStock').doc(modelId).update({
         'shopId': newShopId,
         'shopName': newShopName,
         'transferredBy': user?.email ?? user?.name ?? 'Unknown',
         'transferredById': user?.uid ?? '',
+        // NEW: shop-level attribution — what the UI displays
+        'transferredFromShopId': currentShopId,
+        'transferredFromShopName': transferringShopName,
         'transferredAt': FieldValue.serverTimestamp(),
         'previousShopId': currentShopId,
         'previousShopName': currentShopName,
@@ -2180,6 +2193,23 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
     }
   }
 
+  /// Resolves "who transferred" display for a base model doc.
+  /// Order: transferredFromShopName → previousShopName → transferredBy (email).
+  String _resolveTransferredByDisplay(Map<String, dynamic>? modelData) {
+    if (modelData == null) return '';
+    final transferredFromShopName =
+        (modelData['transferredFromShopName'] as String?)?.trim();
+    if (transferredFromShopName != null && transferredFromShopName.isNotEmpty) {
+      return transferredFromShopName;
+    }
+    final previousShopName = (modelData['previousShopName'] as String?)?.trim();
+    if (previousShopName != null && previousShopName.isNotEmpty) {
+      return previousShopName;
+    }
+    final transferredBy = (modelData['transferredBy'] as String?)?.trim();
+    return transferredBy ?? '';
+  }
+
   Widget _buildStockList(String type) {
     final authProvider = Provider.of<AuthProvider>(context);
     final user = authProvider.user;
@@ -2223,7 +2253,11 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.assignment_return, size: 50, color: Colors.grey),
+                  const Icon(
+                    Icons.assignment_return,
+                    size: 50,
+                    color: Colors.grey,
+                  ),
                   const SizedBox(height: 12),
                   const Text(
                     'No returned base models',
@@ -2903,9 +2937,11 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
         bgColor = Colors.white;
     }
 
-    final transferredBy = modelData?['transferredBy'] as String?;
+    // "Transfer by" now shows SHOP NAME instead of email.
+    final transferredByDisplay = _resolveTransferredByDisplay(modelData);
     final transferredAt = modelData?['transferredAt'];
-    final previousShopName = modelData?['previousShopName'] as String?;
+    final hasTransferInfo =
+        transferredByDisplay.isNotEmpty && transferredAt != null;
 
     return Container(
       constraints: const BoxConstraints(minHeight: 200, maxHeight: 350),
@@ -3019,7 +3055,8 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
                         ),
                       ),
 
-                      if (transferredBy != null && transferredAt != null) ...[
+                      // Transfer info: shows SHOP NAME instead of email
+                      if (hasTransferInfo) ...[
                         const SizedBox(height: 2),
                         Row(
                           children: [
@@ -3032,7 +3069,7 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
                             Expanded(
                               flex: 2,
                               child: Text(
-                                'Transfer by $transferredBy on ${_formatDate(transferredAt)}',
+                                'Transfer by $transferredByDisplay on ${_formatDate(transferredAt)}',
                                 style: TextStyle(
                                   fontSize: 9,
                                   color: Colors.orange.shade700,

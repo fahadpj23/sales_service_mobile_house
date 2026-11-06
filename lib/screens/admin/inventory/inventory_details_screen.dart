@@ -49,6 +49,21 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
   String _currentUserId = "admin@gmail.com";
   String _currentUserName = "Admin";
 
+  /// Resolves the "Transferred From" display for an item.
+  /// Order: transferredFromShopName → transferredFrom → previousShopName → ''.
+  String _resolveTransferredByDisplay(Map<String, dynamic> item) {
+    final explicit = (item['transferredFromShopName'] as String?)?.trim();
+    if (explicit != null && explicit.isNotEmpty) return explicit;
+
+    final legacy = (item['transferredFrom'] as String?)?.trim();
+    if (legacy != null && legacy.isNotEmpty) return legacy;
+
+    final previousShop = (item['previousShopName'] as String?)?.trim();
+    if (previousShop != null && previousShop.isNotEmpty) return previousShop;
+
+    return '';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -132,11 +147,16 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         'uploadedBy': data['uploadedBy'] ?? 'Unknown',
         'uploadedById': data['uploadedById'] ?? '',
         'createdAt': _getTimestamp(data, 'createdAt'),
+        // Legacy fields (kept for compatibility)
         'previousShopId': transferDetails['previousShopId'] ?? '',
         'previousShopName': transferDetails['previousShopName'] ?? '',
         'transferredAt': transferDetails['transferredAt'],
         'transferredBy': transferDetails['transferredBy'] ?? '',
         'transferredById': transferDetails['transferredById'] ?? '',
+        // NEW: shop-level attribution — what the UI displays
+        'transferredFromShopId': transferDetails['transferredFromShopId'] ?? '',
+        'transferredFromShopName':
+            transferDetails['transferredFromShopName'] ?? '',
       });
 
       _totalAvailable++;
@@ -253,10 +273,15 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
   }
 
   Map<String, dynamic> _getTransferDetails(Map<String, dynamic> data) {
-    if (data['transferredAt'] != null || data['previousShopId'] != null) {
+    if (data['transferredAt'] != null ||
+        data['previousShopId'] != null ||
+        data['transferredFromShopId'] != null) {
       return {
         'previousShopId': data['previousShopId'] ?? '',
         'previousShopName': data['previousShopName'] ?? '',
+        'transferredFromShopId': data['transferredFromShopId'] ?? '',
+        'transferredFromShopName': data['transferredFromShopName'] ?? '',
+        'transferredFrom': data['transferredFrom'] ?? '',
         'transferredAt': data['transferredAt'] is Timestamp
             ? (data['transferredAt'] as Timestamp).toDate()
             : null,
@@ -779,6 +804,13 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
       final docSnapshot = await docRef.get();
       final data = docSnapshot.data() as Map<String, dynamic>;
 
+      // Capture the source shop name for the receiving shop to display.
+      final fromShopName =
+          (item['shopName'] as String?)?.trim().isNotEmpty == true
+          ? (item['shopName'] as String).trim()
+          : 'Unknown Shop';
+      final fromShopId = (item['shopId'] as String?) ?? '';
+
       // Create transfer record in transfers collection
       await _firestore.collection('phoneTransfers').add({
         'productName': item['productName'],
@@ -803,8 +835,12 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         'updatedAt': FieldValue.serverTimestamp(),
         'updatedBy': _currentUserName,
         'updatedById': _currentUserId,
+        // Legacy
         'previousShopId': item['shopId'],
         'previousShopName': item['shopName'],
+        // NEW: shop-level attribution, what the UI displays
+        'transferredFromShopId': fromShopId,
+        'transferredFromShopName': fromShopName,
         'transferredAt': FieldValue.serverTimestamp(),
         'transferredBy': _currentUserName,
         'transferredById': _currentUserId,
@@ -1757,6 +1793,9 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         statusText = status;
     }
 
+    // NEW: resolve transferring shop name for display
+    final transferredFromDisplay = _resolveTransferredByDisplay(item);
+
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       elevation: 1,
@@ -1945,21 +1984,28 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                   ),
                 ],
               ),
-              // Show transfer indicator if available
-              if (item['previousShopName'] != null &&
-                  item['previousShopName'] != '')
+              // NEW: Transfer info now shows the shop name, not the email
+              if (transferredFromDisplay.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Row(
                     children: [
-                      Icon(Icons.swap_horiz, size: 10, color: Colors.blue),
+                      const Icon(
+                        Icons.swap_horiz,
+                        size: 10,
+                        color: Colors.blue,
+                      ),
                       const SizedBox(width: 4),
-                      Text(
-                        'Transferred from: ${item['previousShopName']}',
-                        style: TextStyle(
-                          fontSize: 9,
-                          color: Colors.blue[700],
-                          fontStyle: FontStyle.italic,
+                      Expanded(
+                        child: Text(
+                          'Transferred from: $transferredFromDisplay',
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: Colors.blue[700],
+                            fontStyle: FontStyle.italic,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
@@ -1993,6 +2039,9 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     DateTime uploadedDate = item['uploadedAt'] as DateTime;
     String status = item['status'];
     DateTime createdAt = item['createdAt'] as DateTime;
+
+    // Resolve transferred-from shop name for display.
+    final transferredFromDisplay = _resolveTransferredByDisplay(item);
 
     showDialog(
       context: context,
@@ -2160,22 +2209,14 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
 
                       // Transfer Information (if transferred)
                       if (item['transferredAt'] != null ||
-                          (item['previousShopName'] != null &&
-                              item['previousShopName'] != ''))
+                          transferredFromDisplay.isNotEmpty)
                         _buildDetailSection('Transfer Information', [
-                          if (item['previousShopName'] != null &&
-                              item['previousShopName'] != '')
+                          // NEW: shop name displayed instead of email
+                          if (transferredFromDisplay.isNotEmpty)
                             _buildDetailRow(
-                              'Previous Shop',
-                              item['previousShopName'] ?? 'N/A',
+                              'Transferred From Shop',
+                              transferredFromDisplay,
                               icon: Icons.storefront,
-                            ),
-                          if (item['previousShopId'] != null &&
-                              item['previousShopId'] != '')
-                            _buildDetailRow(
-                              'Previous Shop ID',
-                              item['previousShopId'] ?? 'N/A',
-                              icon: Icons.store,
                             ),
                           if (item['transferredAt'] != null)
                             _buildDetailRow(
@@ -2185,19 +2226,13 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                               ).format(item['transferredAt']),
                               icon: Icons.calendar_today,
                             ),
+                          // Keep the raw email available for audit
                           if (item['transferredBy'] != null &&
                               item['transferredBy'] != '')
                             _buildDetailRow(
-                              'Transferred By',
+                              'Transferred By (User)',
                               item['transferredBy'] ?? 'N/A',
                               icon: Icons.person_outline,
-                            ),
-                          if (item['transferredById'] != null &&
-                              item['transferredById'] != '')
-                            _buildDetailRow(
-                              'Transferred By ID',
-                              item['transferredById'] ?? 'N/A',
-                              icon: Icons.badge,
                             ),
                         ]),
 

@@ -82,6 +82,18 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen> {
     }
   }
 
+  /// Resolves "Transferred From" display for a stock doc.
+  /// Order: transferredFromShopName → transferredFrom → (empty).
+  String _resolveTransferredFromDisplay(Map<String, dynamic> data) {
+    final explicit = (data['transferredFromShopName'] as String?)?.trim();
+    if (explicit != null && explicit.isNotEmpty) return explicit;
+
+    final legacy = (data['transferredFrom'] as String?)?.trim();
+    if (legacy != null && legacy.isNotEmpty) return legacy;
+
+    return '';
+  }
+
   // Show transfer dialog - DIRECT SHOP SELECTION without dropdown
   Future<void> _showTransferDialog(
     String docId,
@@ -187,11 +199,22 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen> {
     );
 
     try {
+      // Source shop name for the receiving shop to display.
+      final fromShopName =
+          (data['shopName'] as String?)?.trim().isNotEmpty == true
+          ? (data['shopName'] as String).trim()
+          : 'Unknown Shop';
+      final fromShopId = (data['shopId'] as String?) ?? '';
+
       await _firestore.collection('baseModelStock').doc(docId).update({
         'shopId': newShopId,
         'shopName': newShopName,
         'transferredAt': FieldValue.serverTimestamp(),
-        'transferredFrom': data['shopName'],
+        // NEW: shop-level attribution, what the UI displays
+        'transferredFromShopId': fromShopId,
+        'transferredFromShopName': fromShopName,
+        // keep legacy field for backward compatibility
+        'transferredFrom': fromShopName,
         'status': 'available',
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -506,7 +529,7 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen> {
       ),
       body: Column(
         children: [
-          _buildSearchAndFilterArea(), // Updated: Now includes shop filter
+          _buildSearchAndFilterArea(),
           _buildStatusChips(),
           const Divider(height: 1, color: Colors.grey),
           Expanded(child: _buildStockList()),
@@ -515,7 +538,6 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen> {
     );
   }
 
-  // NEW: Combined search and filter area with shop dropdown
   Widget _buildSearchAndFilterArea() {
     return Container(
       padding: EdgeInsets.all(10),
@@ -590,7 +612,6 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen> {
     );
   }
 
-  // NEW: Shop filter dropdown widget
   Widget _buildShopFilterDropdown() {
     return Container(
       height: 34,
@@ -1004,6 +1025,9 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen> {
     String status = data['status']?.toString() ?? 'unknown';
     Color statusColor = _getStatusColor(status);
 
+    // New: resolve the transferring shop name for display.
+    final transferredFromDisplay = _resolveTransferredFromDisplay(data);
+
     return Card(
       margin: EdgeInsets.only(bottom: 6),
       elevation: 1,
@@ -1186,6 +1210,21 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen> {
                       ),
                     ],
                   ),
+                  // NEW: Show transferred-from SHOP NAME (only if present)
+                  if (transferredFromDisplay.isNotEmpty) ...[
+                    SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildDetailItem(
+                            'Transferred From',
+                            transferredFromDisplay,
+                            color: primaryGreen,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   SizedBox(height: 3),
                   Row(
                     children: [

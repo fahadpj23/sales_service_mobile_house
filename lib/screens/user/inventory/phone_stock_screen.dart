@@ -937,11 +937,22 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
       final currentShopName =
           phoneData['shopName'] as String? ?? 'Unknown Shop';
 
+      // Capture the shop name of the *person who is transferring*
+      // so the receiving shop sees "Transferred By: <Shop Name>"
+      // instead of an individual email.
+      final transferringShopName =
+          (user?.shopName != null && user!.shopName!.trim().isNotEmpty)
+          ? user.shopName!.trim()
+          : currentShopName;
+
       await _firestore.collection('phoneStock').doc(phoneId).update({
         'shopId': newShopId,
         'shopName': newShopName,
         'transferredBy': user?.email ?? user?.name ?? 'Unknown',
         'transferredById': user?.uid ?? '',
+        // NEW: shop-level attribution — what the UI displays
+        'transferredFromShopId': currentShopId,
+        'transferredFromShopName': transferringShopName,
         'transferredAt': FieldValue.serverTimestamp(),
         'previousShopId': currentShopId,
         'previousShopName': currentShopName,
@@ -2574,7 +2585,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     }
   }
 
-  // FIXED: This is the corrected _buildStockList method with proper scrolling
   Widget _buildStockList(String type) {
     final authProvider = Provider.of<AuthProvider>(context);
     final user = authProvider.user;
@@ -2618,7 +2628,11 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.assignment_return, size: 50, color: Colors.grey),
+                  const Icon(
+                    Icons.assignment_return,
+                    size: 50,
+                    color: Colors.grey,
+                  ),
                   const SizedBox(height: 12),
                   const Text(
                     'No returned phones',
@@ -2689,10 +2703,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             brandStats[brand]!['value'] = brandStats[brand]!['value'] + price;
           }
 
-          // FIXED: Using CustomScrollView and SliverList to properly handle scrolling without overflow
           return CustomScrollView(
             slivers: [
-              // Stats header
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
@@ -2722,7 +2734,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                 ),
               ),
 
-              // Brand stats row
               if (brandStats.isNotEmpty)
                 SliverToBoxAdapter(
                   child: Column(
@@ -2800,7 +2811,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                   ),
                 ),
 
-              // Header info
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -2822,7 +2832,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
               const SliverToBoxAdapter(child: SizedBox(height: 12)),
 
-              // Phone list
               SliverList(
                 delegate: SliverChildBuilderDelegate((context, index) {
                   final returnData = filteredReturns[index];
@@ -3007,10 +3016,8 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
             brandStats[brand]!['value'] = brandStats[brand]!['value'] + price;
           }
 
-          // FIXED: Using CustomScrollView and SliverList to properly handle scrolling without overflow
           return CustomScrollView(
             slivers: [
-              // Stats header
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
@@ -3044,7 +3051,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                 ),
               ),
 
-              // Brand stats row
               if (brandStats.isNotEmpty)
                 SliverToBoxAdapter(
                   child: Column(
@@ -3128,7 +3134,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                   ),
                 ),
 
-              // Header info
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -3152,7 +3157,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
               const SliverToBoxAdapter(child: SizedBox(height: 12)),
 
-              // Phone list
               SliverList(
                 delegate: SliverChildBuilderDelegate((context, index) {
                   final stock = filteredStocks[index];
@@ -3288,6 +3292,25 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
     );
   }
 
+  /// Resolves the "who transferred" display for a phone.
+  /// Prefers the stored shop name (transferredFromShopName), then
+  /// previousShopName, then falls back to the raw email only if neither is set.
+  String _resolveTransferredByDisplay(Map<String, dynamic>? phoneData) {
+    if (phoneData == null) return '';
+    final transferredFromShopName =
+        (phoneData['transferredFromShopName'] as String?)?.trim();
+    if (transferredFromShopName != null && transferredFromShopName.isNotEmpty) {
+      return transferredFromShopName;
+    }
+    final previousShopName = (phoneData['previousShopName'] as String?)?.trim();
+    if (previousShopName != null && previousShopName.isNotEmpty) {
+      return previousShopName;
+    }
+    // Fall back to email only for legacy records written before this change.
+    final transferredBy = (phoneData['transferredBy'] as String?)?.trim();
+    return transferredBy ?? '';
+  }
+
   Widget _buildPhoneCard({
     required String productName,
     required String productBrand,
@@ -3321,9 +3344,11 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
         bgColor = Colors.white;
     }
 
-    final transferredBy = phoneData?['transferredBy'] as String?;
+    // "Transferred By" now shows the SHOP NAME, not the email.
+    final transferredByDisplay = _resolveTransferredByDisplay(phoneData);
     final transferredAt = phoneData?['transferredAt'];
-    final previousShopName = phoneData?['previousShopName'] as String?;
+    final hasTransferInfo =
+        transferredByDisplay.isNotEmpty && transferredAt != null;
 
     return Container(
       decoration: BoxDecoration(
@@ -3344,7 +3369,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Row for status badge and edit button
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -3388,7 +3412,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
             const SizedBox(height: 5),
 
-            // Product name
             Text(
               productName,
               style: const TextStyle(
@@ -3402,7 +3425,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
             const SizedBox(height: 4),
 
-            // Price and Brand row
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -3436,7 +3458,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
             const SizedBox(height: 3),
 
-            // IMEI
             Text(
               'IMEI: $displayImei',
               style: const TextStyle(
@@ -3448,12 +3469,11 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               overflow: TextOverflow.ellipsis,
             ),
 
-            // Transfer info with transferred by
-            if (transferredBy != null && transferredAt != null) ...[
+            // Transfer info: shows SHOP NAME instead of email
+            if (hasTransferInfo) ...[
               const SizedBox(height: 3),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -3475,7 +3495,7 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
                         ),
                         Expanded(
                           child: Text(
-                            ' By: $transferredBy',
+                            ' By: $transferredByDisplay',
                             style: TextStyle(
                               fontSize: 8,
                               color: Colors.orange.shade600,
@@ -3503,7 +3523,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               ),
             ],
             const SizedBox(height: 3),
-            // Added info
             Text(
               'Added: ${_formatDate(uploadedAt)}',
               style: TextStyle(fontSize: 9, color: Colors.grey[600]),
@@ -3511,7 +3530,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               overflow: TextOverflow.ellipsis,
             ),
 
-            // Sold info
             if (status == 'sold' && soldAt != null) ...[
               Text(
                 'Sold: ${_formatDate(soldAt)}',
@@ -3521,7 +3539,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
               ),
             ],
 
-            // Action buttons
             if (status == 'available' &&
                 (onSell != null || onTransfer != null || onReturn != null))
               Padding(
@@ -3637,7 +3654,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Status badge
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
@@ -3656,7 +3672,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
             const SizedBox(height: 4),
 
-            // Product name
             Text(
               productName,
               style: const TextStyle(
@@ -3670,7 +3685,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
             const SizedBox(height: 2),
 
-            // Price and Brand row
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -3704,7 +3718,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
             const SizedBox(height: 2),
 
-            // IMEI
             Text(
               'IMEI: $displayImei',
               style: const TextStyle(
@@ -3718,7 +3731,6 @@ class _PhoneStockScreenState extends State<PhoneStockScreen>
 
             const SizedBox(height: 2),
 
-            // Return info in compact format
             Row(
               children: [
                 Icon(

@@ -86,6 +86,18 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
     }
   }
 
+  /// Resolves "Transferred From" display for a stock doc.
+  /// Order: transferredFromShopName → transferredFrom → (empty).
+  String _resolveTransferredFromDisplay(Map<String, dynamic> data) {
+    final explicit = (data['transferredFromShopName'] as String?)?.trim();
+    if (explicit != null && explicit.isNotEmpty) return explicit;
+
+    final legacy = (data['transferredFrom'] as String?)?.trim();
+    if (legacy != null && legacy.isNotEmpty) return legacy;
+
+    return '';
+  }
+
   // ==================== EDIT PRODUCT DETAILS ====================
   Future<void> _editProductDetails(
     String docId,
@@ -815,6 +827,13 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
           .where('shopId', isEqualTo: newShopId)
           .get();
 
+      // Capture the source shop name for the receiving shop to display.
+      final fromShopName =
+          (data['shopName'] as String?)?.trim().isNotEmpty == true
+          ? (data['shopName'] as String).trim()
+          : 'Unknown Shop';
+      final fromShopId = (data['shopId'] as String?) ?? '';
+
       if (targetQuery.docs.isNotEmpty) {
         final targetDoc = targetQuery.docs.first;
         final targetData = targetDoc.data();
@@ -826,6 +845,10 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
           'lastUpdatedAt': FieldValue.serverTimestamp(),
           'lastUpdatedBy': data['uploadedBy'],
           'status': 'available',
+          // NEW: shop-level attribution, what the UI displays
+          'transferredFromShopId': fromShopId,
+          'transferredFromShopName': fromShopName,
+          'transferredAt': FieldValue.serverTimestamp(),
         });
       } else {
         await _firestore.collection('applianceStock').add({
@@ -839,7 +862,11 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
           'uploadedAt': FieldValue.serverTimestamp(),
           'createdAt': FieldValue.serverTimestamp(),
           'status': 'available',
-          'transferredFrom': data['shopName'],
+          // NEW: shop-level attribution, what the UI displays
+          'transferredFromShopId': fromShopId,
+          'transferredFromShopName': fromShopName,
+          // keep the legacy field for backward compatibility
+          'transferredFrom': fromShopName,
           'transferredAt': FieldValue.serverTimestamp(),
         });
       }
@@ -1406,7 +1433,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
               ),
               Divider(height: 1),
 
-              // ✅ EDIT PRODUCT DETAILS OPTION
               ListTile(
                 dense: true,
                 leading: Icon(Icons.edit, color: primaryGreen, size: 20),
@@ -2039,6 +2065,9 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
     int quantity = (data['quantity'] ?? 0).toInt();
     double price = (data['productPrice'] ?? 0).toDouble();
 
+    // New: resolve the transferring shop name for display.
+    final transferredFromDisplay = _resolveTransferredFromDisplay(data);
+
     return Card(
       margin: EdgeInsets.only(bottom: 6),
       elevation: 1,
@@ -2111,7 +2140,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                       ),
                     ),
                     SizedBox(width: 4),
-                    // ✅ Quick Edit Icon
                     IconButton(
                       icon: Icon(
                         Icons.edit,
@@ -2141,7 +2169,6 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                         }
                       },
                       itemBuilder: (context) => [
-                        // ✅ EDIT OPTION
                         PopupMenuItem(
                           value: 'edit',
                           child: Row(
@@ -2255,6 +2282,21 @@ class _ApplianceStockScreenState extends State<ApplianceStockScreen> {
                       ),
                     ],
                   ),
+                  // NEW: Show transferred-from SHOP NAME (only if present)
+                  if (transferredFromDisplay.isNotEmpty) ...[
+                    SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildDetailItem(
+                            'Transferred From',
+                            transferredFromDisplay,
+                            color: primaryGreen,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   SizedBox(height: 3),
                   Row(
                     children: [

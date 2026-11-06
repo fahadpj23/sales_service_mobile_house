@@ -973,11 +973,21 @@ class _TvStockScreenState extends State<TvStockScreen>
       final currentShopId = tvData['shopId'] as String? ?? '';
       final currentShopName = tvData['shopName'] as String? ?? 'Unknown Shop';
 
+      // Capture the shop name of the *user performing the transfer* so the
+      // receiving shop sees "Transferred By: <Shop Name>" instead of email.
+      final transferringShopName =
+          (user?.shopName != null && user!.shopName!.trim().isNotEmpty)
+          ? user.shopName!.trim()
+          : currentShopName;
+
       await _firestore.collection('tvStock').doc(tvId).update({
         'shopId': newShopId,
         'shopName': newShopName,
         'transferredBy': user?.email ?? user?.name ?? 'Unknown',
         'transferredById': user?.uid ?? '',
+        // NEW: shop-level attribution — what the UI displays
+        'transferredFromShopId': currentShopId,
+        'transferredFromShopName': transferringShopName,
         'transferredAt': FieldValue.serverTimestamp(),
         'previousShopId': currentShopId,
         'previousShopName': currentShopName,
@@ -2382,7 +2392,11 @@ class _TvStockScreenState extends State<TvStockScreen>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.assignment_return, size: 50, color: Colors.grey),
+                  const Icon(
+                    Icons.assignment_return,
+                    size: 50,
+                    color: Colors.grey,
+                  ),
                   const SizedBox(height: 12),
                   const Text(
                     'No returned TVs',
@@ -3024,6 +3038,25 @@ class _TvStockScreenState extends State<TvStockScreen>
     );
   }
 
+  /// Resolves the "who transferred" display for a TV.
+  /// Prefers the stored shop name (transferredFromShopName), then
+  /// previousShopName, then falls back to the raw email only for legacy records.
+  String _resolveTransferredByDisplay(Map<String, dynamic>? tvData) {
+    if (tvData == null) return '';
+    final transferredFromShopName =
+        (tvData['transferredFromShopName'] as String?)?.trim();
+    if (transferredFromShopName != null && transferredFromShopName.isNotEmpty) {
+      return transferredFromShopName;
+    }
+    final previousShopName = (tvData['previousShopName'] as String?)?.trim();
+    if (previousShopName != null && previousShopName.isNotEmpty) {
+      return previousShopName;
+    }
+    // Fall back to email only for legacy records written before this change.
+    final transferredBy = (tvData['transferredBy'] as String?)?.trim();
+    return transferredBy ?? '';
+  }
+
   Widget _buildTvCard({
     required String modelName,
     required String modelBrand,
@@ -3056,8 +3089,11 @@ class _TvStockScreenState extends State<TvStockScreen>
         bgColor = Colors.white;
     }
 
-    final transferredBy = tvData?['transferredBy'] as String?;
+    // "Transfer:" now shows the SHOP NAME, not the email.
+    final transferredByDisplay = _resolveTransferredByDisplay(tvData);
     final transferredAt = tvData?['transferredAt'];
+    final hasTransferInfo =
+        transferredByDisplay.isNotEmpty && transferredAt != null;
 
     return Container(
       decoration: BoxDecoration(
@@ -3149,7 +3185,8 @@ class _TvStockScreenState extends State<TvStockScreen>
                 ),
               ],
             ),
-            if (transferredBy != null && transferredAt != null) ...[
+            // Transfer info: shows SHOP NAME instead of email
+            if (hasTransferInfo) ...[
               const SizedBox(height: 4),
               Row(
                 children: [
@@ -3161,7 +3198,7 @@ class _TvStockScreenState extends State<TvStockScreen>
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      'Transfer: $transferredBy',
+                      'Transfer: $transferredByDisplay',
                       style: TextStyle(
                         fontSize: 10,
                         color: Colors.orange.shade700,
@@ -3797,11 +3834,9 @@ class _OptimizedSerialScannerState extends State<OptimizedSerialScanner>
           children: [
             Container(
               padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: Colors.blue,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(20),
-                ),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
               ),
               child: Row(
                 children: [

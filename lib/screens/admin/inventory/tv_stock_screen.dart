@@ -86,6 +86,18 @@ class _TvStockScreenState extends State<TvStockScreen> {
     }
   }
 
+  /// Resolves "Transferred From" display for a TV.
+  /// Order: transferredFromShopName → transferredFrom → ''.
+  String _resolveTransferredFromDisplay(Map<String, dynamic> data) {
+    final explicit = (data['transferredFromShopName'] as String?)?.trim();
+    if (explicit != null && explicit.isNotEmpty) return explicit;
+
+    final legacy = (data['transferredFrom'] as String?)?.trim();
+    if (legacy != null && legacy.isNotEmpty) return legacy;
+
+    return '';
+  }
+
   // ==================== EDIT TV DETAILS ====================
   Future<void> _editTvDetails(String docId, Map<String, dynamic> data) async {
     final TextEditingController modelController = TextEditingController(
@@ -488,11 +500,22 @@ class _TvStockScreenState extends State<TvStockScreen> {
     );
 
     try {
+      // Capture source shop name for the receiving shop to display.
+      final fromShopName =
+          (data['shopName'] as String?)?.trim().isNotEmpty == true
+          ? (data['shopName'] as String).trim()
+          : 'Unknown Shop';
+      final fromShopId = (data['shopId'] as String?) ?? '';
+
       await _firestore.collection('tvStock').doc(docId).update({
         'shopId': newShopId,
         'shopName': newShopName,
         'transferredAt': FieldValue.serverTimestamp(),
-        'transferredFrom': data['shopName'],
+        // NEW: shop-level attribution, what the UI displays
+        'transferredFromShopId': fromShopId,
+        'transferredFromShopName': fromShopName,
+        // keep legacy field for backward compatibility
+        'transferredFrom': fromShopName,
         'status': 'available',
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -1308,6 +1331,9 @@ class _TvStockScreenState extends State<TvStockScreen> {
     String status = data['status']?.toString() ?? 'unknown';
     Color statusColor = _getStatusColor(status);
 
+    // New: resolve the transferring shop name for display.
+    final transferredFromDisplay = _resolveTransferredFromDisplay(data);
+
     return Card(
       margin: EdgeInsets.only(bottom: 6),
       elevation: 1,
@@ -1380,7 +1406,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
                       ),
                     ),
                     SizedBox(width: 4),
-                    // ✅ Quick Edit Icon
                     IconButton(
                       icon: Icon(
                         Icons.edit,
@@ -1410,7 +1435,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
                         }
                       },
                       itemBuilder: (context) => [
-                        // ✅ EDIT OPTION
                         PopupMenuItem(
                           value: 'edit',
                           child: Row(
@@ -1521,6 +1545,21 @@ class _TvStockScreenState extends State<TvStockScreen> {
                       ),
                     ],
                   ),
+                  // NEW: Show transferred-from SHOP NAME (only if present)
+                  if (transferredFromDisplay.isNotEmpty) ...[
+                    SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildDetailItem(
+                            'Transferred From',
+                            transferredFromDisplay,
+                            color: primaryGreen,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   SizedBox(height: 3),
                   Row(
                     children: [
