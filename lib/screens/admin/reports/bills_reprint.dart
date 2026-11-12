@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // for Timestamp
 
 enum _BillKind { phone, accessories, tv, appliance }
 
@@ -153,12 +154,105 @@ class BillRePrint {
     return _BillKind.phone;
   }
 
+  // ==================== DATE HELPERS (FIX) ====================
+
+  /// Extract the ORIGINAL bill date from the bill map.
+  /// Tries common field names, handles Firestore Timestamp, DateTime,
+  /// millisecond int, ISO string, and 'dd/MM/yyyy' strings.
+  /// Returns DateTime.now() only if nothing usable is found.
+  DateTime _extractBillDate(Map<String, dynamic> bill) {
+    final candidates = <dynamic>[
+      bill['billDate'],
+      bill['saleDate'],
+      bill['invoiceDate'],
+      bill['date'],
+      bill['createdAt'],
+      bill['uploadedAt'],
+      bill['timestamp'],
+      bill['addedAt'],
+      _from(bill['originalPhoneData'], 'date'),
+      _from(bill['originalTvData'], 'date'),
+      _from(bill['originalApplianceData'], 'date'),
+    ];
+
+    for (final raw in candidates) {
+      final dt = _parseDateValue(raw);
+      if (dt != null) return dt;
+    }
+
+    return DateTime.now();
+  }
+
+  /// Convert any supported date representation to DateTime.
+  DateTime? _parseDateValue(dynamic raw) {
+    if (raw == null) return null;
+
+    // Firestore Timestamp
+    if (raw is Timestamp) {
+      return raw.toDate();
+    }
+
+    // Already a DateTime
+    if (raw is DateTime) {
+      return raw;
+    }
+
+    // Milliseconds since epoch (int)
+    if (raw is int) {
+      try {
+        return DateTime.fromMillisecondsSinceEpoch(raw);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    // Numeric string or date string
+    final s = raw.toString().trim();
+    if (s.isEmpty || s.toLowerCase() == 'null') return null;
+
+    // Try ISO-8601 first
+    final iso = DateTime.tryParse(s);
+    if (iso != null) return iso;
+
+    // Try 'dd/MM/yyyy' or 'dd-MM-yyyy'
+    final slashParts = s.split(RegExp(r'[/\-]'));
+    if (slashParts.length >= 3) {
+      final d = int.tryParse(slashParts[0]);
+      final m = int.tryParse(slashParts[1]);
+      final y = int.tryParse(slashParts[2]);
+      if (d != null && m != null && y != null) {
+        try {
+          return DateTime(y, m, d);
+        } catch (_) {
+          return null;
+        }
+      }
+    }
+
+    // Try pure numeric millis in string form
+    final asInt = int.tryParse(s);
+    if (asInt != null) {
+      try {
+        return DateTime.fromMillisecondsSinceEpoch(asInt);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    return null;
+  }
+
+  // ==================== END DATE HELPERS ====================
+
   Future<Uint8List> _generateBillPdf(Map<String, dynamic> bill) async {
     await initialize();
 
     final pdf = pw.Document();
     final pageFormat = PdfPageFormat.a4;
-    String currentDate = DateFormat('dd MMMM yyyy').format(DateTime.now());
+
+    // ✅ FIX: Use the ORIGINAL bill date, not DateTime.now()
+    final DateTime billDate = _extractBillDate(bill);
+    String currentDate = DateFormat('dd MMMM yyyy').format(billDate);
 
     final billNumber = bill['billNumber'] ?? 'N/A';
     final customerName = bill['customerName'] ?? 'N/A';
@@ -239,7 +333,6 @@ class BillRePrint {
           _from(product, 'serialNumber'),
           _from(originalApplianceData, 'serialNumber'),
           bill['serial'],
-          // last-resort: value saved under imei key (still shown as S/N)
           bill['imei'],
           _from(product, 'imei'),
         ]);
