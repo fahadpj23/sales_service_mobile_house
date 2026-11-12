@@ -9,6 +9,7 @@ import 'package:sales_stock/screens/admin/analysis/payment_breakdown_screen.dart
 import 'package:sales_stock/screens/admin/inventory/appliance_stock_screen.dart';
 import 'package:sales_stock/screens/admin/inventory/base_model_stock_screen.dart';
 import 'package:sales_stock/screens/admin/inventory/tv_stock_screen.dart';
+import 'package:sales_stock/screens/admin/purchase/accessories_purchase_screen.dart';
 import 'package:sales_stock/screens/admin/reports/basemodel_report-screen.dart';
 import 'package:sales_stock/screens/admin/reports/bills_report_screen.dart';
 import 'package:sales_stock/screens/admin/reports/purchase_report_screen.dart';
@@ -1617,6 +1618,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               );
             },
           ),
+
+          // then inside _buildDrawer() ...
+          // _buildDrawerItem(
+          //   Icons.shopping_bag,
+          //   'Accessories Purchase Upload',
+          //   onTap: () {
+          //     Navigator.pop(context);
+          //     Navigator.push(
+          //       context,
+          //       MaterialPageRoute(
+          //         builder: (context) => AccessoriesPurchaseScreen(
+          //           formatNumber: _formatNumber,
+          //           shops: shops,
+          //         ),
+          //       ),
+          //     );
+          //   },
+          // ),
           Divider(height: 1),
 
           Padding(
