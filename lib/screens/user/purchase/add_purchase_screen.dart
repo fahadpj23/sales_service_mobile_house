@@ -1,16 +1,56 @@
 import 'dart:math' show min;
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:image/image.dart' as img;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:sales_stock/providers/auth_provider.dart';
 import '../../../models/purchase.dart';
 import 'add_product_screen.dart';
 import 'add_supplier_screen.dart';
+
+/// Bill images are compressed to stay below this size (1 MB limit, with margin).
+const int _kBillTargetBytes = 900 * 1024;
+
+/// Runs in a background isolate. Returns JPEG bytes below [_kBillTargetBytes],
+/// or null when the image cannot be decoded (e.g. HEIC).
+Uint8List? _compressBillImage(Uint8List input) {
+  img.Image? image = img.decodeImage(input);
+  if (image == null) return null;
+  image = img.bakeOrientation(image);
+
+  int maxSide = 1800;
+  int quality = 85;
+  Uint8List? best;
+
+  for (var attempt = 0; attempt < 12; attempt++) {
+    img.Image work = image;
+    final longest = image.width > image.height ? image.width : image.height;
+    if (longest > maxSide) {
+      work = image.width >= image.height
+          ? img.copyResize(image, width: maxSide)
+          : img.copyResize(image, height: maxSide);
+    }
+    best = Uint8List.fromList(img.encodeJpg(work, quality: quality));
+    if (best.length <= _kBillTargetBytes) return best;
+
+    if (quality > 50) {
+      quality -= 10; // first lower the quality
+    } else {
+      maxSide = (maxSide * 0.8).round(); // then shrink the picture
+      quality = 70;
+    }
+  }
+  return best;
+}
 
 /// Result returned by the selection popup (supplier / product).
 class _PickerResult {
@@ -32,16 +72,20 @@ class AddPurchaseScreen extends StatefulWidget {
 class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   // ============================================================
   // STOCK CONFIG
+  // applianceStock matches AppliancesStockScreen exactly.
+  // phoneStock / tvStock / accessoriesStock are ASSUMED — change the
+  // names / fields in _collectStockOps if yours differ.
   // ============================================================
   static const String _applianceStockCollection = 'applianceStock';
-  static const String _phoneStockCollection = 'phoneStock';
-  static const String _tvStockCollection = 'tvStock';
-  static const String _accessoriesStockCollection = 'accessoriesStock';
+  static const String _phoneStockCollection = 'phoneStock'; // ASSUMED
+  static const String _tvStockCollection = 'tvStock'; // ASSUMED
+  static const String _accessoriesStockCollection =
+      'accessoriesStock'; // ASSUMED
   static const String _applianceCategory = 'Appliances';
-  static const String _phoneCategory = 'Phone';
-  static const String _tvCategory = 'TV';
-  static const String _accessoryCategory = 'Accessories';
-  static const int _maxBatchOps = 480;
+  static const String _phoneCategory = 'Phone'; // ASSUMED
+  static const String _tvCategory = 'TV'; // ASSUMED
+  static const String _accessoryCategory = 'Accessories'; // ASSUMED
+  static const int _maxBatchOps = 480; // Firestore batch limit is 500
 
   DateTime _selectedDate = DateTime.now();
   String? _selectedSupplierId;
@@ -68,7 +112,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   final FocusNode _identifierFocusNode = FocusNode();
   List<String> _currentIdentifiers = [];
 
-  // Purchase-level option
+  // Purchase-level option (toggle shown above "Complete Purchase"):
+  // true  = add purchased phones / TVs / appliances / accessories to stock (default)
+  // false = only save the purchase (and bill), stock is NOT updated
   bool _addPurchaseToStock = true;
 
   // Lets the open product-details popup rebuild when screen state changes
@@ -82,6 +128,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     } catch (_) {}
   }
 
+  // Stock always goes to the shop of the logged-in user (no shop picker)
   String? get _stockShopId {
     final id = Provider.of<AuthProvider>(context, listen: false).user?.shopId;
     return (id != null && id.isNotEmpty) ? id : null;
@@ -94,6 +141,17 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     ).user?.shopName;
     return (name != null && name.isNotEmpty) ? name : 'Unknown Shop';
   }
+
+  // Purchase bill image
+  final ImagePicker _imagePicker = ImagePicker();
+  final FirebaseStorage _storage = FirebaseStorage.instance;
+  Uint8List? _billBytes;
+  String? _billFileName;
+  bool _isUploading = false;
+  bool _isCompressing = false;
+  double _uploadProgress = 0;
+  static const int _maxBillSizeBytes =
+      25 * 1024 * 1024; // max picked file (25 MB)
 
   // Discount fields
   bool _usePercentageDiscount = true;
@@ -119,6 +177,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   // PRODUCT TYPE HELPERS
   // ============================================================
 
+  /// Decides which stock collection a product type belongs to.
   StockKind _stockKindFor(String productType) {
     final t = productType.toLowerCase();
     if (t.contains('phone') || t.contains('mobile')) return StockKind.phone;
@@ -128,6 +187,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     return StockKind.none;
   }
 
+  /// Phones use IMEI, everything else uses a serial number.
   bool get _isPhoneProduct =>
       _stockKindFor(_selectedProductType ?? '') == StockKind.phone;
 
@@ -260,6 +320,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     }
   }
 
+  /// Generic searchable selection popup. Supports typing to search,
+  /// ↑ ↓ to move, Enter to select, Esc to close.
   Future<_PickerResult?> _showPickerDialog({
     required String title,
     required IconData icon,
@@ -269,6 +331,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     required List<String> Function(Map<String, dynamic>) searchFields,
     required String addLabel,
   }) {
+    // kept OUTSIDE the builder so the state survives keyboard rebuilds
     String query = '';
     int highlight = -1;
     final scrollController = ScrollController();
@@ -343,6 +406,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Header
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 8, 4, 0),
                         child: Row(
@@ -366,6 +430,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                           ],
                         ),
                       ),
+                      // Search box
                       Padding(
                         padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
                         child: Container(
@@ -412,6 +477,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                         ),
                       ),
                       const Divider(height: 1),
+                      // List
                       Flexible(
                         child: filtered.isEmpty
                             ? Padding(
@@ -497,6 +563,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                               ),
                       ),
                       const Divider(height: 1),
+                      // Add new
                       InkWell(
                         onTap: () => Navigator.of(
                           dialogContext,
@@ -869,6 +936,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
+  /// Selects a product and opens the product-details popup.
   void _selectProduct(QueryDocumentSnapshot product) {
     Map<String, dynamic> data = product.data() as Map<String, dynamic>;
     setState(() {
@@ -914,10 +982,11 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   // ============================================================
-  // PRODUCT DETAILS POPUP
+  // PRODUCT DETAILS POPUP (dialog window)
   // ============================================================
 
   Future<void> _openProductDetailsModal() async {
+    // focus the quantity box once the popup is open
     Future.delayed(const Duration(milliseconds: 350), () {
       if (!mounted || _selectedProductId == null) return;
       _quantityFocusNode.requestFocus();
@@ -929,7 +998,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
     final added = await showDialog<bool>(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible:
+          false, // use the X button so entries aren't lost by accident
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (ctx, setModalState) {
@@ -1012,13 +1082,16 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
     _modalSetState = null;
     if (!mounted) return;
+    // closed without adding -> forget the selection
     if (added != true && _selectedProductId != null) _clearProductSelection();
   }
 
   // ============================================================
-  // IMEI / SERIAL HANDLING
+  // IMEI / SERIAL NUMBER HANDLING
   // ============================================================
 
+  /// All identifiers already used in the cart or in the current entry list
+  /// (lower-cased, used for duplicate checks).
   Set<String> _allUsedIdentifiers() {
     final used = <String>{};
     for (final item in _cartItems) {
@@ -1028,6 +1101,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     return used;
   }
 
+  /// Parses the text field (comma / space separated, so a pasted list works),
+  /// validates every value and adds the valid ones.
+  /// Returns true when every value was accepted.
   bool _addIdentifiersFromInput() {
     final raw = _identifierController.text.trim();
     if (raw.isEmpty) return true;
@@ -1081,11 +1157,16 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     setState(() => _currentIdentifiers.remove(value));
   }
 
+  // ---------------- barcode / QR scanner ----------------
+
+  /// Camera scanning works on Android and iOS.
   bool get _scannerSupported =>
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);
 
+  /// Validates and adds ONE scanned value with the same rules as typing.
+  /// Returns an error message, or null when the value was added.
   String? _addScannedIdentifier(String raw) {
     final value = raw.trim();
     if (value.isEmpty) return 'Empty code';
@@ -1105,6 +1186,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     return null;
   }
 
+  /// Opens the camera scanner; every scanned code is added to the list.
   Future<void> _openIdentifierScanner() async {
     final qty = int.tryParse(_quantityController.text.trim()) ?? 0;
     if (qty <= 0) {
@@ -1144,9 +1226,333 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   // ============================================================
+  // PURCHASE BILL (camera / files -> Firebase Storage)
+  // ============================================================
+
+  bool get _cameraSupported =>
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
+
+  void _showBillSourceSheet() {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 24,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 380),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 4, 0),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.upload_file,
+                        size: 18,
+                        color: Colors.green[700],
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Purchase Bill',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green[700],
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(dialogContext),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_cameraSupported)
+                  ListTile(
+                    dense: true,
+                    leading: Icon(Icons.photo_camera, color: Colors.green[700]),
+                    title: const Text(
+                      'Take photo with camera',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                    onTap: () {
+                      Navigator.pop(dialogContext);
+                      _pickBillFromCamera();
+                    },
+                  ),
+                ListTile(
+                  dense: true,
+                  leading: Icon(Icons.folder_open, color: Colors.green[700]),
+                  title: const Text(
+                    'Choose from files / gallery',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  onTap: () {
+                    Navigator.pop(dialogContext);
+                    _pickBillFromFiles();
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _pickBillFromCamera() async {
+    try {
+      final XFile? photo = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 80,
+        maxWidth: 2000,
+      );
+      if (photo == null) return;
+      _setBill(
+        () => photo.readAsBytes(),
+        photo.name.isNotEmpty
+            ? photo.name
+            : 'bill_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      );
+    } catch (e) {
+      _showDialog('Error', 'Could not open camera: $e', isError: true);
+    }
+  }
+
+  Future<void> _pickBillFromFiles() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.first;
+      final bytes = file.bytes;
+      if (bytes == null) {
+        _showDialog('Error', 'Could not read the selected file', isError: true);
+        return;
+      }
+      _setBill(() async => bytes, file.name);
+    } catch (e) {
+      _showDialog('Error', 'Could not pick file: $e', isError: true);
+    }
+  }
+
+  /// Loads the picked image, compresses it to below 1 MB and stores it for
+  /// upload. A "Processing image…" popup stays on screen the whole time.
+  Future<void> _setBill(
+    Future<Uint8List> Function() load,
+    String fileName,
+  ) async {
+    setState(() => _isCompressing = true);
+
+    var dialogOpen = true;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          content: Row(
+            children: [
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: Colors.green[700],
+                ),
+              ),
+              const SizedBox(width: 16),
+              const Expanded(
+                child: Text(
+                  'Processing image…\nPlease wait',
+                  style: TextStyle(fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    void closeProcessing() {
+      if (dialogOpen && mounted) {
+        dialogOpen = false;
+        Navigator.of(context).pop();
+      }
+    }
+
+    // let the popup paint before the heavy work starts
+    await Future.delayed(const Duration(milliseconds: 150));
+
+    Uint8List? finalBytes;
+    String finalName = fileName;
+    String? errorTitle;
+    String? errorMessage;
+
+    try {
+      final bytes = await load();
+
+      if (bytes.length > _maxBillSizeBytes) {
+        errorTitle = 'File too large';
+        errorMessage = 'Bill image must be smaller than 25 MB.';
+      } else {
+        Uint8List? compressed;
+        try {
+          compressed = await compute(_compressBillImage, bytes);
+        } catch (_) {
+          compressed = null;
+        }
+
+        if (compressed != null) {
+          finalBytes = compressed;
+          final dot = fileName.lastIndexOf('.');
+          final base = dot > 0 ? fileName.substring(0, dot) : fileName;
+          finalName = '$base.jpg'; // compressed output is always JPEG
+        } else if (bytes.length <= 1024 * 1024) {
+          finalBytes = bytes; // could not decode, but already small
+        } else {
+          errorTitle = 'Cannot compress image';
+          errorMessage =
+              'This image format could not be compressed below 1 MB. '
+              'Please choose a JPG or PNG image.';
+        }
+      }
+    } catch (e) {
+      errorTitle = 'Error';
+      errorMessage = 'Could not process the image: $e';
+    } finally {
+      closeProcessing();
+      if (mounted) setState(() => _isCompressing = false);
+    }
+
+    if (!mounted) return;
+    if (finalBytes != null) {
+      setState(() {
+        _billBytes = finalBytes;
+        _billFileName = finalName;
+      });
+    } else if (errorMessage != null) {
+      _showDialog(errorTitle ?? 'Error', errorMessage, isError: true);
+    }
+  }
+
+  void _removeBill() {
+    setState(() {
+      _billBytes = null;
+      _billFileName = null;
+    });
+  }
+
+  String get _billExtension {
+    final name = (_billFileName ?? '').toLowerCase();
+    if (name.contains('.')) {
+      final ext = name.split('.').last;
+      if (ext.isNotEmpty && ext.length <= 5) return ext;
+    }
+    return 'jpg';
+  }
+
+  String _contentTypeFor(String ext) {
+    switch (ext) {
+      case 'png':
+        return 'image/png';
+      case 'webp':
+        return 'image/webp';
+      case 'heic':
+        return 'image/heic';
+      case 'gif':
+        return 'image/gif';
+      default:
+        return 'image/jpeg';
+    }
+  }
+
+  void _previewBill() {
+    if (_billBytes == null) return;
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding: const EdgeInsets.all(12),
+          child: Stack(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: InteractiveViewer(
+                  child: Image.memory(_billBytes!, fit: BoxFit.contain),
+                ),
+              ),
+              Positioned(
+                top: 4,
+                right: 4,
+                child: IconButton(
+                  style: IconButton.styleFrom(backgroundColor: Colors.white70),
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(dialogContext),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Uploads the selected bill and returns its download URL and storage path.
+  Future<Map<String, String>> _uploadBill(String invoiceNo) async {
+    final ext = _billExtension;
+    final safeInvoice = invoiceNo.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    final path =
+        'purchase_bills/${safeInvoice}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+
+    final ref = _storage.ref().child(path);
+    final task = ref.putData(
+      _billBytes!,
+      SettableMetadata(contentType: _contentTypeFor(ext)),
+    );
+
+    final sub = task.snapshotEvents.listen((snapshot) {
+      if (snapshot.totalBytes > 0 && mounted) {
+        setState(
+          () =>
+              _uploadProgress = snapshot.bytesTransferred / snapshot.totalBytes,
+        );
+      }
+    });
+
+    try {
+      await task;
+    } finally {
+      await sub.cancel();
+    }
+
+    final url = await ref.getDownloadURL();
+    return {'url': url, 'path': path};
+  }
+
+  // ============================================================
   // CART
   // ============================================================
 
+  /// Validates the popup form, adds the item to the cart and closes the popup.
+  /// Returns true when the item was added.
   bool _addToCartWithDiscount({BuildContext? modalContext}) {
     if (_selectedProductId == null) {
       _showDialog('Error', 'Please select a product', isError: true);
@@ -1167,6 +1573,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       return false;
     }
 
+    // If something is typed in the IMEI/serial box but not yet added, add it now.
     if (!_addIdentifiersFromInput()) return false;
 
     final List<String> identifiers = List<String>.from(_currentIdentifiers);
@@ -1181,6 +1588,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       return false;
     }
 
+    // Phones need an IMEI for every unit only when they go into stock
     if (_isPhoneProduct &&
         _addPurchaseToStock &&
         identifiers.length != quantity) {
@@ -1264,6 +1672,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
     final addedName = _selectedProductName ?? '';
 
+    // close the popup
     if (modalContext != null && modalContext.mounted) {
       Navigator.of(modalContext).pop(true);
     }
@@ -1362,8 +1771,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   // STOCK UPDATE
   // ============================================================
 
+  /// Checks everything the stock update needs BEFORE anything is written.
+  /// Returns an error message, or null when all is fine.
   Future<String?> _validateStockBeforeSave() async {
-    if (!_addPurchaseToStock) return null;
+    if (!_addPurchaseToStock) return null; // stock is not being updated
 
     final needsStock = _cartItems.any(
       (i) => _stockKindFor(i.productType) != StockKind.none,
@@ -1375,7 +1786,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     }
 
     final phoneImeis = <String>[];
-    int stockOps = 1;
+    int stockOps = 1; // the purchase document itself
 
     for (final item in _cartItems) {
       switch (_stockKindFor(item.productType)) {
@@ -1391,10 +1802,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           stockOps += item.quantity;
           break;
         case StockKind.appliance:
-          stockOps += item.quantity;
+          stockOps += item.quantity; // one stock document per unit
           break;
         case StockKind.accessory:
-          stockOps += 1;
+          stockOps += 1; // one aggregated stock document per cart line
           break;
         case StockKind.none:
           break;
@@ -1406,6 +1817,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           'Please split it into two purchases.';
     }
 
+    // IMEI must be unique across phone stock
     for (var i = 0; i < phoneImeis.length; i += 30) {
       final chunk = phoneImeis.sublist(i, min(i + 30, phoneImeis.length));
       final snap = await _firestore
@@ -1454,6 +1866,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     };
   }
 
+  /// Builds the stock writes for every cart item and adds them to [ops].
+  /// [summary] receives the number of units added per stock kind.
   Future<void> _collectStockOps({
     required String purchaseId,
     required String invoiceNo,
@@ -1464,12 +1878,13 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     final String uploadedBy = user?.email ?? user?.name ?? 'Unknown User';
     final String uploadedById = user?.uid ?? '';
 
-    if (!_addPurchaseToStock) return;
+    if (!_addPurchaseToStock) return; // purchase record only
 
     for (final item in _cartItems) {
       final kind = _stockKindFor(item.productType);
 
       switch (kind) {
+        // ---- PHONES: one stock document per IMEI ----
         case StockKind.phone:
           for (var i = 0; i < item.quantity; i++) {
             final ref = _firestore.collection(_phoneStockCollection).doc();
@@ -1490,6 +1905,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           summary[kind] = (summary[kind] ?? 0) + item.quantity;
           break;
 
+        // ---- TVs: one stock document per serial number ----
         case StockKind.tv:
           for (var i = 0; i < item.quantity; i++) {
             final ref = _firestore.collection(_tvStockCollection).doc();
@@ -1512,6 +1928,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           summary[kind] = (summary[kind] ?? 0) + item.quantity;
           break;
 
+        // ---- APPLIANCES: one stock document per serial number (same as TVs) ----
         case StockKind.appliance:
           for (var i = 0; i < item.quantity; i++) {
             final ref = _firestore.collection(_applianceStockCollection).doc();
@@ -1519,7 +1936,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               ..._baseStockFields(
                 category: _applianceCategory,
                 item: item,
-                quantity: 1,
+                quantity: 1, // 1 per doc, like TVs
                 purchaseId: purchaseId,
                 invoiceNo: invoiceNo,
                 uploadedBy: uploadedBy,
@@ -1534,13 +1951,18 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           summary[kind] = (summary[kind] ?? 0) + item.quantity;
           break;
 
+        // ---- ACCESSORIES: one aggregated stock document per cart line ----
+        // Accessories are tracked by quantity, not per-unit serials.
+        // If your accessories stock screen expects one doc per unit
+        // (like appliances/TVs), replace this block with the appliance
+        // pattern above and point it at _accessoriesStockCollection.
         case StockKind.accessory:
           final ref = _firestore.collection(_accessoriesStockCollection).doc();
           final data = {
             ..._baseStockFields(
               category: _accessoryCategory,
               item: item,
-              quantity: item.quantity,
+              quantity: item.quantity, // total units in one document
               purchaseId: purchaseId,
               invoiceNo: invoiceNo,
               uploadedBy: uploadedBy,
@@ -1552,7 +1974,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           break;
 
         case StockKind.none:
-          break;
+          break; // unknown product types are not stocked
       }
     }
   }
@@ -1637,7 +2059,11 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
     setState(() => _isLoading = true);
 
+    String? uploadedBillPath;
+
     try {
+      // Validate the stock update first, so nothing is uploaded or written
+      // if something is wrong.
       final stockError = await _validateStockBeforeSave();
       if (stockError != null) {
         _showDialog('Stock Error', stockError, isError: true);
@@ -1649,6 +2075,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       final invoiceNo = _invoiceController.text.trim();
       final purchaseRef = _firestore.collection('purchases').doc();
 
+      // Collect the stock writes
       final ops = <void Function(WriteBatch)>[];
       final stockSummary = <StockKind, int>{};
       await _collectStockOps(
@@ -1657,6 +2084,19 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         ops: ops,
         summary: stockSummary,
       );
+
+      // Upload the bill image first (if one was chosen)
+      String? billUrl;
+      if (_billBytes != null) {
+        setState(() {
+          _isUploading = true;
+          _uploadProgress = 0;
+        });
+        final uploaded = await _uploadBill(invoiceNo);
+        billUrl = uploaded['url'];
+        uploadedBillPath = uploaded['path'];
+        if (mounted) setState(() => _isUploading = false);
+      }
 
       // Build item maps (PurchaseItem fields + IMEI / serial numbers)
       final List<Map<String, dynamic>> itemMaps = _cartItems.map((item) {
@@ -1696,15 +2136,17 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         'roundingAmount': _roundingAmount,
         'isRoundingManual': _isRoundingManual,
         'grandTotal': _getGrandTotal(),
-        'purchaseBillUrl': null, // Removed image upload
-        'purchaseBillPath': null, // Removed image upload
+        'purchaseBillUrl': billUrl,
+        'purchaseBillPath': uploadedBillPath,
         'addedToStock': anyAddedToStock,
+        // always saved, whether or not the purchase is added to stock
         'stockShopId': _stockShopId,
         'stockShopName': _stockShopName,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
+      // Purchase + stock are written together in ONE batch (all or nothing)
       final batch = _firestore.batch();
       batch.set(purchaseRef, purchaseData);
       for (final op in ops) {
@@ -1747,6 +2189,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         _currentIdentifiers = [];
         _identifierController.clear();
         _addPurchaseToStock = true;
+        _billBytes = null;
+        _billFileName = null;
+        _uploadProgress = 0;
       });
 
       if (widget.onNavigateToHistory != null) {
@@ -1755,6 +2200,12 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         Navigator.pop(context, true);
       }
     } catch (e) {
+      // If the bill was uploaded but nothing was saved, remove the orphan file
+      if (uploadedBillPath != null) {
+        try {
+          await _storage.ref().child(uploadedBillPath).delete();
+        } catch (_) {}
+      }
       if (mounted) {
         _showDialog(
           'Error',
@@ -1766,11 +2217,13 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       if (mounted) {
         setState(() {
           _isLoading = false;
+          _isUploading = false;
         });
       }
     }
   }
 
+  /// Goes back to the previous screen (asks first if there is unsaved work).
   Future<void> _goBack() async {
     final hasChanges =
         _cartItems.isNotEmpty || _invoiceController.text.trim().isNotEmpty;
@@ -1818,6 +2271,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         bool isMobile = constraints.maxWidth < 800;
         return Scaffold(
           backgroundColor: Colors.grey[50],
+          // Back button is shown when this screen was opened from another screen
           appBar: Navigator.of(context).canPop()
               ? AppBar(
                   title: const Text(
@@ -1843,6 +2297,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                   const SizedBox(height: 16),
                   if (isMobile) _buildMobileLayout() else _buildDesktopLayout(),
                   const SizedBox(height: 16),
+
                   _buildSubmitButton(),
                 ],
               ),
@@ -1873,6 +2328,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       ],
     );
   }
+
+  // ==================== FORM SECTION ====================
 
   Widget _buildFormSection() {
     return Card(
@@ -1915,6 +2372,17 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             ),
             const SizedBox(height: 4),
             _buildSupplierSelector(),
+            const SizedBox(height: 12),
+            Text(
+              'Purchase Bill (optional)',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
+            const SizedBox(height: 4),
+            _buildBillSection(),
             const SizedBox(height: 14),
             Text(
               'Add Products',
@@ -1997,6 +2465,135 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
+  // ==================== PURCHASE BILL SECTION ====================
+  Widget _buildBillSection() {
+    if (_isCompressing) {
+      return Container(
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey[300]!, width: 1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.green[700],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'Compressing image…',
+              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+            ),
+          ],
+        ),
+      );
+    }
+    if (_billBytes == null) {
+      return InkWell(
+        onTap: _showBillSourceSheet,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey[300]!, width: 1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.upload_file, color: Colors.green[700], size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _cameraSupported
+                      ? 'Upload bill image (camera or files)'
+                      : 'Upload bill image from files',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ),
+              Icon(Icons.add_a_photo, size: 18, color: Colors.grey[600]),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.green[50],
+        border: Border.all(color: Colors.green, width: 1.5),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: _previewBill,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.memory(
+                _billBytes!,
+                width: 52,
+                height: 52,
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _billFileName ?? 'bill',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${(_billBytes!.length / 1024).toStringAsFixed(0)} KB • uploads when you complete the purchase',
+                  style: TextStyle(fontSize: 10, color: Colors.grey[700]),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Preview',
+            icon: Icon(Icons.visibility, size: 18, color: Colors.green[700]),
+            onPressed: _previewBill,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          ),
+          IconButton(
+            tooltip: 'Replace',
+            icon: Icon(Icons.swap_horiz, size: 18, color: Colors.blue[700]),
+            onPressed: _showBillSourceSheet,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          ),
+          IconButton(
+            tooltip: 'Remove',
+            icon: const Icon(Icons.close, size: 18, color: Colors.red),
+            onPressed: _removeBill,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==================== SUPPLIER SELECTOR (opens popup) ====================
   Widget _buildSupplierSelector() {
     final selected = _selectedSupplierId != null;
     return InkWell(
@@ -2049,6 +2646,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
+  // ============================================================
+  // PRODUCT DETAILS (used inside the popup)
+  // ============================================================
+
   int get _enteredQty => int.tryParse(_quantityController.text.trim()) ?? 0;
   double get _enteredRate =>
       double.tryParse(_purchaseRateController.text.trim()) ?? 0;
@@ -2062,6 +2663,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
   double get _enteredFinalRate => _enteredRate - _enteredDiscountAmount;
 
+  /// Why the "Add to Cart" button is not ready (null = ready to add).
   String? get _addToCartBlocker {
     if (_selectedProductId == null) return 'Select a product';
     if (_enteredRate <= 0) return 'Enter the purchase rate';
@@ -2101,6 +2703,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
+  /// Compact card showing which product is being edited.
+  /// "Change" closes the popup (selection is cleared).
   Widget _buildSelectedProductHeader(BuildContext modalContext) {
     final type = _selectedProductType ?? '';
     final kind = _stockKindFor(type);
@@ -2237,6 +2841,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     FilteringTextInputFormatter.digitsOnly,
                     LengthLimitingTextInputFormatter(4),
                   ],
+                  // Rebuild so the counter / totals update live
                   onChanged: (_) => setState(() {}),
                   onSubmitted: (_) {
                     if (_stockKindFor(_selectedProductType ?? '') !=
@@ -2354,6 +2959,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                         : TextInputType.text,
                     textInputAction: TextInputAction.done,
                     inputFormatters: [
+                      // Turn pasted new lines into spaces so lists paste correctly
                       TextInputFormatter.withFunction(
                         (oldValue, newValue) => newValue.copyWith(
                           text: newValue.text.replaceAll(
@@ -2373,6 +2979,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                       contentPadding: const EdgeInsets.symmetric(vertical: 10),
                     ),
                     onChanged: (value) {
+                      // IMEI is exactly 15 digits: add it as soon as it is complete
                       final v = value.trim();
                       if (_isPhoneProduct && RegExp(r'^\d{15}$').hasMatch(v)) {
                         _addIdentifiersFromInput();
@@ -2545,6 +3152,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
+  /// Live "what you are about to add" summary.
   Widget _buildLineSummary() {
     final rate = _enteredRate;
     final qty = _enteredQty;
@@ -2628,6 +3236,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         SizedBox(
           height: 40,
           child: ElevatedButton.icon(
+            // Always tappable: if something is missing, the validation dialog explains it
             onPressed: () => _addToCartWithDiscount(modalContext: modalContext),
             icon: const Icon(Icons.add_shopping_cart, size: 18),
             label: const Text(
@@ -2665,6 +3274,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
+  // ==================== PRODUCT SELECTOR (opens popup) ====================
   Widget _buildProductSelector() {
     return InkWell(
       onTap: _openProductPicker,
@@ -2788,11 +3398,13 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           else
             Column(
               children: [
-                // Display all items without scrolling
-                Column(
-                  children: List.generate(
-                    _cartItems.length,
-                    (index) => _buildCartItemCard(_cartItems[index], index),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 300),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _cartItems.length,
+                    itemBuilder: (context, index) =>
+                        _buildCartItemCard(_cartItems[index], index),
                   ),
                 ),
                 const Divider(height: 1),
@@ -2897,6 +3509,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   Widget _buildCartItemCard(CartItem item, int index) {
+    // When IMEI / serial numbers are attached, the quantity is tied to them,
+    // so +/- is hidden (remove the item and re-add to change it).
     final bool hasIdentifiers = item.identifiers.isNotEmpty;
 
     return Card(
@@ -3010,6 +3624,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
+  /// Purchase-level switch shown right above "Complete Purchase".
+  /// ON  (default): phones / TVs / appliances / accessories are added to stock.
+  /// OFF: only the purchase and bill are saved, stock is NOT updated.
   Widget _buildStockOptionToggle() {
     return Container(
       decoration: BoxDecoration(
@@ -3039,7 +3656,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         subtitle: Text(
           _addPurchaseToStock
               ? 'Phones, TVs, appliances and accessories in this purchase will be added to stock'
-              : 'Only the purchase is saved — stock will NOT be updated',
+              : 'Only the purchase and bill are saved — stock will NOT be updated',
           style: const TextStyle(fontSize: 11),
         ),
       ),
@@ -3051,6 +3668,19 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       children: [
         _buildStockOptionToggle(),
         const SizedBox(height: 10),
+        if (_isUploading) ...[
+          LinearProgressIndicator(
+            value: _uploadProgress > 0 ? _uploadProgress : null,
+            color: Colors.green[700],
+            backgroundColor: Colors.green[100],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Uploading bill… ${(_uploadProgress * 100).toStringAsFixed(0)}%',
+            style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+          ),
+          const SizedBox(height: 8),
+        ],
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
