@@ -1,5 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+// ============================================================
+// StockKind — which stock collection a purchased unit goes into
+// ============================================================
+enum StockKind { phone, tv, appliance, accessory, none }
+
 class PurchaseItem {
   final String productId;
   final String productName;
@@ -46,6 +51,43 @@ class PurchaseItem {
     total: (map['total'] ?? 0).toDouble(),
     gstPercentage: map['gstPercentage'] ?? 0,
   );
+}
+
+// ============================================================
+// CartItem — mutable in-memory row used while building a purchase
+// ============================================================
+class CartItem {
+  String productId;
+  String productName;
+  double rate;
+  int quantity;
+  double total;
+  int gstPercentage;
+  double discount;
+  String discountType;
+  double originalRate;
+  String productType;
+  String brand;
+  double saleRate;
+  List<String> identifiers;
+  String identifierType;
+
+  CartItem({
+    required this.productId,
+    required this.productName,
+    required this.rate,
+    required this.quantity,
+    required this.total,
+    required this.gstPercentage,
+    this.discount = 0,
+    this.discountType = 'percentage',
+    this.originalRate = 0,
+    this.productType = '',
+    this.brand = '',
+    this.saleRate = 0,
+    List<String>? identifiers,
+    this.identifierType = 'Serial',
+  }) : identifiers = identifiers ?? <String>[];
 }
 
 class Purchase {

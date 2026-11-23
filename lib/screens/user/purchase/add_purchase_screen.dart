@@ -1,11 +1,14 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:math' show min;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -13,12 +16,19 @@ import 'package:image/image.dart' as img;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:sales_stock/providers/auth_provider.dart';
-import '../../../models/purchase.dart';
+import 'package:sales_stock/models/purchase_cart.dart';
 import 'add_product_screen.dart';
 import 'add_supplier_screen.dart';
 
 /// Bill images are compressed to stay below this size (1 MB limit, with margin).
 const int _kBillTargetBytes = 900 * 1024;
+
+// ============================================================
+// CLOUDINARY CONFIG
+// ============================================================
+const String _kCloudName = 'wa6rzpqb';
+const String _kUploadPreset = 'mobile_house_purchase_bill';
+const String _kBillFolder = 'purchase_bills';
 
 /// Runs in a background isolate. Returns JPEG bytes below [_kBillTargetBytes],
 /// or null when the image cannot be decoded (e.g. HEIC).
@@ -43,16 +53,15 @@ Uint8List? _compressBillImage(Uint8List input) {
     if (best.length <= _kBillTargetBytes) return best;
 
     if (quality > 50) {
-      quality -= 10; // first lower the quality
+      quality -= 10;
     } else {
-      maxSide = (maxSide * 0.8).round(); // then shrink the picture
+      maxSide = (maxSide * 0.8).round();
       quality = 70;
     }
   }
   return best;
 }
 
-/// Result returned by the selection popup (supplier / product).
 class _PickerResult {
   final QueryDocumentSnapshot? doc;
   final bool addNew;
@@ -89,7 +98,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
   final TextEditingController _invoiceController = TextEditingController();
 
-  List<CartItem> _cartItems = [];
+  final List<CartItem> _cartItems = [];
 
   String? _selectedProductId;
   String? _selectedProductName;
@@ -130,7 +139,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   final ImagePicker _imagePicker = ImagePicker();
-  final FirebaseStorage _storage = FirebaseStorage.instance;
   Uint8List? _billBytes;
   String? _billFileName;
   bool _isUploading = false;
@@ -282,6 +290,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       addLabel: 'Add New Supplier',
     );
     if (!mounted || res == null) return;
+    await Future.delayed(const Duration(milliseconds: 250));
+    if (!mounted) return;
     if (res.addNew) {
       await _showAddSupplierDialog();
     } else if (res.doc != null) {
@@ -319,9 +329,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     }
   }
 
-  /// Generic searchable selection popup. Fuzzy search: spaces, dashes,
-  /// dots are ignored, so "a 1 7", "a-17" and "a17" all match
-  /// "samsung a17 6/128 black" — including WHILE typing.
   Future<_PickerResult?> _showPickerDialog({
     required String title,
     required IconData icon,
@@ -354,11 +361,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     final fields = searchFields(m);
                     final squashedFields = squash(fields.join(' '));
 
-                    // PRIMARY: squashed substring.
-                    // "a 1 7" -> "a17" -> matches "samsunga176128black"
                     if (squashedFields.contains(squashedQuery)) return true;
 
-                    // FALLBACK: token AND (word reorder, cross-field).
                     final tokens = rawQuery
                         .toLowerCase()
                         .split(RegExp(r'[^a-z0-9]+'))
@@ -369,6 +373,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                   }).toList();
 
             void pick(int i) {
+              FocusScope.of(ctx).unfocus();
               Navigator.of(dialogContext).pop(_PickerResult.pick(filtered[i]));
             }
 
@@ -626,8 +631,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         );
       },
     ).whenComplete(() {
-      searchController.dispose();
-      scrollController.dispose();
+      Future.delayed(const Duration(milliseconds: 400), () {
+        searchController.dispose();
+        scrollController.dispose();
+      });
     });
   }
 
@@ -1478,18 +1485,18 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     return 'jpg';
   }
 
-  String _contentTypeFor(String ext) {
+  MediaType _mediaTypeFor(String ext) {
     switch (ext) {
       case 'png':
-        return 'image/png';
+        return MediaType('image', 'png');
       case 'webp':
-        return 'image/webp';
+        return MediaType('image', 'webp');
       case 'heic':
-        return 'image/heic';
+        return MediaType('image', 'heic');
       case 'gif':
-        return 'image/gif';
+        return MediaType('image', 'gif');
       default:
-        return 'image/jpeg';
+        return MediaType('image', 'jpeg');
     }
   }
 
@@ -1524,35 +1531,77 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
+  // ============================================================
+  // CLOUDINARY UPLOAD
+  // ============================================================
+
   Future<Map<String, String>> _uploadBill(String invoiceNo) async {
     final ext = _billExtension;
     final safeInvoice = invoiceNo.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-    final path =
-        'purchase_bills/${safeInvoice}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+    final fileName =
+        '${safeInvoice}_${DateTime.now().millisecondsSinceEpoch}.$ext';
 
-    final ref = _storage.ref().child(path);
-    final task = ref.putData(
-      _billBytes!,
-      SettableMetadata(contentType: _contentTypeFor(ext)),
+    final uri = Uri.parse(
+      'https://api.cloudinary.com/v1_1/$_kCloudName/image/upload',
     );
 
-    final sub = task.snapshotEvents.listen((snapshot) {
-      if (snapshot.totalBytes > 0 && mounted) {
-        setState(
-          () =>
-              _uploadProgress = snapshot.bytesTransferred / snapshot.totalBytes,
+    final request = http.MultipartRequest('POST', uri)
+      ..fields['upload_preset'] = _kUploadPreset
+      ..fields['folder'] = _kBillFolder
+      ..fields['public_id'] = fileName
+      ..files.add(
+        http.MultipartFile.fromBytes(
+          'file',
+          _billBytes!,
+          filename: fileName,
+          contentType: _mediaTypeFor(ext),
+        ),
+      );
+
+    final int total = _billBytes!.length;
+    int sent = 0;
+
+    final Stream<List<int>> tracked = request.finalize().transform(
+      StreamTransformer<List<int>, List<int>>.fromHandlers(
+        handleData: (List<int> chunk, EventSink<List<int>> sink) {
+          sent += chunk.length;
+          if (mounted && total > 0) {
+            setState(() => _uploadProgress = sent / total);
+          }
+          sink.add(chunk);
+        },
+      ),
+    );
+
+    final client = http.Client();
+    try {
+      final streamedRequest = http.StreamedRequest('POST', uri)
+        ..headers.addAll(request.headers)
+        ..contentLength = request.contentLength;
+      streamedRequest.sink.addStream(tracked).then((_) {
+        streamedRequest.sink.close();
+      });
+
+      final response = await client.send(streamedRequest);
+      final body = await response.stream.bytesToString();
+
+      if (response.statusCode != 200) {
+        throw Exception(
+          'Cloudinary upload failed (${response.statusCode}): $body',
         );
       }
-    });
 
-    try {
-      await task;
+      final json = jsonDecode(body) as Map<String, dynamic>;
+      final url = json['secure_url'] as String?;
+      final publicId = json['public_id'] as String?;
+      if (url == null || publicId == null) {
+        throw Exception('Cloudinary response missing secure_url/public_id');
+      }
+
+      return {'url': url, 'path': publicId};
     } finally {
-      await sub.cancel();
+      client.close();
     }
-
-    final url = await ref.getDownloadURL();
-    return {'url': url, 'path': path};
   }
 
   // ============================================================
@@ -1722,9 +1771,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     _resetRounding();
   }
 
-  double _getSubtotal() => _cartItems.fold(0, (sum, item) => sum + item.total);
+  double _getSubtotal() =>
+      _cartItems.fold<double>(0, (sum, item) => sum + item.total);
 
-  double _getTotalGST() => _cartItems.fold(
+  double _getTotalGST() => _cartItems.fold<double>(
     0,
     (sum, item) => sum + (item.total * item.gstPercentage / 100),
   );
@@ -2080,18 +2130,19 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         if (mounted) setState(() => _isUploading = false);
       }
 
+      // Built by hand (no PurchaseItem dependency) so this screen compiles
+      // regardless of which purchase model file exists in the project.
       final List<Map<String, dynamic>> itemMaps = _cartItems.map((item) {
-        final base = PurchaseItem(
-          productId: item.productId,
-          productName: item.productName,
-          rate: item.rate,
-          quantity: item.quantity,
-          total: item.total,
-          gstPercentage: item.gstPercentage,
-        ).toMap();
-
         return <String, dynamic>{
-          ...base,
+          'productId': item.productId,
+          'productName': item.productName,
+          'itemType': item.productType,
+          'imei': null,
+          'serialNo': null,
+          'rate': item.rate,
+          'quantity': item.quantity,
+          'total': item.total,
+          'gstPercentage': item.gstPercentage,
           'productType': item.productType,
           'brand': item.brand,
           'identifierType': item.identifierType,
@@ -2179,10 +2230,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         Navigator.pop(context, true);
       }
     } catch (e) {
+      // Cloudinary deletion requires a signed request (server-side),
+      // so an orphaned image is left behind if the batch fails. Log it.
       if (uploadedBillPath != null) {
-        try {
-          await _storage.ref().child(uploadedBillPath).delete();
-        } catch (_) {}
+        debugPrint('Orphaned Cloudinary public_id: $uploadedBillPath');
       }
       if (mounted) {
         _showDialog(
@@ -2535,7 +2586,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${(_billBytes!.length / 1024).toStringAsFixed(0)} KB • uploads when you complete the purchase',
+                  '${(_billBytes!.length / 1024).toStringAsFixed(0)} KB • uploads to Cloudinary when you complete the purchase',
                   style: TextStyle(fontSize: 10, color: Colors.grey[700]),
                 ),
               ],
@@ -3436,7 +3487,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                   child: TextFormField(
                     controller: _roundingController,
                     style: const TextStyle(fontSize: 12),
-                    keyboardType: TextInputType.number,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                      signed: true,
+                    ),
                     textAlign: TextAlign.center,
                     decoration: InputDecoration(
                       border: OutlineInputBorder(
@@ -3673,7 +3727,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               ),
               Switch(
                 value: _addPurchaseToStock,
-                activeThumbColor: Colors.green[700],
+                activeColor: Colors.green[700],
                 onChanged: (v) => setState(() => _addPurchaseToStock = v),
               ),
             ],
@@ -3697,7 +3751,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             label: Text(
               _isLoading
                   ? (_isUploading
-                        ? 'Uploading… ${(_uploadProgress * 100).toStringAsFixed(0)}%'
+                        ? 'Uploading bill… ${(_uploadProgress * 100).toStringAsFixed(0)}%'
                         : 'Saving…')
                   : 'Complete Purchase',
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
@@ -3716,52 +3770,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 }
 
-// ============================================================
-// SUPPORTING TYPES
-// ============================================================
-
-/// Which stock collection a product belongs to.
-enum StockKind { phone, tv, appliance, accessory, none }
-
-/// A single line item in the purchase cart.
-class CartItem {
-  final String productId;
-  final String productName;
-  double rate;
-  int quantity;
-  double total;
-  final int gstPercentage;
-  double discount;
-  final String discountType;
-  final double originalRate;
-  final String productType;
-  final String brand;
-  final double saleRate;
-  final List<String> identifiers;
-  final String identifierType;
-
-  CartItem({
-    required this.productId,
-    required this.productName,
-    required this.rate,
-    required this.quantity,
-    required this.total,
-    required this.gstPercentage,
-    this.discount = 0,
-    this.discountType = 'percentage',
-    this.originalRate = 0,
-    this.productType = '',
-    this.brand = '',
-    this.saleRate = 0,
-    this.identifiers = const [],
-    this.identifierType = 'Serial',
-  });
-}
-
-// ============================================================
-// IMEI / SERIAL SCANNER PAGE
-// ============================================================
-
+/// A simple scanner page used to add IMEI / serial numbers one-by-one.
 class _IdentifierScannerPage extends StatefulWidget {
   final String label;
   final int target;
@@ -3780,15 +3789,9 @@ class _IdentifierScannerPage extends StatefulWidget {
 }
 
 class _IdentifierScannerPageState extends State<_IdentifierScannerPage> {
-  final MobileScannerController _controller = MobileScannerController(
-    detectionSpeed: DetectionSpeed.normal,
-    facing: CameraFacing.back,
-  );
-
-  String? _lastError;
-  String? _lastScanned;
-  bool _processing = false;
-  int _addedCount = 0;
+  final MobileScannerController _controller = MobileScannerController();
+  bool _handled = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -3796,140 +3799,70 @@ class _IdentifierScannerPageState extends State<_IdentifierScannerPage> {
     super.dispose();
   }
 
-  void _handleDetection(BarcodeCapture capture) {
-    if (_processing) return;
-    final barcodes = capture.barcodes;
-    if (barcodes.isEmpty) return;
-    final raw = barcodes.first.rawValue;
-    if (raw == null || raw.trim().isEmpty) return;
-    if (raw == _lastScanned) return;
+  void _onDetect(BarcodeCapture capture) {
+    if (_handled) return;
+    final code = capture.barcodes.firstOrNull?.rawValue;
+    if (code == null || code.isEmpty) return;
 
-    _lastScanned = raw;
-    _processing = true;
-
-    final err = widget.onScanned(raw);
-    if (!mounted) return;
-    setState(() {
-      _lastError = err;
-      if (err == null) {
-        _addedCount = widget.currentCount();
-      }
-    });
-
-    Future.delayed(const Duration(milliseconds: 700), () {
-      if (mounted) {
-        setState(() {
-          _processing = false;
-          _lastScanned = null;
-        });
-      }
-    });
+    _handled = true;
+    final err = widget.onScanned(code);
+    if (err != null) {
+      setState(() => _error = err);
+      _handled = false;
+      return;
+    }
 
     if (widget.currentCount() >= widget.target) {
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) Navigator.of(context).pop();
-      });
+      Navigator.of(context).pop();
+      return;
     }
+    setState(() => _error = null);
+    _handled = false;
   }
 
   @override
   Widget build(BuildContext context) {
-    final total = widget.target;
-    final added = _addedCount > 0 ? _addedCount : widget.currentCount();
-
     return Scaffold(
-      backgroundColor: Colors.black,
       appBar: AppBar(
+        title: Text('Scan ${widget.label}'),
         backgroundColor: Colors.green[700],
         foregroundColor: Colors.white,
-        title: Text(
-          'Scan ${widget.label}',
-          style: const TextStyle(fontSize: 16),
-        ),
       ),
       body: Stack(
         children: [
-          MobileScanner(controller: _controller, onDetect: _handleDetection),
-          Center(
+          MobileScanner(controller: _controller, onDetect: _onDetect),
+          Positioned(
+            bottom: 24,
+            left: 16,
+            right: 16,
             child: Container(
-              width: 260,
-              height: 160,
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.green, width: 2),
+                color: Colors.black.withOpacity(0.7),
                 borderRadius: BorderRadius.circular(12),
               ),
-            ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Container(
-              color: Colors.black.withValues(alpha: 0.6),
-              padding: const EdgeInsets.all(16),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.qr_code_scanner,
-                        color: Colors.white,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '$added / $total scanned',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
+                  Text(
+                    '${widget.currentCount()} / ${widget.target} scanned',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                  if (_lastError != null) ...[
-                    const SizedBox(height: 8),
+                  if (_error != null) ...[
+                    const SizedBox(height: 6),
                     Text(
-                      _lastError!,
-                      textAlign: TextAlign.center,
+                      _error!,
                       style: const TextStyle(
-                        color: Colors.redAccent,
+                        color: Colors.orangeAccent,
                         fontSize: 12,
                       ),
+                      textAlign: TextAlign.center,
                     ),
                   ],
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.check, size: 18),
-                          label: const Text('Done'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            side: const BorderSide(color: Colors.white54),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            await _controller.toggleTorch();
-                          },
-                          icon: const Icon(Icons.flash_on, size: 18),
-                          label: const Text('Torch'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            side: const BorderSide(color: Colors.white54),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
                 ],
               ),
             ),
