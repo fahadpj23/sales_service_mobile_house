@@ -72,32 +72,25 @@ class AddPurchaseScreen extends StatefulWidget {
 class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   // ============================================================
   // STOCK CONFIG
-  // applianceStock matches AppliancesStockScreen exactly.
-  // phoneStock / tvStock / accessoriesStock are ASSUMED — change the
-  // names / fields in _collectStockOps if yours differ.
   // ============================================================
   static const String _applianceStockCollection = 'applianceStock';
-  static const String _phoneStockCollection = 'phoneStock'; // ASSUMED
-  static const String _tvStockCollection = 'tvStock'; // ASSUMED
-  static const String _accessoriesStockCollection =
-      'accessoriesStock'; // ASSUMED
+  static const String _phoneStockCollection = 'phoneStock';
+  static const String _tvStockCollection = 'tvStock';
+  static const String _accessoriesStockCollection = 'accessoriesStock';
   static const String _applianceCategory = 'Appliances';
-  static const String _phoneCategory = 'Phone'; // ASSUMED
-  static const String _tvCategory = 'TV'; // ASSUMED
-  static const String _accessoryCategory = 'Accessories'; // ASSUMED
-  static const int _maxBatchOps = 480; // Firestore batch limit is 500
+  static const String _phoneCategory = 'Phone';
+  static const String _tvCategory = 'TV';
+  static const String _accessoryCategory = 'Accessories';
+  static const int _maxBatchOps = 480;
 
   DateTime _selectedDate = DateTime.now();
   String? _selectedSupplierId;
   String? _selectedSupplierName;
 
-  // Purchase Invoice Number
   final TextEditingController _invoiceController = TextEditingController();
 
-  // Cart items
   List<CartItem> _cartItems = [];
 
-  // Single product selection
   String? _selectedProductId;
   String? _selectedProductName;
   String? _selectedProductType;
@@ -107,28 +100,22 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   final FocusNode _rateFocusNode = FocusNode();
   final FocusNode _quantityFocusNode = FocusNode();
 
-  // IMEI / Serial number entry for the selected product
   final TextEditingController _identifierController = TextEditingController();
   final FocusNode _identifierFocusNode = FocusNode();
   List<String> _currentIdentifiers = [];
 
-  // Purchase-level option (toggle shown above "Complete Purchase"):
-  // true  = add purchased phones / TVs / appliances / accessories to stock (default)
-  // false = only save the purchase (and bill), stock is NOT updated
   bool _addPurchaseToStock = true;
 
-  // Lets the open product-details popup rebuild when screen state changes
   StateSetter? _modalSetState;
 
   @override
   void setState(VoidCallback fn) {
     super.setState(fn);
     try {
-      _modalSetState?.call(() {}); // also rebuild the open popup
+      _modalSetState?.call(() {});
     } catch (_) {}
   }
 
-  // Stock always goes to the shop of the logged-in user (no shop picker)
   String? get _stockShopId {
     final id = Provider.of<AuthProvider>(context, listen: false).user?.shopId;
     return (id != null && id.isNotEmpty) ? id : null;
@@ -142,7 +129,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     return (name != null && name.isNotEmpty) ? name : 'Unknown Shop';
   }
 
-  // Purchase bill image
   final ImagePicker _imagePicker = ImagePicker();
   final FirebaseStorage _storage = FirebaseStorage.instance;
   Uint8List? _billBytes;
@@ -150,15 +136,12 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   bool _isUploading = false;
   bool _isCompressing = false;
   double _uploadProgress = 0;
-  static const int _maxBillSizeBytes =
-      25 * 1024 * 1024; // max picked file (25 MB)
+  static const int _maxBillSizeBytes = 25 * 1024 * 1024;
 
-  // Discount fields
   bool _usePercentageDiscount = true;
   final TextEditingController _discountController = TextEditingController();
   double _discountValue = 0;
 
-  // Rounding amount
   double _roundingAmount = 0;
   bool _isRoundingManual = false;
   final TextEditingController _roundingController = TextEditingController();
@@ -177,7 +160,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   // PRODUCT TYPE HELPERS
   // ============================================================
 
-  /// Decides which stock collection a product type belongs to.
   StockKind _stockKindFor(String productType) {
     final t = productType.toLowerCase();
     if (t.contains('phone') || t.contains('mobile')) return StockKind.phone;
@@ -187,7 +169,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     return StockKind.none;
   }
 
-  /// Phones use IMEI, everything else uses a serial number.
   bool get _isPhoneProduct =>
       _stockKindFor(_selectedProductType ?? '') == StockKind.phone;
 
@@ -202,6 +183,20 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
     _discountController.addListener(_onDiscountChanged);
     _roundingController.addListener(_onRoundingChanged);
+  }
+
+  @override
+  void dispose() {
+    _invoiceController.dispose();
+    _purchaseRateController.dispose();
+    _quantityController.dispose();
+    _rateFocusNode.dispose();
+    _quantityFocusNode.dispose();
+    _identifierController.dispose();
+    _identifierFocusNode.dispose();
+    _discountController.dispose();
+    _roundingController.dispose();
+    super.dispose();
   }
 
   void _onDiscountChanged() {
@@ -265,7 +260,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   // ============================================================
-  // SELECTION POPUPS (supplier / product)
+  // SELECTION POPUPS
   // ============================================================
 
   Future<void> _openSupplierPicker() async {
@@ -309,6 +304,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         (d['productName'] ?? '').toString(),
         (d['category'] ?? '').toString(),
         (d['brand'] ?? '').toString(),
+        (d['modelName'] ?? '').toString(),
+        (d['variant'] ?? '').toString(),
+        (d['sku'] ?? '').toString(),
+        (d['barcode'] ?? '').toString(),
       ],
       addLabel: 'Add New Product',
     );
@@ -316,12 +315,13 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     if (res.addNew) {
       await _showAddProductDialog();
     } else if (res.doc != null) {
-      _selectProduct(res.doc!); // opens the product details popup
+      _selectProduct(res.doc!);
     }
   }
 
-  /// Generic searchable selection popup. Supports typing to search,
-  /// ↑ ↓ to move, Enter to select, Esc to close.
+  /// Generic searchable selection popup. Fuzzy search: spaces, dashes,
+  /// dots are ignored, so "a 1 7", "a-17" and "a17" all match
+  /// "samsung a17 6/128 black" — including WHILE typing.
   Future<_PickerResult?> _showPickerDialog({
     required String title,
     required IconData icon,
@@ -331,25 +331,41 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     required List<String> Function(Map<String, dynamic>) searchFields,
     required String addLabel,
   }) {
-    // kept OUTSIDE the builder so the state survives keyboard rebuilds
-    String query = '';
+    final TextEditingController searchController = TextEditingController();
     int highlight = -1;
     final scrollController = ScrollController();
     const double itemHeight = 56;
+
+    String squash(String input) =>
+        input.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
 
     return showDialog<_PickerResult>(
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (ctx, setS) {
-            final q = query.toLowerCase().trim();
-            final filtered = q.isEmpty
+            final rawQuery = searchController.text.trim();
+            final squashedQuery = squash(rawQuery);
+
+            final filtered = squashedQuery.isEmpty
                 ? items
                 : items.where((d) {
                     final m = d.data() as Map<String, dynamic>;
-                    return searchFields(
-                      m,
-                    ).any((f) => f.toLowerCase().contains(q));
+                    final fields = searchFields(m);
+                    final squashedFields = squash(fields.join(' '));
+
+                    // PRIMARY: squashed substring.
+                    // "a 1 7" -> "a17" -> matches "samsunga176128black"
+                    if (squashedFields.contains(squashedQuery)) return true;
+
+                    // FALLBACK: token AND (word reorder, cross-field).
+                    final tokens = rawQuery
+                        .toLowerCase()
+                        .split(RegExp(r'[^a-z0-9]+'))
+                        .where((t) => t.isNotEmpty)
+                        .toList();
+                    if (tokens.isEmpty) return false;
+                    return tokens.every(squashedFields.contains);
                   }).toList();
 
             void pick(int i) {
@@ -406,7 +422,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Header
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 8, 4, 0),
                         child: Row(
@@ -430,7 +445,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                           ],
                         ),
                       ),
-                      // Search box
                       Padding(
                         padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
                         child: Container(
@@ -450,11 +464,12 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: TextField(
+                                  controller: searchController,
                                   autofocus: true,
                                   style: const TextStyle(fontSize: 13),
                                   textInputAction: TextInputAction.search,
                                   decoration: const InputDecoration(
-                                    hintText: 'Search…',
+                                    hintText: 'Search… (spaces ignored)',
                                     hintStyle: TextStyle(fontSize: 12),
                                     border: InputBorder.none,
                                     isDense: true,
@@ -462,22 +477,32 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                                       vertical: 8,
                                     ),
                                   ),
-                                  onChanged: (v) => setS(() {
-                                    query = v;
-                                    highlight = -1;
-                                  }),
+                                  onChanged: (_) => setS(() => highlight = -1),
                                   onSubmitted: (_) {
                                     if (filtered.isEmpty) return;
                                     pick(highlight >= 0 ? highlight : 0);
                                   },
                                 ),
                               ),
+                              if (rawQuery.isNotEmpty)
+                                IconButton(
+                                  icon: const Icon(Icons.clear, size: 18),
+                                  tooltip: 'Clear',
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 28,
+                                    minHeight: 28,
+                                  ),
+                                  onPressed: () {
+                                    searchController.clear();
+                                    setS(() => highlight = -1);
+                                  },
+                                ),
                             ],
                           ),
                         ),
                       ),
                       const Divider(height: 1),
-                      // List
                       Flexible(
                         child: filtered.isEmpty
                             ? Padding(
@@ -563,7 +588,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                               ),
                       ),
                       const Divider(height: 1),
-                      // Add new
                       InkWell(
                         onTap: () => Navigator.of(
                           dialogContext,
@@ -601,7 +625,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           },
         );
       },
-    ).whenComplete(scrollController.dispose);
+    ).whenComplete(() {
+      searchController.dispose();
+      scrollController.dispose();
+    });
   }
 
   // ==================== ADD SUPPLIER ====================
@@ -936,7 +963,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
-  /// Selects a product and opens the product-details popup.
   void _selectProduct(QueryDocumentSnapshot product) {
     Map<String, dynamic> data = product.data() as Map<String, dynamic>;
     setState(() {
@@ -982,11 +1008,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   // ============================================================
-  // PRODUCT DETAILS POPUP (dialog window)
+  // PRODUCT DETAILS POPUP
   // ============================================================
 
   Future<void> _openProductDetailsModal() async {
-    // focus the quantity box once the popup is open
     Future.delayed(const Duration(milliseconds: 350), () {
       if (!mounted || _selectedProductId == null) return;
       _quantityFocusNode.requestFocus();
@@ -998,8 +1023,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
     final added = await showDialog<bool>(
       context: context,
-      barrierDismissible:
-          false, // use the X button so entries aren't lost by accident
+      barrierDismissible: false,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (ctx, setModalState) {
@@ -1082,16 +1106,13 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
     _modalSetState = null;
     if (!mounted) return;
-    // closed without adding -> forget the selection
     if (added != true && _selectedProductId != null) _clearProductSelection();
   }
 
   // ============================================================
-  // IMEI / SERIAL NUMBER HANDLING
+  // IMEI / SERIAL HANDLING
   // ============================================================
 
-  /// All identifiers already used in the cart or in the current entry list
-  /// (lower-cased, used for duplicate checks).
   Set<String> _allUsedIdentifiers() {
     final used = <String>{};
     for (final item in _cartItems) {
@@ -1101,9 +1122,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     return used;
   }
 
-  /// Parses the text field (comma / space separated, so a pasted list works),
-  /// validates every value and adds the valid ones.
-  /// Returns true when every value was accepted.
   bool _addIdentifiersFromInput() {
     final raw = _identifierController.text.trim();
     if (raw.isEmpty) return true;
@@ -1157,16 +1175,11 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     setState(() => _currentIdentifiers.remove(value));
   }
 
-  // ---------------- barcode / QR scanner ----------------
-
-  /// Camera scanning works on Android and iOS.
   bool get _scannerSupported =>
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);
 
-  /// Validates and adds ONE scanned value with the same rules as typing.
-  /// Returns an error message, or null when the value was added.
   String? _addScannedIdentifier(String raw) {
     final value = raw.trim();
     if (value.isEmpty) return 'Empty code';
@@ -1186,7 +1199,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     return null;
   }
 
-  /// Opens the camera scanner; every scanned code is added to the list.
   Future<void> _openIdentifierScanner() async {
     final qty = int.tryParse(_quantityController.text.trim()) ?? 0;
     if (qty <= 0) {
@@ -1226,7 +1238,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   // ============================================================
-  // PURCHASE BILL (camera / files -> Firebase Storage)
+  // PURCHASE BILL
   // ============================================================
 
   bool get _cameraSupported =>
@@ -1350,8 +1362,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     }
   }
 
-  /// Loads the picked image, compresses it to below 1 MB and stores it for
-  /// upload. A "Processing image…" popup stays on screen the whole time.
   Future<void> _setBill(
     Future<Uint8List> Function() load,
     String fileName,
@@ -1398,7 +1408,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       }
     }
 
-    // let the popup paint before the heavy work starts
     await Future.delayed(const Duration(milliseconds: 150));
 
     Uint8List? finalBytes;
@@ -1424,9 +1433,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           finalBytes = compressed;
           final dot = fileName.lastIndexOf('.');
           final base = dot > 0 ? fileName.substring(0, dot) : fileName;
-          finalName = '$base.jpg'; // compressed output is always JPEG
+          finalName = '$base.jpg';
         } else if (bytes.length <= 1024 * 1024) {
-          finalBytes = bytes; // could not decode, but already small
+          finalBytes = bytes;
         } else {
           errorTitle = 'Cannot compress image';
           errorMessage =
@@ -1515,7 +1524,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
-  /// Uploads the selected bill and returns its download URL and storage path.
   Future<Map<String, String>> _uploadBill(String invoiceNo) async {
     final ext = _billExtension;
     final safeInvoice = invoiceNo.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
@@ -1551,8 +1559,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   // CART
   // ============================================================
 
-  /// Validates the popup form, adds the item to the cart and closes the popup.
-  /// Returns true when the item was added.
   bool _addToCartWithDiscount({BuildContext? modalContext}) {
     if (_selectedProductId == null) {
       _showDialog('Error', 'Please select a product', isError: true);
@@ -1573,7 +1579,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       return false;
     }
 
-    // If something is typed in the IMEI/serial box but not yet added, add it now.
     if (!_addIdentifiersFromInput()) return false;
 
     final List<String> identifiers = List<String>.from(_currentIdentifiers);
@@ -1588,7 +1593,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       return false;
     }
 
-    // Phones need an IMEI for every unit only when they go into stock
     if (_isPhoneProduct &&
         _addPurchaseToStock &&
         identifiers.length != quantity) {
@@ -1640,11 +1644,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         existing.quantity += quantity;
         existing.rate = finalRate;
         existing.discount = discountAmount;
-        existing.discountType = _usePercentageDiscount
-            ? 'percentage'
-            : 'amount';
         existing.total = finalRate * existing.quantity;
-        existing.originalRate = rate;
         existing.identifiers.addAll(identifiers);
       });
     } else {
@@ -1672,7 +1672,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
     final addedName = _selectedProductName ?? '';
 
-    // close the popup
     if (modalContext != null && modalContext.mounted) {
       Navigator.of(modalContext).pop(true);
     }
@@ -1771,10 +1770,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   // STOCK UPDATE
   // ============================================================
 
-  /// Checks everything the stock update needs BEFORE anything is written.
-  /// Returns an error message, or null when all is fine.
   Future<String?> _validateStockBeforeSave() async {
-    if (!_addPurchaseToStock) return null; // stock is not being updated
+    if (!_addPurchaseToStock) return null;
 
     final needsStock = _cartItems.any(
       (i) => _stockKindFor(i.productType) != StockKind.none,
@@ -1786,7 +1783,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     }
 
     final phoneImeis = <String>[];
-    int stockOps = 1; // the purchase document itself
+    int stockOps = 1;
 
     for (final item in _cartItems) {
       switch (_stockKindFor(item.productType)) {
@@ -1802,10 +1799,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           stockOps += item.quantity;
           break;
         case StockKind.appliance:
-          stockOps += item.quantity; // one stock document per unit
+          stockOps += item.quantity;
           break;
         case StockKind.accessory:
-          stockOps += 1; // one aggregated stock document per cart line
+          stockOps += 1;
           break;
         case StockKind.none:
           break;
@@ -1817,7 +1814,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           'Please split it into two purchases.';
     }
 
-    // IMEI must be unique across phone stock
     for (var i = 0; i < phoneImeis.length; i += 30) {
       final chunk = phoneImeis.sublist(i, min(i + 30, phoneImeis.length));
       final snap = await _firestore
@@ -1866,8 +1862,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     };
   }
 
-  /// Builds the stock writes for every cart item and adds them to [ops].
-  /// [summary] receives the number of units added per stock kind.
   Future<void> _collectStockOps({
     required String purchaseId,
     required String invoiceNo,
@@ -1878,13 +1872,12 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     final String uploadedBy = user?.email ?? user?.name ?? 'Unknown User';
     final String uploadedById = user?.uid ?? '';
 
-    if (!_addPurchaseToStock) return; // purchase record only
+    if (!_addPurchaseToStock) return;
 
     for (final item in _cartItems) {
       final kind = _stockKindFor(item.productType);
 
       switch (kind) {
-        // ---- PHONES: one stock document per IMEI ----
         case StockKind.phone:
           for (var i = 0; i < item.quantity; i++) {
             final ref = _firestore.collection(_phoneStockCollection).doc();
@@ -1905,7 +1898,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           summary[kind] = (summary[kind] ?? 0) + item.quantity;
           break;
 
-        // ---- TVs: one stock document per serial number ----
         case StockKind.tv:
           for (var i = 0; i < item.quantity; i++) {
             final ref = _firestore.collection(_tvStockCollection).doc();
@@ -1928,7 +1920,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           summary[kind] = (summary[kind] ?? 0) + item.quantity;
           break;
 
-        // ---- APPLIANCES: one stock document per serial number (same as TVs) ----
         case StockKind.appliance:
           for (var i = 0; i < item.quantity; i++) {
             final ref = _firestore.collection(_applianceStockCollection).doc();
@@ -1936,7 +1927,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
               ..._baseStockFields(
                 category: _applianceCategory,
                 item: item,
-                quantity: 1, // 1 per doc, like TVs
+                quantity: 1,
                 purchaseId: purchaseId,
                 invoiceNo: invoiceNo,
                 uploadedBy: uploadedBy,
@@ -1951,18 +1942,13 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           summary[kind] = (summary[kind] ?? 0) + item.quantity;
           break;
 
-        // ---- ACCESSORIES: one aggregated stock document per cart line ----
-        // Accessories are tracked by quantity, not per-unit serials.
-        // If your accessories stock screen expects one doc per unit
-        // (like appliances/TVs), replace this block with the appliance
-        // pattern above and point it at _accessoriesStockCollection.
         case StockKind.accessory:
           final ref = _firestore.collection(_accessoriesStockCollection).doc();
           final data = {
             ..._baseStockFields(
               category: _accessoryCategory,
               item: item,
-              quantity: item.quantity, // total units in one document
+              quantity: item.quantity,
               purchaseId: purchaseId,
               invoiceNo: invoiceNo,
               uploadedBy: uploadedBy,
@@ -1974,7 +1960,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           break;
 
         case StockKind.none:
-          break; // unknown product types are not stocked
+          break;
       }
     }
   }
@@ -2062,8 +2048,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     String? uploadedBillPath;
 
     try {
-      // Validate the stock update first, so nothing is uploaded or written
-      // if something is wrong.
       final stockError = await _validateStockBeforeSave();
       if (stockError != null) {
         _showDialog('Stock Error', stockError, isError: true);
@@ -2075,7 +2059,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       final invoiceNo = _invoiceController.text.trim();
       final purchaseRef = _firestore.collection('purchases').doc();
 
-      // Collect the stock writes
       final ops = <void Function(WriteBatch)>[];
       final stockSummary = <StockKind, int>{};
       await _collectStockOps(
@@ -2085,7 +2068,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         summary: stockSummary,
       );
 
-      // Upload the bill image first (if one was chosen)
       String? billUrl;
       if (_billBytes != null) {
         setState(() {
@@ -2098,7 +2080,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         if (mounted) setState(() => _isUploading = false);
       }
 
-      // Build item maps (PurchaseItem fields + IMEI / serial numbers)
       final List<Map<String, dynamic>> itemMaps = _cartItems.map((item) {
         final base = PurchaseItem(
           productId: item.productId,
@@ -2139,14 +2120,12 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         'purchaseBillUrl': billUrl,
         'purchaseBillPath': uploadedBillPath,
         'addedToStock': anyAddedToStock,
-        // always saved, whether or not the purchase is added to stock
         'stockShopId': _stockShopId,
         'stockShopName': _stockShopName,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
-      // Purchase + stock are written together in ONE batch (all or nothing)
       final batch = _firestore.batch();
       batch.set(purchaseRef, purchaseData);
       for (final op in ops) {
@@ -2200,7 +2179,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         Navigator.pop(context, true);
       }
     } catch (e) {
-      // If the bill was uploaded but nothing was saved, remove the orphan file
       if (uploadedBillPath != null) {
         try {
           await _storage.ref().child(uploadedBillPath).delete();
@@ -2223,7 +2201,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     }
   }
 
-  /// Goes back to the previous screen (asks first if there is unsaved work).
   Future<void> _goBack() async {
     final hasChanges =
         _cartItems.isNotEmpty || _invoiceController.text.trim().isNotEmpty;
@@ -2271,7 +2248,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         bool isMobile = constraints.maxWidth < 800;
         return Scaffold(
           backgroundColor: Colors.grey[50],
-          // Back button is shown when this screen was opened from another screen
           appBar: Navigator.of(context).canPop()
               ? AppBar(
                   title: const Text(
@@ -2297,7 +2273,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                   const SizedBox(height: 16),
                   if (isMobile) _buildMobileLayout() else _buildDesktopLayout(),
                   const SizedBox(height: 16),
-
                   _buildSubmitButton(),
                 ],
               ),
@@ -2465,7 +2440,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
-  // ==================== PURCHASE BILL SECTION ====================
   Widget _buildBillSection() {
     if (_isCompressing) {
       return Container(
@@ -2593,7 +2567,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
-  // ==================== SUPPLIER SELECTOR (opens popup) ====================
   Widget _buildSupplierSelector() {
     final selected = _selectedSupplierId != null;
     return InkWell(
@@ -2647,7 +2620,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   // ============================================================
-  // PRODUCT DETAILS (used inside the popup)
+  // PRODUCT DETAILS (popup)
   // ============================================================
 
   int get _enteredQty => int.tryParse(_quantityController.text.trim()) ?? 0;
@@ -2663,7 +2636,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
   double get _enteredFinalRate => _enteredRate - _enteredDiscountAmount;
 
-  /// Why the "Add to Cart" button is not ready (null = ready to add).
   String? get _addToCartBlocker {
     if (_selectedProductId == null) return 'Select a product';
     if (_enteredRate <= 0) return 'Enter the purchase rate';
@@ -2703,8 +2675,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
-  /// Compact card showing which product is being edited.
-  /// "Change" closes the popup (selection is cleared).
   Widget _buildSelectedProductHeader(BuildContext modalContext) {
     final type = _selectedProductType ?? '';
     final kind = _stockKindFor(type);
@@ -2841,7 +2811,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     FilteringTextInputFormatter.digitsOnly,
                     LengthLimitingTextInputFormatter(4),
                   ],
-                  // Rebuild so the counter / totals update live
                   onChanged: (_) => setState(() {}),
                   onSubmitted: (_) {
                     if (_stockKindFor(_selectedProductType ?? '') !=
@@ -2959,7 +2928,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                         : TextInputType.text,
                     textInputAction: TextInputAction.done,
                     inputFormatters: [
-                      // Turn pasted new lines into spaces so lists paste correctly
                       TextInputFormatter.withFunction(
                         (oldValue, newValue) => newValue.copyWith(
                           text: newValue.text.replaceAll(
@@ -2979,7 +2947,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                       contentPadding: const EdgeInsets.symmetric(vertical: 10),
                     ),
                     onChanged: (value) {
-                      // IMEI is exactly 15 digits: add it as soon as it is complete
                       final v = value.trim();
                       if (_isPhoneProduct && RegExp(r'^\d{15}$').hasMatch(v)) {
                         _addIdentifiersFromInput();
@@ -3042,7 +3009,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             ],
           ),
           const SizedBox(height: 4),
-
           if (_currentIdentifiers.isNotEmpty) ...[
             const SizedBox(height: 6),
             Wrap(
@@ -3152,7 +3118,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
-  /// Live "what you are about to add" summary.
   Widget _buildLineSummary() {
     final rate = _enteredRate;
     final qty = _enteredQty;
@@ -3236,7 +3201,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
         SizedBox(
           height: 40,
           child: ElevatedButton.icon(
-            // Always tappable: if something is missing, the validation dialog explains it
             onPressed: () => _addToCartWithDiscount(modalContext: modalContext),
             icon: const Icon(Icons.add_shopping_cart, size: 18),
             label: const Text(
@@ -3274,7 +3238,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
-  // ==================== PRODUCT SELECTOR (opens popup) ====================
   Widget _buildProductSelector() {
     return InkWell(
       onTap: _openProductPicker,
@@ -3509,8 +3472,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   Widget _buildCartItemCard(CartItem item, int index) {
-    // When IMEI / serial numbers are attached, the quantity is tied to them,
-    // so +/- is hidden (remove the item and re-add to change it).
     final bool hasIdentifiers = item.identifiers.isNotEmpty;
 
     return Card(
@@ -3624,119 +3585,31 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
-  /// Purchase-level switch shown right above "Complete Purchase".
-  /// ON  (default): phones / TVs / appliances / accessories are added to stock.
-  /// OFF: only the purchase and bill are saved, stock is NOT updated.
-  Widget _buildStockOptionToggle() {
-    return Container(
-      decoration: BoxDecoration(
-        color: _addPurchaseToStock ? Colors.green[50] : Colors.orange[50],
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: _addPurchaseToStock
-              ? Colors.green.shade200
-              : Colors.orange.shade200,
-        ),
-      ),
-      child: SwitchListTile(
-        dense: true,
-        value: _addPurchaseToStock,
-        activeColor: Colors.green[700],
-        onChanged: _isLoading
-            ? null
-            : (v) => setState(() => _addPurchaseToStock = v),
-        secondary: Icon(
-          _addPurchaseToStock ? Icons.inventory_2 : Icons.receipt_long,
-          color: _addPurchaseToStock ? Colors.green[700] : Colors.orange[800],
-        ),
-        title: const Text(
-          'Add to stock',
-          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-        ),
-        subtitle: Text(
-          _addPurchaseToStock
-              ? 'Phones, TVs, appliances and accessories in this purchase will be added to stock'
-              : 'Only the purchase and bill are saved — stock will NOT be updated',
-          style: const TextStyle(fontSize: 11),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSubmitButton() {
-    return Column(
-      children: [
-        _buildStockOptionToggle(),
-        const SizedBox(height: 10),
-        if (_isUploading) ...[
-          LinearProgressIndicator(
-            value: _uploadProgress > 0 ? _uploadProgress : null,
-            color: Colors.green[700],
-            backgroundColor: Colors.green[100],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Uploading bill… ${(_uploadProgress * 100).toStringAsFixed(0)}%',
-            style: TextStyle(fontSize: 11, color: Colors.grey[700]),
-          ),
-          const SizedBox(height: 8),
-        ],
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: _isLoading || _cartItems.isEmpty ? null : _savePurchase,
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              backgroundColor: Colors.green[700],
-              foregroundColor: Colors.white,
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            child: _isLoading
-                ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2,
-                    ),
-                  )
-                : const Text(
-                    'Complete Purchase',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                  ),
-          ),
-        ),
-        SizedBox(height: MediaQuery.of(context).padding.bottom + 24),
-      ],
-    );
-  }
-
+  // ==================== CART SUMMARY ROW ====================
   Widget _buildCartSummaryRow(
     String label,
-    double value, {
+    double amount, {
     bool isBold = false,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
             label,
             style: TextStyle(
-              fontSize: isBold ? 13 : 12,
+              fontSize: isBold ? 14 : 12,
               fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+              color: isBold ? Colors.black : Colors.grey[700],
             ),
           ),
           Text(
-            '₹${value.toStringAsFixed(2)}',
+            '₹${amount.toStringAsFixed(2)}',
             style: TextStyle(
-              fontSize: isBold ? 13 : 12,
-              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-              color: isBold ? Colors.green[700] : Colors.black,
+              fontSize: isBold ? 16 : 12,
+              fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
+              color: isBold ? Colors.green[800] : Colors.black,
             ),
           ),
         ],
@@ -3744,29 +3617,156 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     );
   }
 
-  @override
-  void dispose() {
-    _modalSetState = null;
-    _invoiceController.dispose();
-    _purchaseRateController.dispose();
-    _quantityController.dispose();
-    _rateFocusNode.dispose();
-    _quantityFocusNode.dispose();
-    _identifierController.dispose();
-    _identifierFocusNode.dispose();
-    _roundingController.dispose();
-    _discountController.dispose();
-    super.dispose();
+  // ==================== SUBMIT BUTTON ====================
+  Widget _buildSubmitButton() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: _addPurchaseToStock ? Colors.green[50] : Colors.grey[100],
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: _addPurchaseToStock
+                  ? Colors.green.shade300
+                  : Colors.grey.shade300,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.inventory_2,
+                size: 18,
+                color: _addPurchaseToStock
+                    ? Colors.green[700]
+                    : Colors.grey[600],
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Add items to stock',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: _addPurchaseToStock
+                            ? Colors.green[800]
+                            : Colors.grey[700],
+                      ),
+                    ),
+                    Text(
+                      _addPurchaseToStock
+                          ? 'Purchased phones / TVs / appliances / accessories will be added to stock'
+                          : 'Only the purchase record will be saved — stock is not updated',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: _addPurchaseToStock
+                            ? Colors.green[700]
+                            : Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: _addPurchaseToStock,
+                activeThumbColor: Colors.green[700],
+                onChanged: (v) => setState(() => _addPurchaseToStock = v),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 48,
+          child: ElevatedButton.icon(
+            onPressed: _isLoading ? null : _savePurchase,
+            icon: _isLoading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.check_circle, size: 20),
+            label: Text(
+              _isLoading
+                  ? (_isUploading
+                        ? 'Uploading… ${(_uploadProgress * 100).toStringAsFixed(0)}%'
+                        : 'Saving…')
+                  : 'Complete Purchase',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green[700],
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
-/// Full-screen camera scanner. Stays open and adds every valid code until the
-/// required number of IMEI / serial numbers has been scanned.
+// ============================================================
+// SUPPORTING TYPES
+// ============================================================
+
+/// Which stock collection a product belongs to.
+enum StockKind { phone, tv, appliance, accessory, none }
+
+/// A single line item in the purchase cart.
+class CartItem {
+  final String productId;
+  final String productName;
+  double rate;
+  int quantity;
+  double total;
+  final int gstPercentage;
+  double discount;
+  final String discountType;
+  final double originalRate;
+  final String productType;
+  final String brand;
+  final double saleRate;
+  final List<String> identifiers;
+  final String identifierType;
+
+  CartItem({
+    required this.productId,
+    required this.productName,
+    required this.rate,
+    required this.quantity,
+    required this.total,
+    required this.gstPercentage,
+    this.discount = 0,
+    this.discountType = 'percentage',
+    this.originalRate = 0,
+    this.productType = '',
+    this.brand = '',
+    this.saleRate = 0,
+    this.identifiers = const [],
+    this.identifierType = 'Serial',
+  });
+}
+
+// ============================================================
+// IMEI / SERIAL SCANNER PAGE
+// ============================================================
+
 class _IdentifierScannerPage extends StatefulWidget {
   final String label;
   final int target;
   final int Function() currentCount;
-  final String? Function(String value) onScanned;
+  final String? Function(String) onScanned;
 
   const _IdentifierScannerPage({
     required this.label,
@@ -3780,13 +3780,15 @@ class _IdentifierScannerPage extends StatefulWidget {
 }
 
 class _IdentifierScannerPageState extends State<_IdentifierScannerPage> {
-  final MobileScannerController _controller = MobileScannerController();
+  final MobileScannerController _controller = MobileScannerController(
+    detectionSpeed: DetectionSpeed.normal,
+    facing: CameraFacing.back,
+  );
 
-  String? _message;
-  bool _isError = false;
-  bool _torchOn = false;
-  String _lastValue = '';
-  DateTime _lastTime = DateTime.fromMillisecondsSinceEpoch(0);
+  String? _lastError;
+  String? _lastScanned;
+  bool _processing = false;
+  int _addedCount = 0;
 
   @override
   void dispose() {
@@ -3794,125 +3796,139 @@ class _IdentifierScannerPageState extends State<_IdentifierScannerPage> {
     super.dispose();
   }
 
-  void _onDetect(BarcodeCapture capture) {
-    for (final barcode in capture.barcodes) {
-      final value = barcode.rawValue;
-      if (value == null || value.isEmpty) continue;
+  void _handleDetection(BarcodeCapture capture) {
+    if (_processing) return;
+    final barcodes = capture.barcodes;
+    if (barcodes.isEmpty) return;
+    final raw = barcodes.first.rawValue;
+    if (raw == null || raw.trim().isEmpty) return;
+    if (raw == _lastScanned) return;
 
-      // Ignore the same code being re-read for 2 seconds
-      final now = DateTime.now();
-      if (value == _lastValue &&
-          now.difference(_lastTime) < const Duration(seconds: 2)) {
-        continue;
+    _lastScanned = raw;
+    _processing = true;
+
+    final err = widget.onScanned(raw);
+    if (!mounted) return;
+    setState(() {
+      _lastError = err;
+      if (err == null) {
+        _addedCount = widget.currentCount();
       }
-      _lastValue = value;
-      _lastTime = now;
+    });
 
-      final error = widget.onScanned(value);
-      HapticFeedback.mediumImpact();
+    Future.delayed(const Duration(milliseconds: 700), () {
+      if (mounted) {
+        setState(() {
+          _processing = false;
+          _lastScanned = null;
+        });
+      }
+    });
 
-      if (!mounted) return;
-      setState(() {
-        _message = error ?? 'Added: $value';
-        _isError = error != null;
+    if (widget.currentCount() >= widget.target) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) Navigator.of(context).pop();
       });
-
-      // Everything scanned -> close automatically
-      if (error == null && widget.currentCount() >= widget.target) {
-        Navigator.of(context).pop();
-        return;
-      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final count = widget.currentCount();
+    final total = widget.target;
+    final added = _addedCount > 0 ? _addedCount : widget.currentCount();
 
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.green[700],
         foregroundColor: Colors.white,
         title: Text(
           'Scan ${widget.label}',
           style: const TextStyle(fontSize: 16),
         ),
-        actions: [
-          IconButton(
-            tooltip: 'Flashlight',
-            icon: Icon(_torchOn ? Icons.flash_on : Icons.flash_off),
-            onPressed: () async {
-              await _controller.toggleTorch();
-              if (mounted) setState(() => _torchOn = !_torchOn);
-            },
-          ),
-        ],
       ),
       body: Stack(
         children: [
-          Positioned.fill(
-            child: MobileScanner(controller: _controller, onDetect: _onDetect),
-          ),
-          // Aiming frame
+          MobileScanner(controller: _controller, onDetect: _handleDetection),
           Center(
             child: Container(
-              width: 280,
+              width: 260,
               height: 160,
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.greenAccent, width: 2),
+                border: Border.all(color: Colors.green, width: 2),
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
           ),
-          // Status panel
           Positioned(
             left: 0,
             right: 0,
             bottom: 0,
             child: Container(
-              padding: EdgeInsets.fromLTRB(
-                16,
-                12,
-                16,
-                12 + MediaQuery.of(context).padding.bottom,
-              ),
-              color: Colors.black87,
+              color: Colors.black.withValues(alpha: 0.6),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    'Scanned $count / ${widget.target}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _message ??
-                        'Point the camera at the ${widget.label} barcode',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: _message == null
-                          ? Colors.white70
-                          : (_isError ? Colors.redAccent : Colors.greenAccent),
-                      fontSize: 12,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green[700],
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.qr_code_scanner,
+                        color: Colors.white,
+                        size: 18,
                       ),
-                      child: const Text('Done'),
+                      const SizedBox(width: 8),
+                      Text(
+                        '$added / $total scanned',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_lastError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _lastError!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.redAccent,
+                        fontSize: 12,
+                      ),
                     ),
+                  ],
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.check, size: 18),
+                          label: const Text('Done'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white54),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            await _controller.toggleTorch();
+                          },
+                          icon: const Icon(Icons.flash_on, size: 18),
+                          label: const Text('Torch'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white54),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -3922,41 +3938,4 @@ class _IdentifierScannerPageState extends State<_IdentifierScannerPage> {
       ),
     );
   }
-}
-
-/// Which stock collection a purchased product goes into.
-enum StockKind { phone, tv, appliance, accessory, none }
-
-class CartItem {
-  String productId;
-  String productName;
-  double rate;
-  int quantity;
-  double total;
-  int gstPercentage;
-  double discount;
-  String discountType;
-  double originalRate;
-  String productType;
-  String brand;
-  double saleRate;
-  List<String> identifiers; // IMEI numbers or serial numbers, one per unit
-  String identifierType; // 'IMEI' or 'Serial'
-
-  CartItem({
-    required this.productId,
-    required this.productName,
-    required this.rate,
-    required this.quantity,
-    required this.total,
-    required this.gstPercentage,
-    this.discount = 0,
-    this.discountType = 'none',
-    this.originalRate = 0,
-    this.productType = '',
-    this.brand = '',
-    this.saleRate = 0,
-    List<String>? identifiers,
-    this.identifierType = '',
-  }) : identifiers = identifiers ?? <String>[];
 }

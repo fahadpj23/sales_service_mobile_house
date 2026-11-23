@@ -86,58 +86,48 @@ class _BaseModelStockScreenState extends State<BaseModelStockScreen>
       }).toList();
     }
 
-    final query = _searchQuery.toLowerCase().trim();
+    // Normalize: remove everything except letters/digits, then lowercase.
+    // "a 1 7" -> "a17", "6/128" -> "6128", "Nokia-105" -> "nokia105"
+    String squash(String input) =>
+        input.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+    final rawQuery = _searchQuery.trim();
+    final squashedQuery = squash(rawQuery);
+
+    // Split query into tokens for multi-word AND matching.
+    final tokens = rawQuery
+        .toLowerCase()
+        .split(RegExp(r'[^a-z0-9]+'))
+        .where((t) => t.isNotEmpty)
+        .toList();
+
     final result = <Map<String, dynamic>>[];
 
     for (final doc in stocks) {
       final data = doc.data() as Map<String, dynamic>;
-      final productName = (data['productName'] as String? ?? '').toLowerCase();
-      final productBrand = (data['productBrand'] as String? ?? '')
-          .toLowerCase();
-      final imei = (data['imei'] as String? ?? '').toLowerCase();
-      final combinedText = '$productName $productBrand';
 
-      final searchWords = query.split(' ').where((w) => w.isNotEmpty).toList();
+      final productName = (data['productName'] as String? ?? '');
+      final productBrand = (data['productBrand'] as String? ?? '');
+      final imei = (data['imei'] as String? ?? '');
 
-      bool allWordsFound = true;
+      // Combine all searchable fields into one squashed string.
+      // "Nokia 105 2023" + "Nokia" + imei -> "nokia1052023nokia1234..."
+      final squashedFields = squash('$productName $productBrand $imei');
 
-      for (final word in searchWords) {
-        final variations = <String>[word];
-
-        if (word.contains('/')) {
-          variations.add(word.replaceAll('/', ' '));
-          variations.add(word.replaceAll('/', ''));
-          variations.add(word.replaceAll('/', 'gb/'));
-          variations.add(word.replaceAll('/', '/gb'));
-        }
-
-        if (word.endsWith('g') && word.length > 1) {
-          variations.add(word.substring(0, word.length - 1));
-        }
-
-        if (word.toLowerCase().endsWith('gb') && word.length > 2) {
-          variations.add(word.toLowerCase().replaceAll('gb', ''));
-        }
-
-        bool wordFound = false;
-        for (final variation in variations) {
-          if (combinedText.contains(variation)) {
-            wordFound = true;
-            break;
-          }
-        }
-
-        if (!wordFound && imei.contains(word)) {
-          wordFound = true;
-        }
-
-        if (!wordFound) {
-          allWordsFound = false;
-          break;
-        }
+      // 1) PRIMARY: squashed substring.
+      //    "a17"    -> contains "a17"    ✅
+      //    "a 1 7"  -> squashed to "a17" ✅
+      //    "6/128"  -> squashed to "6128" ✅
+      if (squashedQuery.isNotEmpty && squashedFields.contains(squashedQuery)) {
+        result.add({...data, 'id': doc.id});
+        continue;
       }
 
-      if (allWordsFound) {
+      // 2) FALLBACK: token AND (word reorder, cross-field).
+      //    "105 nokia" -> both tokens present ✅
+      if (tokens.isEmpty) continue;
+      final allTokensFound = tokens.every(squashedFields.contains);
+      if (allTokensFound) {
         result.add({...data, 'id': doc.id});
       }
     }

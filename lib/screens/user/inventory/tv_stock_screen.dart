@@ -87,54 +87,50 @@ class _TvStockScreenState extends State<TvStockScreen>
       }).toList();
     }
 
-    final query = _searchQuery.toLowerCase().trim();
+    // Normalize: remove everything except letters/digits, then lowercase.
+    // "a 1 7" -> "a17", "55/4" -> "554", "Sony-Bravia" -> "sonybravia"
+    String squash(String input) =>
+        input.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+    final rawQuery = _searchQuery.trim();
+    final squashedQuery = squash(rawQuery);
+
+    // Split query into tokens for multi-word AND matching.
+    final tokens = rawQuery
+        .toLowerCase()
+        .split(RegExp(r'[^a-z0-9]+'))
+        .where((t) => t.isNotEmpty)
+        .toList();
+
     final result = <Map<String, dynamic>>[];
 
     for (final doc in stocks) {
       final data = doc.data() as Map<String, dynamic>;
-      final modelName = (data['modelName'] as String? ?? '').toLowerCase();
-      final modelBrand = (data['modelBrand'] as String? ?? '').toLowerCase();
-      final serialNumber = (data['serialNumber'] as String? ?? '')
-          .toLowerCase();
-      final combinedText = '$modelName $modelBrand';
 
-      final searchWords = query.split(' ').where((w) => w.isNotEmpty).toList();
+      final modelName = (data['modelName'] as String? ?? '');
+      final modelBrand = (data['modelBrand'] as String? ?? '');
+      final serialNumber = (data['serialNumber'] as String? ?? '');
 
-      bool allWordsFound = true;
+      // Combine all searchable fields into one squashed string.
+      // "Sony Bravia 55/4K" + "Sony" + serial
+      // -> "sonybravia554ksony1234..."
+      final squashedFields = squash('$modelName $modelBrand $serialNumber');
 
-      for (final word in searchWords) {
-        final variations = <String>[word];
-
-        if (word.contains('/')) {
-          variations.add(word.replaceAll('/', ' '));
-          variations.add(word.replaceAll('/', ''));
-          variations.add(word.replaceAll('/', 'inch/'));
-          variations.add(word.replaceAll('/', '/inch'));
-        }
-
-        if (word.endsWith('inch') && word.length > 4) {
-          variations.add(word.substring(0, word.length - 4));
-        }
-
-        bool wordFound = false;
-        for (final variation in variations) {
-          if (combinedText.contains(variation)) {
-            wordFound = true;
-            break;
-          }
-        }
-
-        if (!wordFound && serialNumber.contains(word)) {
-          wordFound = true;
-        }
-
-        if (!wordFound) {
-          allWordsFound = false;
-          break;
-        }
+      // 1) PRIMARY: squashed substring.
+      //    "a17"        -> contains "a17"      ✅
+      //    "a 1 7"      -> squashed to "a17"   ✅
+      //    "a-17"       -> squashed to "a17"   ✅
+      //    "55/4"       -> squashed to "554"   ✅
+      if (squashedQuery.isNotEmpty && squashedFields.contains(squashedQuery)) {
+        result.add({...data, 'id': doc.id});
+        continue;
       }
 
-      if (allWordsFound) {
+      // 2) FALLBACK: token AND (word reorder, cross-field).
+      //    "bravia sony" -> both tokens present ✅
+      if (tokens.isEmpty) continue;
+      final allTokensFound = tokens.every(squashedFields.contains);
+      if (allTokensFound) {
         result.add({...data, 'id': doc.id});
       }
     }

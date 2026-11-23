@@ -271,49 +271,49 @@ class _AppliancesStockScreenState extends State<AppliancesStockScreen>
       }).toList();
     }
 
-    final query = _searchQuery.toLowerCase().trim();
+    // Normalize: remove everything except letters/digits, then lowercase.
+    // "a 1 7" -> "a17", "1.5/2" -> "152", "LG-AC" -> "lgac"
+    String squash(String input) =>
+        input.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+    final rawQuery = _searchQuery.trim();
+    final squashedQuery = squash(rawQuery);
+
+    // Split query into tokens for multi-word AND matching.
+    final tokens = rawQuery
+        .toLowerCase()
+        .split(RegExp(r'[^a-z0-9]+'))
+        .where((t) => t.isNotEmpty)
+        .toList();
+
     final result = <Map<String, dynamic>>[];
 
     for (final doc in stocks) {
       final data = doc.data() as Map<String, dynamic>;
-      final productName = (data['productName'] as String? ?? '').toLowerCase();
-      final productBrand = (data['productBrand'] as String? ?? '')
-          .toLowerCase();
-      final serialNumber = (data['serialNumber'] as String? ?? '')
-          .toLowerCase();
-      final combinedText = '$productName $productBrand';
 
-      final searchWords = query.split(' ').where((w) => w.isNotEmpty).toList();
+      final productName = (data['productName'] as String? ?? '');
+      final productBrand = (data['productBrand'] as String? ?? '');
+      final serialNumber = (data['serialNumber'] as String? ?? '');
 
-      bool allWordsFound = true;
+      // Combine all searchable fields into one squashed string.
+      // "LG 1.5 Ton AC" + "LG" + "SN123..." -> "lg15tonaclg sn123..."
+      final squashedFields = squash('$productName $productBrand $serialNumber');
 
-      for (final word in searchWords) {
-        final variations = <String>[word];
-
-        if (word.contains('/')) {
-          variations.add(word.replaceAll('/', ' '));
-          variations.add(word.replaceAll('/', ''));
-        }
-
-        bool wordFound = false;
-        for (final variation in variations) {
-          if (combinedText.contains(variation)) {
-            wordFound = true;
-            break;
-          }
-        }
-
-        if (!wordFound && serialNumber.contains(word)) {
-          wordFound = true;
-        }
-
-        if (!wordFound) {
-          allWordsFound = false;
-          break;
-        }
+      // 1) PRIMARY: squashed substring.
+      //    "a17"    -> contains "a17"   ✅
+      //    "a 1 7"  -> squashed to "a17" ✅
+      //    "1 5"    -> squashed to "15"  ✅ (matches "1.5")
+      //    "1.5/2"  -> squashed to "152" ✅
+      if (squashedQuery.isNotEmpty && squashedFields.contains(squashedQuery)) {
+        result.add({...data, 'id': doc.id});
+        continue;
       }
 
-      if (allWordsFound) {
+      // 2) FALLBACK: token AND (word reorder, cross-field).
+      //    "AC LG" -> both tokens present ✅
+      if (tokens.isEmpty) continue;
+      final allTokensFound = tokens.every(squashedFields.contains);
+      if (allTokensFound) {
         result.add({...data, 'id': doc.id});
       }
     }
