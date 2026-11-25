@@ -2075,7 +2075,6 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
                   Row(
                     children: [
                       Expanded(child: _buildDetailItem('Shop', shopName)),
-                      Expanded(child: _buildDetailItem('Shop ID', shopId)),
                     ],
                   ),
                   SizedBox(height: 3),
