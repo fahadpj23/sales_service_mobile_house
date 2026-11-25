@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:sales_stock/screens/user/incentive/incentiveScreen.dart';
+import 'package:sales_stock/screens/user/inventory/accessories_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/base_model_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/ready_cash_phone_stock_screen.dart';
 import 'package:sales_stock/screens/user/inventory/tv_stock_screen.dart';
@@ -1589,6 +1590,17 @@ class _UserDashboardState extends State<UserDashboard> {
                                     _scaffoldKey.currentState?.closeDrawer();
                                     _navigateToScreen(
                                       const BaseModelStockScreen(),
+                                    );
+                                  },
+                                ),
+                                _buildDrawerTile(
+                                  icon: Icons.headphones,
+                                  title: 'Accessories Stock',
+                                  color: Colors.teal,
+                                  onTap: () {
+                                    _scaffoldKey.currentState?.closeDrawer();
+                                    _navigateToScreen(
+                                      const AccessoriesStockScreen(),
                                     );
                                   },
                                 ),
