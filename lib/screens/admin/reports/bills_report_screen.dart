@@ -2,13 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import 'dart:io';
-import 'package:pdf/widgets.dart' as pw;
-import 'package:pdf/pdf.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
 import '../../../providers/auth_provider.dart';
 import 'bills_report_edit.dart';
 import 'bills_reprint.dart';
@@ -55,6 +49,41 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
   // Shop filter
   String? _selectedShopId;
+
+  // Purchase mode + finance type + search filters
+  String? _selectedPurchaseMode;
+  String? _selectedFinanceType;
+  String _searchQuery = '';
+
+  // Only two purchase modes
+  static const String _modeEmi = 'EMI';
+  static const String _modeReadyCash = 'Ready Cash';
+
+  static const List<String> _purchaseModeOptions = [_modeEmi, _modeReadyCash];
+
+  // Finance companies (shown only when purchase mode = EMI)
+  static const List<String> _financeCompaniesList = [
+    'Bajaj Finance',
+    'TVS Credit',
+    'HDB Financial',
+    'Home Credit',
+    'Samsung Finance',
+    'Oppo Finance',
+    'Vivo Finance',
+    'yoga kshema Finance',
+    'MI Finance',
+    'First credit private Finance',
+    'Chola Murugappa',
+    'Other',
+  ];
+
+  // Old bills may have been saved with the old short names.
+  // This maps them to the new names so old bills still match the filter.
+  static const Map<String, String> _legacyFinanceAliases = {
+    'bajaj': 'bajaj finance',
+    'tvs': 'tvs credit',
+    'hdb': 'hdb financial',
+  };
 
   // Edit mode variables
   bool _isEditMode = false;
@@ -147,7 +176,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
         SnackBar(
           content: Text('IMEI copied to clipboard: $imei'),
           backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 2),
         ),
       );
     }
@@ -179,7 +208,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
         _allBills.add(data);
 
-        // Case-insensitive appliance detection
         final billTypeLower = billType?.toLowerCase() ?? '';
         if (billTypeLower == 'appliances' || billTypeLower == 'appliance') {
           _applianceBills.add(data);
@@ -216,6 +244,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
     var filteredPhoneBills = _filterBillsByTimePeriod(_phoneBills);
     filteredPhoneBills = _filterBillsByShop(filteredPhoneBills);
+    filteredPhoneBills = _filterBillsBySearchAndMode(filteredPhoneBills);
 
     for (var bill in filteredPhoneBills) {
       String brand = 'Unknown';
@@ -252,6 +281,137 @@ class _BillsReportScreenState extends State<BillsReportScreen>
         'totalBills': totalBills,
       };
     }
+  }
+
+  // ==================== purchase mode / finance helpers ====================
+
+  /// Old bills may have purchaseMode saved as "Finance". Treat it as EMI.
+  bool _isEmiMode(String mode) {
+    final m = mode.trim().toLowerCase();
+    return m == 'emi' || m == 'finance';
+  }
+
+  String _normalizeFinance(dynamic value) {
+    final v = (value ?? '').toString().trim().toLowerCase();
+    return _legacyFinanceAliases[v] ?? v;
+  }
+
+  // ==================== search + mode + finance filter ====================
+  List<Map<String, dynamic>> _filterBillsBySearchAndMode(
+    List<Map<String, dynamic>> bills,
+  ) {
+    return bills.where((bill) {
+      // Purchase Mode (+ Finance Type when EMI)
+      if (_selectedPurchaseMode != null && _selectedPurchaseMode!.isNotEmpty) {
+        final mode = (bill['purchaseMode'] ?? '').toString();
+
+        if (_selectedPurchaseMode == _modeEmi) {
+          // Only EMI bills
+          if (!_isEmiMode(mode)) return false;
+
+          // If a finance company is chosen, filter by it.
+          // If not chosen, all EMI bills are shown.
+          if (_selectedFinanceType != null &&
+              _selectedFinanceType!.isNotEmpty) {
+            final billFinance = _normalizeFinance(bill['financeType']);
+            final selectedFinance = _normalizeFinance(_selectedFinanceType);
+            if (billFinance != selectedFinance) return false;
+          }
+        } else {
+          // Ready Cash
+          if (mode.trim().toLowerCase() !=
+              _selectedPurchaseMode!.trim().toLowerCase()) {
+            return false;
+          }
+        }
+      }
+
+      // Search
+      if (_searchQuery.trim().isEmpty) return true;
+
+      final q = _searchQuery.trim().toLowerCase();
+
+      final customerName = (bill['customerName'] ?? '')
+          .toString()
+          .toLowerCase();
+      final customerMobile = (bill['customerMobile'] ?? '')
+          .toString()
+          .toLowerCase();
+      final productName = (bill['productName'] ?? '').toString().toLowerCase();
+      final modelName = (bill['modelName'] ?? '').toString().toLowerCase();
+      final applianceProductName = (bill['applianceProductName'] ?? '')
+          .toString()
+          .toLowerCase();
+      final imei = (bill['imei'] ?? '').toString().toLowerCase();
+      final serial = (bill['serialNumber'] ?? '').toString().toLowerCase();
+      final billNumber = (bill['billNumber'] ?? '').toString().toLowerCase();
+
+      // Nested product map
+      String nestedProductName = '';
+      final product = bill['product'];
+      if (product is Map<String, dynamic>) {
+        nestedProductName = (product['productName'] ?? '')
+            .toString()
+            .toLowerCase();
+      }
+
+      // Nested original data maps
+      String originalPhoneName = '';
+      String originalPhoneImei = '';
+      final originalPhoneData = bill['originalPhoneData'];
+      if (originalPhoneData is Map<String, dynamic>) {
+        originalPhoneName = (originalPhoneData['productName'] ?? '')
+            .toString()
+            .toLowerCase();
+        originalPhoneImei = (originalPhoneData['imei'] ?? '')
+            .toString()
+            .toLowerCase();
+      }
+
+      String originalTvModel = '';
+      String originalTvSerial = '';
+      final originalTvData = bill['originalTvData'];
+      if (originalTvData is Map<String, dynamic>) {
+        originalTvModel = (originalTvData['modelName'] ?? '')
+            .toString()
+            .toLowerCase();
+        originalTvSerial = (originalTvData['serialNumber'] ?? '')
+            .toString()
+            .toLowerCase();
+      }
+
+      String originalApplianceName = '';
+      String originalApplianceSerial = '';
+      final originalApplianceData = bill['originalApplianceData'];
+      if (originalApplianceData is Map<String, dynamic>) {
+        originalApplianceName = (originalApplianceData['productName'] ?? '')
+            .toString()
+            .toLowerCase();
+        originalApplianceSerial = (originalApplianceData['serialNumber'] ?? '')
+            .toString()
+            .toLowerCase();
+      }
+
+      final haystack = [
+        customerName,
+        customerMobile,
+        productName,
+        modelName,
+        applianceProductName,
+        imei,
+        serial,
+        billNumber,
+        nestedProductName,
+        originalPhoneName,
+        originalPhoneImei,
+        originalTvModel,
+        originalTvSerial,
+        originalApplianceName,
+        originalApplianceSerial,
+      ].join(' ');
+
+      return haystack.contains(q);
+    }).toList();
   }
 
   List<Map<String, dynamic>> _filterBillsByTimePeriod(
@@ -298,7 +458,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
             endDate = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
             break;
           case 'yesterday':
-            final yesterday = now.subtract(Duration(days: 1));
+            final yesterday = now.subtract(const Duration(days: 1));
             startDate = DateTime(
               yesterday.year,
               yesterday.month,
@@ -375,24 +535,28 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   List<Map<String, dynamic>> _getFilteredPhoneBills() {
     var bills = _filterBillsByTimePeriod(_phoneBills);
     bills = _filterBillsByShop(bills);
+    bills = _filterBillsBySearchAndMode(bills);
     return bills;
   }
 
   List<Map<String, dynamic>> _getFilteredAccessoriesBills() {
     var bills = _filterBillsByTimePeriod(_accessoriesBills);
     bills = _filterBillsByShop(bills);
+    bills = _filterBillsBySearchAndMode(bills);
     return bills;
   }
 
   List<Map<String, dynamic>> _getFilteredTvBills() {
     var bills = _filterBillsByTimePeriod(_tvBills);
     bills = _filterBillsByShop(bills);
+    bills = _filterBillsBySearchAndMode(bills);
     return bills;
   }
 
   List<Map<String, dynamic>> _getFilteredApplianceBills() {
     var bills = _filterBillsByTimePeriod(_applianceBills);
     bills = _filterBillsByShop(bills);
+    bills = _filterBillsBySearchAndMode(bills);
     return bills;
   }
 
@@ -463,6 +627,308 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     );
   }
 
+  // ==================== SEARCH DIALOG ====================
+  Future<void> _openSearchDialog() async {
+    final controller = TextEditingController(text: _searchQuery);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.search, color: primaryGreen, size: 20),
+            const SizedBox(width: 8),
+            const Text(
+              'Search Bills',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: controller,
+              autofocus: true,
+              style: const TextStyle(fontSize: 13),
+              decoration: InputDecoration(
+                hintText: 'Name, phone, IMEI, serial, product…',
+                hintStyle: const TextStyle(fontSize: 12),
+                prefixIcon: Icon(Icons.search, size: 18, color: primaryGreen),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 10,
+                ),
+                suffixIcon: controller.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 16),
+                        onPressed: () => controller.clear(),
+                      )
+                    : null,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Searches customer name, mobile, product, IMEI and serial.',
+              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, ''),
+            child: const Text('Clear', style: TextStyle(fontSize: 12)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            icon: const Icon(Icons.search, size: 16),
+            label: const Text('Search', style: TextStyle(fontSize: 12)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryGreen,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    controller.dispose();
+
+    if (result == null) return;
+
+    setState(() {
+      _searchQuery = result;
+      _processBrandWiseData();
+    });
+  }
+
+  // ==================== FILTER SHEET ====================
+  Future<void> _openFilterSheet() async {
+    String? tempShopId = _selectedShopId;
+    String? tempPurchaseMode = _selectedPurchaseMode;
+    String? tempFinanceType = _selectedFinanceType;
+
+    final applied = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setS) {
+            return SafeArea(
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    left: 16,
+                    right: 16,
+                    top: 12,
+                    bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.filter_alt, color: primaryGreen, size: 20),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Filters',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const Spacer(),
+                          TextButton(
+                            onPressed: () {
+                              setS(() {
+                                tempShopId = null;
+                                tempPurchaseMode = null;
+                                tempFinanceType = null;
+                              });
+                            },
+                            child: const Text(
+                              'Clear All',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(),
+                      const SizedBox(height: 8),
+
+                      // Shop
+                      _filterLabel('Shop'),
+                      DropdownButtonFormField<String>(
+                        value: tempShopId,
+                        isExpanded: true,
+                        decoration: _dropdownDecoration(),
+                        items: [
+                          const DropdownMenuItem<String>(
+                            value: null,
+                            child: Text(
+                              'All Shops',
+                              style: TextStyle(fontSize: 13),
+                            ),
+                          ),
+                          ...widget.shops.map(
+                            (s) => DropdownMenuItem<String>(
+                              value: s['id'] as String?,
+                              child: Text(
+                                (s['name'] ?? 'Unknown').toString(),
+                                style: const TextStyle(fontSize: 13),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                        ],
+                        onChanged: (v) => setS(() => tempShopId = v),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Purchase Mode (EMI / Ready Cash)
+                      _filterLabel('Purchase Mode'),
+                      DropdownButtonFormField<String>(
+                        value: tempPurchaseMode,
+                        isExpanded: true,
+                        decoration: _dropdownDecoration(),
+                        items: [
+                          const DropdownMenuItem<String>(
+                            value: null,
+                            child: Text('Any', style: TextStyle(fontSize: 13)),
+                          ),
+                          ..._purchaseModeOptions.map(
+                            (m) => DropdownMenuItem<String>(
+                              value: m,
+                              child: Text(
+                                m,
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ),
+                          ),
+                        ],
+                        onChanged: (v) => setS(() {
+                          tempPurchaseMode = v;
+                          // Finance type only applies to EMI
+                          if (v != _modeEmi) {
+                            tempFinanceType = null;
+                          }
+                        }),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Finance Type - only when EMI is selected
+                      if (tempPurchaseMode == _modeEmi) ...[
+                        _filterLabel('Finance Type'),
+                        DropdownButtonFormField<String>(
+                          value: tempFinanceType,
+                          isExpanded: true,
+                          decoration: _dropdownDecoration(),
+                          items: [
+                            const DropdownMenuItem<String>(
+                              value: null,
+                              child: Text(
+                                'All EMI (any finance)',
+                                style: TextStyle(fontSize: 13),
+                              ),
+                            ),
+                            ..._financeCompaniesList.map(
+                              (f) => DropdownMenuItem<String>(
+                                value: f,
+                                child: Text(
+                                  f,
+                                  style: const TextStyle(fontSize: 13),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                          ],
+                          onChanged: (v) => setS(() => tempFinanceType = v),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      const SizedBox(height: 4),
+
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () => Navigator.pop(ctx, true),
+                              icon: const Icon(Icons.check, size: 16),
+                              label: const Text('Apply'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: primaryGreen,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (applied == true) {
+      setState(() {
+        _selectedShopId = tempShopId;
+        _selectedPurchaseMode = tempPurchaseMode;
+        // Finance type is only valid when mode is EMI
+        _selectedFinanceType = tempPurchaseMode == _modeEmi
+            ? tempFinanceType
+            : null;
+        _processBrandWiseData();
+      });
+    }
+  }
+
+  Widget _filterLabel(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Colors.grey[700],
+        ),
+      ),
+    );
+  }
+
+  InputDecoration _dropdownDecoration() {
+    return InputDecoration(
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    );
+  }
+
   // ==================== EDIT BILL ====================
   void _startEditBill(Map<String, dynamic> bill) {
     final billType = bill['billType'] as String?;
@@ -487,38 +953,30 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     String imei = '';
     String serialNumber = '';
 
-    // ============ ACCESSORIES ============
     if (newEditBillType == 'accessories') {
       final productMap = bill['product'] as Map<String, dynamic>?;
-
       productName =
           productMap?['productName']?.toString() ??
           bill['productName']?.toString() ??
           bill['applianceProductName']?.toString() ??
           '';
-
       serialNumber =
           bill['serialNumber']?.toString() ??
           productMap?['serialNumber']?.toString() ??
           '';
-
       imei = '';
     } else if (newEditBillType == 'appliance') {
-      // ============ APPLIANCE (reads nested product map first) ============
       final productMap = bill['product'] as Map<String, dynamic>?;
       final originalApplianceData = bill['originalApplianceData'];
-
       productName =
           productMap?['productName']?.toString() ??
           bill['applianceProductName']?.toString() ??
           bill['productName']?.toString() ??
           '';
-
       serialNumber =
           bill['serialNumber']?.toString() ??
           productMap?['serialNumber']?.toString() ??
           '';
-
       if (originalApplianceData is Map<String, dynamic>) {
         if (productName.isEmpty) {
           productName = originalApplianceData['productName']?.toString() ?? '';
@@ -528,27 +986,22 @@ class _BillsReportScreenState extends State<BillsReportScreen>
               originalApplianceData['serialNumber']?.toString() ?? '';
         }
       }
-
       imei = '';
     } else if (newEditBillType == 'phone') {
-      // ============ PHONE ============
       final originalPhoneData = bill['originalPhoneData'];
-      if (originalPhoneData != null &&
-          originalPhoneData is Map<String, dynamic>) {
+      if (originalPhoneData is Map<String, dynamic>) {
         productName =
             originalPhoneData['productName'] ?? bill['productName'] ?? '';
       } else {
         productName = bill['productName'] ?? '';
       }
       imei = bill['imei'] ?? '';
-      if (originalPhoneData != null &&
-          originalPhoneData is Map<String, dynamic>) {
+      if (originalPhoneData is Map<String, dynamic>) {
         if (imei.isEmpty) imei = originalPhoneData['imei'] ?? '';
       }
     } else if (newEditBillType == 'tv') {
-      // ============ TV ============
       final originalTvData = bill['originalTvData'];
-      if (originalTvData != null && originalTvData is Map<String, dynamic>) {
+      if (originalTvData is Map<String, dynamic>) {
         productName =
             originalTvData['modelName'] ??
             bill['modelName'] ??
@@ -558,11 +1011,19 @@ class _BillsReportScreenState extends State<BillsReportScreen>
         productName = bill['modelName'] ?? bill['productName'] ?? '';
       }
       serialNumber = bill['serialNumber'] ?? '';
-      if (originalTvData != null && originalTvData is Map<String, dynamic>) {
+      if (originalTvData is Map<String, dynamic>) {
         if (serialNumber.isEmpty) {
           serialNumber = originalTvData['serialNumber'] ?? '';
         }
       }
+    }
+
+    // Map old "Finance" purchase mode to the new "EMI"
+    String editMode = (bill['purchaseMode'] ?? _modeReadyCash).toString();
+    if (_isEmiMode(editMode)) {
+      editMode = _modeEmi;
+    } else {
+      editMode = _modeReadyCash;
     }
 
     setState(() {
@@ -582,7 +1043,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       _editProductNameController.text = productName;
       _editImeiController.text = imei;
       _editSerialController.text = serialNumber;
-      _editSelectedPurchaseMode = bill['purchaseMode'] ?? 'Ready Cash';
+      _editSelectedPurchaseMode = editMode;
       _editSelectedFinanceType = bill['financeType'];
       _editSealChecked = bill['sealApplied'] == true;
     });
@@ -668,7 +1129,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
   Future<void> _showCustomDateRangePicker() async {
     DateTime startDate =
-        _customStartDate ?? DateTime.now().subtract(Duration(days: 30));
+        _customStartDate ?? DateTime.now().subtract(const Duration(days: 30));
     DateTime endDate = _customEndDate ?? DateTime.now();
 
     final DateTime? pickedStartDate = await showDatePicker(
@@ -680,7 +1141,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
         return Theme(
           data: ThemeData.light().copyWith(
             primaryColor: secondaryGreen,
-            colorScheme: ColorScheme.light(primary: secondaryGreen),
+            colorScheme: const ColorScheme.light(primary: Color(0xFF1A7D4A)),
           ),
           child: child!,
         );
@@ -698,7 +1159,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
         return Theme(
           data: ThemeData.light().copyWith(
             primaryColor: secondaryGreen,
-            colorScheme: ColorScheme.light(primary: secondaryGreen),
+            colorScheme: const ColorScheme.light(primary: Color(0xFF1A7D4A)),
           ),
           child: child!,
         );
@@ -719,6 +1180,9 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   void _resetFilters() {
     setState(() {
       _selectedShopId = null;
+      _selectedPurchaseMode = null;
+      _selectedFinanceType = null;
+      _searchQuery = '';
       _customStartDate = null;
       _customEndDate = null;
       _isCustomPeriod = false;
@@ -728,9 +1192,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   }
 
   String _getPeriodLabel() {
-    if (_isCustomPeriod) {
-      return 'Custom Range';
-    }
+    if (_isCustomPeriod) return 'Custom Range';
 
     switch (_selectedTimePeriod) {
       case 'today':
@@ -761,7 +1223,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       case 'today':
         return DateFormat('dd MMM yyyy').format(now);
       case 'yesterday':
-        final yesterday = now.subtract(Duration(days: 1));
+        final yesterday = now.subtract(const Duration(days: 1));
         return DateFormat('dd MMM yyyy').format(yesterday);
       case 'monthly':
         return DateFormat('MMMM yyyy').format(now);
@@ -775,6 +1237,21 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       default:
         return DateFormat('MMMM yyyy').format(now);
     }
+  }
+
+  int get _activeFilterCount {
+    var n = 0;
+    if (_selectedShopId != null && _selectedShopId!.isNotEmpty) n++;
+    if (_selectedPurchaseMode != null && _selectedPurchaseMode!.isNotEmpty) {
+      n++;
+    }
+    if (_selectedPurchaseMode == _modeEmi &&
+        _selectedFinanceType != null &&
+        _selectedFinanceType!.isNotEmpty) {
+      n++;
+    }
+    if (_searchQuery.trim().isNotEmpty) n++;
+    return n;
   }
 
   @override
@@ -806,13 +1283,16 @@ class _BillsReportScreenState extends State<BillsReportScreen>
           foregroundColor: Colors.white,
           elevation: 4,
           leading: _isEditMode
-              ? IconButton(icon: Icon(Icons.arrow_back), onPressed: _cancelEdit)
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: _cancelEdit,
+                )
               : null,
           automaticallyImplyLeading: false,
           bottom: _isEditMode
               ? null
               : PreferredSize(
-                  preferredSize: Size.fromHeight(48),
+                  preferredSize: const Size.fromHeight(48),
                   child: Container(
                     color: primaryGreen,
                     child: TabBar(
@@ -820,103 +1300,31 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                       isScrollable: true,
                       tabs: [
                         Tab(
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.phone_android, size: 16),
-                              SizedBox(width: 4),
-                              Text('Phone'),
-                              Container(
-                                margin: EdgeInsets.only(left: 4),
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: 5,
-                                  vertical: 1,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  '${filteredPhoneBills.length}',
-                                  style: TextStyle(fontSize: 10),
-                                ),
-                              ),
-                            ],
+                          child: _tabLabel(
+                            Icons.phone_android,
+                            'Phone',
+                            filteredPhoneBills.length,
                           ),
                         ),
                         Tab(
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.shopping_bag, size: 16),
-                              SizedBox(width: 4),
-                              Text('Accessories'),
-                              Container(
-                                margin: EdgeInsets.only(left: 4),
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: 5,
-                                  vertical: 1,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  '${filteredAccessoriesBills.length}',
-                                  style: TextStyle(fontSize: 10),
-                                ),
-                              ),
-                            ],
+                          child: _tabLabel(
+                            Icons.shopping_bag,
+                            'Accessories',
+                            filteredAccessoriesBills.length,
                           ),
                         ),
                         Tab(
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.tv, size: 16),
-                              SizedBox(width: 4),
-                              Text('TV'),
-                              Container(
-                                margin: EdgeInsets.only(left: 4),
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: 5,
-                                  vertical: 1,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  '${filteredTvBills.length}',
-                                  style: TextStyle(fontSize: 10),
-                                ),
-                              ),
-                            ],
+                          child: _tabLabel(
+                            Icons.tv,
+                            'TV',
+                            filteredTvBills.length,
                           ),
                         ),
                         Tab(
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.kitchen, size: 16),
-                              SizedBox(width: 4),
-                              Text('Appliances'),
-                              Container(
-                                margin: EdgeInsets.only(left: 4),
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: 5,
-                                  vertical: 1,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  '${filteredApplianceBills.length}',
-                                  style: TextStyle(fontSize: 10),
-                                ),
-                              ),
-                            ],
+                          child: _tabLabel(
+                            Icons.kitchen,
+                            'Appliances',
+                            filteredApplianceBills.length,
                           ),
                         ),
                       ],
@@ -924,15 +1332,66 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                       unselectedLabelColor: Colors.white70,
                       indicatorColor: Colors.white,
                       indicatorWeight: 3,
-                      labelStyle: TextStyle(fontSize: 12),
-                      unselectedLabelStyle: TextStyle(fontSize: 12),
-                      padding: EdgeInsets.symmetric(horizontal: 8),
+                      labelStyle: const TextStyle(fontSize: 12),
+                      unselectedLabelStyle: const TextStyle(fontSize: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
                     ),
                   ),
                 ),
           actions: _isEditMode
               ? []
               : [
+                  // Search icon
+                  IconButton(
+                    tooltip: 'Search',
+                    icon: Icon(
+                      Icons.search,
+                      color: _searchQuery.isNotEmpty
+                          ? warningColor
+                          : Colors.white,
+                    ),
+                    onPressed: _openSearchDialog,
+                  ),
+                  // Filter icon with active-count badge
+                  Stack(
+                    children: [
+                      IconButton(
+                        tooltip: 'Filters',
+                        icon: Icon(
+                          Icons.filter_alt,
+                          color: _activeFilterCount > 0
+                              ? warningColor
+                              : Colors.white,
+                        ),
+                        onPressed: _openFilterSheet,
+                      ),
+                      if (_activeFilterCount > 0)
+                        Positioned(
+                          right: 6,
+                          top: 6,
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              color: warningColor,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            constraints: const BoxConstraints(
+                              minWidth: 14,
+                              minHeight: 14,
+                            ),
+                            child: Text(
+                              '$_activeFilterCount',
+                              style: const TextStyle(
+                                fontSize: 9,
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                   if (widget.shops.isNotEmpty)
                     IconButton(
                       icon: _isGeneratingPDF
@@ -967,6 +1426,26 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     );
   }
 
+  Widget _tabLabel(IconData icon, String label, int count) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 16),
+        const SizedBox(width: 4),
+        Text(label),
+        Container(
+          margin: const EdgeInsets.only(left: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text('$count', style: const TextStyle(fontSize: 10)),
+        ),
+      ],
+    );
+  }
+
   Widget _buildMainContent(
     List<Map<String, dynamic>> filteredPhoneBills,
     List<Map<String, dynamic>> filteredAccessoriesBills,
@@ -976,7 +1455,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     return Column(
       children: [
         _buildTimePeriodSelector(),
-        SizedBox(height: 8),
+        const SizedBox(height: 8),
         _buildFilterBar(),
         Expanded(
           child: TabBarView(
@@ -1021,7 +1500,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     ];
 
     return Container(
-      padding: EdgeInsets.all(12),
+      padding: const EdgeInsets.all(12),
       color: Colors.white,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1034,7 +1513,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
               color: primaryGreen,
             ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -1044,10 +1523,10 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                     : _selectedTimePeriod == option['value'];
 
                 return Padding(
-                  padding: EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.only(right: 8),
                   child: FilterChip(
                     label: Text(
-                      option['label'],
+                      option['label'] as String,
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: isSelected
@@ -1061,14 +1540,14 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                         _showCustomDateRangePicker();
                       } else {
                         setState(() {
-                          _selectedTimePeriod = option['value'];
+                          _selectedTimePeriod = option['value'] as String;
                           _isCustomPeriod = false;
                           _processBrandWiseData();
                         });
                       }
                     },
                     avatar: Icon(
-                      option['icon'],
+                      option['icon'] as IconData,
                       size: 16,
                       color: isSelected ? Colors.white : primaryGreen,
                     ),
@@ -1078,8 +1557,11 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                     labelStyle: TextStyle(
                       color: isSelected ? Colors.white : Colors.grey[700],
                     ),
-                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    shape: StadiumBorder(),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    shape: const StadiumBorder(),
                   ),
                 );
               }).toList(),
@@ -1089,8 +1571,8 @@ class _BillsReportScreenState extends State<BillsReportScreen>
               _customStartDate != null &&
               _customEndDate != null)
             Container(
-              margin: EdgeInsets.only(top: 8),
-              padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: secondaryGreen.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(8),
@@ -1099,7 +1581,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(Icons.date_range, size: 14, color: secondaryGreen),
-                  SizedBox(width: 6),
+                  const SizedBox(width: 6),
                   Text(
                     '${DateFormat('dd MMM yyyy').format(_customStartDate!)} - ${DateFormat('dd MMM yyyy').format(_customEndDate!)}',
                     style: TextStyle(
@@ -1117,63 +1599,133 @@ class _BillsReportScreenState extends State<BillsReportScreen>
   }
 
   Widget _buildFilterBar() {
+    // Active filter chips row
+    final chips = <Widget>[];
+
+    if (_searchQuery.trim().isNotEmpty) {
+      chips.add(
+        _activeFilterChip(
+          'Search: "$_searchQuery"',
+          () => setState(() {
+            _searchQuery = '';
+            _processBrandWiseData();
+          }),
+        ),
+      );
+    }
+    if (_selectedPurchaseMode != null) {
+      chips.add(
+        _activeFilterChip(
+          'Mode: $_selectedPurchaseMode',
+          () => setState(() {
+            _selectedPurchaseMode = null;
+            // Finance type only makes sense with EMI
+            _selectedFinanceType = null;
+            _processBrandWiseData();
+          }),
+        ),
+      );
+    }
+    if (_selectedPurchaseMode == _modeEmi && _selectedFinanceType != null) {
+      chips.add(
+        _activeFilterChip(
+          'Finance: $_selectedFinanceType',
+          () => setState(() {
+            _selectedFinanceType = null;
+            _processBrandWiseData();
+          }),
+        ),
+      );
+    }
+    if (_selectedShopId != null) {
+      final name = widget.shops.firstWhere(
+        (s) => s['id'] == _selectedShopId,
+        orElse: () => {'name': 'Shop'},
+      )['name'];
+      chips.add(
+        _activeFilterChip(
+          'Shop: $name',
+          () => setState(() {
+            _selectedShopId = null;
+            _processBrandWiseData();
+          }),
+        ),
+      );
+    }
+
     return Container(
-      padding: EdgeInsets.fromLTRB(8, 0, 8, 8),
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
       color: Colors.white,
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            flex: 2,
-            child: DropdownButtonFormField<String>(
-              value: _selectedShopId,
-              decoration: InputDecoration(
-                labelText: 'Filter by Shop',
-                border: OutlineInputBorder(
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: _openFilterSheet,
                   borderRadius: BorderRadius.circular(6),
-                ),
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                isDense: true,
-              ),
-              items: [
-                DropdownMenuItem(
-                  value: null,
-                  child: Text(
-                    'All Shops',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey[300]!),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.filter_alt, size: 16, color: primaryGreen),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _activeFilterCount == 0
+                                ? 'Filters (Shop, Mode, Finance)'
+                                : '$_activeFilterCount filter(s) active',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: _activeFilterCount == 0
+                                  ? Colors.grey[600]
+                                  : primaryGreen,
+                              fontWeight: _activeFilterCount == 0
+                                  ? FontWeight.normal
+                                  : FontWeight.w600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const Icon(Icons.keyboard_arrow_down, size: 18),
+                      ],
+                    ),
                   ),
                 ),
-                ...widget.shops.map((shop) {
-                  return DropdownMenuItem(
-                    value: shop['id'],
-                    child: Text(
-                      shop['name'],
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  );
-                }),
-              ],
-              onChanged: (value) {
-                setState(() {
-                  _selectedShopId = value;
-                  _processBrandWiseData();
-                });
-              },
-            ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: Icon(Icons.clear, color: Colors.red[400]),
+                onPressed: _resetFilters,
+                tooltip: 'Reset All Filters',
+              ),
+            ],
           ),
-          SizedBox(width: 8),
-          IconButton(
-            icon: Icon(Icons.clear, color: Colors.red),
-            onPressed: _resetFilters,
-            tooltip: 'Reset Filters',
-          ),
+          if (chips.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(spacing: 6, runSpacing: 6, children: chips),
+          ],
         ],
       ),
+    );
+  }
+
+  Widget _activeFilterChip(String label, VoidCallback onDelete) {
+    return Chip(
+      label: Text(label, style: const TextStyle(fontSize: 11)),
+      deleteIcon: const Icon(Icons.close, size: 14),
+      onDeleted: onDelete,
+      backgroundColor: primaryGreen.withOpacity(0.08),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
   }
 
@@ -1181,7 +1733,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     return Column(
       children: [
         Container(
-          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           color: Colors.white,
           child: Row(
             children: [
@@ -1256,28 +1808,11 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     });
 
     if (sortedBrands.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.bar_chart, size: 64, color: Colors.grey[400]),
-            SizedBox(height: 16),
-            Text(
-              'No phone bills found',
-              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Try changing your filters',
-              style: TextStyle(fontSize: 13, color: Colors.grey[500]),
-            ),
-          ],
-        ),
-      );
+      return _emptyState('No phone bills found');
     }
 
     return ListView(
-      padding: EdgeInsets.all(12),
+      padding: const EdgeInsets.all(12),
       children: [
         _buildOverallSummaryCard(
           totalAllAmount,
@@ -1285,7 +1820,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
           totalAllGst,
           totalAllBills,
         ),
-        SizedBox(height: 12),
+        const SizedBox(height: 12),
         ...sortedBrands.map((entry) {
           final brand = entry.key;
           final stats = entry.value;
@@ -1302,6 +1837,24 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     );
   }
 
+  Widget _emptyState(String title) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.receipt, size: 64, color: Colors.grey[400]),
+          const SizedBox(height: 16),
+          Text(title, style: TextStyle(fontSize: 16, color: Colors.grey[600])),
+          const SizedBox(height: 8),
+          Text(
+            'Try changing your filters or search',
+            style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildOverallSummaryCard(
     double totalAmount,
     double totalTaxable,
@@ -1309,7 +1862,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     int count,
   ) {
     return Container(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -1321,7 +1874,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
           BoxShadow(
             color: Colors.black.withOpacity(0.1),
             blurRadius: 8,
-            offset: Offset(0, 2),
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -1335,7 +1888,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 children: [
                   Text(
                     _getPeriodLabel(),
-                    style: TextStyle(color: Colors.white70, fontSize: 11),
+                    style: const TextStyle(color: Colors.white70, fontSize: 11),
                   ),
                   Text(
                     _getPeriodDateRange(),
@@ -1348,13 +1901,13 @@ class _BillsReportScreenState extends State<BillsReportScreen>
               ),
               Text(
                 'Total Bills: $count',
-                style: TextStyle(color: Colors.white, fontSize: 13),
+                style: const TextStyle(color: Colors.white, fontSize: 13),
               ),
             ],
           ),
-          SizedBox(height: 12),
-          Divider(color: Colors.white24, height: 1),
-          SizedBox(height: 12),
+          const SizedBox(height: 12),
+          const Divider(color: Colors.white24, height: 1),
+          const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1362,13 +1915,13 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'Taxable Amount',
                       style: TextStyle(color: Colors.white70, fontSize: 11),
                     ),
                     Text(
                       '₹${widget.formatNumber(totalTaxable)}',
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -1381,7 +1934,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Text(
+                    const Text(
                       'GST Amount',
                       style: TextStyle(color: Colors.white70, fontSize: 11),
                     ),
@@ -1400,13 +1953,13 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text(
+                    const Text(
                       'Total Sales',
                       style: TextStyle(color: Colors.white70, fontSize: 11),
                     ),
                     Text(
                       '₹${widget.formatNumber(totalAmount)}',
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -1431,22 +1984,20 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     List<Map<String, dynamic>> bills,
   ) {
     return Card(
-      margin: EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 12),
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
-        onTap: () {
-          _showBrandDetailsDialog(brand, bills);
-        },
+        onTap: () => _showBrandDetailsDialog(brand, bills),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: EdgeInsets.all(16),
+          padding: const EdgeInsets.all(16),
           child: Column(
             children: [
               Row(
                 children: [
                   Container(
-                    padding: EdgeInsets.all(10),
+                    padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       color: primaryGreen.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
@@ -1457,7 +2008,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                       color: primaryGreen,
                     ),
                   ),
-                  SizedBox(width: 12),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1499,9 +2050,9 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                   ),
                 ],
               ),
-              SizedBox(height: 12),
-              Divider(height: 1),
-              SizedBox(height: 12),
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
@@ -1591,7 +2142,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
           child: Container(
             width: MediaQuery.of(context).size.width * 0.9,
             height: MediaQuery.of(context).size.height * 0.7,
-            padding: EdgeInsets.all(16),
+            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1601,7 +2152,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                     Row(
                       children: [
                         Icon(Icons.branding_watermark, color: primaryGreen),
-                        SizedBox(width: 8),
+                        const SizedBox(width: 8),
                         Text(
                           brand,
                           style: TextStyle(
@@ -1613,18 +2164,21 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                       ],
                     ),
                     IconButton(
-                      icon: Icon(Icons.close),
+                      icon: const Icon(Icons.close),
                       onPressed: () => Navigator.pop(context),
                     ),
                   ],
                 ),
-                Divider(),
-                SizedBox(height: 8),
+                const Divider(),
+                const SizedBox(height: 8),
                 Text(
                   'Bill Details (${bills.length} bills)',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
                 ),
-                SizedBox(height: 12),
+                const SizedBox(height: 12),
                 Expanded(
                   child: ListView.builder(
                     itemCount: bills.length,
@@ -1653,8 +2207,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
     String productName = '';
     final originalPhoneData = bill['originalPhoneData'];
-    if (originalPhoneData != null &&
-        originalPhoneData is Map<String, dynamic>) {
+    if (originalPhoneData is Map<String, dynamic>) {
       productName =
           originalPhoneData['productName'] ?? bill['productName'] ?? 'N/A';
     } else {
@@ -1662,21 +2215,20 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     }
 
     String imei = bill['imei'] ?? '';
-    if (originalPhoneData != null &&
-        originalPhoneData is Map<String, dynamic>) {
+    if (originalPhoneData is Map<String, dynamic>) {
       if (imei.isEmpty) {
         imei = originalPhoneData['imei'] ?? '';
       }
     }
 
-    bool isPhoneBill =
+    final isPhoneBill =
         bill['type'] != 'tv' &&
         bill['billType'] != 'GST Accessories' &&
         bill['billType'] != 'Appliances' &&
         bill['billType'] != 'Appliance';
 
     return Card(
-      margin: EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 8),
       elevation: 1,
       child: InkWell(
         onTap: () {
@@ -1684,7 +2236,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
           _showBillDetailsDialog(bill);
         },
         child: Padding(
-          padding: EdgeInsets.all(10),
+          padding: const EdgeInsets.all(10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1711,36 +2263,36 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                   ),
                 ],
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Text(
                 productName,
                 style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Row(
                 children: [
                   Icon(Icons.person, size: 10, color: Colors.grey[500]),
-                  SizedBox(width: 4),
+                  const SizedBox(width: 4),
                   Text(
                     bill['customerName'] ?? 'N/A',
                     style: TextStyle(fontSize: 10, color: Colors.grey[600]),
                   ),
-                  SizedBox(width: 12),
+                  const SizedBox(width: 12),
                   Icon(Icons.phone, size: 10, color: Colors.grey[500]),
-                  SizedBox(width: 4),
+                  const SizedBox(width: 4),
                   Text(
                     bill['customerMobile'] ?? 'N/A',
                     style: TextStyle(fontSize: 10, color: Colors.grey[600]),
                   ),
                 ],
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Row(
                 children: [
                   Icon(Icons.qr_code, size: 10, color: Colors.grey[500]),
-                  SizedBox(width: 4),
+                  const SizedBox(width: 4),
                   Expanded(
                     child: Text(
                       'IMEI: ${imei.isNotEmpty ? imei : 'N/A'}',
@@ -1750,15 +2302,19 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                   ),
                   if (isPhoneBill && imei.isNotEmpty)
                     IconButton(
-                      icon: Icon(Icons.copy, size: 14, color: Colors.blue),
+                      icon: const Icon(
+                        Icons.copy,
+                        size: 14,
+                        color: Colors.blue,
+                      ),
                       onPressed: () => _copyImei(imei),
                       padding: EdgeInsets.zero,
-                      constraints: BoxConstraints(),
+                      constraints: const BoxConstraints(),
                       splashRadius: 16,
                     ),
-                  SizedBox(width: 12),
+                  const SizedBox(width: 12),
                   Icon(Icons.calendar_today, size: 10, color: Colors.grey[500]),
-                  SizedBox(width: 4),
+                  const SizedBox(width: 4),
                   Text(
                     DateFormat('dd MMM yyyy').format(billDate),
                     style: TextStyle(fontSize: 10, color: Colors.grey[600]),
@@ -1783,32 +2339,15 @@ class _BillsReportScreenState extends State<BillsReportScreen>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             CircularProgressIndicator(color: primaryGreen),
-            SizedBox(height: 16),
-            Text('Loading bills...'),
+            const SizedBox(height: 16),
+            const Text('Loading bills...'),
           ],
         ),
       );
     }
 
     if (bills.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.receipt, size: 64, color: Colors.grey[400]),
-            SizedBox(height: 16),
-            Text(
-              'No bills found',
-              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Try changing your filters',
-              style: TextStyle(fontSize: 13, color: Colors.grey[500]),
-            ),
-          ],
-        ),
-      );
+      return _emptyState('No bills found');
     }
 
     final totalAmount = _calculateTotalAmount(bills);
@@ -1820,7 +2359,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
         _buildSummaryCard(totalAmount, totalTaxable, totalGst, bills.length),
         Expanded(
           child: ListView.builder(
-            padding: EdgeInsets.all(12),
+            padding: const EdgeInsets.all(12),
             itemCount: bills.length,
             itemBuilder: (context, index) {
               final bill = bills[index];
@@ -1839,8 +2378,8 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     int count,
   ) {
     return Container(
-      margin: EdgeInsets.all(12),
-      padding: EdgeInsets.all(16),
+      margin: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -1852,7 +2391,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
           BoxShadow(
             color: Colors.black.withOpacity(0.1),
             blurRadius: 8,
-            offset: Offset(0, 2),
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -1866,7 +2405,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 children: [
                   Text(
                     _getPeriodLabel(),
-                    style: TextStyle(color: Colors.white70, fontSize: 11),
+                    style: const TextStyle(color: Colors.white70, fontSize: 11),
                   ),
                   Text(
                     _getPeriodDateRange(),
@@ -1879,13 +2418,13 @@ class _BillsReportScreenState extends State<BillsReportScreen>
               ),
               Text(
                 'Total Bills: $count',
-                style: TextStyle(color: Colors.white, fontSize: 13),
+                style: const TextStyle(color: Colors.white, fontSize: 13),
               ),
             ],
           ),
-          SizedBox(height: 12),
-          Divider(color: Colors.white24, height: 1),
-          SizedBox(height: 12),
+          const SizedBox(height: 12),
+          const Divider(color: Colors.white24, height: 1),
+          const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1893,13 +2432,13 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'Taxable Amount',
                       style: TextStyle(color: Colors.white70, fontSize: 11),
                     ),
                     Text(
                       '₹${widget.formatNumber(totalTaxable)}',
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -1912,7 +2451,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Text(
+                    const Text(
                       'GST Amount',
                       style: TextStyle(color: Colors.white70, fontSize: 11),
                     ),
@@ -1931,13 +2470,13 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text(
+                    const Text(
                       'Total',
                       style: TextStyle(color: Colors.white70, fontSize: 11),
                     ),
                     Text(
                       '₹${widget.formatNumber(totalAmount)}',
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -1966,7 +2505,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final gstRate = (bill['gstRate'] as num?)?.toDouble() ?? 0.0;
     final sealApplied = bill['sealApplied'] == true;
 
-    String productName = '';
     final product = bill['product'];
     final billType = bill['billType'] as String?;
     final type = bill['type'] as String?;
@@ -1977,8 +2515,8 @@ class _BillsReportScreenState extends State<BillsReportScreen>
         billTypeLower == 'appliances' || billTypeLower == 'appliance';
     final isPhoneBill = !isTvBill && !isAccessoriesBill && !isApplianceBill;
 
-    // ====== FIXED: read product name from nested map first ======
-    if (product != null && product is Map<String, dynamic>) {
+    String productName = '';
+    if (product is Map<String, dynamic>) {
       productName = product['productName']?.toString() ?? '';
     }
     if (productName.isEmpty) {
@@ -1995,7 +2533,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final originalTvData = bill['originalTvData'];
     String serialNumber = bill['serialNumber']?.toString() ?? '';
 
-    if (originalTvData != null && originalTvData is Map<String, dynamic>) {
+    if (originalTvData is Map<String, dynamic>) {
       if (serialNumber.isEmpty) {
         serialNumber = originalTvData['serialNumber'] ?? '';
       }
@@ -2007,8 +2545,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final originalPhoneData = bill['originalPhoneData'];
     String imei = bill['imei']?.toString() ?? '';
 
-    if (originalPhoneData != null &&
-        originalPhoneData is Map<String, dynamic>) {
+    if (originalPhoneData is Map<String, dynamic>) {
       if (imei.isEmpty) {
         imei = originalPhoneData['imei'] ?? '';
       }
@@ -2016,8 +2553,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
     final originalApplianceData = bill['originalApplianceData'];
     String applianceSerialNumber = bill['serialNumber']?.toString() ?? '';
-    if (originalApplianceData != null &&
-        originalApplianceData is Map<String, dynamic>) {
+    if (originalApplianceData is Map<String, dynamic>) {
       if (applianceSerialNumber.isEmpty) {
         applianceSerialNumber = originalApplianceData['serialNumber'] ?? '';
       }
@@ -2041,18 +2577,16 @@ class _BillsReportScreenState extends State<BillsReportScreen>
         : imei;
 
     return Card(
-      margin: EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 12),
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Column(
         children: [
           InkWell(
-            onTap: () {
-              _showBillDetailsDialog(bill);
-            },
+            onTap: () => _showBillDetailsDialog(bill),
             borderRadius: BorderRadius.circular(12),
             child: Padding(
-              padding: EdgeInsets.all(12),
+              padding: const EdgeInsets.all(12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -2063,7 +2597,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                         child: Row(
                           children: [
                             Container(
-                              padding: EdgeInsets.all(6),
+                              padding: const EdgeInsets.all(6),
                               decoration: BoxDecoration(
                                 color: primaryGreen.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(8),
@@ -2080,7 +2614,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                                 color: primaryGreen,
                               ),
                             ),
-                            SizedBox(width: 10),
+                            const SizedBox(width: 10),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2121,8 +2655,8 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                           ),
                           if (sealApplied)
                             Container(
-                              margin: EdgeInsets.only(top: 4),
-                              padding: EdgeInsets.symmetric(
+                              margin: const EdgeInsets.only(top: 4),
+                              padding: const EdgeInsets.symmetric(
                                 horizontal: 6,
                                 vertical: 2,
                               ),
@@ -2143,9 +2677,9 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                       ),
                     ],
                   ),
-                  SizedBox(height: 8),
-                  Divider(height: 1),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
+                  const Divider(height: 1),
+                  const SizedBox(height: 8),
                   Row(
                     children: [
                       Expanded(
@@ -2162,7 +2696,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                       ),
                     ],
                   ),
-                  SizedBox(height: 6),
+                  const SizedBox(height: 6),
                   Row(
                     children: [
                       Expanded(
@@ -2180,9 +2714,31 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                       ),
                     ],
                   ),
+                  if (bill['purchaseMode'] != null ||
+                      bill['financeType'] != null) ...[
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        if ((bill['purchaseMode'] ?? '').toString().isNotEmpty)
+                          _buildInfoChip(
+                            Icons.payments,
+                            'Mode: ${_isEmiMode((bill['purchaseMode'] ?? '').toString()) ? _modeEmi : bill['purchaseMode']}',
+                            fontSize: 10,
+                          ),
+                        if ((bill['financeType'] ?? '').toString().isNotEmpty)
+                          _buildInfoChip(
+                            Icons.account_balance,
+                            'Finance: ${bill['financeType']}',
+                            fontSize: 10,
+                          ),
+                      ],
+                    ),
+                  ],
                   if (identifierValue.isNotEmpty &&
                       (!isAccessoriesBill || isApplianceBill)) ...[
-                    SizedBox(height: 6),
+                    const SizedBox(height: 6),
                     Row(
                       children: [
                         _buildInfoChip(
@@ -2193,11 +2749,11 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                           fontSize: 10,
                         ),
                         if (isPhoneBill && imei.isNotEmpty) ...[
-                          SizedBox(width: 4),
+                          const SizedBox(width: 4),
                           GestureDetector(
                             onTap: () => _copyImei(imei),
                             child: Container(
-                              padding: EdgeInsets.symmetric(
+                              padding: const EdgeInsets.symmetric(
                                 horizontal: 6,
                                 vertical: 3,
                               ),
@@ -2208,7 +2764,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                                   color: Colors.blue.withOpacity(0.3),
                                 ),
                               ),
-                              child: Row(
+                              child: const Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(
@@ -2234,7 +2790,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                     ),
                   ],
                   if (gstRate > 0) ...[
-                    SizedBox(height: 6),
+                    const SizedBox(height: 6),
                     Wrap(
                       spacing: 8,
                       runSpacing: 4,
@@ -2271,14 +2827,18 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                   Expanded(
                     child: TextButton.icon(
                       onPressed: () => _printAndShareBill(bill),
-                      icon: Icon(Icons.print, size: 18, color: Colors.blue),
-                      label: Text(
+                      icon: const Icon(
+                        Icons.print,
+                        size: 18,
+                        color: Colors.blue,
+                      ),
+                      label: const Text(
                         'Print/Share',
                         style: TextStyle(fontSize: 11),
                       ),
                       style: TextButton.styleFrom(
                         foregroundColor: Colors.blue,
-                        padding: EdgeInsets.symmetric(vertical: 8),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
                       ),
                     ),
                   ),
@@ -2287,10 +2847,10 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                     child: TextButton.icon(
                       onPressed: () => _startEditBill(bill),
                       icon: Icon(Icons.edit, size: 18, color: editPrimaryColor),
-                      label: Text('Edit', style: TextStyle(fontSize: 11)),
+                      label: const Text('Edit', style: TextStyle(fontSize: 11)),
                       style: TextButton.styleFrom(
                         foregroundColor: editPrimaryColor,
-                        padding: EdgeInsets.symmetric(vertical: 8),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
                       ),
                     ),
                   ),
@@ -2309,20 +2869,22 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     Color? color,
   }) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 11, color: color ?? Colors.grey[600]),
-          SizedBox(width: 4),
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: fontSize,
-              color: color ?? Colors.grey[700],
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: fontSize,
+                color: color ?? Colors.grey[700],
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -2358,8 +2920,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
         billTypeLower == 'Appliances';
     final isPhoneBill = !isTvBill && !isAccessoriesBill && !isApplianceBill;
 
-    // ====== FIXED: read product details from nested map first ======
-    if (product != null && product is Map<String, dynamic>) {
+    if (product is Map<String, dynamic>) {
       productName = product['productName']?.toString() ?? '';
       quantity = (product['quantity'] as num?)?.toInt() ?? 1;
       productPrice = (product['price'] as num?)?.toDouble() ?? 0.0;
@@ -2385,7 +2946,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final originalTvData = bill['originalTvData'];
     String serialNumber = bill['serialNumber']?.toString() ?? '';
 
-    if (originalTvData != null && originalTvData is Map<String, dynamic>) {
+    if (originalTvData is Map<String, dynamic>) {
       if (serialNumber.isEmpty) {
         serialNumber = originalTvData['serialNumber'] ?? '';
       }
@@ -2397,8 +2958,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     final originalPhoneData = bill['originalPhoneData'];
     String imei = bill['imei']?.toString() ?? '';
 
-    if (originalPhoneData != null &&
-        originalPhoneData is Map<String, dynamic>) {
+    if (originalPhoneData is Map<String, dynamic>) {
       if (imei.isEmpty) {
         imei = originalPhoneData['imei'] ?? '';
       }
@@ -2406,8 +2966,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
     final originalApplianceData = bill['originalApplianceData'];
     String applianceSerialNumber = bill['serialNumber']?.toString() ?? '';
-    if (originalApplianceData != null &&
-        originalApplianceData is Map<String, dynamic>) {
+    if (originalApplianceData is Map<String, dynamic>) {
       if (applianceSerialNumber.isEmpty) {
         applianceSerialNumber = originalApplianceData['serialNumber'] ?? '';
       }
@@ -2419,6 +2978,11 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       }
     }
 
+    final rawMode = (bill['purchaseMode'] ?? '').toString();
+    final displayMode = rawMode.isEmpty
+        ? 'N/A'
+        : (_isEmiMode(rawMode) ? _modeEmi : rawMode);
+
     showDialog(
       context: context,
       builder: (context) {
@@ -2427,8 +2991,8 @@ class _BillsReportScreenState extends State<BillsReportScreen>
             borderRadius: BorderRadius.circular(16),
           ),
           child: Container(
-            padding: EdgeInsets.all(16),
-            constraints: BoxConstraints(maxHeight: 500),
+            padding: const EdgeInsets.all(16),
+            constraints: const BoxConstraints(maxHeight: 500),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
@@ -2448,7 +3012,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                               : Icons.phone_android,
                           color: primaryGreen,
                         ),
-                        SizedBox(width: 8),
+                        const SizedBox(width: 8),
                         Text(
                           bill['billNumber'] ?? 'Bill Details',
                           style: TextStyle(
@@ -2460,12 +3024,12 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                       ],
                     ),
                     IconButton(
-                      icon: Icon(Icons.close),
+                      icon: const Icon(Icons.close),
                       onPressed: () => Navigator.pop(context),
                     ),
                   ],
                 ),
-                Divider(),
+                const Divider(),
                 Expanded(
                   child: SingleChildScrollView(
                     child: Column(
@@ -2483,7 +3047,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                           'Address',
                           bill['customerAddress'] ?? 'N/A',
                         ),
-                        SizedBox(height: 8),
+                        const SizedBox(height: 8),
                         _buildDetailRow(
                           'Shop',
                           bill['shopName'] ?? bill['shop'] ?? 'N/A',
@@ -2496,17 +3060,17 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                           'Date',
                           DateFormat('dd MMM yyyy, hh:mm a').format(billDate),
                         ),
-                        SizedBox(height: 8),
-                        Divider(),
-                        SizedBox(height: 8),
-                        Text(
+                        const SizedBox(height: 8),
+                        const Divider(),
+                        const SizedBox(height: 8),
+                        const Text(
                           'Product Details',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 14,
                           ),
                         ),
-                        SizedBox(height: 6),
+                        const SizedBox(height: 6),
                         _buildDetailRow('Product', productName),
                         _buildDetailRow('Quantity', quantity.toString()),
                         _buildDetailRow(
@@ -2527,18 +3091,19 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                             'Serial Number',
                             applianceSerialNumber,
                           ),
-                        if (originalTvData != null && isTvBill) ...[
-                          SizedBox(height: 8),
-                          Divider(),
-                          SizedBox(height: 8),
-                          Text(
+                        if (originalTvData is Map<String, dynamic> &&
+                            isTvBill) ...[
+                          const SizedBox(height: 8),
+                          const Divider(),
+                          const SizedBox(height: 8),
+                          const Text(
                             'TV Details',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 14,
                             ),
                           ),
-                          SizedBox(height: 6),
+                          const SizedBox(height: 6),
                           _buildDetailRow(
                             'Brand',
                             originalTvData['modelBrand'] ??
@@ -2554,18 +3119,19 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                             '₹${widget.formatNumber(originalTvData['modelPrice']?.toDouble() ?? originalTvData['price']?.toDouble() ?? 0.0)}',
                           ),
                         ],
-                        if (originalPhoneData != null && isPhoneBill) ...[
-                          SizedBox(height: 8),
-                          Divider(),
-                          SizedBox(height: 8),
-                          Text(
+                        if (originalPhoneData is Map<String, dynamic> &&
+                            isPhoneBill) ...[
+                          const SizedBox(height: 8),
+                          const Divider(),
+                          const SizedBox(height: 8),
+                          const Text(
                             'Phone Details',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 14,
                             ),
                           ),
-                          SizedBox(height: 6),
+                          const SizedBox(height: 6),
                           _buildDetailRow(
                             'Brand',
                             originalPhoneData['productBrand'] ?? 'N/A',
@@ -2579,19 +3145,19 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                             '₹${widget.formatNumber(originalPhoneData['productPrice']?.toDouble() ?? 0.0)}',
                           ),
                         ],
-                        if (originalApplianceData != null &&
+                        if (originalApplianceData is Map<String, dynamic> &&
                             isApplianceBill) ...[
-                          SizedBox(height: 8),
-                          Divider(),
-                          SizedBox(height: 8),
-                          Text(
+                          const SizedBox(height: 8),
+                          const Divider(),
+                          const SizedBox(height: 8),
+                          const Text(
                             'Appliance Details',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 14,
                             ),
                           ),
-                          SizedBox(height: 6),
+                          const SizedBox(height: 6),
                           _buildDetailRow(
                             'Brand',
                             originalApplianceData['brand'] ?? 'N/A',
@@ -2609,21 +3175,20 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                             '₹${widget.formatNumber(originalApplianceData['price']?.toDouble() ?? 0.0)}',
                           ),
                         ],
-                        SizedBox(height: 8),
-                        Divider(),
-                        SizedBox(height: 8),
-                        Text(
+                        const SizedBox(height: 8),
+                        const Divider(),
+                        const SizedBox(height: 8),
+                        const Text(
                           'Payment Details',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 14,
                           ),
                         ),
-                        SizedBox(height: 6),
-                        _buildDetailRow(
-                          'Purchase Mode',
-                          bill['purchaseMode'] ?? 'N/A',
-                        ),
+                        const SizedBox(height: 6),
+                        _buildDetailRow('Purchase Mode', displayMode),
+                        if ((bill['financeType'] ?? '').toString().isNotEmpty)
+                          _buildDetailRow('Finance Type', bill['financeType']),
                         if (gstRate > 0) ...[
                           _buildDetailRow(
                             'GST Rate',
@@ -2644,13 +3209,11 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                           isBold: true,
                           color: secondaryGreen,
                         ),
-                        if (bill['financeType']?.isNotEmpty == true)
-                          _buildDetailRow('Finance Type', bill['financeType']),
                         if (bill['sealApplied'] == true)
                           Padding(
-                            padding: EdgeInsets.only(top: 8),
+                            padding: const EdgeInsets.only(top: 8),
                             child: Container(
-                              padding: EdgeInsets.all(8),
+                              padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
                                 color: warningColor.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(8),
@@ -2662,7 +3225,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                                     color: warningColor,
                                     size: 16,
                                   ),
-                                  SizedBox(width: 6),
+                                  const SizedBox(width: 6),
                                   Text(
                                     'Seal Applied to this product',
                                     style: TextStyle(
@@ -2694,7 +3257,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     Color? color,
   }) {
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2726,7 +3289,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
   Widget _buildDetailRowWithCopy(String label, String value, bool showCopy) {
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2747,15 +3310,15 @@ class _BillsReportScreenState extends State<BillsReportScreen>
                 Expanded(
                   child: Text(
                     value,
-                    style: TextStyle(fontSize: 12, color: Colors.black87),
+                    style: const TextStyle(fontSize: 12, color: Colors.black87),
                   ),
                 ),
                 if (showCopy && value.isNotEmpty)
                   IconButton(
-                    icon: Icon(Icons.copy, size: 16, color: Colors.blue),
+                    icon: const Icon(Icons.copy, size: 16, color: Colors.blue),
                     onPressed: () => _copyImei(value),
                     padding: EdgeInsets.zero,
-                    constraints: BoxConstraints(),
+                    constraints: const BoxConstraints(),
                     splashRadius: 16,
                   ),
               ],
