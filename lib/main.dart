@@ -6,24 +6,26 @@ import 'providers/auth_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/admin_dashboard_screen.dart';
 import 'screens/user_dashboard.dart';
-import 'screens/purchase_dashboard.dart'; // Add this import
+import 'screens/purchase_dashboard.dart';
 
-// TODO: Add your Firebase configuration here
+// Centralised Firebase options so it can be reused by secondary apps
+// (e.g., the 'userCreator' app used in UserManagementScreen).
+const FirebaseOptions kFirebaseOptions = FirebaseOptions(
+  apiKey: "AIzaSyBPt3fdES0hRN8Qmt-4naWavpK-p2QW3Xc",
+  authDomain: "mobilehousewebsite.firebaseapp.com",
+  databaseURL: "https://mobilehousewebsite-default-rtdb.firebaseio.com",
+  projectId: "mobilehousewebsite",
+  storageBucket: "mobilehousewebsite.firebasestorage.app",
+  messagingSenderId: "27265006915",
+  appId: "1:27265006915:web:e3c6adb5a9ea20d832c3f6",
+);
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase
-  await Firebase.initializeApp(
-    options: const FirebaseOptions(
-      apiKey: "AIzaSyBPt3fdES0hRN8Qmt-4naWavpK-p2QW3Xc",
-      authDomain: "mobilehousewebsite.firebaseapp.com",
-      databaseURL: "https://mobilehousewebsite-default-rtdb.firebaseio.com",
-      projectId: "mobilehousewebsite",
-      storageBucket: "mobilehousewebsite.firebasestorage.app",
-      messagingSenderId: "27265006915",
-      appId: "1:27265006915:web:e3c6adb5a9ea20d832c3f6",
-    ),
-  );
+  if (Firebase.apps.isEmpty) {
+    await Firebase.initializeApp(options: kFirebaseOptions);
+  }
 
   runApp(const MyApp());
 }
@@ -51,26 +53,31 @@ class AuthWrapper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
-    print(authProvider);
+
     if (authProvider.isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    if (authProvider.user == null) {
+    final user = authProvider.user;
+
+    // Not logged in → login screen
+    if (user == null) {
       return const LoginScreen();
     }
-    print(authProvider.user!.role);
-    // Check user role and navigate accordingly
-    switch (authProvider.user!.role) {
+
+    // Logged in but with an unrecognised role → force re-login
+    switch (user.role) {
       case 'admin':
-        return AdminDashboardScreen();
+        return const AdminDashboardScreen();
       case 'user':
         return const UserDashboard();
       case 'finance':
-        return FinanceDashboard();
+        return const FinanceDashboard();
       case 'purchaser':
-        return PurchaseDashboardScreen();
+        return const PurchaseDashboardScreen();
       default:
+        // Invalid / missing role — treat as a configuration error
+        // and send the user back to login.
         return const LoginScreen();
     }
   }

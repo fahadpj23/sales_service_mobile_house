@@ -1,3 +1,4 @@
+// lib/models/user_model.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class UserModel {
@@ -5,8 +6,8 @@ class UserModel {
   final String email;
   final String name;
   final String role;
-  final String? shopId; // Optional shop ID
-  final String? shopName; // Optional shop ID
+  final String? shopId;
+  final String? shopName;
   final DateTime createdAt;
 
   UserModel({
@@ -14,48 +15,87 @@ class UserModel {
     required this.email,
     required this.name,
     required this.role,
-    this.shopId, // Optional parameter
-    this.shopName, // Optional parameter
+    this.shopId,
+    this.shopName,
     required this.createdAt,
   });
 
-  // Convert UserModel to Map for Firestore
+  // ---------------------------------------------------------------
+  // TO MAP (Firestore write)
+  // ---------------------------------------------------------------
   Map<String, dynamic> toMap() {
     return {
+      'id': uid, // matches sample data (has both id + uid)
       'uid': uid,
       'email': email,
       'name': name,
       'role': role,
-      'shopId': shopId, // Will be null if not provided
-      'shopName': shopName, // Will be null if not provided
-      'createdAt': createdAt,
+      'shopId': shopId,
+      'shopName': shopName,
+      'createdAt': Timestamp.fromDate(createdAt),
     };
   }
 
-  // Create UserModel from Firestore Map
+  // ---------------------------------------------------------------
+  // FROM MAP (Firestore read — null-safe)
+  // ---------------------------------------------------------------
   factory UserModel.fromMap(Map<String, dynamic> map) {
     return UserModel(
-      uid: map['uid'] ?? '',
-      email: map['email'] ?? '',
-      name: map['name'] ?? '',
-      role: map['role'] ?? 'user',
-      shopId: map['shopId'], // Can be null
-      shopName: map['shopName'], // Can be null
-      createdAt: (map['createdAt'] as Timestamp).toDate(),
+      uid: (map['uid'] ?? map['id'] ?? '').toString(),
+      email: (map['email'] ?? '').toString(),
+      name: (map['name'] ?? '').toString(),
+      role: (map['role'] ?? 'user').toString(),
+      shopId: map['shopId'] as String?,
+      shopName: map['shopName'] as String?,
+      createdAt: _parseTimestamp(map['createdAt']),
     );
   }
 
   static DateTime _parseTimestamp(dynamic timestamp) {
-    if (timestamp == null) return DateTime.now();
-
-    if (timestamp is Timestamp) {
-      return timestamp.toDate();
-    } else if (timestamp is DateTime) {
-      return timestamp;
-    } else {
-      return DateTime.now();
+    if (timestamp is Timestamp) return timestamp.toDate();
+    if (timestamp is DateTime) return timestamp;
+    if (timestamp is String) {
+      return DateTime.tryParse(timestamp) ?? DateTime.now();
     }
+    if (timestamp is int) {
+      return DateTime.fromMillisecondsSinceEpoch(timestamp);
+    }
+    return DateTime.now();
   }
 
+  // ---------------------------------------------------------------
+  // COPY WITH
+  // ---------------------------------------------------------------
+  UserModel copyWith({
+    String? uid,
+    String? email,
+    String? name,
+    String? role,
+    String? shopId,
+    String? shopName,
+    DateTime? createdAt,
+  }) {
+    return UserModel(
+      uid: uid ?? this.uid,
+      email: email ?? this.email,
+      name: name ?? this.name,
+      role: role ?? this.role,
+      shopId: shopId ?? this.shopId,
+      shopName: shopName ?? this.shopName,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  // ---------------------------------------------------------------
+  // ROLE HELPERS
+  // ---------------------------------------------------------------
   bool get isAdmin => role == 'admin';
+  bool get isUser => role == 'user';
+  bool get isFinance => role == 'finance';
+  bool get isPurchaser => role == 'purchaser';
+
+  @override
+  String toString() =>
+      'UserModel(uid: $uid, email: $email, name: $name, role: $role, '
+      'shopId: $shopId, shopName: $shopName, createdAt: $createdAt)';
 }

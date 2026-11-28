@@ -50,7 +50,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
   String _currentUserName = "Admin";
 
   /// Resolves the "Transferred From" display for an item.
-  /// Order: transferredFromShopName → transferredFrom → previousShopName → ''.
   String _resolveTransferredByDisplay(Map<String, dynamic> item) {
     final explicit = (item['transferredFromShopName'] as String?)?.trim();
     if (explicit != null && explicit.isNotEmpty) return explicit;
@@ -67,10 +66,8 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
   @override
   void initState() {
     super.initState();
-    // Initialize cache
     _statusCache = {'available': [], 'sold': [], 'returned': []};
     _statusLoaded = {'available': false, 'sold': false, 'returned': false};
-    // Load initial data (available)
     _loadInventoryByStatus('available');
     _searchController.addListener(() {
       _applyFilters();
@@ -84,9 +81,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     super.dispose();
   }
 
-  // Main method to load inventory by status
   Future<void> _loadInventoryByStatus(String status) async {
-    // If already loaded, just apply filters
     if (_statusLoaded[status] == true) {
       _applyFilters();
       return;
@@ -113,7 +108,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     }
   }
 
-  // Load available items only
   Future<void> _loadAvailableItems() async {
     final querySnapshot = await _firestore
         .collection('phoneStock')
@@ -129,7 +123,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
       final price = (data['productPrice'] ?? 0).toDouble();
 
       DateTime updatedDate = _getUpdatedDate(data, 'available');
-
       Map<String, dynamic> transferDetails = _getTransferDetails(data);
 
       availableItems.add({
@@ -147,13 +140,11 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         'uploadedBy': data['uploadedBy'] ?? 'Unknown',
         'uploadedById': data['uploadedById'] ?? '',
         'createdAt': _getTimestamp(data, 'createdAt'),
-        // Legacy fields (kept for compatibility)
         'previousShopId': transferDetails['previousShopId'] ?? '',
         'previousShopName': transferDetails['previousShopName'] ?? '',
         'transferredAt': transferDetails['transferredAt'],
         'transferredBy': transferDetails['transferredBy'] ?? '',
         'transferredById': transferDetails['transferredById'] ?? '',
-        // NEW: shop-level attribution — what the UI displays
         'transferredFromShopId': transferDetails['transferredFromShopId'] ?? '',
         'transferredFromShopName':
             transferDetails['transferredFromShopName'] ?? '',
@@ -166,7 +157,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     _statusCache['available'] = availableItems;
   }
 
-  // Load sold items only
   Future<void> _loadSoldItems() async {
     final querySnapshot = await _firestore
         .collection('phoneStock')
@@ -199,6 +189,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         'uploadedById': data['uploadedById'] ?? '',
         'soldAt': _getTimestamp(data, 'soldAt'),
         'soldTo': data['soldTo'] ?? '',
+        'soldToMobile': data['soldToMobile'] ?? '',
         'soldBillNo': data['soldBillNo'] ?? '',
         'soldAmount': (data['soldAmount'] as num?)?.toDouble() ?? price,
         'purchaseMode': data['purchaseMode'] ?? '',
@@ -215,7 +206,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     _statusCache['sold'] = soldItems;
   }
 
-  // Load returned items only
   Future<void> _loadReturnedItems() async {
     final querySnapshot = await _firestore.collection('phoneReturns').get();
 
@@ -253,7 +243,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     _statusCache['returned'] = returnedItems;
   }
 
-  // Helper methods for data extraction
   DateTime _getUpdatedDate(Map<String, dynamic> data, String status) {
     if (data['updatedAt'] is Timestamp) {
       return (data['updatedAt'] as Timestamp).toDate();
@@ -334,22 +323,18 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     };
   }
 
-  // Smart Search Logic that handles partial matches, specs, and IMEI
   void _applyFilters() {
     setState(() {
       String searchQuery = _searchController.text.trim().toLowerCase();
 
-      // Get items from cache for the selected status
       List<Map<String, dynamic>> statusItems =
           _statusCache[_selectedStatus] ?? [];
 
       _filteredInventory = statusItems.where((item) {
-        // Shop filter
         if (_selectedShopId != null && item['shopId'] != _selectedShopId) {
           return false;
         }
 
-        // Search filter - Smart search logic
         if (searchQuery.isNotEmpty) {
           final productText = item['productName'].toString().toLowerCase();
           final brandText = item['productBrand'].toString().toLowerCase();
@@ -357,28 +342,17 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
           final shopText = item['shopName'].toString().toLowerCase();
           final combinedText = '$productText $brandText';
 
-          // Split search query into words
           final searchWords = searchQuery
               .split(' ')
               .where((w) => w.isNotEmpty)
               .toList();
 
-          // Check if ALL search words are found
           for (final word in searchWords) {
-            // First check if it's an exact IMEI match
-            if (imeiText.contains(word)) {
-              continue;
-            }
+            if (imeiText.contains(word)) continue;
+            if (shopText.contains(word)) continue;
 
-            // Check if it's an exact shop name match
-            if (shopText.contains(word)) {
-              continue;
-            }
-
-            // Create variations for the word for smart matching
             final variations = <String>[word];
 
-            // Handle slash variations like "4/128"
             if (word.contains('/')) {
               variations.add(word.replaceAll('/', ' '));
               variations.add(word.replaceAll('/', ''));
@@ -386,17 +360,14 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
               variations.add(word.replaceAll('/', '/gb'));
             }
 
-            // Handle "g" variations like "5g"
             if (word.endsWith('g') && word.length > 1) {
               variations.add(word.substring(0, word.length - 1));
             }
 
-            // Handle "gb" variations like "4gb"
             if (word.toLowerCase().endsWith('gb') && word.length > 2) {
               variations.add(word.toLowerCase().replaceAll('gb', ''));
             }
 
-            // Check if any variation is found in product or brand
             bool wordFound = false;
             for (final variation in variations) {
               if (combinedText.contains(variation)) {
@@ -414,7 +385,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         return true;
       }).toList();
 
-      // Sort by updatedAt (newest first)
       _filteredInventory.sort((a, b) {
         final dateA = a['updatedAt'] as DateTime;
         final dateB = b['updatedAt'] as DateTime;
@@ -432,13 +402,11 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     _applyFilters();
   }
 
-  // Switch status tab
   void _switchStatus(String status) {
     if (_selectedStatus != status) {
       setState(() {
         _selectedStatus = status;
       });
-      // Load data for this status if not loaded yet
       if (!_statusLoaded[status]!) {
         _loadInventoryByStatus(status);
       } else {
@@ -447,7 +415,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     }
   }
 
-  // Refresh all data
   Future<void> _refreshAllData() async {
     setState(() {
       _statusLoaded = {'available': false, 'sold': false, 'returned': false};
@@ -469,7 +436,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     return shop['name'] ?? 'Unknown Shop';
   }
 
-  // Scanner Methods
   Future<bool> _checkCameraPermission() async {
     try {
       final status = await Permission.camera.status;
@@ -555,7 +521,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Current info display
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
@@ -609,8 +574,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Product Name Field
               TextField(
                 controller: nameController,
                 decoration: const InputDecoration(
@@ -626,8 +589,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                 textCapitalization: TextCapitalization.words,
               ),
               const SizedBox(height: 12),
-
-              // Brand Field
               TextField(
                 controller: brandController,
                 decoration: const InputDecoration(
@@ -643,8 +604,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                 textCapitalization: TextCapitalization.words,
               ),
               const SizedBox(height: 12),
-
-              // Price Field
               TextField(
                 controller: priceController,
                 keyboardType: TextInputType.number,
@@ -701,7 +660,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     final newBrand = brandController.text.trim();
     final newPrice = double.tryParse(priceController.text.trim()) ?? 0.0;
 
-    // Check if nothing changed
     if (newName == item['productName'] &&
         newBrand == item['productBrand'] &&
         newPrice == item['productPrice']) {
@@ -712,13 +670,11 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     _showLoadingDialog();
 
     try {
-      // Determine which collection to update
       String collection = 'phoneStock';
       if (item['type'] == 'phone_return') {
         collection = 'phoneReturns';
       }
 
-      // Update the document
       await _firestore.collection(collection).doc(item['id']).update({
         'productName': newName,
         'productBrand': newBrand,
@@ -728,7 +684,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         'updatedById': _currentUserId,
       });
 
-      // Also update any related transfer records if they exist
       if (item['imei'] != null &&
           item['imei'].toString().isNotEmpty &&
           item['imei'].toString() != 'N/A') {
@@ -746,13 +701,12 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
             });
           }
         } catch (e) {
-          // Non-critical, just log
           print('Could not update transfer records: $e');
         }
       }
 
       if (mounted) {
-        Navigator.pop(context); // Close loading dialog
+        Navigator.pop(context);
         _showSnackbar('Product details updated successfully', Colors.green);
         await _refreshAllData();
       }
@@ -763,17 +717,377 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
       }
     }
   }
-  // ==================== END EDIT PRODUCT NAME ====================
 
-  // Shop Transfer Function
+  // ==================== CHANGE STATUS (Available / Sold / Returned) ====================
+  Future<void> _changeStatus(Map<String, dynamic> item) async {
+    final currentStatus = item['status'] as String;
+
+    // Pick target status (any of the 3, except current)
+    final String? target = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Change Status'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Current status: ${currentStatus.toUpperCase()}\n'
+              'Choose the new status for this phone.',
+              style: const TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            if (currentStatus != 'available')
+              ListTile(
+                leading: const Icon(
+                  Icons.check_circle,
+                  color: Color(0xFF4CAF50),
+                ),
+                title: const Text('Move to Available'),
+                onTap: () => Navigator.pop(ctx, 'available'),
+              ),
+            if (currentStatus != 'sold')
+              ListTile(
+                leading: const Icon(
+                  Icons.shopping_cart,
+                  color: Color(0xFF2196F3),
+                ),
+                title: const Text('Move to Sold'),
+                onTap: () => Navigator.pop(ctx, 'sold'),
+              ),
+            if (currentStatus != 'returned')
+              ListTile(
+                leading: const Icon(
+                  Icons.assignment_return,
+                  color: Color(0xFFFF9800),
+                ),
+                title: const Text('Move to Returned'),
+                onTap: () => Navigator.pop(ctx, 'returned'),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+
+    if (target == null || target == currentStatus) return;
+
+    // If leaving 'sold', the phone already has a bill — warn and confirm
+    if (currentStatus == 'sold') {
+      final billExists = await _findBillForPhone(item);
+
+      final proceed = await _showConfirmationDialog(
+        title: 'Bill Already Exists',
+        message:
+            'This phone already has a bill.\n\n'
+            'Do you want to continue?\n\n'
+            'If you continue, the bill will be removed from the "bills" collection '
+            'and the phone will be moved to "${target.toUpperCase()}".',
+        confirmText: 'Continue',
+        confirmColor: Colors.red,
+      );
+
+      if (!proceed) return;
+
+      if (billExists.isNotEmpty) {
+        _showLoadingDialog();
+        try {
+          for (final billDoc in billExists) {
+            await _firestore.collection('bills').doc(billDoc).delete();
+          }
+        } catch (e) {
+          if (mounted) Navigator.pop(context);
+          _showSnackbar('Error removing bill: $e', Colors.red);
+          return;
+        }
+        if (mounted) Navigator.pop(context);
+        _showSnackbar('Bill removed from bills collection', Colors.green);
+      }
+    }
+
+    // Collect extra info depending on target status
+    Map<String, dynamic> extras = {};
+
+    if (target == 'sold') {
+      extras = await _collectSaleInfo(item) ?? {};
+      if (extras.isEmpty) return; // user cancelled
+    } else if (target == 'returned') {
+      extras = await _collectReturnInfo(item) ?? {};
+      if (extras.isEmpty) return;
+    }
+
+    _showLoadingDialog();
+
+    try {
+      // Find the current document
+      String currentCollection = item['type'] == 'phone_return'
+          ? 'phoneReturns'
+          : 'phoneStock';
+
+      if (target == 'returned') {
+        // Move into phoneReturns
+        final reason = extras['reason'] ?? '';
+        await _firestore.collection('phoneReturns').add({
+          'originalShopId': item['shopId'],
+          'originalShopName': item['shopName'],
+          'productName': item['productName'],
+          'productBrand': item['productBrand'],
+          'productPrice': item['productPrice'],
+          'imei': item['imei'],
+          'reason': reason,
+          'returnedAt': FieldValue.serverTimestamp(),
+          'returnedBy': _currentUserName,
+          'returnedById': _currentUserId,
+          'status': 'returned',
+        });
+        await _firestore.collection(currentCollection).doc(item['id']).delete();
+      } else if (target == 'sold') {
+        // Update existing phoneStock document to sold
+        await _firestore.collection('phoneStock').doc(item['id']).update({
+          'status': 'sold',
+          'soldTo': extras['soldTo'] ?? '',
+          'soldToMobile': extras['soldToMobile'] ?? '',
+          'soldBillNo': extras['soldBillNo'] ?? '',
+          'soldAmount': extras['soldAmount'] ?? item['productPrice'],
+          'purchaseMode': extras['purchaseMode'] ?? '',
+          'financeType': extras['financeType'] ?? '',
+          'soldBy': _currentUserName,
+          'soldShop': item['shopName'],
+          'soldAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedBy': _currentUserName,
+          'updatedById': _currentUserId,
+        });
+      } else if (target == 'available') {
+        // If item was in phoneReturns, re-add into phoneStock
+        if (currentCollection == 'phoneReturns') {
+          await _firestore.collection('phoneStock').add({
+            'shopId': item['shopId'],
+            'shopName': item['shopName'],
+            'productName': item['productName'],
+            'productBrand': item['productBrand'],
+            'productPrice': item['productPrice'],
+            'imei': item['imei'],
+            'status': 'available',
+            'uploadedAt': FieldValue.serverTimestamp(),
+            'uploadedBy': _currentUserName,
+            'uploadedById': _currentUserId,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+          await _firestore
+              .collection(currentCollection)
+              .doc(item['id'])
+              .delete();
+        } else {
+          // phoneStock sold -> available: clear sold fields
+          await _firestore.collection('phoneStock').doc(item['id']).update({
+            'status': 'available',
+            'updatedAt': FieldValue.serverTimestamp(),
+            'updatedBy': _currentUserName,
+            'updatedById': _currentUserId,
+          });
+        }
+      }
+
+      if (mounted) {
+        Navigator.pop(context);
+        _showSnackbar(
+          'Status changed to ${target.toUpperCase()}',
+          Colors.green,
+        );
+        await _refreshAllData();
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        _showSnackbar('Error changing status: $e', Colors.red);
+      }
+    }
+  }
+
+  /// Find any bills in 'bills' collection that match this phone (by IMEI or soldBillNo).
+  Future<List<String>> _findBillForPhone(Map<String, dynamic> item) async {
+    final List<String> ids = [];
+    try {
+      final imei = (item['imei'] ?? '').toString();
+      final billNo = (item['soldBillNo'] ?? '').toString();
+
+      if (imei.isNotEmpty && imei != 'N/A') {
+        final q1 = await _firestore
+            .collection('bills')
+            .where('imei', isEqualTo: imei)
+            .get();
+        for (final d in q1.docs) {
+          if (!ids.contains(d.id)) ids.add(d.id);
+        }
+      }
+
+      if (billNo.isNotEmpty) {
+        final q2 = await _firestore
+            .collection('bills')
+            .where('billNumber', isEqualTo: billNo)
+            .get();
+        for (final d in q2.docs) {
+          if (!ids.contains(d.id)) ids.add(d.id);
+        }
+      }
+    } catch (e) {
+      print('Error finding bill: $e');
+    }
+    return ids;
+  }
+
+  Future<Map<String, dynamic>?> _collectSaleInfo(
+    Map<String, dynamic> item,
+  ) async {
+    final nameCtrl = TextEditingController();
+    final mobileCtrl = TextEditingController();
+    final billCtrl = TextEditingController();
+    final amountCtrl = TextEditingController(
+      text: (item['productPrice'] ?? 0).toString(),
+    );
+    final modeCtrl = TextEditingController(text: 'Ready Cash');
+    final financeCtrl = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sale Information'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Customer Name',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: mobileCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                  labelText: 'Customer Phone',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: billCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Bill Number (optional)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: amountCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Sold Amount',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: modeCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Purchase Mode (EMI / Ready Cash)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: financeCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Finance Type (if EMI)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryGreen,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return null;
+
+    final amount =
+        double.tryParse(amountCtrl.text.trim()) ?? (item['productPrice'] ?? 0);
+
+    return {
+      'soldTo': nameCtrl.text.trim(),
+      'soldToMobile': mobileCtrl.text.trim(),
+      'soldBillNo': billCtrl.text.trim(),
+      'soldAmount': amount,
+      'purchaseMode': modeCtrl.text.trim(),
+      'financeType': financeCtrl.text.trim(),
+    };
+  }
+
+  Future<Map<String, dynamic>?> _collectReturnInfo(
+    Map<String, dynamic> item,
+  ) async {
+    final reasonCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Return Information'),
+        content: TextField(
+          controller: reasonCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Return Reason',
+            border: OutlineInputBorder(),
+          ),
+          maxLines: 3,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryGreen,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return null;
+    return {'reason': reasonCtrl.text.trim()};
+  }
+
+  // ==================== TRANSFER / RETURN / DELETE ====================
   Future<void> _transferToAnotherShop(Map<String, dynamic> item) async {
-    // Check if item is available
     if (item['status'] != 'available') {
       _showSnackbar('Only available items can be transferred', Colors.orange);
       return;
     }
 
-    // Select target shop
     final String? targetShopId = await _showShopSelectionDialog();
     if (targetShopId == null) return;
 
@@ -782,7 +1096,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
       orElse: () => {'name': 'Unknown', 'id': targetShopId},
     );
 
-    // Confirm transfer
     final confirmed = await _showConfirmationDialog(
       title: 'Transfer Mobile',
       message:
@@ -801,17 +1114,12 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
 
     try {
       final docRef = _firestore.collection('phoneStock').doc(item['id']);
-      final docSnapshot = await docRef.get();
-      final data = docSnapshot.data() as Map<String, dynamic>;
-
-      // Capture the source shop name for the receiving shop to display.
       final fromShopName =
           (item['shopName'] as String?)?.trim().isNotEmpty == true
           ? (item['shopName'] as String).trim()
           : 'Unknown Shop';
       final fromShopId = (item['shopId'] as String?) ?? '';
 
-      // Create transfer record in transfers collection
       await _firestore.collection('phoneTransfers').add({
         'productName': item['productName'],
         'productBrand': item['productBrand'],
@@ -827,7 +1135,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         'status': 'transferred',
       });
 
-      // Update the original document
       await docRef.update({
         'shopId': targetShopId,
         'shopName': targetShop['name'],
@@ -835,10 +1142,8 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         'updatedAt': FieldValue.serverTimestamp(),
         'updatedBy': _currentUserName,
         'updatedById': _currentUserId,
-        // Legacy
         'previousShopId': item['shopId'],
         'previousShopName': item['shopName'],
-        // NEW: shop-level attribution, what the UI displays
         'transferredFromShopId': fromShopId,
         'transferredFromShopName': fromShopName,
         'transferredAt': FieldValue.serverTimestamp(),
@@ -847,12 +1152,11 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
       });
 
       if (mounted) {
-        Navigator.pop(context); // Close loading dialog
+        Navigator.pop(context);
         _showSnackbar(
           'Mobile transferred successfully to ${targetShop['name']}',
           Colors.green,
         );
-        // Refresh current tab data
         await _refreshAllData();
       }
     } catch (e) {
@@ -863,7 +1167,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     }
   }
 
-  // Return Phone Function
   Future<void> _returnPhone(Map<String, dynamic> item) async {
     if (item['status'] != 'available') {
       _showSnackbar('Only available items can be returned', Colors.orange);
@@ -928,10 +1231,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
 
     try {
       final docRef = _firestore.collection('phoneStock').doc(item['id']);
-      final docSnapshot = await docRef.get();
-      final data = docSnapshot.data() as Map<String, dynamic>;
 
-      // Add to returns collection
       await _firestore.collection('phoneReturns').add({
         'originalShopId': item['shopId'],
         'originalShopName': item['shopName'],
@@ -946,7 +1246,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         'status': 'returned',
       });
 
-      // Delete from phoneStock
       await docRef.delete();
 
       if (mounted) {
@@ -962,7 +1261,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     }
   }
 
-  // Delete Phone from Inventory (Admin only)
   Future<void> _deletePhonePermanently(Map<String, dynamic> item) async {
     final confirmed = await _showConfirmationDialog(
       title: 'Delete Phone Permanently',
@@ -1002,7 +1300,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     }
   }
 
-  // Helper Dialogs
   Future<String?> _showShopSelectionDialog() async {
     return await showDialog<String>(
       context: context,
@@ -1093,7 +1390,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     );
   }
 
-  // Show item action menu (Edit, Transfer, Return, Delete)
   void _showItemActionMenu(Map<String, dynamic> item) {
     showModalBottomSheet(
       context: context,
@@ -1105,7 +1401,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Simple drag handle
             Container(
               width: 40,
               height: 3,
@@ -1115,8 +1410,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
               ),
             ),
             const SizedBox(height: 12),
-
-            // Title
             const Text(
               'Item Actions',
               style: TextStyle(
@@ -1127,7 +1420,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
             ),
             const SizedBox(height: 12),
 
-            // ✅ EDIT PRODUCT NAME OPTION
             _buildActionTile(
               icon: Icons.edit,
               label: 'Edit Product Name',
@@ -1138,7 +1430,17 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
               },
             ),
 
-            // Action buttons with fixed alignment
+            // ✅ NEW: Change Status option
+            _buildActionTile(
+              icon: Icons.swap_vert,
+              label: 'Change Status (Available / Sold / Returned)',
+              color: Colors.purple,
+              onTap: () {
+                Navigator.pop(context);
+                _changeStatus(item);
+              },
+            ),
+
             if (item['status'] == 'available' && item['type'] == 'phone_stock')
               _buildActionTile(
                 icon: Icons.swap_horiz,
@@ -1173,7 +1475,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
 
             const SizedBox(height: 8),
 
-            // Cancel button
             TextButton(
               onPressed: () => Navigator.pop(context),
               style: TextButton.styleFrom(
@@ -1191,7 +1492,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     );
   }
 
-  // Build action tile with proper alignment
   Widget _buildActionTile({
     required IconData icon,
     required String label,
@@ -1371,7 +1671,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              // Title with icon
               Row(
                 children: [
                   Icon(stats['icon'], size: 16, color: stats['color']),
@@ -1386,11 +1685,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                   ),
                 ],
               ),
-
-              // Vertical divider
               Container(width: 1, height: 20, color: Colors.grey[300]),
-
-              // Count
               Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1409,11 +1704,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                   ),
                 ],
               ),
-
-              // Vertical divider
               Container(width: 1, height: 20, color: Colors.grey[300]),
-
-              // Value
               Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1475,7 +1766,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
           ? Center(child: CircularProgressIndicator(color: secondaryGreen))
           : Column(
               children: [
-                // Search and Filter Section
                 Container(
                   padding: const EdgeInsets.all(10),
                   child: Card(
@@ -1488,12 +1778,8 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Enhanced Search Bar with Scanner
                           _buildSearchField(),
-
                           const SizedBox(height: 8),
-
-                          // Shop Dropdown
                           Container(
                             decoration: BoxDecoration(
                               border: Border.all(color: Colors.grey[300]!),
@@ -1587,10 +1873,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                               ],
                             ),
                           ),
-
                           const SizedBox(height: 8),
-
-                          // Status Chips
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -1621,8 +1904,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                     ),
                   ),
                 ),
-
-                // Shop selection indicator
                 if (_selectedShopId != null)
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -1682,10 +1963,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                       ),
                     ),
                   ),
-
-                // Current Tab Stats
                 _buildCurrentTabStats(),
-
                 const SizedBox(height: 6),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -1793,7 +2071,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
         statusText = status;
     }
 
-    // NEW: resolve transferring shop name for display
     final transferredFromDisplay = _resolveTransferredByDisplay(item);
 
     return Card(
@@ -1850,7 +2127,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                           ],
                         ),
                       ),
-                      // ✅ Quick Edit Icon
                       IconButton(
                         icon: Icon(
                           Icons.edit,
@@ -1862,7 +2138,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                         constraints: const BoxConstraints(minWidth: 28),
                         tooltip: 'Edit product name',
                       ),
-                      // Action Menu Button
                       IconButton(
                         icon: Icon(
                           Icons.more_vert,
@@ -1984,7 +2259,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                   ),
                 ],
               ),
-              // NEW: Transfer info now shows the shop name, not the email
               if (transferredFromDisplay.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
@@ -2040,7 +2314,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     String status = item['status'];
     DateTime createdAt = item['createdAt'] as DateTime;
 
-    // Resolve transferred-from shop name for display.
     final transferredFromDisplay = _resolveTransferredByDisplay(item);
 
     showDialog(
@@ -2057,7 +2330,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header with title and close button
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -2084,15 +2356,12 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                 color: primaryGreen,
                 margin: const EdgeInsets.only(bottom: 12),
               ),
-
-              // Scrollable content
               Flexible(
                 child: SingleChildScrollView(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Status banner
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(
@@ -2146,8 +2415,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
-
-                      // Product Info Section
                       _buildDetailSection('Product Information', [
                         _buildDetailRow(
                           'Product Name',
@@ -2186,8 +2453,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                           },
                         ),
                       ]),
-
-                      // Shop & Location Section
                       _buildDetailSection('Shop & Location', [
                         _buildDetailRow(
                           'Current Shop',
@@ -2206,12 +2471,9 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                             icon: Icons.store_mall_directory,
                           ),
                       ]),
-
-                      // Transfer Information (if transferred)
                       if (item['transferredAt'] != null ||
                           transferredFromDisplay.isNotEmpty)
                         _buildDetailSection('Transfer Information', [
-                          // NEW: shop name displayed instead of email
                           if (transferredFromDisplay.isNotEmpty)
                             _buildDetailRow(
                               'Transferred From Shop',
@@ -2226,7 +2488,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                               ).format(item['transferredAt']),
                               icon: Icons.calendar_today,
                             ),
-                          // Keep the raw email available for audit
                           if (item['transferredBy'] != null &&
                               item['transferredBy'] != '')
                             _buildDetailRow(
@@ -2235,8 +2496,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                               icon: Icons.person_outline,
                             ),
                         ]),
-
-                      // Sale Information (if sold)
                       if (status == 'sold')
                         _buildDetailSection('Sale Information', [
                           _buildDetailRow(
@@ -2244,6 +2503,25 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                             item['soldTo'] ?? 'N/A',
                             icon: Icons.person,
                           ),
+                          // ✅ NEW: Customer phone
+                          if ((item['soldToMobile'] ?? '')
+                              .toString()
+                              .isNotEmpty)
+                            _buildDetailRow(
+                              'Customer Phone',
+                              item['soldToMobile'],
+                              icon: Icons.phone,
+                              canCopy: true,
+                              onCopy: () {
+                                Clipboard.setData(
+                                  ClipboardData(text: item['soldToMobile']),
+                                );
+                                _showSnackbar(
+                                  'Phone copied to clipboard',
+                                  Colors.green,
+                                );
+                              },
+                            ),
                           _buildDetailRow(
                             'Bill Number',
                             item['soldBillNo'] ?? 'N/A',
@@ -2274,8 +2552,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                             icon: Icons.calendar_today,
                           ),
                         ]),
-
-                      // Return Information (if returned)
                       if (status == 'returned')
                         _buildDetailSection('Return Information', [
                           _buildDetailRow(
@@ -2298,8 +2574,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                             icon: Icons.calendar_today,
                           ),
                         ]),
-
-                      // Timestamp Section
                       _buildDetailSection('Timestamps', [
                         _buildDetailRow(
                           'Created At',
@@ -2331,8 +2605,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                           icon: Icons.badge,
                         ),
                       ]),
-
-                      // Additional Info (if available)
                       if (item['notes'] != null || item['description'] != null)
                         _buildDetailSection('Additional Notes', [
                           _buildDetailRow(
@@ -2345,19 +2617,14 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                   ),
                 ),
               ),
-
-              // Action Buttons with proper alignment
               const SizedBox(height: 12),
               const Divider(height: 1),
               const SizedBox(height: 12),
-
-              // Action buttons using Wrap for proper alignment
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 alignment: WrapAlignment.center,
                 children: [
-                  // ✅ EDIT BUTTON (always visible)
                   SizedBox(
                     width: 90,
                     height: 36,
@@ -2375,8 +2642,27 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                       ),
                     ),
                   ),
-
-                  // Transfer Button (only for available items)
+                  // ✅ NEW: Change Status button
+                  SizedBox(
+                    width: 110,
+                    height: 36,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _changeStatus(item);
+                      },
+                      icon: const Icon(Icons.swap_vert, size: 16),
+                      label: const Text(
+                        'Status',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                    ),
+                  ),
                   if (status == 'available' && item['type'] == 'phone_stock')
                     SizedBox(
                       width: 90,
@@ -2398,8 +2684,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                         ),
                       ),
                     ),
-
-                  // Return Button (only for available items)
                   if (status == 'available' && item['type'] == 'phone_stock')
                     SizedBox(
                       width: 90,
@@ -2421,8 +2705,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                         ),
                       ),
                     ),
-
-                  // Delete Button (always visible)
                   SizedBox(
                     width: 90,
                     height: 36,
@@ -2443,8 +2725,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
                       ),
                     ),
                   ),
-
-                  // Close Button
                   SizedBox(
                     width: 90,
                     height: 36,
@@ -2468,7 +2748,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     );
   }
 
-  // Helper method to build detail sections
   Widget _buildDetailSection(String title, List<Widget> children) {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -2496,7 +2775,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     );
   }
 
-  // Helper method to build detail row with icon
   Widget _buildDetailRow(
     String label,
     String value, {
@@ -2555,7 +2833,6 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
     );
   }
 
-  // Helper methods for status colors and icons
   Color _getStatusColor(String status) {
     switch (status) {
       case 'available':
@@ -2583,7 +2860,7 @@ class _InventoryDetailsScreenState extends State<InventoryDetailsScreen> {
   }
 }
 
-// IMEI Scanner Dialog for Inventory Screen
+// IMEI Scanner Dialog for Inventory Screen (unchanged)
 class _ImeiScannerDialog extends StatefulWidget {
   final Function(String) onScanComplete;
 
@@ -2629,7 +2906,6 @@ class _ImeiScannerDialogState extends State<_ImeiScannerDialog> {
 
     final scannedData = barcodes.first.rawValue ?? '';
 
-    // Prevent multiple scans
     if (_scanDebounceTimer != null && _scanDebounceTimer!.isActive) {
       return;
     }
@@ -2642,10 +2918,8 @@ class _ImeiScannerDialogState extends State<_ImeiScannerDialog> {
 
     setState(() => _isScanning = false);
 
-    // Clean IMEI
     final cleanImei = scannedData.replaceAll(RegExp(r'[^0-9]'), '');
 
-    // Validate IMEI (15-16 digits)
     if (cleanImei.length >= 15 && cleanImei.length <= 16) {
       setState(() {
         _lastScannedData = 'Scanned IMEI: ${_formatImei(cleanImei)}';
@@ -2703,7 +2977,6 @@ class _ImeiScannerDialogState extends State<_ImeiScannerDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Header
             Container(
               padding: const EdgeInsets.all(16),
               decoration: const BoxDecoration(
@@ -2745,8 +3018,6 @@ class _ImeiScannerDialogState extends State<_ImeiScannerDialog> {
                 ],
               ),
             ),
-
-            // Scanner Area
             Expanded(
               child: Stack(
                 alignment: Alignment.center,
@@ -2763,8 +3034,6 @@ class _ImeiScannerDialogState extends State<_ImeiScannerDialog> {
                         color: Color(0xFF0A4D2E),
                       ),
                     ),
-
-                  // Scanner Frame
                   Container(
                     decoration: BoxDecoration(
                       border: Border.all(color: Colors.white, width: 2),
@@ -2773,8 +3042,6 @@ class _ImeiScannerDialogState extends State<_ImeiScannerDialog> {
                     width: MediaQuery.of(context).size.width * 0.7,
                     height: MediaQuery.of(context).size.width * 0.7,
                   ),
-
-                  // Status Message
                   if (_lastScannedData != null)
                     Positioned(
                       bottom: 20,
@@ -2807,8 +3074,6 @@ class _ImeiScannerDialogState extends State<_ImeiScannerDialog> {
                         ),
                       ),
                     ),
-
-                  // Torch Toggle
                   Positioned(
                     top: 20,
                     right: 20,
@@ -2829,8 +3094,6 @@ class _ImeiScannerDialogState extends State<_ImeiScannerDialog> {
                 ],
               ),
             ),
-
-            // Action Buttons
             Container(
               padding: const EdgeInsets.all(16),
               child: Row(

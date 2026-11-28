@@ -16,6 +16,8 @@ import 'package:sales_stock/screens/admin/reports/purchase_report_screen.dart';
 import 'package:sales_stock/screens/admin/reports/sales_search_screen.dart';
 import 'package:sales_stock/screens/admin/reports/seconds_phone_report.dart';
 import 'package:sales_stock/screens/admin/reports/shop_incentive_screen.dart';
+import 'package:sales_stock/screens/admin/shop/shop_management_screen.dart';
+import 'package:sales_stock/screens/admin/users/user_management_screen.dart';
 import 'package:sales_stock/screens/login_screen.dart';
 import 'package:sales_stock/screens/admin/inventory/accessories_stock_screen.dart'
     as admin_acc;
@@ -1678,6 +1680,43 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     allSales: allSales,
                     formatNumber: _formatNumber,
                   ),
+                ),
+              );
+            },
+          ),
+          Padding(
+            padding: EdgeInsets.only(left: 16, top: 12, bottom: 6),
+            child: Text(
+              'USER/SHOP MANAGEMENT',
+              style: TextStyle(
+                fontSize: 9,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          _buildDrawerItem(
+            Icons.people,
+            'Users',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => UserManagementScreen(shops: shops),
+                ),
+              );
+            },
+          ),
+          _buildDrawerItem(
+            Icons.storefront,
+            'Shops',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const ShopManagementScreen(),
                 ),
               );
             },

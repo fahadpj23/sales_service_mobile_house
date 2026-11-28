@@ -86,8 +86,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
     }
   }
 
-  /// Resolves "Transferred From" display for a TV.
-  /// Order: transferredFromShopName → transferredFrom → ''.
   String _resolveTransferredFromDisplay(Map<String, dynamic> data) {
     final explicit = (data['transferredFromShopName'] as String?)?.trim();
     if (explicit != null && explicit.isNotEmpty) return explicit;
@@ -133,7 +131,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Current info display
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
@@ -197,8 +194,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Model Name Field
               TextField(
                 controller: modelController,
                 decoration: const InputDecoration(
@@ -214,8 +209,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
                 textCapitalization: TextCapitalization.words,
               ),
               const SizedBox(height: 12),
-
-              // Brand Field
               TextField(
                 controller: brandController,
                 decoration: const InputDecoration(
@@ -231,8 +224,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
                 textCapitalization: TextCapitalization.words,
               ),
               const SizedBox(height: 12),
-
-              // Price Field
               TextField(
                 controller: priceController,
                 keyboardType: TextInputType.number,
@@ -248,8 +239,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-
-              // Serial Number Field
               TextField(
                 controller: serialController,
                 decoration: const InputDecoration(
@@ -311,7 +300,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
     final newPrice = double.tryParse(priceController.text.trim()) ?? 0.0;
     final newSerial = serialController.text.trim();
 
-    // Check if nothing changed
     if (newModel == data['modelName'] &&
         newBrand == data['modelBrand'] &&
         newPrice == (data['modelPrice'] ?? 0).toDouble() &&
@@ -333,7 +321,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
         'lastUpdatedBy': _currentUserName,
       });
 
-      // Also update related transfer history records if model/serial changed
       if (newModel != data['modelName'] || newSerial != data['serialNumber']) {
         try {
           final transferQuery = await _firestore
@@ -354,9 +341,9 @@ class _TvStockScreenState extends State<TvStockScreen> {
       }
 
       if (mounted) {
-        Navigator.pop(context); // Close loading dialog
+        Navigator.pop(context);
         _showSnackbar('TV details updated successfully', accentGreen);
-        _loadBrands(); // Refresh brands in case brand changed
+        _loadBrands();
       }
     } catch (e) {
       if (mounted) {
@@ -365,7 +352,378 @@ class _TvStockScreenState extends State<TvStockScreen> {
       }
     }
   }
-  // ==================== END EDIT TV DETAILS ====================
+
+  // ==================== CHANGE STATUS (Available / Sold / Returned) ====================
+  Future<void> _changeStatus(String docId, Map<String, dynamic> data) async {
+    final currentStatus = (data['status'] ?? 'available').toString();
+    final source = 'tvStock'; // this screen always reads from tvStock
+
+    // Pick target status
+    final String? target = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Change Status', style: TextStyle(fontSize: 16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Current status: ${currentStatus.toUpperCase()}\n'
+              'Choose the new status for this TV.',
+              style: const TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            if (currentStatus != 'available')
+              ListTile(
+                leading: const Icon(
+                  Icons.check_circle,
+                  color: Color(0xFF4CAF50),
+                ),
+                title: const Text(
+                  'Move to Available',
+                  style: TextStyle(fontSize: 13),
+                ),
+                onTap: () => Navigator.pop(ctx, 'available'),
+              ),
+            if (currentStatus != 'sold')
+              ListTile(
+                leading: const Icon(
+                  Icons.shopping_cart,
+                  color: Color(0xFF2196F3),
+                ),
+                title: const Text(
+                  'Move to Sold',
+                  style: TextStyle(fontSize: 13),
+                ),
+                onTap: () => Navigator.pop(ctx, 'sold'),
+              ),
+            if (currentStatus != 'returned')
+              ListTile(
+                leading: const Icon(
+                  Icons.assignment_return,
+                  color: Color(0xFFFF9800),
+                ),
+                title: const Text(
+                  'Move to Returned',
+                  style: TextStyle(fontSize: 13),
+                ),
+                onTap: () => Navigator.pop(ctx, 'returned'),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+
+    if (target == null || target == currentStatus) return;
+
+    // If leaving 'sold', the TV already has a bill — warn + delete bill
+    if (currentStatus == 'sold') {
+      final billIds = await _findBillsForTv(data);
+
+      final proceed = await _showConfirmationDialog(
+        title: 'Bill Already Exists',
+        message:
+            'This TV already has a bill.\n\n'
+            'Do you want to continue?\n\n'
+            'If you continue, the bill will be removed from the "bills" collection '
+            'and the TV will be moved to "${target.toUpperCase()}".',
+        confirmText: 'Continue',
+        confirmColor: dangerColor,
+      );
+
+      if (!proceed) return;
+
+      if (billIds.isNotEmpty) {
+        _showLoadingDialog();
+        try {
+          for (final id in billIds) {
+            await _firestore.collection('bills').doc(id).delete();
+          }
+        } catch (e) {
+          if (mounted) Navigator.pop(context);
+          _showSnackbar('Error removing bill: $e', dangerColor);
+          return;
+        }
+        if (mounted) Navigator.pop(context);
+        _showSnackbar('Bill removed from bills collection', accentGreen);
+      }
+    }
+
+    // Collect extra info
+    Map<String, dynamic> extras = {};
+
+    if (target == 'sold') {
+      final r = await _collectSaleInfo(data);
+      if (r == null) return;
+      extras = r;
+    } else if (target == 'returned') {
+      final r = await _collectReturnInfo(data);
+      if (r == null) return;
+      extras = r;
+    }
+
+    _showLoadingDialog();
+
+    try {
+      if (target == 'returned') {
+        // Update existing tvStock doc → returned + add tvReturns record
+        await _firestore.collection('tvStock').doc(docId).update({
+          'status': 'returned',
+          'returnReason': extras['reason'] ?? '',
+          'returnedAt': FieldValue.serverTimestamp(),
+          'returnedBy': _currentUserName,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        await _firestore.collection('tvReturns').add({
+          'tvId': docId,
+          'serialNumber': data['serialNumber'],
+          'modelName': data['modelName'],
+          'modelBrand': data['modelBrand'],
+          'modelPrice': data['modelPrice'],
+          'shopId': data['shopId'],
+          'shopName': data['shopName'],
+          'returnReason': extras['reason'] ?? '',
+          'returnedBy': _currentUserName,
+          'returnedAt': FieldValue.serverTimestamp(),
+          'status': 'returned',
+        });
+      } else if (target == 'sold') {
+        await _firestore.collection('tvStock').doc(docId).update({
+          'status': 'sold',
+          'soldTo': extras['soldTo'] ?? '',
+          'soldToMobile': extras['soldToMobile'] ?? '',
+          'soldBillNo': extras['soldBillNo'] ?? '',
+          'soldAmount': extras['soldAmount'] ?? data['modelPrice'],
+          'purchaseMode': extras['purchaseMode'] ?? '',
+          'financeType': extras['financeType'] ?? '',
+          'soldBy': _currentUserName,
+          'soldShop': data['shopName'],
+          'soldAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } else if (target == 'available') {
+        // Restore to available — keep same doc, clear sold / return fields
+        await _firestore.collection('tvStock').doc(docId).update({
+          'status': 'available',
+          'soldTo': FieldValue.delete(),
+          'soldToMobile': FieldValue.delete(),
+          'soldBillNo': FieldValue.delete(),
+          'soldAmount': FieldValue.delete(),
+          'purchaseMode': FieldValue.delete(),
+          'financeType': FieldValue.delete(),
+          'soldBy': FieldValue.delete(),
+          'soldShop': FieldValue.delete(),
+          'soldAt': FieldValue.delete(),
+          'returnReason': FieldValue.delete(),
+          'returnedAt': FieldValue.delete(),
+          'returnedBy': FieldValue.delete(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      if (mounted) {
+        Navigator.pop(context);
+        _showSnackbar('Status changed to ${target.toUpperCase()}', accentGreen);
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        _showSnackbar('Error changing status: $e', dangerColor);
+      }
+    }
+  }
+
+  /// Finds bill IDs matching this TV (by soldBillNo and/or serial number).
+  Future<List<String>> _findBillsForTv(Map<String, dynamic> data) async {
+    final List<String> ids = [];
+    try {
+      final serial = (data['serialNumber'] ?? '').toString();
+      final billNo = (data['soldBillNo'] ?? '').toString();
+
+      if (serial.isNotEmpty && serial != 'N/A') {
+        final q1 = await _firestore
+            .collection('bills')
+            .where('serialNumber', isEqualTo: serial)
+            .get();
+        for (final d in q1.docs) {
+          if (!ids.contains(d.id)) ids.add(d.id);
+        }
+      }
+
+      if (billNo.isNotEmpty) {
+        final q2 = await _firestore
+            .collection('bills')
+            .where('billNumber', isEqualTo: billNo)
+            .get();
+        for (final d in q2.docs) {
+          if (!ids.contains(d.id)) ids.add(d.id);
+        }
+      }
+    } catch (e) {
+      print('Error finding bill for TV: $e');
+    }
+    return ids;
+  }
+
+  Future<Map<String, dynamic>?> _collectSaleInfo(
+    Map<String, dynamic> data,
+  ) async {
+    final nameCtrl = TextEditingController();
+    final mobileCtrl = TextEditingController();
+    final billCtrl = TextEditingController();
+    final amountCtrl = TextEditingController(
+      text: (data['modelPrice'] ?? 0).toString(),
+    );
+    final modeCtrl = TextEditingController(text: 'Ready Cash');
+    final financeCtrl = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sale Information', style: TextStyle(fontSize: 16)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: 'Customer Name',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: mobileCtrl,
+                keyboardType: TextInputType.phone,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: 'Customer Phone',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: billCtrl,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: 'Bill Number (optional)',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: amountCtrl,
+                keyboardType: TextInputType.number,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: 'Sold Amount',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: modeCtrl,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: 'Purchase Mode (EMI / Ready Cash)',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: financeCtrl,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: 'Finance Type (if EMI)',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryGreen,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Save', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return null;
+
+    final amount =
+        double.tryParse(amountCtrl.text.trim()) ?? (data['modelPrice'] ?? 0);
+
+    return {
+      'soldTo': nameCtrl.text.trim(),
+      'soldToMobile': mobileCtrl.text.trim(),
+      'soldBillNo': billCtrl.text.trim(),
+      'soldAmount': amount,
+      'purchaseMode': modeCtrl.text.trim(),
+      'financeType': financeCtrl.text.trim(),
+    };
+  }
+
+  Future<Map<String, dynamic>?> _collectReturnInfo(
+    Map<String, dynamic> data,
+  ) async {
+    final reasonCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Return Information', style: TextStyle(fontSize: 16)),
+        content: TextField(
+          controller: reasonCtrl,
+          style: const TextStyle(fontSize: 13),
+          decoration: const InputDecoration(
+            labelText: 'Return Reason',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          maxLines: 3,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryGreen,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Save', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return null;
+    return {'reason': reasonCtrl.text.trim()};
+  }
 
   void _showSnackbar(String message, Color color) {
     if (!mounted) return;
@@ -400,27 +758,53 @@ class _TvStockScreenState extends State<TvStockScreen> {
     );
   }
 
-  // Show transfer dialog - DIRECT SHOP SELECTION without dropdown
+  Future<bool> _showConfirmationDialog({
+    required String title,
+    required String message,
+    String confirmText = 'Confirm',
+    Color confirmColor = Colors.red,
+  }) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(
+              title,
+              style: TextStyle(fontSize: 16, color: confirmColor),
+            ),
+            content: Text(message, style: const TextStyle(fontSize: 12)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(backgroundColor: confirmColor),
+                child: Text(
+                  confirmText,
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  // Show transfer dialog
   Future<void> _showTransferDialog(
     String docId,
     Map<String, dynamic> data,
   ) async {
-    // Filter out current shop
     final availableShops = widget.shops
         .where((shop) => shop['id'] != data['shopId'])
         .toList();
 
     if (availableShops.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('No other shops available for transfer'),
-          backgroundColor: warningColor,
-        ),
-      );
+      _showSnackbar('No other shops available for transfer', warningColor);
       return;
     }
 
-    // Show direct shop selection in a bottom sheet
     showModalBottomSheet(
       context: context,
       shape: RoundedRectangleBorder(
@@ -486,7 +870,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
     );
   }
 
-  // Transfer TV to another shop
   Future<void> _transferTV(
     String docId,
     Map<String, dynamic> data,
@@ -500,7 +883,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
     );
 
     try {
-      // Capture source shop name for the receiving shop to display.
       final fromShopName =
           (data['shopName'] as String?)?.trim().isNotEmpty == true
           ? (data['shopName'] as String).trim()
@@ -511,10 +893,8 @@ class _TvStockScreenState extends State<TvStockScreen> {
         'shopId': newShopId,
         'shopName': newShopName,
         'transferredAt': FieldValue.serverTimestamp(),
-        // NEW: shop-level attribution, what the UI displays
         'transferredFromShopId': fromShopId,
         'transferredFromShopName': fromShopName,
-        // keep legacy field for backward compatibility
         'transferredFrom': fromShopName,
         'status': 'available',
         'updatedAt': FieldValue.serverTimestamp(),
@@ -534,27 +914,19 @@ class _TvStockScreenState extends State<TvStockScreen> {
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('TV transferred successfully to $newShopName'),
-            backgroundColor: accentGreen,
-          ),
+        _showSnackbar(
+          'TV transferred successfully to $newShopName',
+          accentGreen,
         );
       }
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error transferring TV: $e'),
-            backgroundColor: dangerColor,
-          ),
-        );
+        _showSnackbar('Error transferring TV: $e', dangerColor);
       }
     }
   }
 
-  // Show delete confirmation dialog
   Future<void> _showDeleteDialog(
     String docId,
     Map<String, dynamic> data,
@@ -608,7 +980,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
     );
   }
 
-  // Delete TV
   Future<void> _deleteTV(String docId, Map<String, dynamic> data) async {
     showDialog(
       context: context,
@@ -627,7 +998,7 @@ class _TvStockScreenState extends State<TvStockScreen> {
         'shopName': data['shopName'],
         'uploadedBy': data['uploadedBy'],
         'deletedAt': FieldValue.serverTimestamp(),
-        'deletedBy': data['uploadedBy'],
+        'deletedBy': _currentUserName,
         'reason': 'Manual deletion',
       });
 
@@ -635,27 +1006,16 @@ class _TvStockScreenState extends State<TvStockScreen> {
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('TV deleted successfully'),
-            backgroundColor: dangerColor,
-          ),
-        );
+        _showSnackbar('TV deleted successfully', dangerColor);
       }
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error deleting TV: $e'),
-            backgroundColor: dangerColor,
-          ),
-        );
+        _showSnackbar('Error deleting TV: $e', dangerColor);
       }
     }
   }
 
-  // Show return dialog (ONLY RETURN, NO REFUND)
   Future<void> _showReturnDialog(
     String docId,
     Map<String, dynamic> data,
@@ -703,11 +1063,9 @@ class _TvStockScreenState extends State<TvStockScreen> {
             ElevatedButton(
               onPressed: () async {
                 if (reasonController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Please provide a reason for return'),
-                      backgroundColor: warningColor,
-                    ),
+                  _showSnackbar(
+                    'Please provide a reason for return',
+                    warningColor,
                   );
                   return;
                 }
@@ -723,7 +1081,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
     );
   }
 
-  // Return TV (NO REFUND)
   Future<void> _returnTV(
     String docId,
     Map<String, dynamic> data,
@@ -740,7 +1097,7 @@ class _TvStockScreenState extends State<TvStockScreen> {
         'status': 'returned',
         'returnedAt': FieldValue.serverTimestamp(),
         'returnReason': reason,
-        'returnedBy': data['uploadedBy'],
+        'returnedBy': _currentUserName,
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
@@ -753,29 +1110,19 @@ class _TvStockScreenState extends State<TvStockScreen> {
         'shopId': data['shopId'],
         'shopName': data['shopName'],
         'returnReason': reason,
-        'returnedBy': data['uploadedBy'],
+        'returnedBy': _currentUserName,
         'returnedAt': FieldValue.serverTimestamp(),
         'status': 'returned',
       });
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('TV marked as returned successfully'),
-            backgroundColor: warningColor,
-          ),
-        );
+        _showSnackbar('TV marked as returned successfully', warningColor);
       }
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error processing return: $e'),
-            backgroundColor: dangerColor,
-          ),
-        );
+        _showSnackbar('Error processing return: $e', dangerColor);
       }
     }
   }
@@ -842,14 +1189,12 @@ class _TvStockScreenState extends State<TvStockScreen> {
     );
   }
 
-  // Combined search and filter area with shop dropdown
   Widget _buildSearchAndFilterArea() {
     return Container(
       padding: EdgeInsets.all(10),
       color: Colors.white,
       child: Column(
         children: [
-          // Search field
           Container(
             height: 38,
             decoration: BoxDecoration(
@@ -889,7 +1234,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
             ),
           ),
           SizedBox(height: 6),
-          // Shop filter dropdown
           Row(
             children: [
               Expanded(child: _buildShopFilterDropdown()),
@@ -917,7 +1261,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
     );
   }
 
-  // Shop filter dropdown widget
   Widget _buildShopFilterDropdown() {
     return Container(
       height: 34,
@@ -949,7 +1292,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
           ],
         ),
         items: [
-          // "All Shops" option
           DropdownMenuItem<String>(
             value: null,
             child: Row(
@@ -963,7 +1305,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
               ],
             ),
           ),
-          // Shop options
           ...widget.shops.map((shop) {
             final shopName = shop['name'] ?? 'Unknown';
             return DropdownMenuItem<String>(
@@ -1129,7 +1470,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
           );
         }
 
-        // Calculate counts from snapshot data
         int available = 0;
         int sold = 0;
         int returned = 0;
@@ -1154,7 +1494,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
           }
         }
 
-        // Update counts without triggering setState during build
         _statusCounts = {
           'available': available,
           'sold': sold,
@@ -1166,24 +1505,19 @@ class _TvStockScreenState extends State<TvStockScreen> {
           'returned': returnedValue,
         };
 
-        // Apply filters
         var docs = snapshot.data!.docs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
 
-          // Status filter
           if (data['status'] != _selectedStatus) return false;
 
-          // Shop filter
           if (_selectedShopId != null) {
             if (data['shopId'] != _selectedShopId) return false;
           }
 
-          // Brand filter
           if (_selectedBrand != null) {
             if (data['modelBrand'] != _selectedBrand) return false;
           }
 
-          // Search filter
           if (_searchQuery.isNotEmpty) {
             bool matches =
                 (data['serialNumber']?.toString().toLowerCase().contains(
@@ -1229,7 +1563,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
           );
         }
 
-        // Show count of selected status
         int selectedCount = docs.length;
         double selectedValue = 0;
         for (var doc in docs) {
@@ -1237,7 +1570,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
           selectedValue += (data['modelPrice'] ?? 0).toDouble();
         }
 
-        // Get selected shop name for display
         String selectedShopName = 'All Shops';
         if (_selectedShopId != null) {
           final shop = widget.shops.firstWhere(
@@ -1331,7 +1663,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
     String status = data['status']?.toString() ?? 'unknown';
     Color statusColor = _getStatusColor(status);
 
-    // New: resolve the transferring shop name for display.
     final transferredFromDisplay = _resolveTransferredFromDisplay(data);
 
     return Card(
@@ -1346,7 +1677,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Row
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -1426,6 +1756,8 @@ class _TvStockScreenState extends State<TvStockScreen> {
                       onSelected: (value) {
                         if (value == 'edit') {
                           _editTvDetails(docId, data);
+                        } else if (value == 'change_status') {
+                          _changeStatus(docId, data);
                         } else if (value == 'transfer') {
                           _showTransferDialog(docId, data);
                         } else if (value == 'return') {
@@ -1443,6 +1775,24 @@ class _TvStockScreenState extends State<TvStockScreen> {
                               SizedBox(width: 6),
                               Text(
                                 'Edit Details',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // NEW: Change Status
+                        PopupMenuItem(
+                          value: 'change_status',
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.swap_vert,
+                                size: 16,
+                                color: Colors.purple,
+                              ),
+                              SizedBox(width: 6),
+                              Text(
+                                'Change Status',
                                 style: TextStyle(fontSize: 12),
                               ),
                             ],
@@ -1500,8 +1850,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
               ],
             ),
             SizedBox(height: 6),
-
-            // Details Grid
             Container(
               padding: EdgeInsets.all(8),
               decoration: BoxDecoration(
@@ -1545,7 +1893,6 @@ class _TvStockScreenState extends State<TvStockScreen> {
                       ),
                     ],
                   ),
-                  // NEW: Show transferred-from SHOP NAME (only if present)
                   if (transferredFromDisplay.isNotEmpty) ...[
                     SizedBox(height: 3),
                     Row(
@@ -1636,6 +1983,29 @@ class _TvStockScreenState extends State<TvStockScreen> {
                         ),
                       ],
                     ),
+                    // NEW: customer info if present
+                    if ((data['soldTo'] ?? '').toString().isNotEmpty ||
+                        (data['soldToMobile'] ?? '').toString().isNotEmpty) ...[
+                      SizedBox(height: 3),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildDetailItem(
+                              'Customer',
+                              data['soldTo'] ?? 'N/A',
+                              color: soldColor,
+                            ),
+                          ),
+                          Expanded(
+                            child: _buildDetailItem(
+                              'Mobile',
+                              data['soldToMobile'] ?? 'N/A',
+                              color: soldColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ],
               ),

@@ -1,3 +1,4 @@
+// lib/services/auth_service.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_model.dart';
@@ -6,85 +7,132 @@ class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  // ============================================================
+  // SIGN IN — requires existing Firestore profile
+  // ============================================================
   Future<UserModel?> signInWithEmail(String email, String password) async {
     try {
       print('Attempting to sign in with email: $email');
 
-      // Sign in with Firebase Authentication
-      UserCredential userCredential = await _auth.signInWithEmailAndPassword(
+      final userCredential = await _auth.signInWithEmailAndPassword(
         email: email.trim(),
         password: password,
       );
 
-      print('Firebase Auth successful, UID: ${userCredential.user!.uid}');
-
-      if (userCredential.user != null) {
-        // Get user data from Firestore
-        DocumentSnapshot userDoc = await _firestore
-            .collection('users')
-            .doc(userCredential.user!.uid)
-            .get();
-
-        print('User document exists: ${userDoc.exists}');
-
-        if (userDoc.exists) {
-          // User exists in Firestore, return the user data
-          UserModel userModel = UserModel.fromMap(
-            userDoc.data() as Map<String, dynamic>,
-          );
-          print('User model created: ${userModel.email}');
-          return userModel;
-        } else {
-          // User doesn't exist in Firestore, create a new user document
-          print('User document not found, creating new user document...');
-          await _createUserDocument(userCredential.user!);
-
-          // Get the newly created user document
-          DocumentSnapshot newUserDoc = await _firestore
-              .collection('users')
-              .doc(userCredential.user!.uid)
-              .get();
-
-          if (newUserDoc.exists) {
-            UserModel userModel = UserModel.fromMap(
-              newUserDoc.data() as Map<String, dynamic>,
-            );
-            print('New user document created: ${userModel.email}');
-            return userModel;
-          }
-        }
+      final user = userCredential.user;
+      if (user == null) {
+        print('Login failed - user is null');
+        return null;
       }
 
-      print('Login failed - user is null');
-      return null;
+      print('Firebase Auth successful, UID: ${user.uid}');
+
+      // Fetch the Firestore profile. If it doesn't exist, deny access.
+      final docRef = _firestore.collection('users').doc(user.uid);
+      final snap = await docRef.get();
+
+      if (!snap.exists) {
+        // No profile → sign out so they can't stay half-authenticated.
+        await _auth.signOut();
+        throw 'Your account has no profile. Please contact the admin to '
+            'create your user record.';
+      }
+
+      final data = snap.data()!;
+
+      // Guard: required fields must be present (role especially).
+      if ((data['role'] ?? '').toString().isEmpty) {
+        await _auth.signOut();
+        throw 'Your account has no role assigned. Please contact the admin.';
+      }
+
+      print('Existing user loaded: ${data['email']}');
+      return UserModel.fromMap(data);
     } on FirebaseAuthException catch (e) {
       print('Firebase Auth Exception: ${e.code} - ${e.message}');
       throw _getAuthErrorMessage(e.code);
     } catch (e) {
-      print('General login error: $e');
-      throw 'Login failed. Please try again.';
-    }
-  }
-
-  Future<void> _createUserDocument(User user) async {
-    try {
-      UserModel newUser = UserModel(
-        uid: user.uid,
-        email: user.email!,
-        role: 'user', // Default role
-        name: user.displayName ?? user.email!.split('@')[0],
-        createdAt: DateTime.now(),
-      );
-
-      await _firestore.collection('users').doc(user.uid).set(newUser.toMap());
-
-      print('User document created successfully for: ${user.uid}');
-    } catch (e) {
-      print('Error creating user document: $e');
+      print('Login error: $e');
       rethrow;
     }
   }
 
+  // ============================================================
+  // SIGN UP (public self-signup — optional)
+  // ============================================================
+  /// Kept for compatibility. Note: this is NOT used by the admin screen,
+  /// which creates accounts via a secondary FirebaseApp with explicit role.
+  /// Caller must supply a role; there is no default.
+  Future<UserModel?> signUpWithEmail(
+    String email,
+    String password,
+    String role,
+    String name, {
+    String? shopId,
+    String? shopName,
+  }) async {
+    if (role.trim().isEmpty) {
+      throw 'Role is required.';
+    }
+    if (name.trim().isEmpty) {
+      throw 'Name is required.';
+    }
+
+    try {
+      final userCredential = await _auth.createUserWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
+      );
+
+      final user = userCredential.user;
+      if (user == null) return null;
+
+      final uid = user.uid;
+      final newUser = UserModel(
+        uid: uid,
+        email: email.trim().toLowerCase(),
+        role: role,
+        name: name,
+        createdAt: DateTime.now(),
+        shopId: shopId,
+        shopName: shopName,
+      );
+
+      final userMap = newUser.toMap();
+      userMap['id'] = uid;
+      userMap['uid'] = uid;
+      userMap['createdAt'] = FieldValue.serverTimestamp();
+
+      await _firestore
+          .collection('users')
+          .doc(uid)
+          .set(userMap, SetOptions(merge: true));
+
+      return newUser;
+    } on FirebaseAuthException catch (e) {
+      throw _getAuthErrorMessage(e.code);
+    } catch (e) {
+      throw 'Registration failed. Please try again.';
+    }
+  }
+
+  // ============================================================
+  // SIGN OUT
+  // ============================================================
+  Future<void> signOut() async {
+    await _auth.signOut();
+  }
+
+  // ============================================================
+  // CURRENT USER
+  // ============================================================
+  User? getCurrentUser() {
+    return _auth.currentUser;
+  }
+
+  // ============================================================
+  // ERROR MESSAGES
+  // ============================================================
   String _getAuthErrorMessage(String errorCode) {
     switch (errorCode) {
       case 'user-not-found':
@@ -99,57 +147,14 @@ class AuthService {
         return 'Too many failed attempts. Please try again later.';
       case 'network-request-failed':
         return 'Network error. Please check your internet connection.';
+      case 'invalid-credential':
+        return 'Invalid email or password.';
+      case 'email-already-in-use':
+        return 'This email is already registered.';
+      case 'weak-password':
+        return 'Password is too weak (min 6 characters).';
       default:
         return 'Login failed. Please check your credentials and try again.';
     }
-  }
-
-  // Sign up new user
-  Future<UserModel?> signUpWithEmail(
-    String email,
-    String password,
-    String role,
-    String? name,
-  ) async {
-    try {
-      UserCredential userCredential = await _auth
-          .createUserWithEmailAndPassword(
-            email: email.trim(),
-            password: password,
-          );
-
-      if (userCredential.user != null) {
-        UserModel newUser = UserModel(
-          uid: userCredential.user!.uid,
-          email: email,
-          role: role,
-          name: name ?? email.split('@')[0],
-          createdAt: DateTime.now(),
-        );
-
-        // Save user to Firestore
-        await _firestore
-            .collection('users')
-            .doc(userCredential.user!.uid)
-            .set(newUser.toMap());
-
-        return newUser;
-      }
-      return null;
-    } on FirebaseAuthException catch (e) {
-      throw _getAuthErrorMessage(e.code);
-    } catch (e) {
-      throw 'Registration failed. Please try again.';
-    }
-  }
-
-  // Sign out
-  Future<void> signOut() async {
-    await _auth.signOut();
-  }
-
-  // Get current user
-  User? getCurrentUser() {
-    return _auth.currentUser;
   }
 }

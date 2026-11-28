@@ -260,6 +260,10 @@ class _BillsReportUserScreenState extends State<BillsReportUserScreen>
     var filteredPhoneBills = _filterBillsByTimePeriod(_phoneBills);
     filteredPhoneBills = _filterBillsByShop(filteredPhoneBills);
 
+    // Use a normalized (trimmed + lowercase) key so "Oppo", "oppo", "OPPO"
+    // group together, while keeping a nicely-cased display name for the UI.
+    final Map<String, String> displayNames = {};
+
     for (var bill in filteredPhoneBills) {
       String brand = 'Unknown';
 
@@ -273,14 +277,20 @@ class _BillsReportUserScreenState extends State<BillsReportUserScreen>
 
       if (brand.isEmpty || brand == 'null') brand = 'Unknown';
 
-      if (!_brandWiseBills.containsKey(brand)) {
-        _brandWiseBills[brand] = [];
+      // Normalize for comparison
+      final normalizedKey = brand.trim().toLowerCase();
+
+      // Remember the first-seen original casing as the display name
+      displayNames.putIfAbsent(normalizedKey, () => brand.trim());
+
+      if (!_brandWiseBills.containsKey(normalizedKey)) {
+        _brandWiseBills[normalizedKey] = [];
       }
-      _brandWiseBills[brand]!.add(bill);
+      _brandWiseBills[normalizedKey]!.add(bill);
     }
 
     for (var entry in _brandWiseBills.entries) {
-      final brand = entry.key;
+      final normalizedKey = entry.key;
       final bills = entry.value;
 
       final totalAmount = _calculateTotalAmount(bills);
@@ -288,7 +298,7 @@ class _BillsReportUserScreenState extends State<BillsReportUserScreen>
       final totalGst = _calculateTotalGstAmount(bills);
       final totalBills = bills.length;
 
-      _brandStats[brand] = {
+      _brandStats[displayNames[normalizedKey] ?? normalizedKey] = {
         'totalAmount': totalAmount,
         'totalTaxable': totalTaxable,
         'totalGst': totalGst,

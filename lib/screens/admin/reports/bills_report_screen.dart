@@ -246,6 +246,10 @@ class _BillsReportScreenState extends State<BillsReportScreen>
     filteredPhoneBills = _filterBillsByShop(filteredPhoneBills);
     filteredPhoneBills = _filterBillsBySearchAndMode(filteredPhoneBills);
 
+    // Use a normalized (lowercase) key so "Oppo", "oppo", "OPPO" group together,
+    // while keeping a nicely-cased display name for the UI.
+    final Map<String, String> displayNames = {};
+
     for (var bill in filteredPhoneBills) {
       String brand = 'Unknown';
 
@@ -259,14 +263,21 @@ class _BillsReportScreenState extends State<BillsReportScreen>
 
       if (brand.isEmpty || brand == 'null') brand = 'Unknown';
 
-      if (!_brandWiseBills.containsKey(brand)) {
-        _brandWiseBills[brand] = [];
+      // Normalize for comparison (trim + lowercase)
+      final normalizedKey = brand.trim().toLowerCase();
+
+      // Keep the first-seen original casing as the display name
+      // (or you can force Title Case if preferred)
+      displayNames.putIfAbsent(normalizedKey, () => brand.trim());
+
+      if (!_brandWiseBills.containsKey(normalizedKey)) {
+        _brandWiseBills[normalizedKey] = [];
       }
-      _brandWiseBills[brand]!.add(bill);
+      _brandWiseBills[normalizedKey]!.add(bill);
     }
 
     for (var entry in _brandWiseBills.entries) {
-      final brand = entry.key;
+      final normalizedKey = entry.key;
       final bills = entry.value;
 
       final totalAmount = _calculateTotalAmount(bills);
@@ -274,7 +285,7 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       final totalGst = _calculateTotalGstAmount(bills);
       final totalBills = bills.length;
 
-      _brandStats[brand] = {
+      _brandStats[displayNames[normalizedKey] ?? normalizedKey] = {
         'totalAmount': totalAmount,
         'totalTaxable': totalTaxable,
         'totalGst': totalGst,
@@ -282,7 +293,6 @@ class _BillsReportScreenState extends State<BillsReportScreen>
       };
     }
   }
-
   // ==================== purchase mode / finance helpers ====================
 
   /// Old bills may have purchaseMode saved as "Finance". Treat it as EMI.

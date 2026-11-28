@@ -57,7 +57,6 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
     try {
       final snapshot = await _firestore.collection('accessoriesStock').get();
       final brands = <String>{};
-
       for (var doc in snapshot.docs) {
         final data = doc.data();
         if (data['productBrand'] != null &&
@@ -65,7 +64,6 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
           brands.add(data['productBrand'].toString());
         }
       }
-
       if (mounted) {
         setState(() {
           _brands = brands.toList()..sort();
@@ -85,10 +83,8 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
   String _resolveTransferredFromDisplay(Map<String, dynamic> data) {
     final explicit = (data['transferredFromShopName'] as String?)?.trim();
     if (explicit != null && explicit.isNotEmpty) return explicit;
-
     final legacy = (data['transferredFrom'] as String?)?.trim();
     if (legacy != null && legacy.isNotEmpty) return legacy;
-
     return '';
   }
 
@@ -332,6 +328,693 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
     }
   }
 
+  // ==================== CHANGE STATUS (UNIT-WISE) ====================
+
+  /// Dialog to pick how many units to move to the target status.
+  Future<int?> _showChangeStatusQuantityDialog(
+    Map<String, dynamic> data,
+    String targetStatus,
+  ) async {
+    int currentQuantity = (data['quantity'] ?? 0).toInt();
+    int selectedQuantity = currentQuantity; // default = all
+
+    return await showDialog<int>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Row(
+                children: [
+                  Icon(Icons.sync_alt, color: secondaryGreen, size: 20),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'Select Units to Move',
+                    style: TextStyle(fontSize: 15),
+                  ),
+                ],
+              ),
+              content: Container(
+                width: double.maxFinite,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Product: ${data['productName']}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            'Brand: ${data['productBrand']}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            'Available: $currentQuantity units',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: primaryGreen,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            'Moving to: ${targetStatus.toUpperCase()}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: _getStatusColor(targetStatus),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'How many units to move?',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: Icon(
+                            Icons.remove_circle_outline,
+                            color: selectedQuantity > 1
+                                ? primaryGreen
+                                : Colors.grey,
+                            size: 24,
+                          ),
+                          onPressed: () {
+                            if (selectedQuantity > 1) {
+                              setState(() => selectedQuantity--);
+                            }
+                          },
+                        ),
+                        Expanded(
+                          child: Container(
+                            height: 40,
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: primaryGreen,
+                                width: 1.5,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Center(
+                              child: Text(
+                                '$selectedQuantity',
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: primaryGreen,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            Icons.add_circle_outline,
+                            color: selectedQuantity < currentQuantity
+                                ? primaryGreen
+                                : Colors.grey,
+                            size: 24,
+                          ),
+                          onPressed: () {
+                            if (selectedQuantity < currentQuantity) {
+                              setState(() => selectedQuantity++);
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        TextButton(
+                          onPressed: () => setState(() => selectedQuantity = 1),
+                          child: const Text(
+                            'Just 1',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => setState(
+                            () => selectedQuantity = currentQuantity,
+                          ),
+                          child: Text(
+                            'All ($currentQuantity)',
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    if (selectedQuantity == currentQuantity)
+                      Text(
+                        'Moving all units → this record will be fully '
+                        'changed to ${targetStatus.toUpperCase()}.',
+                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                      )
+                    else
+                      Text(
+                        'Moving $selectedQuantity of $currentQuantity → '
+                        'the remaining '
+                        '${currentQuantity - selectedQuantity} unit(s) '
+                        'stay as ${data['status']?.toString().toUpperCase()}.',
+                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, null),
+                  child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    if (selectedQuantity < 1) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Please select at least 1 unit'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                      return;
+                    }
+                    if (selectedQuantity > currentQuantity) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'Cannot move more than $currentQuantity units',
+                          ),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                      return;
+                    }
+                    Navigator.pop(context, selectedQuantity);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: secondaryGreen,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: Text(
+                    'Move $selectedQuantity unit(s)',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _changeStatus(String docId, Map<String, dynamic> data) async {
+    final currentStatus = (data['status'] ?? 'available').toString();
+    final currentQuantity = (data['quantity'] ?? 0).toInt();
+
+    if (currentQuantity <= 0) {
+      _showSnackbar('No units available to move', warningColor);
+      return;
+    }
+
+    // Pick target status
+    final String? target = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Change Status', style: TextStyle(fontSize: 16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Current status: ${currentStatus.toUpperCase()} '
+              '($currentQuantity units)\n'
+              'Choose the new status for this accessory.',
+              style: const TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            if (currentStatus != 'available')
+              ListTile(
+                leading: const Icon(
+                  Icons.check_circle,
+                  color: Color(0xFF4CAF50),
+                ),
+                title: const Text(
+                  'Move to Available',
+                  style: TextStyle(fontSize: 13),
+                ),
+                onTap: () => Navigator.pop(ctx, 'available'),
+              ),
+            if (currentStatus != 'sold')
+              ListTile(
+                leading: const Icon(
+                  Icons.shopping_cart,
+                  color: Color(0xFF2196F3),
+                ),
+                title: const Text(
+                  'Move to Sold',
+                  style: TextStyle(fontSize: 13),
+                ),
+                onTap: () => Navigator.pop(ctx, 'sold'),
+              ),
+            if (currentStatus != 'returned')
+              ListTile(
+                leading: const Icon(
+                  Icons.assignment_return,
+                  color: Color(0xFFFF9800),
+                ),
+                title: const Text(
+                  'Move to Returned',
+                  style: TextStyle(fontSize: 13),
+                ),
+                onTap: () => Navigator.pop(ctx, 'returned'),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+
+    if (target == null || target == currentStatus) return;
+
+    // Ask how many units to move
+    final int? quantityToMove = await _showChangeStatusQuantityDialog(
+      data,
+      target,
+    );
+    if (quantityToMove == null || quantityToMove < 1) return;
+
+    // If leaving 'sold', warn + delete bill
+    if (currentStatus == 'sold') {
+      final billIds = await _findBillsForAccessory(data);
+
+      final proceed = await _showConfirmationDialog(
+        title: 'Bill Already Exists',
+        message:
+            'This accessory already has a bill.\n\n'
+            'Do you want to continue?\n\n'
+            'If you continue, the bill will be removed from the "bills" collection '
+            'and $quantityToMove unit(s) will be moved to "${target.toUpperCase()}".',
+        confirmText: 'Continue',
+        confirmColor: dangerColor,
+      );
+
+      if (!proceed) return;
+
+      if (billIds.isNotEmpty) {
+        _showLoadingDialog();
+        try {
+          for (final id in billIds) {
+            await _firestore.collection('bills').doc(id).delete();
+          }
+        } catch (e) {
+          if (mounted) Navigator.pop(context);
+          _showSnackbar('Error removing bill: $e', dangerColor);
+          return;
+        }
+        if (mounted) Navigator.pop(context);
+        _showSnackbar('Bill removed from bills collection', accentGreen);
+      }
+    }
+
+    // Collect extra info based on target
+    Map<String, dynamic> extras = {};
+    if (target == 'sold') {
+      final r = await _collectSaleInfo(data);
+      if (r == null) return;
+      extras = r;
+    } else if (target == 'returned') {
+      final r = await _collectReturnInfo(data);
+      if (r == null) return;
+      extras = r;
+    }
+
+    _showLoadingDialog();
+
+    try {
+      final int remainingQty = currentQuantity - quantityToMove;
+      final isFullMove = remainingQty == 0;
+
+      // Build the payload for the target status
+      Map<String, dynamic> targetFields = {};
+      if (target == 'returned') {
+        targetFields = {
+          'status': 'returned',
+          'returnReason': extras['reason'] ?? '',
+          'returnedAt': FieldValue.serverTimestamp(),
+          'returnedBy': _currentUserName,
+        };
+      } else if (target == 'sold') {
+        targetFields = {
+          'status': 'sold',
+          'soldTo': extras['soldTo'] ?? '',
+          'soldToMobile': extras['soldToMobile'] ?? '',
+          'soldBillNo': extras['soldBillNo'] ?? '',
+          'soldAmount': extras['soldAmount'] ?? data['productPrice'],
+          'purchaseMode': extras['purchaseMode'] ?? '',
+          'financeType': extras['financeType'] ?? '',
+          'soldBy': _currentUserName,
+          'soldShop': data['shopName'],
+          'soldAt': FieldValue.serverTimestamp(),
+        };
+      } else if (target == 'available') {
+        targetFields = {
+          'status': 'available',
+          'soldTo': FieldValue.delete(),
+          'soldToMobile': FieldValue.delete(),
+          'soldBillNo': FieldValue.delete(),
+          'soldAmount': FieldValue.delete(),
+          'purchaseMode': FieldValue.delete(),
+          'financeType': FieldValue.delete(),
+          'soldBy': FieldValue.delete(),
+          'soldShop': FieldValue.delete(),
+          'soldAt': FieldValue.delete(),
+          'returnReason': FieldValue.delete(),
+          'returnedAt': FieldValue.delete(),
+          'returnedBy': FieldValue.delete(),
+        };
+      }
+
+      if (isFullMove) {
+        // Move entire doc to target status
+        await _firestore.collection('accessoriesStock').doc(docId).update({
+          ...targetFields,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'lastUpdatedAt': FieldValue.serverTimestamp(),
+          'lastUpdatedBy': _currentUserName,
+        });
+      } else {
+        // Partial move:
+        //   1) Reduce the original doc's quantity, keep its current status/fields.
+        await _firestore.collection('accessoriesStock').doc(docId).update({
+          'quantity': remainingQty,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'lastUpdatedAt': FieldValue.serverTimestamp(),
+          'lastUpdatedBy': _currentUserName,
+        });
+
+        //   2) Create a new doc for the moved units with target status.
+        final Map<String, dynamic> newDoc = {
+          'productName': data['productName'],
+          'productBrand': data['productBrand'],
+          'productPrice': data['productPrice'],
+          'category': data['category'] ?? 'Accessories',
+          'quantity': quantityToMove,
+          'shopId': data['shopId'],
+          'shopName': data['shopName'],
+          'uploadedBy': data['uploadedBy'] ?? _currentUserName,
+          'uploadedAt': data['uploadedAt'] ?? FieldValue.serverTimestamp(),
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          'lastUpdatedAt': FieldValue.serverTimestamp(),
+          'lastUpdatedBy': _currentUserName,
+        };
+
+        if (data['purchaseRate'] != null) {
+          newDoc['purchaseRate'] = data['purchaseRate'];
+        }
+        if (data['purchaseInvoiceNo'] != null) {
+          newDoc['purchaseInvoiceNo'] = data['purchaseInvoiceNo'];
+        }
+        if (data['transferredFromShopId'] != null) {
+          newDoc['transferredFromShopId'] = data['transferredFromShopId'];
+        }
+        if (data['transferredFromShopName'] != null) {
+          newDoc['transferredFromShopName'] = data['transferredFromShopName'];
+        }
+        if (data['transferredFrom'] != null) {
+          newDoc['transferredFrom'] = data['transferredFrom'];
+        }
+
+        newDoc.addAll(targetFields);
+        newDoc['splitFromDocId'] = docId;
+
+        await _firestore.collection('accessoriesStock').add(newDoc);
+      }
+
+      // If returning, also write to accessoriesReturns
+      if (target == 'returned') {
+        await _firestore.collection('accessoriesReturns').add({
+          'accessoryId': docId,
+          'productName': data['productName'],
+          'productBrand': data['productBrand'],
+          'productPrice': data['productPrice'],
+          'quantityReturned': quantityToMove,
+          'remainingQuantity': remainingQty,
+          'shopId': data['shopId'],
+          'shopName': data['shopName'],
+          'returnReason': extras['reason'] ?? '',
+          'returnedBy': _currentUserName,
+          'returnedAt': FieldValue.serverTimestamp(),
+          'status': 'returned',
+        });
+      }
+
+      if (mounted) {
+        Navigator.pop(context);
+        _showSnackbar(
+          '$quantityToMove unit(s) moved to ${target.toUpperCase()}',
+          accentGreen,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        _showSnackbar('Error changing status: $e', dangerColor);
+      }
+    }
+  }
+
+  /// Finds bill IDs matching this accessory (by soldBillNo + fallback by name/brand/shop).
+  Future<List<String>> _findBillsForAccessory(Map<String, dynamic> data) async {
+    final List<String> ids = [];
+    try {
+      final billNo = (data['soldBillNo'] ?? '').toString();
+
+      if (billNo.isNotEmpty) {
+        final q = await _firestore
+            .collection('bills')
+            .where('billNumber', isEqualTo: billNo)
+            .get();
+        for (final d in q.docs) {
+          if (!ids.contains(d.id)) ids.add(d.id);
+        }
+      }
+
+      final productName = (data['productName'] ?? '').toString();
+      if (billNo.isEmpty && productName.isNotEmpty) {
+        try {
+          final q2 = await _firestore
+              .collection('bills')
+              .where('productName', isEqualTo: productName)
+              .get();
+          for (final d in q2.docs) {
+            final billData = d.data();
+            final sameBrand =
+                (billData['productBrand'] ?? '') ==
+                (data['productBrand'] ?? '');
+            final sameShop =
+                (billData['shopId'] ?? '') == (data['shopId'] ?? '');
+            if ((sameBrand || sameShop) && !ids.contains(d.id)) {
+              ids.add(d.id);
+            }
+          }
+        } catch (_) {}
+      }
+    } catch (e) {
+      print('Error finding bill for accessory: $e');
+    }
+    return ids;
+  }
+
+  /// Sale info dialog — includes Customer Phone.
+  Future<Map<String, dynamic>?> _collectSaleInfo(
+    Map<String, dynamic> data,
+  ) async {
+    final nameCtrl = TextEditingController();
+    final mobileCtrl = TextEditingController();
+    final billCtrl = TextEditingController();
+    final amountCtrl = TextEditingController(
+      text: (data['productPrice'] ?? 0).toString(),
+    );
+    final modeCtrl = TextEditingController(text: 'Ready Cash');
+    final financeCtrl = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sale Information', style: TextStyle(fontSize: 16)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: 'Customer Name',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: mobileCtrl,
+                keyboardType: TextInputType.phone,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: 'Customer Phone',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: billCtrl,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: 'Bill Number (optional)',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: amountCtrl,
+                keyboardType: TextInputType.number,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: 'Sold Amount',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: modeCtrl,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: 'Purchase Mode (EMI / Ready Cash)',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: financeCtrl,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: 'Finance Type (if EMI)',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryGreen,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Save', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return null;
+
+    final amount =
+        double.tryParse(amountCtrl.text.trim()) ?? (data['productPrice'] ?? 0);
+
+    return {
+      'soldTo': nameCtrl.text.trim(),
+      'soldToMobile': mobileCtrl.text.trim(),
+      'soldBillNo': billCtrl.text.trim(),
+      'soldAmount': amount,
+      'purchaseMode': modeCtrl.text.trim(),
+      'financeType': financeCtrl.text.trim(),
+    };
+  }
+
+  Future<Map<String, dynamic>?> _collectReturnInfo(
+    Map<String, dynamic> data,
+  ) async {
+    final reasonCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Return Information', style: TextStyle(fontSize: 16)),
+        content: TextField(
+          controller: reasonCtrl,
+          style: const TextStyle(fontSize: 13),
+          decoration: const InputDecoration(
+            labelText: 'Return Reason',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          maxLines: 3,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryGreen,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Save', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return null;
+    return {'reason': reasonCtrl.text.trim()};
+  }
+  // ==================== END CHANGE STATUS ====================
+
   void _showSnackbar(String message, Color color) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -363,6 +1046,39 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
         ),
       ),
     );
+  }
+
+  Future<bool> _showConfirmationDialog({
+    required String title,
+    required String message,
+    String confirmText = 'Confirm',
+    Color confirmColor = Colors.red,
+  }) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(
+              title,
+              style: TextStyle(fontSize: 16, color: confirmColor),
+            ),
+            content: Text(message, style: const TextStyle(fontSize: 12)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(backgroundColor: confirmColor),
+                child: Text(
+                  confirmText,
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ) ??
+        false;
   }
 
   // ==================== QUANTITY DIALOG ====================
@@ -515,18 +1231,16 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         TextButton(
-                          onPressed: () {
-                            setState(() => selectedQuantity = 1);
-                          },
+                          onPressed: () => setState(() => selectedQuantity = 1),
                           child: const Text(
                             'Reset',
                             style: TextStyle(fontSize: 11),
                           ),
                         ),
                         TextButton(
-                          onPressed: () {
-                            setState(() => selectedQuantity = currentQuantity);
-                          },
+                          onPressed: () => setState(
+                            () => selectedQuantity = currentQuantity,
+                          ),
                           child: const Text(
                             'Select All',
                             style: TextStyle(fontSize: 11),
@@ -632,7 +1346,6 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
       'transfer',
       'Transfer',
     );
-
     if (quantityToTransfer == null || quantityToTransfer < 1) return;
 
     final availableShops = widget.shops
@@ -640,12 +1353,7 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
         .toList();
 
     if (availableShops.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('No other shops available for transfer'),
-          backgroundColor: warningColor,
-        ),
-      );
+      _showSnackbar('No other shops available for transfer', warningColor);
       return;
     }
 
@@ -842,24 +1550,15 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '$quantityToTransfer unit(s) transferred successfully to $newShopName',
-            ),
-            backgroundColor: accentGreen,
-          ),
+        _showSnackbar(
+          '$quantityToTransfer unit(s) transferred successfully to $newShopName',
+          accentGreen,
         );
       }
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error transferring accessory: $e'),
-            backgroundColor: dangerColor,
-          ),
-        );
+        _showSnackbar('Error transferring accessory: $e', dangerColor);
       }
     }
   }
@@ -874,7 +1573,6 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
       'delete',
       'Delete',
     );
-
     if (quantityToDelete == null || quantityToDelete < 1) return;
 
     showDialog(
@@ -981,7 +1679,6 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
           'deletedBy': data['uploadedBy'],
           'reason': 'Manual deletion',
         });
-
         await _firestore.collection('accessoriesStock').doc(docId).delete();
       } else {
         await _firestore.collection('accessoriesStock').doc(docId).update({
@@ -1009,22 +1706,15 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('$quantityToDelete unit(s) deleted successfully'),
-            backgroundColor: dangerColor,
-          ),
+        _showSnackbar(
+          '$quantityToDelete unit(s) deleted successfully',
+          dangerColor,
         );
       }
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error deleting accessory: $e'),
-            backgroundColor: dangerColor,
-          ),
-        );
+        _showSnackbar('Error deleting accessory: $e', dangerColor);
       }
     }
   }
@@ -1163,18 +1853,16 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         TextButton(
-                          onPressed: () {
-                            setState(() => selectedQuantity = 1);
-                          },
+                          onPressed: () => setState(() => selectedQuantity = 1),
                           child: const Text(
                             'Reset',
                             style: TextStyle(fontSize: 11),
                           ),
                         ),
                         TextButton(
-                          onPressed: () {
-                            setState(() => selectedQuantity = currentQuantity);
-                          },
+                          onPressed: () => setState(
+                            () => selectedQuantity = currentQuantity,
+                          ),
                           child: const Text(
                             'Select All',
                             style: TextStyle(fontSize: 11),
@@ -1262,12 +1950,7 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
 
     String reason = reasonController.text.trim();
     if (reason.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please provide a reason for return'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      _showSnackbar('Please provide a reason for return', Colors.orange);
       return;
     }
 
@@ -1330,22 +2013,15 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('$quantityToReturn unit(s) returned successfully'),
-            backgroundColor: warningColor,
-          ),
+        _showSnackbar(
+          '$quantityToReturn unit(s) returned successfully',
+          warningColor,
         );
       }
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error processing return: $e'),
-            backgroundColor: dangerColor,
-          ),
-        );
+        _showSnackbar('Error processing return: $e', dangerColor);
       }
     }
   }
@@ -1395,9 +2071,7 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, size: 20),
-            onPressed: () {
-              _loadBrands();
-            },
+            onPressed: _loadBrands,
           ),
         ],
       ),
@@ -1435,11 +2109,7 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
                         icon: Icon(Icons.clear, size: 16, color: Colors.grey),
-                        onPressed: () {
-                          setState(() {
-                            _searchQuery = '';
-                          });
-                        },
+                        onPressed: () => setState(() => _searchQuery = ''),
                       )
                     : null,
                 border: InputBorder.none,
@@ -1450,9 +2120,7 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
                 isDense: true,
               ),
               onChanged: (value) {
-                setState(() {
-                  _searchQuery = value.toLowerCase();
-                });
+                setState(() => _searchQuery = value.toLowerCase());
               },
             ),
           ),
@@ -1464,11 +2132,7 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
                 SizedBox(width: 6),
                 IconButton(
                   icon: Icon(Icons.close, size: 16, color: Colors.grey),
-                  onPressed: () {
-                    setState(() {
-                      _selectedShopId = null;
-                    });
-                  },
+                  onPressed: () => setState(() => _selectedShopId = null),
                   padding: EdgeInsets.zero,
                   constraints: BoxConstraints(),
                   style: IconButton.styleFrom(
@@ -1529,7 +2193,6 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
             ),
           ),
           ...widget.shops.map((shop) {
-            final shopName = shop['name'] ?? 'Unknown';
             return DropdownMenuItem<String>(
               value: shop['id'],
               child: Row(
@@ -1538,7 +2201,7 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
                   SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      shopName,
+                      shop['name'] ?? 'Unknown',
                       style: TextStyle(fontSize: 11, color: Colors.grey[800]),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1548,11 +2211,8 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
             );
           }).toList(),
         ],
-        onChanged: (String? newValue) {
-          setState(() {
-            _selectedShopId = newValue;
-          });
-        },
+        onChanged: (String? newValue) =>
+            setState(() => _selectedShopId = newValue),
         borderRadius: BorderRadius.circular(8),
       ),
     );
@@ -1623,11 +2283,7 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
       ),
       selected: isSelected,
       onSelected: (selected) {
-        if (selected) {
-          setState(() {
-            _selectedStatus = statusValue;
-          });
-        }
+        if (selected) setState(() => _selectedStatus = statusValue);
       },
       selectedColor: color,
       backgroundColor: Colors.grey[100],
@@ -1693,12 +2349,8 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
           );
         }
 
-        int available = 0;
-        int sold = 0;
-        int returned = 0;
-        double availableValue = 0;
-        double soldValue = 0;
-        double returnedValue = 0;
+        int available = 0, sold = 0, returned = 0;
+        double availableValue = 0, soldValue = 0, returnedValue = 0;
 
         for (var doc in snapshot.data!.docs) {
           final data = doc.data() as Map<String, dynamic>;
@@ -1731,17 +2383,11 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
 
         var docs = snapshot.data!.docs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
-
           if (data['status'] != _selectedStatus) return false;
-
-          if (_selectedShopId != null) {
-            if (data['shopId'] != _selectedShopId) return false;
-          }
-
-          if (_selectedBrand != null) {
-            if (data['productBrand'] != _selectedBrand) return false;
-          }
-
+          if (_selectedShopId != null && data['shopId'] != _selectedShopId)
+            return false;
+          if (_selectedBrand != null && data['productBrand'] != _selectedBrand)
+            return false;
           if (_searchQuery.isNotEmpty) {
             bool matches =
                 (data['productName']?.toString().toLowerCase().contains(
@@ -1754,7 +2400,6 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
                     false);
             if (!matches) return false;
           }
-
           return true;
         }).toList();
 
@@ -1859,9 +2504,7 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
             ),
             Expanded(
               child: RefreshIndicator(
-                onRefresh: () async {
-                  _loadBrands();
-                },
+                onRefresh: () async => _loadBrands(),
                 color: secondaryGreen,
                 child: ListView.builder(
                   padding: EdgeInsets.all(6),
@@ -1894,7 +2537,6 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
     double price = (data['productPrice'] ?? 0).toDouble();
 
     final transferredFromDisplay = _resolveTransferredFromDisplay(data);
-    final shopId = (data['shopId'] ?? 'Unknown').toString();
     final shopName = (data['shopName'] ?? 'Unknown').toString();
 
     return Card(
@@ -1988,6 +2630,8 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
                       onSelected: (value) {
                         if (value == 'edit') {
                           _editProductDetails(docId, data);
+                        } else if (value == 'change_status') {
+                          _changeStatus(docId, data);
                         } else if (value == 'transfer') {
                           _showTransferDialog(docId, data);
                         } else if (value == 'return') {
@@ -2005,6 +2649,23 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
                               SizedBox(width: 6),
                               Text(
                                 'Edit Details',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'change_status',
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.sync_alt,
+                                size: 16,
+                                color: secondaryGreen,
+                              ),
+                              SizedBox(width: 6),
+                              Text(
+                                'Change Status',
                                 style: TextStyle(fontSize: 12),
                               ),
                             ],
@@ -2071,14 +2732,12 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
               ),
               child: Column(
                 children: [
-                  // Shop info only (id + name)
                   Row(
                     children: [
                       Expanded(child: _buildDetailItem('Shop', shopName)),
                     ],
                   ),
                   SizedBox(height: 3),
-                  // Qty / price / total
                   Row(
                     children: [
                       Expanded(
@@ -2113,7 +2772,6 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
                       ],
                     ),
                   ],
-                  // Dates only — no "By" user rows
                   SizedBox(height: 3),
                   Row(
                     children: [
@@ -2170,6 +2828,25 @@ class _AccessoriesStockScreenState extends State<AccessoriesStockScreen> {
                                     (data['soldAt'] as Timestamp).toDate(),
                                   )
                                 : 'N/A',
+                            color: soldColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildDetailItem(
+                            'Customer',
+                            data['soldTo'] ?? 'N/A',
+                            color: soldColor,
+                          ),
+                        ),
+                        Expanded(
+                          child: _buildDetailItem(
+                            'Phone',
+                            data['soldToMobile'] ?? 'N/A',
                             color: soldColor,
                           ),
                         ),
